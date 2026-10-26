@@ -65,7 +65,7 @@ const Map<String, String> kUiWorkflowZhTw = <String, String>{
 
 const Map<String, String> kNetworkQualityZhTw = <String, String>{
   'nq_range': '區間',
-  'nq_bytes': 'Bytes',
+  'nq_bytes': "位元組數",
   'diag_check_quality_rtt': '往返延遲',
   'diag_check_quality_packet_loss': '封包遺失',
   'diag_check_quality_queue_pressure': '佇列壓力',
@@ -141,7 +141,7 @@ const Map<String, String> kNetworkQualityZhTw = <String, String>{
   'nq_in_flight': '傳輸中位元組',
   'nq_send_rate': '交付速率',
   'nq_h2_window': 'HTTP/2 接收視窗',
-  'nq_stream_window': 'Stream',
+  'nq_stream_window': "串流視窗",
   'nq_connection_window': '連線',
   'nq_stalls': '視窗停等次數',
   'nq_pmtu': '路徑 MTU',

@@ -73,7 +73,7 @@ const Map<String, String> kUiWorkflowRu = <String, String>{
 
 const kNetworkQualityRu = <String, String>{
   'nq_range': 'Диапазон',
-  'nq_bytes': 'Bytes',
+  'nq_bytes': "Байты",
   'diag_check_quality_rtt': 'Время кругового обхода',
   'diag_check_quality_packet_loss': 'Потеря пакетов',
   'diag_check_quality_queue_pressure': 'Нагрузка на очередь',
@@ -171,7 +171,7 @@ const kNetworkQualityRu = <String, String>{
   'nq_in_flight': 'Байты в пути',
   'nq_send_rate': 'Скорость доставки',
   'nq_h2_window': 'Окна приёма HTTP/2',
-  'nq_stream_window': 'Stream',
+  'nq_stream_window': "Окно потока",
   'nq_connection_window': 'Соединение',
   'nq_stalls': 'Простои ёмкости',
   'nq_pmtu': 'MTU пути',

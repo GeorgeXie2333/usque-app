@@ -66,7 +66,7 @@ const Map<String, String> kUiWorkflowTh = <String, String>{
 
 const Map<String, String> kNetworkQualityTh = <String, String>{
   'nq_range': 'ช่วง',
-  'nq_bytes': 'Bytes',
+  'nq_bytes': "จำนวนไบต์",
   'diag_check_quality_rtt': 'เวลาไป-กลับ',
   'diag_check_quality_packet_loss': 'การสูญเสียแพ็กเก็ต',
   'diag_check_quality_queue_pressure': 'ความดันของคิว',
@@ -151,7 +151,7 @@ const Map<String, String> kNetworkQualityTh = <String, String>{
   'nq_in_flight': 'Bytes ที่กำลังส่ง',
   'nq_send_rate': 'อัตราการส่งมอบ',
   'nq_h2_window': 'หน้าต่างรับ HTTP/2',
-  'nq_stream_window': 'Stream',
+  'nq_stream_window': "หน้าต่างสตรีม",
   'nq_connection_window': 'การเชื่อมต่อ',
   'nq_stalls': 'การหยุดเพราะความจุ',
   'nq_pmtu': 'MTU ของเส้นทาง',

@@ -26,6 +26,7 @@ const Map<String, String> kItCatalog = <String, String>{
       'Usa la connessione, poi esegui di nuovo questo controllo.',
   'diag_skip_deep':
       'Seleziona la modalità approfondita per eseguire questo controllo.',
+  'app_loading': "Caricamento di Usque",
   'app_name': 'Usque',
   'diag_fail_L4_SESSION_UNAVAILABLE': 'Sessione L4 non disponibile',
   'diag_fail_L4_PROTOCOL_ERROR': 'Errore del protocollo L4',
@@ -99,8 +100,8 @@ const Map<String, String> kItCatalog = <String, String>{
   'identity_missing': 'Configura l’account',
   'identity_invalid': 'L’account va configurato di nuovo',
   'identity_setup_failed': 'Impossibile configurare l’account WARP. Riprova.',
-  'use_license_key': 'Usa una WARP License Key',
-  'warp_license_key': 'WARP License Key',
+  'use_license_key': "Usa una chiave di licenza WARP",
+  'warp_license_key': "Chiave di licenza WARP",
   'zero_trust_title': 'Cloudflare Zero Trust',
   'zero_trust_subtitle': 'Accedi con un account dell’organizzazione',
   'zero_trust_team': 'Nome del team dell’organizzazione',

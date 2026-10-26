@@ -73,7 +73,7 @@ const Map<String, String> kUiWorkflowUk = <String, String>{
 
 const kNetworkQualityUk = <String, String>{
   'nq_range': 'Інтервал',
-  'nq_bytes': 'Bytes',
+  'nq_bytes': "Байти",
   'diag_check_quality_rtt': 'Затримка туди й назад',
   'diag_check_quality_packet_loss': 'Втрата пакетів',
   'diag_check_quality_queue_pressure': 'Тиск на чергу',
@@ -172,7 +172,7 @@ const kNetworkQualityUk = <String, String>{
   'nq_in_flight': 'Байти в дорозі',
   'nq_send_rate': 'Швидкість передавання',
   'nq_h2_window': 'Вікна приймання HTTP/2',
-  'nq_stream_window': 'Stream',
+  'nq_stream_window': "Вікно потоку",
   'nq_connection_window': 'Зʼєднання',
   'nq_stalls': 'Зупинки через місткість',
   'nq_pmtu': 'MTU шляху',

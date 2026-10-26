@@ -65,7 +65,7 @@ const Map<String, String> kUiWorkflowJa = <String, String>{
 
 const Map<String, String> kNetworkQualityJa = <String, String>{
   'nq_range': '範囲',
-  'nq_bytes': 'Bytes',
+  'nq_bytes': "バイト数",
   'diag_check_quality_rtt': '往復遅延',
   'diag_check_quality_packet_loss': 'パケットロス',
   'diag_check_quality_queue_pressure': 'キュー負荷',
@@ -143,7 +143,7 @@ const Map<String, String> kNetworkQualityJa = <String, String>{
   'nq_in_flight': '送信中バイト',
   'nq_send_rate': '配信レート',
   'nq_h2_window': 'HTTP/2 受信ウィンドウ',
-  'nq_stream_window': 'Stream',
+  'nq_stream_window': "ストリームウィンドウ",
   'nq_connection_window': '接続',
   'nq_stalls': '容量待ち',
   'nq_pmtu': 'パス MTU',

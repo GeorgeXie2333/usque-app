@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:usque/core/country_strings.dart';
 import 'package:usque/models/app_models.dart';
 import 'package:usque/screens/geo_direct_settings_screen.dart';
 import 'package:usque/services/engine_client.dart';
@@ -62,6 +63,51 @@ void main() {
       'onboarding_complete': true,
       'update_checks_enabled': false,
     }),
+  );
+
+  testWidgets(
+    'country search accepts localized names, English and ISO codes in every locale',
+    (tester) async {
+      final app = appFor(FormEngine());
+      await app.initialize();
+      for (final locale in LocalePreference.values.where(
+        (value) => value != LocalePreference.system,
+      )) {
+        app.localePreference = locale;
+        await tester.pumpWidget(
+          workflowHost(app, home: GeoDirectSettingsScreen(controller: app)),
+        );
+        await tester.pumpAndSettle();
+        final name = app.strings.countryName('US');
+        for (final query in [name, 'United States', 'us']) {
+          await tester.enterText(
+            find.byKey(const ValueKey('bypass-country-search')),
+            query,
+          );
+          await tester.pumpAndSettle();
+          final list = find.byKey(const ValueKey('bypass-country-list'));
+          await tester.ensureVisible(list);
+          await tester.scrollUntilVisible(
+            find.text('US  $name'),
+            160,
+            scrollable: find.descendant(
+              of: list,
+              matching: find.byType(Scrollable),
+            ),
+          );
+          expect(
+            find.text('US  $name'),
+            findsOneWidget,
+            reason: '$locale: $query',
+          );
+          expect(
+            find.byKey(const ValueKey('routing-country-US')),
+            findsOneWidget,
+          );
+          expect(tester.takeException(), isNull, reason: '$locale: $query');
+        }
+      }
+    },
   );
 
   testWidgets(

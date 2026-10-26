@@ -10,6 +10,27 @@ Desktop builds start the Rust sidecar and talk to it over current-user IPC. Andr
 
 Build and test commands are in [CONTRIBUTING.md](../../CONTRIBUTING.md). Feature status is in [docs/IMPLEMENTATION.md](../../docs/IMPLEMENTATION.md).
 
+## Localization
+
+Keep all 21 catalogs complete when adding interface copy. Proton uses its own
+catalog per locale, including separate Hong Kong and Taiwan Traditional Chinese
+copy. Country and region display names cover the existing 249 ISO codes in every
+locale; bypass search accepts localized names, English names and codes. VPN Gate
+country filters use the same names while retaining ISO codes as their values.
+Server names and city names supplied by a provider remain source data.
+
+`test/localization_coverage_test.dart` checks locale and key coverage, nonempty
+values, placeholder multiplicity, Proton lookups, country names and Android
+translatable resources. The Proton widget tests exercise all 21 locales at 200%
+text size, including RTL. Product names, protocol names and words spelled the
+same in the target language are not missing translations.
+
+新增界面文案时需同时维护全部 21 个语言目录。Proton 分别使用各语言词表，香港和
+台湾繁体使用对应措辞。国家／地区名称完整覆盖现有的 249 个 ISO 代码；分流搜索
+支持本地化名称、英文名和代码，VPN Gate 筛选复用同一名称表。服务商提供的节点名
+和城市名保留原数据。翻译覆盖测试检查目录、键、占位符和实际取词结果，Proton
+界面测试覆盖全部语言的 200% 字号及从右到左布局。
+
 ## Linux desktop
 
 The production entry point is `lib/main.dart`; the Linux runner builds `usque`

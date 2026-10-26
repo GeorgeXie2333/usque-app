@@ -24,6 +24,7 @@ const Map<String, String> kFaCatalog = <String, String>{
   'diag_skip_traffic':
       'از اتصال استفاده کنید، سپس این بررسی را دوباره اجرا کنید.',
   'diag_skip_deep': 'برای اجرای این بررسی، حالت عمیق را انتخاب کنید.',
+  'app_loading': "در حال بارگذاری Usque",
   'app_name': 'Usque',
   'diag_fail_L4_SESSION_UNAVAILABLE': 'نشست L4 در دسترس نیست',
   'diag_fail_L4_PROTOCOL_ERROR': 'خطای پروتکل L4',
@@ -96,8 +97,8 @@ const Map<String, String> kFaCatalog = <String, String>{
   'identity_missing': 'حساب به راه‌اندازی نیاز دارد',
   'identity_invalid': 'حساب باید دوباره راه‌اندازی شود',
   'identity_setup_failed': 'حساب WARP راه‌اندازی نشد. دوباره تلاش کنید.',
-  'use_license_key': 'استفاده از WARP License Key',
-  'warp_license_key': 'WARP License Key',
+  'use_license_key': "استفاده از کلید مجوز WARP",
+  'warp_license_key': "کلید مجوز WARP",
   'zero_trust_title': 'Cloudflare Zero Trust',
   'zero_trust_subtitle': 'با حساب سازمانی وارد شوید',
   'zero_trust_team': 'نام تیم سازمان',

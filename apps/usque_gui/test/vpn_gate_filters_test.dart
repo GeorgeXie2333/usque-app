@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:usque/core/app_strings.dart';
+import 'package:usque/core/country_strings.dart';
 import 'package:usque/core/usque_theme.dart';
 import 'package:usque/models/app_models.dart';
 import 'package:usque/widgets/vpn_gate_filters.dart';
@@ -10,6 +11,45 @@ import 'vpn_gate_navigation_test.dart' show openGate;
 import 'vpngate_test.dart' show GateEngine, server;
 
 void main() {
+  testWidgets(
+    'country filters use translated names and return stable ISO codes in every locale',
+    (tester) async {
+      for (final locale in LocalePreference.values.where(
+        (value) => value != LocalePreference.system,
+      )) {
+        final strings = AppStrings(locale);
+        String? selected;
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: UsqueTheme.light(),
+            home: Scaffold(
+              body: VpnGateFilters(
+                strings: strings,
+                favoritesOnly: false,
+                favoriteCount: 0,
+                country: 'ALL',
+                countries: const [
+                  VpnGateCountry(code: 'US', name: 'United States', count: 2),
+                  VpnGateCountry(code: 'JP', name: 'Japan', count: 1),
+                ],
+                onScopeChanged: (_) {},
+                onCountryChanged: (value) => selected = value,
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.byType(DropdownButtonFormField<String>));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('${strings.countryName('JP')} (1)').last);
+        await tester.pumpAndSettle();
+        expect(selected, 'JP', reason: '$locale');
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox.shrink());
+      }
+    },
+  );
+
   testWidgets(
     'filters use available content width and keep their labels apart',
     (tester) async {

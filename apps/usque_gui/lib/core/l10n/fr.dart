@@ -26,6 +26,7 @@ const Map<String, String> kFrCatalog = <String, String>{
       'Utilisez la connexion, puis relancez cette vérification.',
   'diag_skip_deep':
       'Sélectionnez le mode approfondi pour effectuer cette vérification.',
+  'app_loading': "Chargement d’Usque",
   'app_name': 'Usque',
   'diag_fail_L4_SESSION_UNAVAILABLE': 'Session L4 indisponible',
   'diag_fail_L4_PROTOCOL_ERROR': 'Erreur de protocole L4',
@@ -100,8 +101,8 @@ const Map<String, String> kFrCatalog = <String, String>{
   'identity_invalid': 'Le compte doit être reconfiguré',
   'identity_setup_failed':
       'Impossible de configurer le compte WARP. Réessayez.',
-  'use_license_key': 'Utiliser une WARP License Key',
-  'warp_license_key': 'WARP License Key',
+  'use_license_key': "Utiliser une clé de licence WARP",
+  'warp_license_key': "Clé de licence WARP",
   'zero_trust_title': 'Cloudflare Zero Trust',
   'zero_trust_subtitle': 'Connectez-vous avec un compte d’organisation',
   'zero_trust_team': 'Nom d’équipe de l’organisation',

@@ -33,14 +33,16 @@ Widget workflowHost(
   bool reducedMotion = true,
   Widget? home,
 }) {
-  final locale = app.localePreference == LocalePreference.simplifiedChinese
-      ? const Locale('zh', 'CN')
-      : const Locale('en');
+  final parts = app.strings.catalogId.split('_');
+  final locale = Locale(
+    parts.first,
+    parts.length > 1 ? parts[1] : (parts.first == 'pt' ? 'BR' : null),
+  );
   return MaterialApp(
     debugShowCheckedModeBanner: false,
     theme: dark ? UsqueTheme.dark() : UsqueTheme.light(),
     locale: locale,
-    supportedLocales: const [Locale('en'), Locale('zh', 'CN')],
+    supportedLocales: [locale],
     localizationsDelegates: const [
       GlobalMaterialLocalizations.delegate,
       GlobalWidgetsLocalizations.delegate,

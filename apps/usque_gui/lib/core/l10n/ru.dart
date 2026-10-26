@@ -23,6 +23,7 @@ const Map<String, String> kRuCatalog = <String, String>{
   'diag_skip_unsupported': 'Эта проверка недоступна на данном устройстве.',
   'diag_skip_traffic': 'Воспользуйтесь подключением, затем повторите проверку.',
   'diag_skip_deep': 'Выберите глубокий режим для этой проверки.',
+  'app_loading': "Загрузка Usque",
   'app_name': 'Usque',
   'diag_fail_L4_SESSION_UNAVAILABLE': 'Сеанс L4 недоступен',
   'diag_fail_L4_PROTOCOL_ERROR': 'Ошибка протокола L4',
@@ -97,8 +98,8 @@ const Map<String, String> kRuCatalog = <String, String>{
   'identity_invalid': 'Аккаунт нужно настроить заново',
   'identity_setup_failed':
       'Не удалось настроить аккаунт WARP. Повторите попытку.',
-  'use_license_key': 'Использовать WARP License Key',
-  'warp_license_key': 'WARP License Key',
+  'use_license_key': "Использовать лицензионный ключ WARP",
+  'warp_license_key': "Лицензионный ключ WARP",
   'zero_trust_title': 'Cloudflare Zero Trust',
   'zero_trust_subtitle': 'Войдите с аккаунтом организации',
   'zero_trust_team': 'Имя команды организации',

@@ -25,6 +25,7 @@ const Map<String, String> kEsCatalog = <String, String>{
   'diag_skip_traffic': 'Usa la conexión y vuelve a ejecutar esta comprobación.',
   'diag_skip_deep':
       'Selecciona el modo profundo para ejecutar esta comprobación.',
+  'app_loading': "Cargando Usque",
   'app_name': 'Usque',
   'diag_fail_L4_SESSION_UNAVAILABLE': 'Sesión L4 no disponible',
   'diag_fail_L4_PROTOCOL_ERROR': 'Error de protocolo L4',
@@ -99,8 +100,8 @@ const Map<String, String> kEsCatalog = <String, String>{
   'identity_invalid': 'Es necesario configurar la cuenta de nuevo',
   'identity_setup_failed':
       'No se pudo configurar la cuenta WARP. Inténtalo de nuevo.',
-  'use_license_key': 'Usar una WARP License Key',
-  'warp_license_key': 'WARP License Key',
+  'use_license_key': "Usar una clave de licencia WARP",
+  'warp_license_key': "Clave de licencia WARP",
   'zero_trust_title': 'Cloudflare Zero Trust',
   'zero_trust_subtitle': 'Iniciar sesión con una cuenta de organización',
   'zero_trust_team': 'Nombre de equipo de la organización',

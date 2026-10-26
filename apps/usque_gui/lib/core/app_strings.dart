@@ -12,6 +12,7 @@ import 'l10n/linux_desktop.dart';
 import 'l10n/network_quality.dart';
 import 'l10n/network_settings.dart';
 import 'l10n/onboarding.dart';
+import 'l10n/proton.dart';
 import 'l10n/tls_fingerprint.dart';
 import 'l10n/ui_workflow.dart';
 import 'l10n/update_check.dart';
@@ -106,8 +107,6 @@ class AppStrings {
   static const Set<String> kFeatureEnglishAllowlist = <String>{
     'nq_doh',
     'nq_dot',
-    'nq_bytes',
-    'nq_stream_window',
     'home_kill_switch',
     'dns',
     'error_field',
@@ -142,6 +141,11 @@ class AppStrings {
           kUpdateCheckCatalogs['en']!,
         ) ||
         !_featureTablesComplete(kOnboardingCatalogs, kOnboardingEn) ||
+        !_featureTablesComplete(kProtonCatalogs, kProtonEn) ||
+        !_featureTablesComplete(
+          kLinuxDesktopCatalogs,
+          kLinuxDesktopCatalogs['en']!,
+        ) ||
         !_featureTablesComplete(kWindowsRecoveryCatalogs, kWindowsRecoveryEn) ||
         !_featureTablesComplete(kNetworkQualityCatalogs, kNetworkQualityEn) ||
         !_featureTablesComplete(kL4Catalogs, kL4En) ||
@@ -230,6 +234,8 @@ class AppStrings {
     }
 
     scan(kDiagnosticsCatalogs, kDiagnosticsCatalogs['en']!);
+    scan(kAdsCatalogs, kAdsCatalogs['en']!);
+    scan(kLinuxDesktopCatalogs, kLinuxDesktopCatalogs['en']!);
     scan(kUiWorkflowCatalogs, kUiWorkflowEn);
     scan(kUpdateCheckCatalogs, kUpdateCheckCatalogs['en']!);
     scan(kOnboardingCatalogs, kOnboardingEn);
@@ -267,6 +273,7 @@ class AppStrings {
           kUpdateCheckCatalogs.values,
         ) ||
         !_placeholdersPreserved(kOnboardingEn, kOnboardingCatalogs.values) ||
+        !_placeholdersPreserved(kProtonEn, kProtonCatalogs.values) ||
         !_placeholdersPreserved(
           kNetworkQualityEn,
           kNetworkQualityCatalogs.values,

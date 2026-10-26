@@ -24,6 +24,7 @@ const Map<String, String> kTrCatalog = <String, String>{
   'diag_skip_traffic':
       'Bağlantıyı kullanın, ardından bu kontrolü yeniden çalıştırın.',
   'diag_skip_deep': 'Bu kontrolü çalıştırmak için derin modu seçin.',
+  'app_loading': "Usque yükleniyor",
   'app_name': 'Usque',
   'diag_fail_L4_SESSION_UNAVAILABLE': 'L4 oturumu kullanılamıyor',
   'diag_fail_L4_PROTOCOL_ERROR': 'L4 protokol hatası',
@@ -98,8 +99,8 @@ const Map<String, String> kTrCatalog = <String, String>{
   'identity_missing': 'Hesap ayarlanmalı',
   'identity_invalid': 'Hesap yeniden ayarlanmalı',
   'identity_setup_failed': 'WARP hesabı ayarlanamadı. Yeniden deneyin.',
-  'use_license_key': 'WARP License Key kullan',
-  'warp_license_key': 'WARP License Key',
+  'use_license_key': "WARP lisans anahtarı kullan",
+  'warp_license_key': "WARP lisans anahtarı",
   'zero_trust_title': 'Cloudflare Zero Trust',
   'zero_trust_subtitle': 'Kuruluş hesabıyla oturum açın',
   'zero_trust_team': 'Kuruluş ekibinin adı',

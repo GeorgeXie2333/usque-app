@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/app_strings.dart';
+import '../core/country_strings.dart';
 import '../models/app_models.dart';
 import 'common.dart';
 import 'country_flag.dart';
@@ -31,9 +32,12 @@ class VpnGateFilters extends StatelessWidget {
       ..sort((a, b) {
         if (a.code == null) return b.code == null ? 0 : 1;
         if (b.code == null) return -1;
-        final byName = (a.name ?? a.code!).trim().toLowerCase().compareTo(
-          (b.name ?? b.code!).trim().toLowerCase(),
-        );
+        final byName = strings
+            .countryName(a.code, fallback: a.name)
+            .toLowerCase()
+            .compareTo(
+              strings.countryName(b.code, fallback: b.name).toLowerCase(),
+            );
         return byName != 0 ? byName : a.code!.compareTo(b.code!);
       });
     final scopes = Wrap(
@@ -86,14 +90,14 @@ class VpnGateFilters extends StatelessWidget {
                   value: item.code ?? 'UNKNOWN',
                   child: _countryLabel(
                     item.code,
-                    '${item.code == null ? strings.get('gate_unknown_country') : item.name ?? item.code} (${item.count})',
+                    '${item.code == null ? strings.get('gate_unknown_country') : strings.countryName(item.code, fallback: item.name)} (${item.count})',
                   ),
                 ),
               if (country != 'ALL' &&
                   !countries.any((item) => (item.code ?? 'UNKNOWN') == country))
                 DropdownMenuItem(
                   value: country,
-                  child: _countryLabel(country, country),
+                  child: _countryLabel(country, strings.countryName(country)),
                 ),
             ],
             onChanged: onCountryChanged == null

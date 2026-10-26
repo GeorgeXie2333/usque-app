@@ -69,7 +69,7 @@ const Map<String, String> kUiWorkflowVi = <String, String>{
 
 const Map<String, String> kNetworkQualityVi = <String, String>{
   'nq_range': 'Phạm vi',
-  'nq_bytes': 'Bytes',
+  'nq_bytes': "Số byte",
   'diag_check_quality_rtt': 'Thời gian khứ hồi',
   'diag_check_quality_packet_loss': 'Mất gói',
   'diag_check_quality_queue_pressure': 'Áp lực hàng đợi',
@@ -156,7 +156,7 @@ const Map<String, String> kNetworkQualityVi = <String, String>{
   'nq_in_flight': 'Bytes đang gửi',
   'nq_send_rate': 'Tốc độ giao',
   'nq_h2_window': 'Cửa sổ nhận HTTP/2',
-  'nq_stream_window': 'Stream',
+  'nq_stream_window': "Cửa sổ luồng",
   'nq_connection_window': 'Kết nối',
   'nq_stalls': 'Khựng vì dung lượng',
   'nq_pmtu': 'MTU đường dẫn',

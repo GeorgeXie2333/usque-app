@@ -24,6 +24,7 @@ const Map<String, String> kPtCatalog = <String, String>{
       'Esta verificação não está disponível neste dispositivo.',
   'diag_skip_traffic': 'Use a conexão e execute esta verificação novamente.',
   'diag_skip_deep': 'Selecione o modo profundo para executar esta verificação.',
+  'app_loading': "Carregando o Usque",
   'app_name': 'Usque',
   'diag_fail_L4_SESSION_UNAVAILABLE': 'Sessão L4 indisponível',
   'diag_fail_L4_PROTOCOL_ERROR': 'Erro de protocolo L4',
@@ -98,8 +99,8 @@ const Map<String, String> kPtCatalog = <String, String>{
   'identity_invalid': 'Configure a conta novamente',
   'identity_setup_failed':
       'Não foi possível configurar a conta WARP. Tente novamente.',
-  'use_license_key': 'Usar uma WARP License Key',
-  'warp_license_key': 'WARP License Key',
+  'use_license_key': "Usar uma chave de licença WARP",
+  'warp_license_key': "Chave de licença WARP",
   'zero_trust_title': 'Cloudflare Zero Trust',
   'zero_trust_subtitle': 'Entre com uma conta da organização',
   'zero_trust_team': 'Nome da equipe da organização',

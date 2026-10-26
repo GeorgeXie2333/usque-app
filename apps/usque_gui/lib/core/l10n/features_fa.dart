@@ -68,7 +68,7 @@ const Map<String, String> kUiWorkflowFa = <String, String>{
 
 const kNetworkQualityFa = <String, String>{
   'nq_range': 'بازه',
-  'nq_bytes': 'Bytes',
+  'nq_bytes': "تعداد بایت",
   'diag_check_quality_rtt': 'زمان رفت‌وبرگشت',
   'diag_check_quality_packet_loss': 'ازدست‌رفتن بسته',
   'diag_check_quality_queue_pressure': 'فشار صف',
@@ -156,7 +156,7 @@ const kNetworkQualityFa = <String, String>{
   'nq_in_flight': 'بایت‌های در حال ارسال',
   'nq_send_rate': 'نرخ تحویل',
   'nq_h2_window': 'پنجره‌های دریافت HTTP/2',
-  'nq_stream_window': 'Stream',
+  'nq_stream_window': "پنجرهٔ جریان",
   'nq_connection_window': 'اتصال',
   'nq_stalls': 'توقف‌های ظرفیت',
   'nq_pmtu': 'MTU مسیر',

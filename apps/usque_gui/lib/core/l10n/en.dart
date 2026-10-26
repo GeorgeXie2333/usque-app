@@ -23,6 +23,7 @@ const Map<String, String> kEnCatalog = <String, String>{
   'diag_skip_unsupported': 'This check is unavailable on this device.',
   'diag_skip_traffic': 'Use the connection, then run this check again.',
   'diag_skip_deep': 'Select Deep to run this check.',
+  'app_loading': "Loading Usque",
   'app_name': 'Usque',
   'diag_fail_L4_SESSION_UNAVAILABLE': 'L4 session unavailable',
   'diag_fail_L4_PROTOCOL_ERROR': 'L4 protocol error',

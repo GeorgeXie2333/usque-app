@@ -251,7 +251,7 @@ class _LoadingScreen extends StatelessWidget {
                 ),
               )
             : Semantics(
-                label: 'Loading Usque',
+                label: controller.strings.get('app_loading'),
                 child: const SizedBox(
                   width: 34,
                   height: 34,

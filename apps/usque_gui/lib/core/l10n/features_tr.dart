@@ -71,7 +71,7 @@ const Map<String, String> kUiWorkflowTr = <String, String>{
 
 const kNetworkQualityTr = <String, String>{
   'nq_range': 'Aralık',
-  'nq_bytes': 'Bytes',
+  'nq_bytes': "Bayt sayısı",
   'diag_check_quality_rtt': 'Gidiş-dönüş süresi',
   'diag_check_quality_packet_loss': 'Paket kaybı',
   'diag_check_quality_queue_pressure': 'Kuyruk baskısı',
@@ -162,7 +162,7 @@ const kNetworkQualityTr = <String, String>{
   'nq_in_flight': 'Yoldaki baytlar',
   'nq_send_rate': 'Teslim hızı',
   'nq_h2_window': 'HTTP/2 alım pencereleri',
-  'nq_stream_window': 'Stream',
+  'nq_stream_window': "Akış penceresi",
   'nq_connection_window': 'Bağlantı',
   'nq_stalls': 'Kapasite duraksamaları',
   'nq_pmtu': 'Yol MTU’su',

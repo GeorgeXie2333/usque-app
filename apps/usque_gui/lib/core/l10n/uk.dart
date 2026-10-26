@@ -23,6 +23,7 @@ const Map<String, String> kUkCatalog = <String, String>{
   'diag_skip_unsupported': 'Ця перевірка недоступна на цьому пристрої.',
   'diag_skip_traffic': 'Скористайтеся підключенням, потім повторіть перевірку.',
   'diag_skip_deep': 'Виберіть поглиблений режим для цієї перевірки.',
+  'app_loading': "Завантаження Usque",
   'app_name': 'Usque',
   'diag_fail_L4_SESSION_UNAVAILABLE': 'Сеанс L4 недоступний',
   'diag_fail_L4_PROTOCOL_ERROR': 'Помилка протоколу L4',
@@ -97,8 +98,8 @@ const Map<String, String> kUkCatalog = <String, String>{
   'identity_invalid': 'Потрібно повторно налаштувати обліковий запис',
   'identity_setup_failed':
       'Не вдалося налаштувати обліковий запис WARP. Спробуйте ще раз.',
-  'use_license_key': 'Використати WARP License Key',
-  'warp_license_key': 'WARP License Key',
+  'use_license_key': "Використати ліцензійний ключ WARP",
+  'warp_license_key': "Ліцензійний ключ WARP",
   'zero_trust_title': 'Cloudflare Zero Trust',
   'zero_trust_subtitle': 'Увійти за допомогою облікового запису організації',
   'zero_trust_team': 'Назва команди організації',

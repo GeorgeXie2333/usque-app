@@ -23,6 +23,7 @@ const Map<String, String> kPlCatalog = <String, String>{
   'diag_skip_unsupported': 'Ten test nie jest dostępny na tym urządzeniu.',
   'diag_skip_traffic': 'Skorzystaj z połączenia, a następnie ponów ten test.',
   'diag_skip_deep': 'Wybierz tryb dogłębny, aby uruchomić ten test.',
+  'app_loading': "Ładowanie Usque",
   'app_name': 'Usque',
   'diag_fail_L4_SESSION_UNAVAILABLE': 'Sesja L4 jest niedostępna',
   'diag_fail_L4_PROTOCOL_ERROR': 'Błąd protokołu L4',
@@ -97,8 +98,8 @@ const Map<String, String> kPlCatalog = <String, String>{
   'identity_invalid': 'Konto wymaga ponownej konfiguracji',
   'identity_setup_failed':
       'Nie udało się skonfigurować konta WARP. Spróbuj ponownie.',
-  'use_license_key': 'Użyj WARP License Key',
-  'warp_license_key': 'WARP License Key',
+  'use_license_key': "Użyj klucza licencyjnego WARP",
+  'warp_license_key': "Klucz licencyjny WARP",
   'zero_trust_title': 'Cloudflare Zero Trust',
   'zero_trust_subtitle': 'Zaloguj się kontem organizacji',
   'zero_trust_team': 'Nazwa zespołu organizacji',

@@ -70,7 +70,7 @@ const Map<String, String> kUiWorkflowId = <String, String>{
 
 const Map<String, String> kNetworkQualityId = <String, String>{
   'nq_range': 'Rentang',
-  'nq_bytes': 'Bytes',
+  'nq_bytes': "Jumlah bita",
   'diag_check_quality_rtt': 'Waktu bolak-balik',
   'diag_check_quality_packet_loss': 'Kehilangan paket',
   'diag_check_quality_queue_pressure': 'Tekanan antrean',
@@ -167,7 +167,7 @@ const Map<String, String> kNetworkQualityId = <String, String>{
   'nq_in_flight': 'Bytes dalam pengiriman',
   'nq_send_rate': 'Laju pengiriman',
   'nq_h2_window': 'Jendela terima HTTP/2',
-  'nq_stream_window': 'Stream',
+  'nq_stream_window': "Jendela aliran",
   'nq_connection_window': 'Koneksi',
   'nq_stalls': 'Jeda kapasitas',
   'nq_pmtu': 'MTU jalur',

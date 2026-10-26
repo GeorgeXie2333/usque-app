@@ -25,6 +25,7 @@ const Map<String, String> kDeCatalog = <String, String>{
   'diag_skip_traffic':
       'Nutze die Verbindung und wiederhole dann diese Prüfung.',
   'diag_skip_deep': 'Wähle den ausführlichen Modus für diese Prüfung.',
+  'app_loading': "Usque wird geladen",
   'app_name': 'Usque',
   'diag_fail_L4_SESSION_UNAVAILABLE': 'L4-Sitzung nicht verfügbar',
   'diag_fail_L4_PROTOCOL_ERROR': 'L4-Protokollfehler',
@@ -99,8 +100,8 @@ const Map<String, String> kDeCatalog = <String, String>{
   'identity_invalid': 'Konto erneut einrichten',
   'identity_setup_failed':
       'Das WARP-Konto konnte nicht eingerichtet werden. Versuche es erneut.',
-  'use_license_key': 'WARP License Key verwenden',
-  'warp_license_key': 'WARP License Key',
+  'use_license_key': "WARP-Lizenzschlüssel verwenden",
+  'warp_license_key': "WARP-Lizenzschlüssel",
   'zero_trust_title': 'Cloudflare Zero Trust',
   'zero_trust_subtitle': 'Mit einem Organisationskonto anmelden',
   'zero_trust_team': 'Teamname der Organisation',

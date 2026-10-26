@@ -24,6 +24,7 @@ const Map<String, String> kNlCatalog = <String, String>{
   'diag_skip_traffic':
       'Gebruik de verbinding en voer deze controle opnieuw uit.',
   'diag_skip_deep': 'Kies de uitgebreide modus om deze controle uit te voeren.',
+  'app_loading': "Usque laden",
   'app_name': 'Usque',
   'diag_fail_L4_SESSION_UNAVAILABLE': 'L4-sessie niet beschikbaar',
   'diag_fail_L4_PROTOCOL_ERROR': 'L4-protocolfout',
@@ -97,8 +98,8 @@ const Map<String, String> kNlCatalog = <String, String>{
   'identity_invalid': 'Stel het account opnieuw in',
   'identity_setup_failed':
       'Het WARP-account kon niet worden ingesteld. Probeer opnieuw.',
-  'use_license_key': 'Een WARP License Key gebruiken',
-  'warp_license_key': 'WARP License Key',
+  'use_license_key': "Een WARP-licentiesleutel gebruiken",
+  'warp_license_key': "WARP-licentiesleutel",
   'zero_trust_title': 'Cloudflare Zero Trust',
   'zero_trust_subtitle': 'Aanmelden met een organisatieaccount',
   'zero_trust_team': 'Teamnaam van de organisatie',

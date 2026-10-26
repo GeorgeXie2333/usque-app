@@ -1199,17 +1199,19 @@ void main() {
     },
   );
 
-  for (final chinese in [false, true]) {
+  for (final locale in LocalePreference.values.where(
+    (value) => value != LocalePreference.system,
+  )) {
     _protonWidgetTest(
-      'Android account and server picker support 200 percent text, Chinese=$chinese',
+      'Android account and server picker support 200 percent text: $locale',
       (tester) async {
         final engine = CatalogueEngine();
         final app = await hostChain(tester, engine, width: 390);
-        if (chinese) app.localePreference = LocalePreference.simplifiedChinese;
+        app.localePreference = locale;
         await tester.pumpWidget(
           workflowHost(
             app,
-            dark: chinese,
+            dark: locale.index.isEven,
             scale: 2,
             home: Scaffold(
               body: SingleChildScrollView(
@@ -1220,10 +1222,27 @@ void main() {
         );
         await tester.pumpAndSettle();
         await _changeServer(tester);
+        expect(find.text(app.strings.proton('automatic_hint')), findsOneWidget);
+        final direction = Directionality.of(
+          tester.element(find.text(app.strings.proton('automatic_server'))),
+        );
+        expect(
+          direction,
+          [LocalePreference.arabic, LocalePreference.persian].contains(locale)
+              ? TextDirection.rtl
+              : TextDirection.ltr,
+        );
         await tester.enterText(find.byType(TextField), 'Server 300');
         await tester.pumpAndSettle();
-        await tester.ensureVisible(
+        // Longer translations can put the result beyond ListView's lazy
+        // build range. Exercise the same scrolling a user would perform.
+        await tester.scrollUntilVisible(
           find.widgetWithText(RadioListTile<String>, 'Server 300'),
+          160,
+          scrollable: find.descendant(
+            of: find.byType(RadioGroup<String>),
+            matching: find.byType(Scrollable),
+          ),
         );
         await tester.pumpAndSettle();
         final flag = find.descendant(

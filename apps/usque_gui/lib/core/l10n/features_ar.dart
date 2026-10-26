@@ -67,7 +67,7 @@ const Map<String, String> kUiWorkflowAr = <String, String>{
 
 const kNetworkQualityAr = <String, String>{
   'nq_range': 'النطاق',
-  'nq_bytes': 'Bytes',
+  'nq_bytes': "عدد البايتات",
   'diag_check_quality_rtt': 'زمن الذهاب والإياب',
   'diag_check_quality_packet_loss': 'فقدان الرزم',
   'diag_check_quality_queue_pressure': 'ضغط قائمة الانتظار',
@@ -153,7 +153,7 @@ const kNetworkQualityAr = <String, String>{
   'nq_in_flight': 'البايتات قيد الإرسال',
   'nq_send_rate': 'معدل التسليم',
   'nq_h2_window': 'نوافذ استقبال HTTP/2',
-  'nq_stream_window': 'Stream',
+  'nq_stream_window': "نافذة التدفق",
   'nq_connection_window': 'الاتصال',
   'nq_stalls': 'توقفات السعة',
   'nq_pmtu': 'MTU المسار',

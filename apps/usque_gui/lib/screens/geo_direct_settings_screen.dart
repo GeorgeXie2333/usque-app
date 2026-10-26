@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../core/app_strings.dart';
+import '../core/country_strings.dart';
 import '../core/iso_countries.dart';
 import '../core/usque_theme.dart';
 import '../models/app_models.dart';
@@ -300,7 +301,8 @@ class _GeoDirectSettingsScreenState extends State<GeoDirectSettingsScreen> {
             return true;
           }
           return country.code.toLowerCase().contains(query) ||
-              country.name.toLowerCase().contains(query);
+              country.name.toLowerCase().contains(query) ||
+              strings.countryName(country.code).toLowerCase().contains(query);
         })
         .toList(growable: false);
 
@@ -359,6 +361,7 @@ class _GeoDirectSettingsScreenState extends State<GeoDirectSettingsScreen> {
         ConstrainedBox(
           constraints: const BoxConstraints(maxHeight: 480),
           child: ListView.separated(
+            key: const ValueKey('bypass-country-list'),
             shrinkWrap: true,
             itemCount: countries.length,
             separatorBuilder: (context, _) =>
@@ -373,7 +376,7 @@ class _GeoDirectSettingsScreenState extends State<GeoDirectSettingsScreen> {
                 contentPadding: EdgeInsets.zero,
                 leading: CountryFlag(countryCode: country.code),
                 title: Text(
-                  '${country.code}  ${country.name}',
+                  '${country.code}  ${strings.countryName(country.code)}',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
