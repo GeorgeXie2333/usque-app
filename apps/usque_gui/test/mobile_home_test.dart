@@ -7,7 +7,7 @@ import 'package:usque/state/network_quality_controller.dart';
 import 'package:usque/widgets/common.dart';
 import 'package:usque/widgets/connection_ring.dart';
 import 'package:usque/widgets/live_duration.dart';
-import 'package:usque/widgets/sparkline.dart';
+import 'package:usque/widgets/traffic_chart.dart';
 
 import 'quality_test_support.dart';
 import 'ui_workflow_test.dart' show workflowHost;
@@ -62,8 +62,12 @@ Future<void> _show(
   await tester.pumpAndSettle();
 }
 
-Sparkline _trace(WidgetTester tester, String direction) =>
-    tester.widget<Sparkline>(find.byKey(ValueKey('home-$direction-trace')));
+TrafficChart _chart(WidgetTester tester) => tester.widget<TrafficChart>(
+  find.byKey(const ValueKey('home-traffic-chart')),
+);
+
+List<int?> _trace(WidgetTester tester, String direction) =>
+    direction == 'download' ? _chart(tester).download : _chart(tester).upload;
 
 void main() {
   testWidgets(
@@ -74,13 +78,12 @@ void main() {
         ..sample(1)
         ..sample(2);
       await _show(tester, fixture, size: const Size(1280, 900));
-      Sparkline download() =>
-          tester.widget<Sparkline>(find.byType(Sparkline).first);
+      TrafficChart chart() => _chart(tester);
       void expectCaption(String key) =>
           expect(find.text(fixture.app.strings.get(key)), findsOneWidget);
 
       expectCaption('home_traffic_window');
-      final frozen = List<int?>.of(download().samples);
+      final frozen = List<int?>.of(chart().download);
       fixture.quality.togglePaused();
       await tester.pump();
       expectCaption('nq_paused');
@@ -90,8 +93,8 @@ void main() {
       fixture.sample(123);
       await tester.pump();
       expectCaption('nq_paused');
-      expect(download().samples, frozen);
-      expect(download().semanticLabel, contains('Charts paused'));
+      expect(chart().download, frozen);
+      expect(chart().semanticLabel, contains('Charts paused'));
 
       fixture.quality.togglePaused();
       await tester.pump();
@@ -105,7 +108,7 @@ void main() {
       fixture.quality.markStreamUnavailable(true);
       await tester.pump();
       expectCaption('home_traffic_stale');
-      expect(download().semanticLabel, contains('Traffic updates delayed'));
+      expect(chart().semanticLabel, contains('Traffic updates delayed'));
 
       fixture.app.engineCapabilities = const EngineCapabilities();
       await tester.pump();
@@ -119,20 +122,18 @@ void main() {
   );
 
   testWidgets(
-    'desktop traffic charts keep their height and show a dash while disconnected',
+    'desktop traffic chart keeps its height and shows a dash while disconnected',
     (tester) async {
       final fixture = _Fixture()
         ..sample(0)
         ..sample(1);
       await _show(tester, fixture, size: const Size(1280, 900));
-      Finder trace(String direction) =>
-          find.byKey(ValueKey('home-desktop-$direction-trace'));
+      final chart = find.byKey(const ValueKey('home-traffic-chart'));
       String? rate(String direction) => tester
           .widget<Text>(find.byKey(ValueKey('home-desktop-$direction-rate')))
           .data;
-      final height = tester.getSize(trace('download')).height;
-      expect(height, inInclusiveRange(96, 240));
-      expect(tester.getSize(trace('upload')).height, height);
+      final height = tester.getSize(chart).height;
+      expect(height, greaterThanOrEqualTo(96));
       expect(rate('download'), '2.0 KB/s');
       expect(rate('upload'), '1.0 KB/s');
 
@@ -140,21 +141,21 @@ void main() {
       await tester.pump();
       for (final direction in ['download', 'upload']) {
         expect(rate(direction), '—');
-        expect(tester.getSize(trace(direction)).height, height);
       }
+      expect(tester.getSize(chart).height, height);
+      expect(_chart(tester).download, isEmpty);
+      expect(_chart(tester).upload, isEmpty);
     },
     variant: TargetPlatformVariant.only(TargetPlatform.windows),
   );
 
   testWidgets(
-    'desktop traffic charts take the spare page height down to their minimum',
+    'desktop traffic card takes the spare page height down to its minimum',
     (tester) async {
       final fixture = _Fixture()..sample(1);
-      await _show(tester, fixture, size: const Size(1200, 800));
-      final download = find.byKey(
-        const ValueKey('home-desktop-download-trace'),
-      );
-      final upload = find.byKey(const ValueKey('home-desktop-upload-trace'));
+      await _show(tester, fixture, size: const Size(1200, 900));
+      final chart = find.byKey(const ValueKey('home-traffic-chart'));
+      final card = find.byKey(const ValueKey('home-traffic'));
       ScrollPosition page() => tester
           .state<ScrollableState>(
             find
@@ -166,13 +167,11 @@ void main() {
           )
           .position;
 
-      final open = tester.getSize(download).height;
+      final open = tester.getSize(chart).height;
       expect(open, greaterThan(96));
-      expect(open, lessThanOrEqualTo(240));
-      expect(tester.getSize(upload).height, open);
       expect(page().maxScrollExtent, 0);
       expect(
-        tester.getRect(download).bottom,
+        tester.getRect(card).bottom,
         moreOrLessEquals(tester.getRect(find.byType(PageFrame)).bottom - 34),
       );
 
@@ -180,15 +179,15 @@ void main() {
         find.text(fixture.app.strings.get('connection_details')),
       );
       await tester.pumpAndSettle();
-      final expanded = tester.getSize(download).height;
-      expect(expanded, lessThan(open));
+      // Details grow the session card; the chart gives way, never the
+      // page margin, until it reaches its minimum.
+      final expanded = tester.getSize(chart).height;
+      expect(expanded, lessThanOrEqualTo(open));
       expect(expanded, greaterThanOrEqualTo(96));
-      expect(tester.getSize(upload).height, expanded);
 
       tester.view.physicalSize = const Size(1200, 600);
       await tester.pumpAndSettle();
-      expect(tester.getSize(download).height, 96);
-      expect(tester.getSize(upload).height, 96);
+      expect(tester.getSize(chart).height, 96);
       expect(page().maxScrollExtent, greaterThan(0));
       expect(tester.takeException(), isNull);
     },
@@ -369,30 +368,49 @@ void main() {
   );
 
   testWidgets(
-    'mobile home has open sections and a centered connection control',
+    'mobile home centres the control above its traffic and status cards',
     (tester) async {
       final fixture = _Fixture()
         ..sample(0)
         ..sample(1)
         ..sample(2);
       await _show(tester, fixture);
-      expect(find.byType(Panel), findsNothing);
       expect(find.byType(StatusPill), findsNothing);
-      expect(find.byType(ContentSection), findsNWidgets(3));
       final ring = tester.getRect(find.byType(ConnectionRing));
       expect(ring.center.dx, closeTo(375 / 2, 0.1));
+      final traffic = tester.getRect(
+        find.byKey(const ValueKey('home-traffic')),
+      );
+      final status = tester.getRect(find.byKey(const ValueKey('home-status')));
+      expect(traffic.top, greaterThan(ring.bottom));
+      expect(status.top, greaterThan(traffic.bottom));
+      expect(find.byType(Panel), findsNWidgets(2));
       expect(find.text('Singapore'), findsOneWidget);
-      expect(find.text('Protocol · HTTP/3 · IPv4'), findsOneWidget);
+      expect(
+        tester.getRect(find.text('Singapore')).top,
+        greaterThan(ring.bottom),
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey('home-protocol')),
+          matching: find.text('HTTP/3 · IPv4'),
+        ),
+        findsOneWidget,
+      );
       expect(find.text('198.51.100.10'), findsNothing);
       expect(
         tester.widget<LiveDuration>(find.byType(LiveDuration)).since,
         fixture.since,
       );
-      final protectionPanel = find.ancestor(
-        of: find.text('Kill Switch'),
-        matching: find.byKey(const ValueKey('mobile-connection-section')),
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey('home-status')),
+          matching: find.text('Kill Switch'),
+        ),
+        findsOneWidget,
       );
-      expect(tester.getRect(protectionPanel).contains(ring.center), isTrue);
+      // The account opens Accounts from the page heading.
+      expect(find.byKey(const ValueKey('home-account-chip')), findsOneWidget);
       for (final key in ['home-network-quality', 'home-diagnostics']) {
         expect(find.byKey(ValueKey(key)), findsNothing);
       }
@@ -414,8 +432,8 @@ void main() {
         ..sample(1)
         ..sample(2);
       await _show(tester, fixture);
-      expect(_trace(tester, 'download').samples.whereType<int>(), [2048, 2048]);
-      expect(_trace(tester, 'upload').samples.whereType<int>(), [1024, 1024]);
+      expect(_trace(tester, 'download').whereType<int>(), [2048, 2048]);
+      expect(_trace(tester, 'upload').whereType<int>(), [1024, 1024]);
       final length = fixture.quality.history.length;
       await tester.pumpWidget(workflowHost(fixture.app, dark: true));
       await tester.pumpAndSettle();
@@ -423,22 +441,18 @@ void main() {
       expect(fixture.engine.qualityRequests, 0);
       fixture.sample(3);
       await tester.pump();
-      expect(_trace(tester, 'download').samples.whereType<int>(), [
-        2048,
-        2048,
-        2048,
-      ]);
+      expect(_trace(tester, 'download').whereType<int>(), [2048, 2048, 2048]);
       fixture.now = fixture.now.add(const Duration(seconds: 4));
       fixture.quality.markStreamUnavailable(true);
       await tester.pump();
       expect(find.text('Traffic updates delayed'), findsOneWidget);
-      expect(_trace(tester, 'download').samples.last, isNull);
-      expect(_trace(tester, 'download').samples.whereType<int>().length, 3);
+      expect(_trace(tester, 'download').last, isNull);
+      expect(_trace(tester, 'download').whereType<int>().length, 3);
       fixture.app.snapshot = const EngineSnapshot();
       await tester.pumpWidget(workflowHost(fixture.app));
       await tester.pumpAndSettle();
-      expect(_trace(tester, 'download').samples, isEmpty);
-      expect(_trace(tester, 'upload').samples, isEmpty);
+      expect(_trace(tester, 'download'), isEmpty);
+      expect(_trace(tester, 'upload'), isEmpty);
       expect(find.text('Singapore'), findsNothing);
       expect(
         find.text('VPN and proxies for the next connection'),
@@ -458,11 +472,11 @@ void main() {
     );
     await _show(tester, fixture);
     expect(find.text('Waiting for traffic data'), findsOneWidget);
-    expect(_trace(tester, 'download').samples.whereType<int>(), isEmpty);
+    expect(_trace(tester, 'download').whereType<int>(), isEmpty);
     fixture.app.engineCapabilities = const EngineCapabilities();
     await tester.pumpAndSettle();
     expect(find.text('Traffic history unavailable'), findsOneWidget);
-    expect(_trace(tester, 'download').samples.whereType<int>(), isEmpty);
+    expect(_trace(tester, 'download').whereType<int>(), isEmpty);
     fixture.app.engineCapabilities = const EngineCapabilities(
       networkQuality: true,
     );
@@ -470,10 +484,10 @@ void main() {
     fixture.sample(1);
     fixture.quality.togglePaused();
     await tester.pumpAndSettle();
-    final samples = _trace(tester, 'download').samples;
+    final samples = _trace(tester, 'download');
     fixture.sample(2);
     await tester.pumpAndSettle();
-    expect(_trace(tester, 'download').samples, samples);
+    expect(_trace(tester, 'download'), samples);
     expect(find.text(fixture.app.strings.get('nq_paused')), findsOneWidget);
     expect(fixture.engine.qualityRequests, 0);
   });
@@ -497,7 +511,7 @@ void main() {
       expect(find.byKey(const ValueKey('home-diagnostics')), findsNothing);
       expect(find.byKey(const ValueKey('home-network-quality')), findsNothing);
       expect(find.text('Connection details'), findsOneWidget);
-      expect(_trace(tester, 'download').samples, isEmpty);
+      expect(_trace(tester, 'download'), isEmpty);
     },
   );
 
@@ -569,7 +583,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text(strings.get('home_traffic_waiting')), findsNothing);
     expect(find.text(strings.get('home_traffic_stale')), findsOneWidget);
-    expect(_trace(tester, 'download').samples.whereType<int>(), isEmpty);
+    expect(_trace(tester, 'download').whereType<int>(), isEmpty);
   });
 
   testWidgets('home error banner names only connection failures', (

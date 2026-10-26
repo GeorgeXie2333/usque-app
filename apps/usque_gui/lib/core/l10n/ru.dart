@@ -46,7 +46,6 @@ const Map<String, String> kRuCatalog = <String, String>{
   'notice_kill_switch_blocking':
       'Kill Switch блокирует сетевой трафик, пока подключение не восстановится или вы не отключитесь.',
   'connection_status': 'Состояние подключения',
-  'outputs': '{tunnel} и локальные прокси',
   'home': 'Главная',
   'profiles': 'Аккаунты',
   'profiles_subtitle': 'Переключение и управление аккаунтами WARP.',
@@ -349,7 +348,6 @@ const Map<String, String> kRuCatalog = <String, String>{
   'invalid_address': 'Недопустимый адрес',
   'invalid_dns_name': 'Недопустимое DNS-имя',
   'invalid_cidr': 'Недопустимый CIDR',
-  'diagnostics_title': 'Диагностика и сведения',
   'diagnostics_subtitle':
       'Проверяйте проблемы подключения, экспортируйте журналы и управляйте локальными данными.',
   'engine_status': 'Сведения о подключении',

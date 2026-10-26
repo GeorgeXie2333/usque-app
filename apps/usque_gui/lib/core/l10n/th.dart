@@ -46,7 +46,6 @@ const Map<String, String> kThCatalog = <String, String>{
   'notice_kill_switch_blocking':
       'Kill Switch กำลังบล็อกการรับส่งข้อมูลเครือข่ายจนกว่าการเชื่อมต่อจะกลับมาหรือคุณตัดการเชื่อมต่อ',
   'connection_status': 'สถานะการเชื่อมต่อ',
-  'outputs': '{tunnel} และพร็อกซีภายในเครื่อง',
   'home': 'หน้าหลัก',
   'profiles': 'บัญชี',
   'profiles_subtitle': 'สลับและจัดการบัญชี WARP',
@@ -344,7 +343,6 @@ const Map<String, String> kThCatalog = <String, String>{
   'invalid_address': 'ที่อยู่ไม่ถูกต้อง',
   'invalid_dns_name': 'ชื่อ DNS ไม่ถูกต้อง',
   'invalid_cidr': 'CIDR ไม่ถูกต้อง',
-  'diagnostics_title': 'การวินิจฉัยและข้อมูลเกี่ยวกับแอป',
   'diagnostics_subtitle':
       'ตรวจสอบปัญหาการเชื่อมต่อ ส่งออกบันทึก และจัดการข้อมูลในเครื่อง',
   'engine_status': 'ข้อมูลการเชื่อมต่อ',

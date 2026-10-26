@@ -37,6 +37,31 @@ Widget host(
   ),
 );
 
+const _queueDetailsKey = PageStorageKey<String>(
+  'network-quality-low-level-queues',
+);
+
+/// Opens the folded transport metrics unless a problem already opened them.
+Future<void> _expandAdvancedMetrics(
+  WidgetTester tester,
+  AppController app,
+  Finder scrollable,
+) async {
+  final heading = find.text(app.strings.get('nq_advanced_metrics'));
+  await tester.scrollUntilVisible(
+    heading,
+    500,
+    scrollable: scrollable,
+    maxScrolls: 20,
+  );
+  await tester.pumpAndSettle();
+  if (find.text(app.strings.get('nq_queues')).evaluate().isEmpty) {
+    await tester.tap(heading);
+    await tester.pumpAndSettle();
+  }
+  expect(find.text(app.strings.get('nq_queues')), findsOneWidget);
+}
+
 Future<void> _openQualityFromSettings(
   WidgetTester tester,
   AppController app, {
@@ -330,7 +355,7 @@ void main() {
           tester.state<ScrollableState>(scrollable).position.pixels,
           greaterThan(0),
         );
-        expect(find.byType(ExpansionTile), findsNothing);
+        expect(find.byKey(_queueDetailsKey), findsNothing);
 
         app.snapshot = EngineSnapshot(
           phase: ConnectionPhase.connected,
@@ -341,7 +366,8 @@ void main() {
         await tester.pumpAndSettle();
         expect(tester.takeException(), isNull);
         expect(find.byType(ErrorWidget), findsNothing);
-        expect(find.byType(ExpansionTile), findsOneWidget);
+        await _expandAdvancedMetrics(tester, app, scrollable);
+        expect(find.byKey(_queueDetailsKey), findsOneWidget);
 
         await tester.scrollUntilVisible(
           find.text(app.strings.get('nq_doctor_evidence')),
@@ -388,6 +414,7 @@ void main() {
           of: find.byType(NetworkQualityScreen),
           matching: find.byType(Scrollable),
         );
+        await _expandAdvancedMetrics(tester, app, scrollable);
         final details = find.text(app.strings.get('nq_queue_details'));
         await tester.scrollUntilVisible(details, 500, scrollable: scrollable);
         await tester.pumpAndSettle();
@@ -402,7 +429,7 @@ void main() {
         expect(savedOffset, greaterThan(0));
 
         final scrollContext = tester.element(scrollable);
-        final detailsContext = tester.element(find.byType(ExpansionTile));
+        final detailsContext = tester.element(find.byKey(_queueDetailsKey));
         expect(
           PageStorage.of(scrollContext).readState(scrollContext),
           closeTo(savedOffset, 1),
@@ -464,6 +491,46 @@ void main() {
         });
       }
     }
+  }
+
+  for (final (state, attention) in [
+    ('h3', 0),
+    ('pmtu_degraded', 1),
+    ('degraded', 2),
+  ]) {
+    testWidgets('advanced metrics fold unless $attention need attention', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(1280, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final app = qualityApp(QualityEngineStub(), state: state);
+      addTearDown(app.dispose);
+      await tester.pumpWidget(host(app));
+      await tester.pumpAndSettle();
+      // The level and the two everyday readings lead the page.
+      expect(
+        find.textContaining('${app.strings.get('nq_rtt')} '),
+        findsWidgets,
+      );
+      final count = find.text(
+        app.strings
+            .get('nq_attention_count')
+            .replaceAll('{count}', '$attention'),
+      );
+      await tester.scrollUntilVisible(
+        find.text(app.strings.get('nq_advanced_metrics')),
+        500,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.pumpAndSettle();
+      expect(count, attention == 0 ? findsNothing : findsOneWidget);
+      // A problem opens the group so it is never hidden behind a fold.
+      expect(
+        find.text(app.strings.get('nq_pmtu')),
+        attention == 0 ? findsNothing : findsOneWidget,
+      );
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
   }
 
   testWidgets('H2 has protocol PING but no loss, PMTU or migration values', (

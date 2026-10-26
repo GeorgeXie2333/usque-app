@@ -113,6 +113,44 @@ void main() {
     },
   );
 
+  testWidgets('rule actions read as localized statuses, not wire names', (
+    tester,
+  ) async {
+    final app = appFor(FormEngine());
+    await app.initialize();
+    await tester.pumpAndSettle();
+    app.localePreference = LocalePreference.simplifiedChinese;
+    app.engineCapabilities = const EngineCapabilities(
+      tlsFingerprints: TlsFingerprint.values,
+      automaticEndpoints: true,
+      networkSettingsApplication: true,
+      routingRules: true,
+    );
+    app.sharedNetwork = app.sharedNetwork.copyWith(
+      routing: RoutingSettings(
+        rules: [
+          RoutingRule.create('direct.example', RoutingAction.direct),
+          RoutingRule.create('blocked.example', RoutingAction.reject),
+          RoutingRule.create('tunnel.example', RoutingAction.proxy),
+        ],
+      ),
+    );
+    await tester.pumpWidget(
+      workflowHost(app, home: GeoDirectSettingsScreen(controller: app)),
+    );
+    await tester.pumpAndSettle();
+    for (final action in RoutingAction.values) {
+      expect(
+        find.text(app.strings.get('routing_action_${action.name}')),
+        findsOneWidget,
+      );
+      expect(find.text(action.name.toUpperCase()), findsNothing);
+    }
+    expect(find.text('direct.example'), findsOneWidget);
+    expect(find.textContaining('1. '), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('old engines show existing targets read only', (tester) async {
     final app = appFor(FormEngine());
     await app.initialize();
@@ -124,7 +162,8 @@ void main() {
       workflowHost(app, home: GeoDirectSettingsScreen(controller: app)),
     );
     await tester.pumpAndSettle();
-    expect(find.text('1. example.com'), findsOneWidget);
+    // Rows are not numbered: specificity, not order, decides precedence.
+    expect(find.text('example.com'), findsOneWidget);
     expect(
       tester
           .widget<FilledButton>(find.byKey(const ValueKey('routing-add')))
@@ -214,12 +253,16 @@ void main() {
       await tester.pumpAndSettle();
       expect(app.networkSettings.routingErrorIds, hasLength(2));
       expect(app.networkSettings.unconfirmed, isFalse);
+      // The bar names the rules by target; each row repeats the reason.
       expect(
-        find.text('${app.strings.get('routing_conflict')} (1, 2)'),
+        find.text(
+          '${app.strings.get('routing_conflict')} (bücher.de, xn--bcher-kva.de)',
+        ),
         findsOneWidget,
       );
-      expect(find.text('1. bücher.de'), findsOneWidget);
-      expect(find.text('2. xn--bcher-kva.de'), findsOneWidget);
+      expect(find.text(app.strings.get('routing_conflict')), findsNWidgets(2));
+      expect(find.text('bücher.de'), findsOneWidget);
+      expect(find.text('xn--bcher-kva.de'), findsOneWidget);
       expect(
         tester.widget<SaveChangesBar>(find.byType(SaveChangesBar)).dirty,
         isTrue,
@@ -247,7 +290,15 @@ void main() {
       tester.widget<SaveChangesBar>(find.byType(SaveChangesBar)).onSave!();
       await tester.pumpAndSettle();
       expect(app.networkSettings.routingErrorIds, hasLength(1));
-      expect(find.text('2. example.com'), findsOneWidget);
+      expect(find.text('example.com'), findsOneWidget);
+      expect(
+        find.text(
+          app.strings.get(
+            app.networkSettings.routingErrorKey ?? 'routing_conflict',
+          ),
+        ),
+        findsOneWidget,
+      );
       expect(app.activeProfile.routing.rules, isEmpty);
       expect(
         tester.widget<SaveChangesBar>(find.byType(SaveChangesBar)).dirty,
@@ -282,7 +333,7 @@ void main() {
       tester.widget<SaveChangesBar>(find.byType(SaveChangesBar)).onSave!();
       await tester.pumpAndSettle();
       expect(app.networkSettings.routingErrorIds, hasLength(2));
-      await tester.tap(find.text('2. xn--bcher-kva.de'));
+      await tester.tap(find.text('xn--bcher-kva.de'));
       await tester.pumpAndSettle();
       await tester.enterText(
         find.byKey(const ValueKey('routing-target-input')),
@@ -302,7 +353,7 @@ void main() {
         find.textContaining(app.strings.get('routing_conflict')),
         findsNothing,
       );
-      expect(find.text('2. allowed.test'), findsOneWidget);
+      expect(find.text('allowed.test'), findsOneWidget);
       expect(bar.onRefresh, isNotNull);
       for (final seconds in [1, 2, 4]) {
         await tester.pump(Duration(seconds: seconds));
@@ -314,7 +365,7 @@ void main() {
         tester.widget<SaveChangesBar>(find.byType(SaveChangesBar)).dirty,
         isTrue,
       );
-      expect(find.text('2. allowed.test'), findsOneWidget);
+      expect(find.text('allowed.test'), findsOneWidget);
     },
   );
 
@@ -344,9 +395,10 @@ void main() {
         tester.widget<SaveChangesBar>(find.byType(SaveChangesBar)).onSave,
         isNotNull,
       );
+      // Both overlapping rows say which rule wins.
       expect(
         find.textContaining(app.strings.get('routing_overlap')),
-        findsOneWidget,
+        findsNWidgets(2),
       );
       await pasteRules(tester, 'Example.COM.');
       expect(
@@ -354,10 +406,11 @@ void main() {
         isNull,
       );
       expect(
-        find.textContaining(app.strings.get('routing_conflict')),
+        find.text('${app.strings.get('routing_conflict')} (example.com)'),
         findsOneWidget,
       );
-      expect(find.text('3. example.com'), findsOneWidget);
+      expect(find.text(app.strings.get('routing_conflict')), findsNWidgets(2));
+      expect(find.text('example.com'), findsNWidgets(2));
       expect(tester.takeException(), isNull);
     },
   );

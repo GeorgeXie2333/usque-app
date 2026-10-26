@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../core/app_strings.dart';
+import '../core/usque_motion.dart';
 import '../core/usque_theme.dart';
 import 'common.dart';
 import 'desktop_shortcuts.dart';
@@ -219,4 +220,53 @@ class SaveChangesBar extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Reveals a page's [SaveChangesBar] only while it has something to apply or
+/// report. A clean form would otherwise reserve the bottom of the page for a
+/// disabled button.
+class RevealedSaveBar extends StatelessWidget {
+  const RevealedSaveBar({
+    required this.visible,
+    required this.child,
+    super.key,
+  });
+
+  final bool visible;
+  final Widget child;
+
+  /// Whether a bar with these inputs has an edit, result or action to show.
+  static bool hasContent({
+    required bool dirty,
+    required bool saving,
+    bool saved = false,
+    String? error,
+    String? validationError,
+    String? statusLabel,
+    VoidCallback? onReconnect,
+    VoidCallback? onRefresh,
+  }) =>
+      dirty ||
+      saving ||
+      saved ||
+      error != null ||
+      validationError != null ||
+      statusLabel != null ||
+      onReconnect != null ||
+      onRefresh != null;
+
+  @override
+  Widget build(BuildContext context) => AnimatedSwitcher(
+    duration: UsqueMotion.of(context, UsqueMotion.fast),
+    switchInCurve: UsqueMotion.standard,
+    switchOutCurve: UsqueMotion.exit,
+    transitionBuilder: (child, animation) => SizeTransition(
+      sizeFactor: animation,
+      alignment: AlignmentDirectional.topStart,
+      child: child,
+    ),
+    child: visible
+        ? KeyedSubtree(key: const ValueKey('revealed-save-bar'), child: child)
+        : const SizedBox(width: double.infinity),
+  );
 }

@@ -6,7 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:usque/models/app_models.dart';
 import 'package:usque/state/app_controller.dart';
 import 'package:usque/state/network_quality_controller.dart';
-import 'package:usque/widgets/sparkline.dart';
+import 'package:usque/widgets/traffic_chart.dart';
 
 import 'app_test.dart' show EventEngineClient;
 import 'quality_test_support.dart';
@@ -268,12 +268,9 @@ void main() {
           addTearDown(tester.view.resetPhysicalSize);
           await tester.pumpWidget(workflowHost(app));
           await tester.pumpAndSettle();
-          final traces = tester
-              .widgetList<Sparkline>(find.byType(Sparkline))
-              .toList();
-          expect(traces.length, 2);
+          final chart = tester.widget<TrafficChart>(find.byType(TrafficChart));
           expect(
-            traces.first.samples,
+            chart.download,
             quality.trace((p) => p.downloadBytesPerSecond),
           );
           await tester.pumpWidget(workflowHost(app, dark: true));

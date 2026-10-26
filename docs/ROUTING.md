@@ -4,7 +4,10 @@
 
 Open **Settings → Bypass settings**. **Custom routing rules** supports individual
 entries and **Paste rules**, with one domain, IP address or CIDR per line. Select
-DIRECT, REJECT or PROXY for the entry or pasted batch, then **Apply changes**.
+the action for the entry or pasted batch — **Direct** (DIRECT), **Block**
+(REJECT) or **Through Usque** (PROXY) — then **Apply changes**. The list shows
+each target with its action and no numbering, because order does not affect
+matching.
 Settings are shared across accounts. Changes follow the usual reconnect and
 pending-settings flow; check the apply result, because a saved change may only
 take effect after reconnecting.
@@ -57,9 +60,10 @@ physical-family availability retains the existing protected connection attempts.
 These observations describe Internet paths; loopback and local-network targets
 retain protected direct attempts even without a default route for their family.
 
-Identical targets with different actions prevent saving and identify both rows.
-Parent/child and nested-network exceptions are valid; the editor explains the
-override. Identical rules are merged. Invalid input and failed saves retain the
+Identical targets with different actions prevent saving; both rows show the
+reason, and the apply bar names them by target. Parent/child and nested-network
+exceptions are valid; each overlapping row states that the more specific rule
+wins. Identical rules are merged. Invalid input and failed saves retain the
 draft. An older Engine displays the new controls read-only.
 
 A hostname first matches custom domains, Ads, country domains, then the default
@@ -173,8 +177,9 @@ native VPN cleanup and external leak behavior need the isolated environments in
 ## 使用说明
 
 打开 **设置 → 分流设置 → 自定义分流规则**，添加单条规则，或按指定动作批量粘贴。
-每行填写域名、IP 或 CIDR，然后点击 **应用修改**。DIRECT 为直连，REJECT 为拒绝，
-PROXY 使用当前隧道及链式出口。设置跨账号共享；查看应用结果，必要时重新连接。
+每行填写域名、IP 或 CIDR，然后点击 **应用修改**。动作 **直连**（DIRECT）不经过隧道，
+**拦截**（REJECT）拒绝连接，**代理**（PROXY）使用当前隧道及链式出口。列表不编号，
+规则顺序不影响匹配；冲突的规则会在所在行显示原因。设置跨账号共享；查看应用结果，必要时重新连接。
 
 在 **分流设置 → 国家/地区** 下载国家数据，打开直连开关并点击 **应用修改**。
 启用需要有效 GeoIP，GeoSite 国家域名分类为可选；没有域名分类时，仍可按 IP 目标

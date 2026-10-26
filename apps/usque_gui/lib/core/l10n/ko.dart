@@ -44,7 +44,6 @@ const Map<String, String> kKoCatalog = <String, String>{
   'notice_kill_switch_blocking':
       '연결이 복구되거나 연결을 해제할 때까지 Kill Switch가 네트워크 트래픽을 차단합니다.',
   'connection_status': '연결 상태',
-  'outputs': '{tunnel} 및 로컬 프록시',
   'home': '홈',
   'profiles': '계정',
   'profiles_subtitle': 'WARP 계정을 전환하고 관리합니다.',
@@ -325,7 +324,6 @@ const Map<String, String> kKoCatalog = <String, String>{
   'invalid_address': '잘못된 주소',
   'invalid_dns_name': '잘못된 DNS 이름',
   'invalid_cidr': '잘못된 CIDR',
-  'diagnostics_title': 'Usque 진단 및 정보',
   'diagnostics_subtitle': '연결 문제를 확인하고 로그를 내보내거나 기기의 데이터를 관리합니다.',
   'engine_status': '연결 정보',
   'version': '버전',

@@ -8,7 +8,12 @@ import 'common.dart';
 /// Formats [since] as a running clock. Rebuilds once a second while visible so
 /// a parent that only listens to [since] itself does not freeze the readout.
 class LiveDuration extends StatefulWidget {
-  const LiveDuration({required this.since, this.now = DateTime.now, super.key});
+  const LiveDuration({
+    required this.since,
+    this.now = DateTime.now,
+    this.style,
+    super.key,
+  });
 
   /// Start of the interval. Null renders an em dash and runs no timer.
   final DateTime? since;
@@ -16,6 +21,9 @@ class LiveDuration extends StatefulWidget {
   /// Clock used to format the interval. Tests inject a fake so fake-async
   /// pumps do not depend on wall time.
   final DateTime Function() now;
+
+  /// Readout style for the running clock; defaults to the standard readout.
+  final TextStyle? style;
 
   @override
   State<LiveDuration> createState() => _LiveDurationState();
@@ -103,7 +111,7 @@ class _LiveDurationState extends State<LiveDuration>
     }
     return Text(
       formatDuration(widget.now().difference(since)),
-      style: UsqueTheme.readout(context),
+      style: widget.style ?? UsqueTheme.readout(context),
     );
   }
 }

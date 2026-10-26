@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../core/chain_strings.dart';
+import '../core/usque_motion.dart';
+import '../core/usque_theme.dart';
 import '../models/app_models.dart';
 import '../models/network_settings.dart';
 import '../state/app_controller.dart';
@@ -22,15 +24,11 @@ class HomeDesktopControls extends StatefulWidget {
   const HomeDesktopControls({
     required this.controller,
     required this.onOpenChainProxy,
-    this.minHeight,
     super.key,
   });
 
   final AppController controller;
   final VoidCallback onOpenChainProxy;
-
-  /// Height the rows share beside the connection ring; null when stacked.
-  final double? minHeight;
 
   @override
   State<HomeDesktopControls> createState() => _HomeDesktopControlsState();
@@ -256,12 +254,6 @@ class _HomeDesktopControlsState extends State<HomeDesktopControls> {
       final desktop =
           defaultTargetPlatform == TargetPlatform.windows ||
           defaultTargetPlatform == TargetPlatform.linux;
-      // Beside the ring, the rows share its height so the first and last
-      // rows meet the ring's top and bottom edges.
-      final rows = desktop ? 3 : 2;
-      final rowMinHeight = widget.minHeight == null
-          ? 0.0
-          : (widget.minHeight! - (rows - 1)) / rows;
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         mainAxisSize: MainAxisSize.min,
@@ -283,7 +275,6 @@ class _HomeDesktopControlsState extends State<HomeDesktopControls> {
                 onChanged: enabled && (view.tunnelSupported || view.tunnel)
                     ? _tunnel
                     : null,
-                minHeight: rowMinHeight,
               ),
               if (desktop)
                 _OutputControl(
@@ -306,7 +297,6 @@ class _HomeDesktopControlsState extends State<HomeDesktopControls> {
                           (view.http || view.systemProxy)
                       ? _systemProxy
                       : null,
-                  minHeight: rowMinHeight,
                 ),
               _OutputControl(
                 title: strings.chain('title'),
@@ -317,7 +307,6 @@ class _HomeDesktopControlsState extends State<HomeDesktopControls> {
                 switchKey: const ValueKey('home-chain-proxy-switch'),
                 value: view.chainEnabled,
                 onChanged: enabled ? _chain : null,
-                minHeight: rowMinHeight,
               ),
             ],
           ),
@@ -325,7 +314,8 @@ class _HomeDesktopControlsState extends State<HomeDesktopControls> {
             Padding(
               padding: const EdgeInsetsDirectional.only(
                 start: _OutputControl.textIndent,
-                top: 12,
+                top: UsqueSpace.xs,
+                bottom: UsqueSpace.xs,
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -406,8 +396,8 @@ class _ChainDetails extends StatelessWidget {
   );
 }
 
-/// One output row: icon, title and a muted line in one text column, with
-/// the switch centred on the whole row, as in the settings list tiles.
+/// One output row: an icon tile that lights with the switch, the title and a
+/// muted line in one text column, and the switch centred on the whole row.
 class _OutputControl extends StatelessWidget {
   const _OutputControl({
     required this.title,
@@ -418,11 +408,10 @@ class _OutputControl extends StatelessWidget {
     required this.onChanged,
     this.onOpen,
     this.openKey,
-    this.minHeight = 0,
   });
 
-  /// Icon (24) plus its gap (12): where titles and their details start.
-  static const double textIndent = 36;
+  /// Icon tile (36) plus its gap (14): where titles and their details start.
+  static const double textIndent = 50;
 
   final String title;
   final IconData icon;
@@ -432,17 +421,36 @@ class _OutputControl extends StatelessWidget {
   final ValueChanged<bool>? onChanged;
   final VoidCallback? onOpen;
   final Key? openKey;
-  final double minHeight;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final tokens = UsqueTokens.of(context);
     final muted = theme.colorScheme.onSurfaceVariant;
+    final lit = value;
     final label = Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        ExcludeSemantics(child: Icon(icon, size: 24, color: muted)),
-        const SizedBox(width: 12),
+        ExcludeSemantics(
+          child: AnimatedContainer(
+            duration: UsqueMotion.of(context, UsqueMotion.base),
+            curve: UsqueMotion.standard,
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: lit
+                  ? theme.colorScheme.primary.withValues(alpha: tokens.tint)
+                  : theme.colorScheme.surfaceContainerHigh,
+              borderRadius: BorderRadius.circular(UsqueRadii.chip),
+            ),
+            child: Icon(
+              icon,
+              size: 18,
+              color: lit ? theme.colorScheme.primary : muted,
+            ),
+          ),
+        ),
+        const SizedBox(width: 14),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -453,13 +461,13 @@ class _OutputControl extends StatelessWidget {
                   Flexible(
                     child: Text(
                       title,
-                      style: theme.textTheme.titleMedium?.copyWith(
+                      style: theme.textTheme.titleSmall?.copyWith(
                         color: theme.colorScheme.onSurface,
                       ),
                     ),
                   ),
                   if (onOpen != null) ...[
-                    const SizedBox(width: 4),
+                    const SizedBox(width: 2),
                     Icon(
                       LucideIcons.chevronRightDir,
                       size: 16,
@@ -468,9 +476,9 @@ class _OutputControl extends StatelessWidget {
                   ],
                 ],
               ),
-              const SizedBox(height: 4),
+              const SizedBox(height: 2),
               DefaultTextStyle.merge(
-                style: theme.textTheme.bodyMedium?.copyWith(color: muted),
+                style: theme.textTheme.bodySmall?.copyWith(color: muted),
                 child: details,
               ),
             ],
@@ -478,40 +486,33 @@ class _OutputControl extends StatelessWidget {
         ),
       ],
     );
-    return ConstrainedBox(
-      constraints: BoxConstraints(minHeight: minHeight),
-      child: Align(
-        alignment: AlignmentDirectional.centerStart,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 12),
-          child: Row(
-            children: [
-              Expanded(
-                child: onOpen == null
-                    ? label
-                    : TextButton(
-                        key: openKey,
-                        onPressed: onOpen,
-                        style: TextButton.styleFrom(
-                          padding: EdgeInsets.zero,
-                          alignment: AlignmentDirectional.centerStart,
-                          foregroundColor: theme.colorScheme.onSurface,
-                        ),
-                        child: label,
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      child: Row(
+        children: [
+          Expanded(
+            child: onOpen == null
+                ? label
+                : TextButton(
+                    key: openKey,
+                    onPressed: onOpen,
+                    style: TextButton.styleFrom(
+                      padding: EdgeInsets.zero,
+                      alignment: AlignmentDirectional.centerStart,
+                      foregroundColor: theme.colorScheme.onSurface,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(UsqueRadii.chip),
                       ),
-              ),
-              const SizedBox(width: 12),
-              Semantics(
-                label: title,
-                child: Switch(
-                  key: switchKey,
-                  value: value,
-                  onChanged: onChanged,
-                ),
-              ),
-            ],
+                    ),
+                    child: label,
+                  ),
           ),
-        ),
+          const SizedBox(width: UsqueSpace.s),
+          Semantics(
+            label: title,
+            child: Switch(key: switchKey, value: value, onChanged: onChanged),
+          ),
+        ],
       ),
     );
   }
