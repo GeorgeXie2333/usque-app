@@ -10,6 +10,7 @@ pub(crate) mod local_agent;
 mod manager;
 mod nodes;
 pub(crate) mod renew;
+pub(crate) mod selection;
 mod session;
 mod system_http;
 pub(crate) mod verification_proxy;

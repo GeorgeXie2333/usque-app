@@ -125,6 +125,7 @@ fn record() -> Record {
         refresh_at: 2_000_001_800,
         max_tier: 0,
         node: SelectedNode {
+            state: Some(String::new()),
             metadata: Node {
                 id: "node-one".into(),
                 name: "Node one".into(),

@@ -7,12 +7,21 @@ use super::*;
 
 /// Script only the actor boundary while exercising the production tunnel halves.
 pub(crate) struct ScriptedTunnelPeer {
+    migration: mpsc::Receiver<migration::H3ControlCommand>,
     outgoing: mpsc::Receiver<OutgoingBatch>,
     pub(crate) incoming: mpsc::Sender<PacketBatch>,
     pub(crate) budget: watch::Sender<Option<crate::tcp_packet_budget::H3PacketBudget>>,
 }
 
 impl ScriptedTunnelPeer {
+    pub(crate) async fn migration_request(&mut self) -> (u64, oneshot::Sender<H3MigrationResult>) {
+        let migration::H3ControlCommand::Migrate {
+            target_generation,
+            reply,
+            ..
+        } = self.migration.recv().await.expect("migration request");
+        (target_generation, reply)
+    }
     pub(crate) fn take_outgoing(
         &mut self,
     ) -> Option<(PacketBatch, oneshot::Sender<PacketBatchResult>)> {
@@ -24,6 +33,12 @@ impl ScriptedTunnelPeer {
 }
 
 pub(crate) fn scripted_tunnel() -> (H3Tunnel, ScriptedTunnelPeer) {
+    scripted_tunnel_with_generation(None)
+}
+
+pub(crate) fn scripted_tunnel_with_generation(
+    generation: Option<u64>,
+) -> (H3Tunnel, ScriptedTunnelPeer) {
     let (budget, packet_budget) = watch::channel(Some(crate::tcp_packet_budget::H3PacketBudget {
         limit: 1280,
         confirmed: true,
@@ -36,7 +51,7 @@ pub(crate) fn scripted_tunnel() -> (H3Tunnel, ScriptedTunnelPeer) {
     let stop = cancellation.clone();
     let task = tokio::spawn(async move {
         stop.cancelled().await;
-        drop((control_tx, migration_rx));
+        drop(control_tx);
         Ok(())
     });
     (
@@ -56,13 +71,14 @@ pub(crate) fn scripted_tunnel() -> (H3Tunnel, ScriptedTunnelPeer) {
             migration: H3MigrationHandle::new(
                 migration_tx,
                 "127.0.0.1:443".parse().unwrap(),
-                None,
-                false,
+                generation,
+                generation.is_some(),
             ),
             attempt: None,
             packet_budget,
         },
         ScriptedTunnelPeer {
+            migration: migration_rx,
             outgoing,
             incoming,
             budget,

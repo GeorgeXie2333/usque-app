@@ -1,11 +1,32 @@
 //! Android Keystore codec bound once in each native-owning process.
 use super::*;
 use std::path::Path;
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 use usque_core::chain_exit::{ImportError, store::ProfileCipher};
 use uuid::Uuid;
 
 static CIPHER: OnceLock<AndroidCipher> = OnceLock::new();
+static PROTON_SELECTION: OnceLock<Mutex<usque_core::proton_vpn::ConnectionSelection>> =
+    OnceLock::new();
+
+fn proton_selection() -> &'static Mutex<usque_core::proton_vpn::ConnectionSelection> {
+    PROTON_SELECTION.get_or_init(Default::default)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeResetProtonSelection<
+    'local,
+>(
+    mut environment: EnvUnowned<'local>,
+    _class: JClass<'local>,
+) {
+    with_jni_env(&mut environment, |_| {
+        *proton_selection()
+            .lock()
+            .unwrap_or_else(|error| error.into_inner()) = Default::default();
+    });
+}
+
 #[cfg(feature = "wireguard")]
 pub(crate) fn profile_cipher() -> Result<Arc<dyn ProfileCipher>, String> {
     struct Shared(&'static AndroidCipher);
@@ -128,6 +149,10 @@ pub(crate) fn prepare(
     let result = {
         let mut result = result;
         if let Some((_, prepared)) = result.as_mut() {
+            prepared.proton_selection = proton_selection()
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .clone();
             usque_transport::proton_vpn::attach(parent, profile_cipher()?, prepared)
                 .map_err(|_| "Proton encrypted session unavailable")?;
         }

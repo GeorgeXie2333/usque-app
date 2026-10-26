@@ -158,6 +158,7 @@ pub struct ControlServiceState {
     gate_supervisor: Mutex<Option<AbortOnDropHandle<()>>>,
     gate_startup_cancel: Mutex<tokio_util::sync::CancellationToken>,
     continuous_connection: Mutex<Option<continuous_connection::ConnectionIntent>>,
+    proton_selection: std::sync::Mutex<usque_core::proton_vpn::ConnectionSelection>,
     network_quality_tx: watch::Sender<usque_transport::NetworkQualitySnapshot>,
     network_quality_relay: Mutex<Option<AbortOnDropHandle<()>>>,
     session_generation: AtomicU64,
@@ -530,6 +531,7 @@ impl ControlService {
                 gate_supervisor: Mutex::new(None),
                 gate_startup_cancel: Mutex::new(tokio_util::sync::CancellationToken::new()),
                 continuous_connection: Mutex::new(None),
+                proton_selection: Default::default(),
                 cache_dir,
                 profile_dir,
                 chain_cipher,
@@ -2149,6 +2151,13 @@ impl ControlService {
             return Ok(self.state.lock().await.snapshot().clone());
         }
         self.stop_failed_gate_locked().await?;
+        if self.data_plane.lock().await.as_ref().is_none_or(|active| {
+            active.profile_id != profile_id
+                || active.runtime.failure_retained()
+                || matches!(active.runtime.health(), RuntimeHealth::Failed { .. })
+        }) {
+            self.reset_proton_selection();
+        }
         #[cfg(any(windows, target_os = "linux"))]
         if let Some(snapshot) = self
             .retry_protected_target(profile_id, &startup_cancel, false)
@@ -3040,6 +3049,7 @@ impl ControlService {
         if startup_cancel.is_cancelled() {
             return Ok(self.state.lock().await.snapshot().clone());
         }
+        self.reset_proton_selection();
         let connected_profile = self
             .data_plane
             .lock()

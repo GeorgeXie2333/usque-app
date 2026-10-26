@@ -271,6 +271,7 @@ mod tests {
             refresh_at: 0,
             max_tier: 2,
             node: SelectedNode {
+                state: None,
                 metadata: catalogue[0].clone(),
                 domain: "agent.example.invalid".into(),
                 endpoint: Endpoint {

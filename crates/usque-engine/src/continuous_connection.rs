@@ -138,6 +138,7 @@ impl ControlService {
             let worker_cancel = cancellation.clone();
             let worker_wake = wake.clone();
             let weak = Arc::downgrade(&self.inner);
+            let mut new_connection = inherited.is_none();
             let snapshot = {
                 let mut state = self.state.lock().await;
                 let phase = if matches!(
@@ -172,6 +173,10 @@ impl ControlService {
                         };
                         if worker_cancel.is_cancelled() {
                             return;
+                        }
+                        if new_connection {
+                            service.reset_proton_selection();
+                            new_connection = false;
                         }
                         match service.stop_failed_gate_locked().await {
                             Ok(()) => {
@@ -274,6 +279,66 @@ pub(super) fn retry_network_error(error: &ControlServiceError) -> bool {
 mod tests {
     use super::*;
     use std::time::Duration;
+
+    #[tokio::test]
+    async fn automatic_restart_keeps_proton_affinity_and_new_user_intent_resets_it() {
+        let directory = tempfile::tempdir().unwrap();
+        // An empty vault stops each worker before any network startup.
+        let service = ControlService::open_with_vault(
+            ConfigStore::new(directory.path().join("config.json")),
+            Arc::new(crate::tests::MemoryVault::default()),
+        )
+        .unwrap();
+        let id = service.config_snapshot().await.active_profile_id.unwrap();
+        let account = Uuid::new_v4();
+        async fn finished(service: &ControlService) {
+            tokio::time::timeout(Duration::from_secs(2), async {
+                loop {
+                    if service
+                        .continuous_connection
+                        .lock()
+                        .await
+                        .as_ref()
+                        .is_some_and(|intent| intent.task.is_finished())
+                    {
+                        return;
+                    }
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .unwrap();
+        }
+        service.connect_continuously(id).await.unwrap();
+        finished(&service).await;
+        let connection = service.proton_selection.lock().unwrap().clone();
+        connection.remember(account, None, "chosen");
+        let token = service.gate_startup_cancel.lock().await.clone();
+        service.restart_continuously(id, token).await.unwrap();
+        finished(&service).await;
+        assert_eq!(
+            service
+                .proton_selection
+                .lock()
+                .unwrap()
+                .selected(account, None)
+                .as_deref(),
+            Some("chosen")
+        );
+
+        service.connect_continuously(id).await.unwrap();
+        finished(&service).await;
+        connection.remember(account, None, "late-old-worker");
+        assert_eq!(
+            service
+                .proton_selection
+                .lock()
+                .unwrap()
+                .selected(account, None),
+            None
+        );
+        service.retire_continuous_startup().await;
+    }
 
     #[tokio::test]
     async fn accepted_intent_does_not_wait_for_mutation_lock_and_stop_revokes_it() {

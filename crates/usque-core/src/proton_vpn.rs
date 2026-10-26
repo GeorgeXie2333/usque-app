@@ -2,10 +2,12 @@
 //! and an encrypted sidecar; ordinary status never contains an authentication URL.
 mod cache;
 mod connection;
+mod selection;
 pub mod store;
 pub use cache::ConnectionCache;
 pub use cache::valid_directory_validator;
 pub use connection::{ConnectionFailure, FailureKind, valid_label};
+pub use selection::ConnectionSelection;
 
 use crate::chain_exit::{Endpoint, ImportError};
 use serde::{Deserialize, Serialize};
@@ -195,6 +197,10 @@ impl Node {
 #[derive(Clone, Serialize, Deserialize)]
 pub struct SelectedNode {
     pub metadata: Node,
+    /// None marks an older directory snapshot without state classification.
+    /// Some("") means the current API directory supplied no state.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state: Option<String>,
     pub domain: String,
     pub endpoint: Endpoint,
     pub public_key: String,
@@ -204,6 +210,13 @@ pub struct SelectedNode {
 impl SelectedNode {
     pub fn validate(&self) -> Result<(), ImportError> {
         self.metadata.validate()?;
+        if self
+            .state
+            .as_ref()
+            .is_some_and(|state| state.len() > 128 || state.chars().any(char::is_control))
+        {
+            return Err(error("invalid_node"));
+        }
         if self.label.as_ref().is_some_and(|label| !valid_label(label)) {
             return Err(error("invalid_node"));
         }

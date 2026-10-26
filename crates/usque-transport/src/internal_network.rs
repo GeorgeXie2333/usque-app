@@ -33,6 +33,12 @@ enum HttpsPurpose {
 
 #[derive(Clone)]
 pub struct InternalNetwork {
+    #[cfg(feature = "wireguard")]
+    pub(crate) proton_selector: Arc<crate::proton_vpn::selection::Selector>,
+    #[cfg(feature = "wireguard")]
+    probe_protector: Option<Arc<dyn crate::socket::SocketProtector>>,
+    #[cfg(feature = "wireguard")]
+    probe_path: Option<crate::netstack::ActiveNetworkPath>,
     dialer: Arc<dyn TcpDialer>,
     resolver: Option<Resolver>,
     health: watch::Receiver<RuntimeHealth>,
@@ -248,6 +254,12 @@ impl InternalNetwork {
         ipv6: Ipv6Addr,
     ) -> Self {
         Self {
+            #[cfg(feature = "wireguard")]
+            proton_selector: Arc::default(),
+            #[cfg(feature = "wireguard")]
+            probe_protector: Some(stack.protector.clone()),
+            #[cfg(feature = "wireguard")]
+            probe_path: Some(stack.network_path.clone()),
             dialer: Arc::new(StackDialer {
                 channel: stack.channel.clone(),
                 ipv4,
@@ -277,6 +289,12 @@ impl InternalNetwork {
     ) -> Self {
         // CONNECT names are resolved within the WARP L4 session.
         Self {
+            #[cfg(feature = "wireguard")]
+            proton_selector: Arc::default(),
+            #[cfg(feature = "wireguard")]
+            probe_protector: None,
+            #[cfg(feature = "wireguard")]
+            probe_path: None,
             dialer,
             resolver: None,
             health,
@@ -289,6 +307,19 @@ impl InternalNetwork {
     }
     pub(crate) fn supports_udp(&self) -> bool {
         self.packet_channel.is_some()
+    }
+    #[cfg(feature = "wireguard")]
+    pub(crate) fn probe_generation(&self) -> Option<(u64, Option<u64>)> {
+        let session = self.control_generation()?;
+        let physical = self
+            .probe_protector
+            .as_ref()
+            .and_then(|p| p.network_generation());
+        let path = match &self.probe_path {
+            Some(path) => Some(path.generation(physical)?),
+            None => None,
+        };
+        Some((session, path))
     }
     pub(crate) fn session_generation(&self) -> Option<u64> {
         self.dialer.session_generation()
@@ -319,6 +350,16 @@ impl InternalNetwork {
         ipv6: Ipv6Addr,
     ) -> Self {
         self.packet_channel = Some((channel, ipv4, ipv6));
+        self
+    }
+    #[cfg(all(test, feature = "wireguard"))]
+    pub(crate) fn with_test_probe_path(
+        mut self,
+        protector: Arc<dyn crate::socket::SocketProtector>,
+        path: crate::netstack::ActiveNetworkPath,
+    ) -> Self {
+        self.probe_protector = Some(protector);
+        self.probe_path = Some(path);
         self
     }
     pub(crate) fn with_resolver(mut self, resolver: Resolver) -> Self {

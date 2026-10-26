@@ -15,6 +15,15 @@ pub(crate) struct FetchTask {
 }
 
 impl ControlService {
+    pub(crate) fn reset_proton_selection(&self) {
+        // Replace the shared handle: an old cancelled worker cannot overwrite
+        // affinity belonging to the next user connection.
+        *self
+            .proton_selection
+            .lock()
+            .unwrap_or_else(|error| error.into_inner()) = Default::default();
+    }
+
     /// A fresh explicit request may start after a completed cancellation.
     /// Internal retries never reset the user's stop signal.
     pub(crate) async fn gate_connection_request(&self) -> CancellationToken {
@@ -574,6 +583,11 @@ impl ControlService {
             .map_err(ControlServiceError::configuration)?;
             #[cfg(feature = "wireguard")]
             if let Some((_, prepared)) = selected.as_mut() {
+                prepared.proton_selection = self
+                    .proton_selection
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .clone();
                 usque_transport::proton_vpn::attach(
                     &self.profile_dir,
                     self.chain_cipher

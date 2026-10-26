@@ -216,6 +216,7 @@ impl GateDriver {
         deadline: Instant,
         lease: crate::proton_vpn::renew::Lease,
     ) -> Result<(Self, ManagedTunnelRuntime, FinalNetworkParameters), TransportError> {
+        let selection_network = warp.clone();
         let mut result = Self::start_attempt(
             profile,
             warp,
@@ -228,6 +229,9 @@ impl GateDriver {
             Some(lease),
         )
         .await;
+        if result.is_err() {
+            selection_network.invalidate_proton_selection().await;
+        }
         if result.is_err()
             && !cancel.is_cancelled()
             && let Some(persistence) = &profile.proton_persistence

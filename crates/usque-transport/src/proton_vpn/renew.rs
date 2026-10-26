@@ -5,6 +5,7 @@ use super::{
     api::{Client, Http},
     crypto::KeyMaterial,
     nodes,
+    selection::{Probe, Scope, Selector, WarpProbe},
     session::Access,
     warp_http::WarpHttp,
 };
@@ -622,8 +623,10 @@ pub(crate) async fn prepare(
     // authorization recovery). Keep this lease's API and DNS on the existing
     // WARP stack throughout its lifetime; system sockets would depend on the
     // very Proton connection these requests are preparing or repairing.
+    let selector = warp.proton_selector.clone();
+    let probe = Arc::new(WarpProbe::new(warp.clone()));
     let http = Arc::new(WarpHttp::new(warp));
-    let result = prepare_with_http(profile, http.clone(), cancel).await;
+    let result = prepare_with_http(profile, http.clone(), &selector, probe, cancel).await;
     if result.is_err() {
         http.shutdown().await;
     }
@@ -633,6 +636,8 @@ pub(crate) async fn prepare(
 async fn prepare_with_http(
     profile: &mut PreparedProfile,
     http: Arc<dyn Http>,
+    selector: &Selector,
+    probe: Arc<dyn Probe>,
     cancel: &CancellationToken,
 ) -> Result<(Arc<TunnelCredentials>, Lease), Failure> {
     let stage_started = tokio::time::Instant::now();
@@ -662,20 +667,39 @@ async fn prepare_with_http(
             .permissions(&mut client, &mut record, &NoInteraction, cancel)
             .await?;
     }
-    let selected = match &profile.proton_server_id {
+    let preference = match &profile.proton_server_id {
         Some(id) => (!id.is_empty()).then(|| id.clone()),
         None => record.selected_server().map(str::to_owned),
     };
-    record.server_id = selected.clone();
+    let pinned = profile
+        .proton_selection
+        .selected(record.id, preference.as_deref());
+    let selected = preference.clone().or(pinned);
+    // Affinity is volatile runtime state, never a saved manual preference.
+    record.server_id = preference.clone();
     record.promote();
-    let cached_peer = record.connection_cache.as_ref().and_then(|cache| {
+    // Automatic selection requires every known city. Legacy or size-trimmed
+    // snapshots must fetch a full directory before selecting representatives.
+    if selected.is_none()
+        && let Some(cache) = record.connection_cache.as_mut()
+        && (!cache.directory_complete || cache.peers.iter().any(|peer| peer.state.is_none()))
+    {
+        cache.invalidate_directory();
+    }
+    let cached = record.connection_cache.as_ref().and_then(|cache| {
         cache
             .peer(selected.as_deref(), super::interaction::now())
-            .cloned()
+            .map(|peer| {
+                if selected.is_some() {
+                    vec![peer.clone()]
+                } else {
+                    cache.peers.clone()
+                }
+            })
     });
-    let directory_cached = cached_peer.is_some();
-    let directory = if let Some(peer) = cached_peer {
-        vec![peer]
+    let directory_cached = cached.is_some();
+    let directory = if let Some(peers) = cached {
+        peers
     } else {
         access
             .directory(&mut client, &mut record, &NoInteraction, cancel)
@@ -687,11 +711,24 @@ async fn prepare_with_http(
             .find(|node| node.metadata.id == id)
             .ok_or_else(|| Failure::new("selected_server_unavailable"))?
     } else {
-        directory
-            .into_iter()
-            .next()
-            .ok_or_else(|| Failure::new("no_free_wireguard_nodes"))?
+        selector
+            .select(
+                &directory,
+                Scope {
+                    account: record.id,
+                    catalogue: record.catalog_revision,
+                },
+                probe,
+                cancel,
+            )
+            .await?
     };
+    current(&*http, generation, cancel)?;
+    // Pin before certificate/startup work so an automatic retry after failure
+    // repairs this logical node without repeating latency selection.
+    profile
+        .proton_selection
+        .remember(record.id, preference.as_deref(), &peer.metadata.id);
     let keys = KeyMaterial::from_seed(
         record
             .tunnel_seed()
@@ -726,7 +763,7 @@ async fn prepare_with_http(
     } else {
         validate_cached(&record, &keys)?;
     }
-    record.server_id = selected;
+    record.server_id = preference;
     record.promote();
     access.save(&record, cancel).await?;
     let credentials = Arc::new(TunnelCredentials {
@@ -744,6 +781,7 @@ async fn prepare_with_http(
     resolved.proton = Some(credentials.clone());
     resolved.proton_persistence = Some(persistence.clone());
     resolved.proton_server_id = profile.proton_server_id.clone();
+    resolved.proton_selection = profile.proton_selection.clone();
     *profile = resolved;
     tracing::debug!(
         probe_stage = "proton_prepare",

@@ -156,6 +156,10 @@ internal object NativeEngine {
         if (libraryLoaded) nativeCancel()
     }
 
+    fun resetProtonSelection() {
+        if (libraryLoaded) nativeResetProtonSelection()
+    }
+
     fun notifyNetworkChanged(generation: Long) {
         if (libraryLoaded) nativeNotifyNetworkChanged(generation)
     }
@@ -291,6 +295,8 @@ internal object NativeEngine {
     private external fun nativeStopConfirmed(): Boolean
 
     private external fun nativeCancel()
+
+    private external fun nativeResetProtonSelection()
 
     private external fun nativeNotifyNetworkChanged(generation: Long)
 

@@ -147,6 +147,7 @@ pub(super) fn collect_for_tier(
                 _ => continue,
             };
             let node = SelectedNode {
+                state: Some(text(logical.get("State"), 128).unwrap_or("").into()),
                 metadata: Node {
                     id: logical_id.into(),
                     name: name.into(),

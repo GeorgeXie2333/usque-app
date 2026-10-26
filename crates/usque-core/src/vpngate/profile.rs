@@ -26,6 +26,7 @@ pub struct PreparedProfile {
     pub proton: Option<std::sync::Arc<crate::proton_vpn::TunnelCredentials>>,
     pub proton_persistence: Option<std::sync::Arc<dyn crate::proton_vpn::LeasePersistence>>,
     pub proton_server_id: Option<String>,
+    pub proton_selection: crate::proton_vpn::ConnectionSelection,
 }
 impl fmt::Debug for PreparedProfile {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -60,6 +61,7 @@ impl PreparedProfile {
             proton: None,
             proton_persistence: None,
             proton_server_id: None,
+            proton_selection: Default::default(),
         }
     }
     pub fn content(&self) -> &str {
@@ -208,6 +210,7 @@ pub fn prepare_profile(
         proton: None,
         proton_persistence: None,
         proton_server_id: None,
+        proton_selection: Default::default(),
     })
 }
 

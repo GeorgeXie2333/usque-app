@@ -65,6 +65,7 @@ async fn feedback_saturation(count: usize, terminate_ipv6: bool) {
     let profile = Profile::default();
     let telemetry = ConnectionTelemetry::default();
     let (publisher, updates) = crate::tcp_packet_budget::BudgetPublisher::new();
+    let network_path = ActiveNetworkPath::default();
     let pump = pump_active_tunnel(
         MasqueTunnel::Http3(Box::new(tunnel)),
         path,
@@ -81,6 +82,7 @@ async fn feedback_saturation(count: usize, terminate_ipv6: bool) {
         0,
         None,
         Some(&publisher),
+        &network_path,
     );
     tokio::pin!(pump);
     actor

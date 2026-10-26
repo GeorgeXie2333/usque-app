@@ -25,6 +25,35 @@ use usque_core::{
 use uuid::Uuid;
 use zeroize::Zeroize;
 
+struct ReachableProbe;
+#[async_trait]
+impl Probe for ReachableProbe {
+    fn generation(&self) -> Option<(u64, Option<u64>)> {
+        Some((1, None))
+    }
+    async fn measure(
+        &self,
+        _: &SelectedNode,
+        _: &CancellationToken,
+    ) -> Result<Option<Duration>, Failure> {
+        Ok(Some(Duration::from_millis(10)))
+    }
+}
+async fn prepare_with_http(
+    profile: &mut PreparedProfile,
+    http: Arc<dyn Http>,
+    cancel: &CancellationToken,
+) -> Result<(Arc<TunnelCredentials>, Lease), Failure> {
+    super::prepare_with_http(
+        profile,
+        http,
+        &Selector::default(),
+        Arc::new(ReachableProbe),
+        cancel,
+    )
+    .await
+}
+
 struct MemoryStore {
     record: Mutex<Record>,
     writes: Mutex<Vec<Record>>,
@@ -230,6 +259,7 @@ fn fixture() -> (Record, PreparedProfile, Arc<MemoryStore>) {
     let expires_at = super::super::interaction::now() + 3600;
     let certificate_chain = Zeroizing::new(certificate(&keys, expires_at));
     let node = SelectedNode {
+        state: Some(String::new()),
         metadata: Node {
             id: "logical:physical".into(),
             name: "Synthetic node".into(),
@@ -304,6 +334,209 @@ fn cache_record(record: &mut Record) {
     cache.set_config(vec![443], now);
     cache.set_directory(&[peer], record.selected_server(), now);
     record.connection_cache = Some(cache);
+}
+
+struct RecordingProbe(Mutex<Vec<String>>);
+#[async_trait]
+impl Probe for RecordingProbe {
+    fn generation(&self) -> Option<(u64, Option<u64>)> {
+        Some((1, None))
+    }
+    async fn measure(
+        &self,
+        peer: &SelectedNode,
+        _: &CancellationToken,
+    ) -> Result<Option<Duration>, Failure> {
+        self.0.lock().unwrap().push(peer.metadata.id.clone());
+        Ok(Some(Duration::from_millis(if peer.metadata.id == "fast" {
+            5
+        } else {
+            50
+        })))
+    }
+}
+
+#[tokio::test]
+async fn automatic_preparation_measures_all_cached_cities_without_persisting_a_manual_choice() {
+    for manual in [false, true] {
+        let (mut record, mut profile, store) = fixture();
+        cache_record(&mut record);
+        let cache = record.connection_cache.as_mut().unwrap();
+        cache.peers[0].metadata.city = "New York".into();
+        let mut fast = cache.peers[0].clone();
+        fast.metadata.id = "fast".into();
+        fast.metadata.city = "Los Angeles".into();
+        fast.metadata.load = 99;
+        fast.domain = "fast.example.invalid".into();
+        fast.endpoint.host = "1.1.1.1".into();
+        let mut redundant = fast.clone();
+        redundant.metadata.id = "same-city-unused".into();
+        redundant.metadata.load = 100;
+        cache.peers.extend([fast, redundant]);
+        record.server_catalog = cache.peers.iter().map(|p| p.metadata.clone()).collect();
+        store.save(&record).unwrap();
+        profile.proton_server_id = Some(if manual { "logical" } else { "" }.into());
+        let probe = Arc::new(RecordingProbe(Mutex::new(Vec::new())));
+        let http = mock(vec![]);
+        let (_, lease) = super::prepare_with_http(
+            &mut profile,
+            http.clone(),
+            &Selector::default(),
+            probe.clone(),
+            &CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+        assert!(http.requests.lock().unwrap().is_empty());
+        assert_eq!(
+            lease.peer.as_ref().unwrap().metadata.id,
+            if manual { "logical" } else { "fast" }
+        );
+        let saved = store.load().unwrap();
+        assert_eq!(saved.server_id.as_deref(), manual.then_some("logical"));
+        assert_eq!(saved.server_catalog.len(), 3);
+        assert_eq!(saved.connection_cache.unwrap().peers.len(), 3);
+        let calls = probe.0.lock().unwrap();
+        if manual {
+            assert!(calls.is_empty());
+        } else {
+            assert_eq!(calls.len(), 6);
+            assert!(!calls.iter().any(|id| id == "same-city-unused"));
+            assert_eq!(profile.summary.as_ref().unwrap().endpoint.host, "1.1.1.1");
+        }
+    }
+}
+
+#[tokio::test]
+async fn automatic_preparation_refreshes_trimmed_and_legacy_city_snapshots() {
+    for legacy in [false, true] {
+        let (mut record, mut profile, store) = fixture();
+        cache_record(&mut record);
+        let cache = record.connection_cache.as_mut().unwrap();
+        cache.directory_last_modified = Some("Mon, 26 Oct 2026 00:00:00 GMT".into());
+        if legacy {
+            cache.peers[0].state = None;
+        } else {
+            cache.directory_complete = false;
+        }
+        store.save(&record).unwrap();
+        profile.proton_server_id = Some(String::new());
+        let http = mock(vec![Answer::Directory(directory())]);
+        prepare_with_http(&mut profile, http.clone(), &CancellationToken::new())
+            .await
+            .unwrap();
+        assert_eq!(http.requests.lock().unwrap().len(), 1);
+        assert!(
+            http.headers.lock().unwrap()[0]
+                .iter()
+                .all(|(name, _)| !name.eq_ignore_ascii_case("if-modified-since"))
+        );
+        let saved = store.load().unwrap();
+        let cache = saved.connection_cache.unwrap();
+        assert!(cache.directory_complete);
+        assert!(cache.peers.iter().all(|node| node.state.is_some()));
+    }
+}
+
+struct NoProbe;
+#[async_trait]
+impl Probe for NoProbe {
+    fn generation(&self) -> Option<(u64, Option<u64>)> {
+        panic!("automatic reconnect must not consult latency selection")
+    }
+    async fn measure(
+        &self,
+        _: &SelectedNode,
+        _: &CancellationToken,
+    ) -> Result<Option<Duration>, Failure> {
+        panic!("automatic reconnect must not measure latency")
+    }
+}
+
+#[tokio::test]
+async fn automatic_reconnect_keeps_node_after_cache_expiry_and_refreshes_its_endpoint() {
+    let (mut record, mut profile, store) = fixture();
+    cache_record(&mut record);
+    profile.proton_server_id = Some(String::new());
+    // Runtime reconstruction and the internal key-recovery loop start from the
+    // original template. Its shared connection handle must observe the choice.
+    let mut retry = profile.clone();
+    store.save(&record).unwrap();
+    let (_, first) = prepare_with_http(&mut profile, mock(vec![]), &CancellationToken::new())
+        .await
+        .unwrap();
+    assert_eq!(first.peer.unwrap().metadata.id, "logical");
+    let mut saved = store.load().unwrap();
+    let cache = saved.connection_cache.as_mut().unwrap();
+    cache.permissions_at -= 43_201;
+    cache.directory_at -= 43_201;
+    cache.config_at -= 43_201;
+    saved.catalog_revision = Uuid::new_v4();
+    store.save(&saved).unwrap();
+
+    // A fresh selector represents a completely rebuilt WARP runtime. Even the
+    // probe-generation accessor is forbidden; cache TTL cannot release affinity.
+    let http = mock(success_answers());
+    let (_, resumed) = super::prepare_with_http(
+        &mut retry,
+        http.clone(),
+        &Selector::default(),
+        Arc::new(NoProbe),
+        &CancellationToken::new(),
+    )
+    .await
+    .unwrap();
+    let peer = resumed.peer.unwrap();
+    assert_eq!(peer.metadata.id, "logical");
+    assert_eq!(peer.endpoint.host, "8.8.8.8");
+    assert_eq!(peer.endpoint.port, 443);
+    assert_eq!(peer.domain, "fresh.example.invalid");
+    assert_eq!(http.requests.lock().unwrap().len(), 4);
+    assert_eq!(store.load().unwrap().server_id, None);
+    assert_eq!(retry.proton_server_id.as_deref(), Some(""));
+}
+
+#[tokio::test]
+async fn missing_pinned_node_fails_without_probing_until_a_new_user_connection() {
+    let (mut record, mut profile, store) = fixture();
+    cache_record(&mut record);
+    profile.proton_server_id = Some(String::new());
+    let mut retry = profile.clone();
+    store.save(&record).unwrap();
+    prepare_with_http(&mut profile, mock(vec![]), &CancellationToken::new())
+        .await
+        .unwrap();
+    invalidate_peer(store.clone()).await.unwrap();
+    let mut changed = directory();
+    changed["LogicalServers"][0]["ID"] = json!("replacement");
+    let http = mock(vec![Answer::Json(config()), Answer::Json(changed.clone())]);
+    let error = super::prepare_with_http(
+        &mut retry,
+        http,
+        &Selector::default(),
+        Arc::new(NoProbe),
+        &CancellationToken::new(),
+    )
+    .await
+    .err()
+    .unwrap();
+    assert_eq!(error.reason, "selected_server_unavailable");
+    assert_eq!(store.load().unwrap().server_id, None);
+
+    retry.proton_selection = Default::default();
+    let probe = Arc::new(RecordingProbe(Mutex::new(Vec::new())));
+    let (_, replacement) = super::prepare_with_http(
+        &mut retry,
+        mock(vec![Answer::Json(config()), Answer::Json(changed)]),
+        &Selector::default(),
+        probe.clone(),
+        &CancellationToken::new(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(replacement.peer.unwrap().metadata.id, "replacement");
+    assert!(!probe.0.lock().unwrap().is_empty());
+    assert_eq!(store.load().unwrap().server_id, None);
 }
 
 #[tokio::test]

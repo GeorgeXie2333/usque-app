@@ -761,6 +761,9 @@ class UsqueVpnService : VpnService() {
                 check(stopped.get(35, TimeUnit.SECONDS)) { "Native stop is unconfirmed" }
                 if (!isCurrent(generation)) return@execute
                 if (staleDescriptor != null) closeOwnedTun(generation, staleDescriptor)
+                // Only a fresh user intent may reselect a Proton node. Network
+                // recovery and settings restarts retain the process-local pin.
+                if (newSession) NativeEngine.resetProtonSelection()
                 startConnection(generation, profileJson, networkRecovery)
             } catch (error: Exception) {
                 fail(

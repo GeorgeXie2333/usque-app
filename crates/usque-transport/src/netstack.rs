@@ -45,8 +45,12 @@ use crate::telemetry::{
 use crate::tunnel::{BatchSendFuture, MasqueTunnel};
 
 mod feedback;
+mod network_path;
+pub(crate) use network_path::ActiveNetworkPath;
 #[cfg(test)]
 mod feedback_tests;
+#[cfg(test)]
+mod network_path_tests;
 #[cfg(test)]
 mod ownership_tests;
 mod reconnect;
@@ -183,6 +187,11 @@ impl TrafficCounters {
 }
 
 pub(crate) struct PacketStack {
+    #[cfg_attr(
+        not(feature = "wireguard"),
+        expect(dead_code, reason = "path-bound Proton probes require WireGuard")
+    )]
+    pub(crate) network_path: ActiveNetworkPath,
     pub(crate) frontend_admission: Arc<crate::tcp::FrontendAdmission>,
     pub(crate) warp_dns: Option<Arc<crate::encrypted_dns::FinalDohResolver>>,
     pub(crate) traffic_policy: Arc<crate::application_traffic::ApplicationTrafficPolicy>,
@@ -238,6 +247,7 @@ impl PacketStack {
             .map_err(|error| TransportError::Netstack(error.to_string()))?;
 
         let mut packet_stack = Self {
+            network_path: monitor.network_path.clone(),
             frontend_admission: crate::tcp::FrontendAdmission::for_connect_ip(),
             warp_dns: None,
             channel,
@@ -331,6 +341,13 @@ impl PacketStack {
             cancellation.child_token(),
         );
         let mut tasks = vec![stack_task, quality_task];
+        let network_path = ActiveNetworkPath::default();
+        network_path.activate(
+            tunnel
+                .migration_handle()
+                .map(|handle| handle.initial_generation())
+                .or_else(|| protector.network_generation()),
+        );
         match crate::tcp_packet_budget::attach(&channel, Some(budget_updates), &cancellation).await
         {
             Ok(Some(task)) => tasks.push(task),
@@ -348,6 +365,7 @@ impl PacketStack {
             endpoint_family,
             PacketIo::from_pipe(pipe),
             SupervisorContext {
+                network_path: network_path.clone(),
                 budget_publisher,
                 profile: profile.clone(),
                 identity,
@@ -378,6 +396,7 @@ impl PacketStack {
         }));
 
         let mut packet_stack = Self {
+            network_path,
             frontend_admission: crate::tcp::FrontendAdmission::for_connect_ip(),
             warp_dns: None,
             channel,
@@ -582,6 +601,7 @@ impl Drop for PacketStack {
 /// here originate from the platform TUN; the transport supervisor validates
 /// them and decrements TTL/hop-limit immediately before encapsulation.
 pub struct ManagedTunnelRuntime {
+    network_path: ActiveNetworkPath,
     tcp_packet_budget: Option<watch::Receiver<crate::tcp_packet_budget::TcpPacketBudget>>,
     outgoing: Option<TrackedSender<OutboundPacket>>,
     incoming: TrackedReceiver<PacketBatch>,
@@ -614,6 +634,7 @@ pub(crate) struct ExternalPacketChannels {
 /// monitor to publish health and traffic without sharing mutable tunnel I/O.
 #[derive(Clone)]
 pub struct ManagedTunnelMonitor {
+    network_path: ActiveNetworkPath,
     tcp_packet_budget: Option<watch::Receiver<crate::tcp_packet_budget::TcpPacketBudget>>,
     failure: watch::Receiver<Option<String>>,
     health: watch::Receiver<RuntimeHealth>,
@@ -715,6 +736,7 @@ impl ManagedTunnelMonitor {
     pub fn failed(path: RuntimePath, error: &TransportError) -> Self {
         let telemetry = ConnectionTelemetry::default();
         Self {
+            network_path: ActiveNetworkPath::default(),
             tcp_packet_budget: None,
             failure: watch::channel(Some(error.to_string())).1,
             health: watch::channel(RuntimeHealth::Failed {
@@ -737,6 +759,7 @@ impl ManagedTunnelMonitor {
         quality: watch::Receiver<NetworkQualitySnapshot>,
     ) -> Self {
         Self {
+            network_path: ActiveNetworkPath::default(),
             tcp_packet_budget: None,
             failure: watch::channel(None).1,
             health,
@@ -763,7 +786,10 @@ impl ManagedTunnelMonitor {
         let (_control_tx, control) = watch::channel(PeerNetworkState::default());
         let telemetry = ConnectionTelemetry::default();
         let quality = initial_quality_receiver(&telemetry);
+        let network_path = ActiveNetworkPath::default();
+        network_path.activate(None);
         Self {
+            network_path,
             tcp_packet_budget: None,
             failure,
             health,
@@ -856,6 +882,7 @@ impl ManagedTunnelRuntime {
         (
             Self {
                 tcp_packet_budget: None,
+                network_path: ActiveNetworkPath::default(),
                 outgoing: Some(outgoing),
                 incoming,
                 pending_incoming: PacketBatch::new(),
@@ -911,6 +938,7 @@ impl ManagedTunnelRuntime {
         (
             Self {
                 tcp_packet_budget: None,
+                network_path: ActiveNetworkPath::default(),
                 outgoing: Some(outgoing),
                 incoming,
                 pending_incoming: PacketBatch::new(),
@@ -1042,6 +1070,15 @@ impl ManagedTunnelRuntime {
             Arc::clone(&counters),
             cancellation.child_token(),
         );
+        let network_path = ActiveNetworkPath::default();
+        if let Some((tunnel, _, _, _)) = &initial {
+            network_path.activate(
+                tunnel
+                    .migration_handle()
+                    .map(|handle| handle.initial_generation())
+                    .or_else(|| protector.network_generation()),
+            );
+        }
         let mut tasks = vec![
             quality_task,
             tokio::spawn(run_initial_transport_supervisor(
@@ -1052,6 +1089,7 @@ impl ManagedTunnelRuntime {
                     buffered_outgoing: None,
                 },
                 SupervisorContext {
+                    network_path: network_path.clone(),
                     budget_publisher,
                     profile: profile.clone(),
                     identity,
@@ -1082,6 +1120,7 @@ impl ManagedTunnelRuntime {
         }));
 
         Ok(Self {
+            network_path,
             outgoing: Some(outgoing),
             incoming,
             pending_incoming: PacketBatch::new(),
@@ -1165,6 +1204,7 @@ impl ManagedTunnelRuntime {
 
     pub fn monitor(&self) -> ManagedTunnelMonitor {
         ManagedTunnelMonitor {
+            network_path: self.network_path.clone(),
             tcp_packet_budget: self.tcp_packet_budget.clone(),
             failure: self.failure.clone(),
             health: self.health.clone(),
@@ -2182,6 +2222,7 @@ impl PacketIo {
 }
 
 struct SupervisorContext {
+    network_path: ActiveNetworkPath,
     budget_publisher: crate::tcp_packet_budget::BudgetPublisher,
     profile: Profile,
     identity: Arc<MasqueTlsIdentity>,
@@ -2296,6 +2337,7 @@ async fn run_transport_supervisor(
     context: SupervisorContext,
 ) {
     let SupervisorContext {
+        network_path,
         budget_publisher,
         profile,
         mut identity,
@@ -2340,6 +2382,7 @@ async fn run_transport_supervisor(
             probe_generation,
             protector.network_generation(),
             Some(&budget_publisher),
+            &network_path,
         )
         .await;
         probe_generation = probe_generation.wrapping_add(1);
@@ -2720,6 +2763,7 @@ async fn pump_active_tunnel(
     probe_generation: u32,
     network_generation: Option<u64>,
     budget_publisher: Option<&crate::tcp_packet_budget::BudgetPublisher>,
+    network_path: &ActiveNetworkPath,
 ) -> ActiveOutcome {
     let active_transport = tunnel.transport();
     let mut budget_updates = tunnel.packet_budget();
@@ -2761,6 +2805,7 @@ async fn pump_active_tunnel(
             .on_path(active_transport, active_path.endpoint_family),
         );
     }
+    network_path.activate(active_generation);
     let _ = health_tx.send(RuntimeHealth::Connected {
         path: current_path,
         reconnect_count,
@@ -2843,6 +2888,9 @@ async fn pump_active_tunnel(
                     if network_generation == completed.target_generation);
                 if promoted {
                     active_generation = Some(completed.target_generation);
+                    // Publication follows the actor's completed promotion.
+                    // Until then probes reject the old/target generation gap.
+                    network_path.activate(active_generation);
                 }
                 let current = protector.network_generation();
                 if let Some(target_generation) = current
@@ -3127,6 +3175,7 @@ async fn pump_active_tunnel(
             }
         }
     };
+    network_path.deactivate();
     send.close();
     outcome
 }

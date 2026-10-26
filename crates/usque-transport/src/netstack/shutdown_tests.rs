@@ -58,6 +58,7 @@ async fn pump_fixture(tunnel: MasqueTunnel, cancellation: CancellationToken) -> 
         0,
         None,
         None,
+        &ActiveNetworkPath::default(),
     )
     .await
 }

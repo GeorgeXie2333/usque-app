@@ -31,6 +31,22 @@ fn v2_entry_ip_directory_without_per_protocol_map_yields_free_wireguard_nodes() 
     assert_eq!(nodes[0].metadata.id, "logical");
     // Binary logical status/load is separate; no fabricated zero-load score.
     assert_eq!(nodes[0].metadata.load, 100);
+    assert_eq!(nodes[0].state.as_deref(), Some(""));
+}
+
+#[test]
+fn directory_preserves_state_and_city_for_automatic_grouping() {
+    let mut value = directory();
+    value["LogicalServers"][0]["State"] = json!("California");
+    value["LogicalServers"][0]["City"] = json!("Los Angeles");
+    let nodes = collect(&value, &config()).unwrap();
+    assert_eq!(nodes[0].state.as_deref(), Some("California"));
+    assert_eq!(nodes[0].metadata.city, "Los Angeles");
+    let mut legacy = serde_json::to_value(&nodes[0]).unwrap();
+    legacy.as_object_mut().unwrap().remove("state");
+    let restored: usque_core::proton_vpn::SelectedNode = serde_json::from_value(legacy).unwrap();
+    assert!(restored.state.is_none());
+    restored.validate().unwrap();
 }
 
 #[test]
