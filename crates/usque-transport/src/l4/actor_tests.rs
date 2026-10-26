@@ -236,7 +236,24 @@ async fn rejection_and_cancellation_are_stream_local() {
     assert_eq!(&buf, b"hello");
     good.cancellation.cancel();
     peer.pump();
-    assert!(stream.write_all(b"never replay").await.is_err());
+    // Check the raw error before invoking helpers: Interrupted is retried
+    // inside a single poll, so an async timeout cannot catch that regression.
+    let error =
+        std::future::poll_fn(|cx| std::pin::Pin::new(&mut *stream).poll_write(cx, b"never replay"))
+            .await
+            .unwrap_err();
+    assert_eq!(error.kind(), std::io::ErrorKind::ConnectionAborted);
+    assert_eq!(
+        stream.write_all(b"never replay").await.unwrap_err().kind(),
+        std::io::ErrorKind::ConnectionAborted
+    );
+    let mut received = Vec::new();
+    assert_eq!(
+        stream.read_to_end(&mut received).await.unwrap_err().kind(),
+        std::io::ErrorKind::ConnectionAborted
+    );
+    assert!(received.is_empty());
+    assert!(good.lock().outgoing.is_empty());
     assert!(!peer.actor.handle.closed.load(Ordering::Acquire));
 }
 

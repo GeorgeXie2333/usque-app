@@ -90,7 +90,9 @@ impl From<DialError> for io::Error {
     fn from(error: DialError) -> Self {
         let kind = match error {
             DialError::Timeout => io::ErrorKind::TimedOut,
-            DialError::Cancelled => io::ErrorKind::Interrupted,
+            // Cancellation is terminal. Async I/O helpers retry Interrupted,
+            // which would spin forever on an already cancelled L4 stream.
+            DialError::Cancelled => io::ErrorKind::ConnectionAborted,
             DialError::Refused => io::ErrorKind::ConnectionRefused,
             DialError::Closed => io::ErrorKind::ConnectionReset,
             DialError::Budget => io::ErrorKind::WouldBlock,
