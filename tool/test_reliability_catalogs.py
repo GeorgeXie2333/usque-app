@@ -60,12 +60,18 @@ class ReliabilityCatalogueTest(unittest.TestCase):
                 _section(proton, "String? protonConnectionFailure", "String? protonGateFailure"),
             )
         )
+        proton_catalog = (ROOT / "apps/usque_gui/lib/core/l10n/proton.dart").read_text(
+            encoding="utf-8"
+        )
         proton_chinese_keys = set(
             re.findall(
                 r"['\"]([a-z_]+)['\"]\s*:",
-                _section(proton, "const _chinese", "extension ProtonStrings"),
+                _section(proton_catalog, "const kProtonZhCn", "const kProtonCatalogs"),
             )
         )
+        self.assertIn("import 'l10n/proton.dart';", proton)
+        self.assertIn("kProtonCatalogs[catalogId]", proton)
+        self.assertRegex(proton_catalog, r"'zh_CN'\s*:\s*kProtonZhCn\b")
         self.assertTrue(proton_titles)
         self.assertLessEqual(set(proton_titles.values()), proton_chinese_keys)
         resolver = (ROOT / "apps/usque_gui/lib/core/diagnostics_strings.dart").read_text(
