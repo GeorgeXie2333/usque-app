@@ -49,7 +49,6 @@ const Map<String, String> kItCatalog = <String, String>{
   'notice_kill_switch_blocking':
       'Il Kill Switch blocca il traffico di rete finché la connessione non viene ripristinata o non ti disconnetti.',
   'connection_status': 'Stato della connessione',
-  'outputs': '{tunnel} e proxy locali',
   'home': 'Inizio',
   'profiles': 'Account',
   'profiles_subtitle': 'Cambia e gestisci gli account WARP.',
@@ -356,7 +355,6 @@ const Map<String, String> kItCatalog = <String, String>{
   'invalid_address': 'Indirizzo non valido',
   'invalid_dns_name': 'Nome DNS non valido',
   'invalid_cidr': 'CIDR non valido',
-  'diagnostics_title': 'Diagnostica e informazioni',
   'diagnostics_subtitle':
       'Controlla i problemi di connessione, esporta i registri e gestisci i dati locali.',
   'engine_status': 'Informazioni sulla connessione',

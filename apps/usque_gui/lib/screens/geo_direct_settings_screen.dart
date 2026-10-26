@@ -35,6 +35,7 @@ class _GeoDirectSettingsScreenState extends State<GeoDirectSettingsScreen> {
   bool _saved = false;
   String? _error;
   List<String> _backendErrorIds = [];
+  String? _backendErrorKey;
   String get _draft =>
       '${_orderedCountries(_enabled).join(',')}|${jsonEncode(_routing.toMap())}';
   bool get _dirty => _draft != _baseline;
@@ -76,14 +77,21 @@ class _GeoDirectSettingsScreenState extends State<GeoDirectSettingsScreen> {
     _saved = false;
     _error = null;
     _backendErrorIds = [];
+    _backendErrorKey = null;
   });
 
+  /// Names affected rules by target: the list has no numbering, and targets
+  /// stay meaningful after rules are added or removed.
   String _issue(String key, List<String> ids) {
-    final positions = ids
-        .map((id) => _routing.rules.indexWhere((rule) => rule.id == id) + 1)
-        .where((index) => index > 0)
-        .join(', ');
-    return '${widget.controller.strings.get(key)}${positions.isEmpty ? '' : ' ($positions)'}';
+    // Normalized duplicates share a target; name it once.
+    final targets = {
+      for (final id in ids)
+        ?_routing.rules.where((rule) => rule.id == id).firstOrNull?.target,
+    }.toList();
+    final named = targets.length > 3
+        ? '${targets.take(3).join(', ')}, …'
+        : targets.join(', ');
+    return '${widget.controller.strings.get(key)}${named.isEmpty ? '' : ' ($named)'}';
   }
 
   Future<void> _save() async {
@@ -100,6 +108,7 @@ class _GeoDirectSettingsScreenState extends State<GeoDirectSettingsScreen> {
       setState(() {
         _error = _issue(error.key, error.ids);
         _backendErrorIds = error.ids;
+        _backendErrorKey = error.key;
       });
       return;
     }
@@ -128,15 +137,14 @@ class _GeoDirectSettingsScreenState extends State<GeoDirectSettingsScreen> {
       if (saved) {
         _load(controller.activeProfile);
         _backendErrorIds = [];
+        _backendErrorKey = null;
       } else {
         _backendErrorIds = controller.networkSettings.routingErrorIds;
+        _backendErrorKey =
+            controller.networkSettings.routingErrorKey ?? 'routing_conflict';
         _error = _backendErrorIds.isEmpty
             ? controller.lastError ?? controller.strings.get('changes_failed')
-            : _issue(
-                controller.networkSettings.routingErrorKey ??
-                    'routing_conflict',
-                _backendErrorIds,
-              );
+            : _issue(_backendErrorKey!, _backendErrorIds);
       }
     });
   }
@@ -149,13 +157,35 @@ class _GeoDirectSettingsScreenState extends State<GeoDirectSettingsScreen> {
       final strings = controller.strings;
       String? validationError;
       var errorIds = _backendErrorIds;
+      var errorKey = _backendErrorKey;
       List<RoutingNotice> notices = [];
       try {
         notices = _routing.validate().notices;
       } on RoutingRuleError catch (error) {
         validationError = _issue(error.key, error.ids);
         errorIds = error.ids;
+        errorKey = error.key;
       }
+      // Overlaps are marked on their rows; other notices stay below the list.
+      final overlapIds = {
+        for (final notice in notices)
+          if (notice.key == 'routing_overlap') ...notice.ids,
+      };
+      final listNotices = notices
+          .where((notice) => notice.key != 'routing_overlap')
+          .take(8);
+      final statusLabel =
+          controller.networkSettings.unconfirmed ||
+              (_error == null &&
+                  (!_dirty || controller.networkSettings.saveError != null))
+          ? controller.networkSettingsMessage
+          : null;
+      final onReconnect = controller.networkSettingsCanReconnect
+          ? controller.retry
+          : null;
+      final onRefresh = controller.networkSettings.canRefresh
+          ? controller.networkSettings.refresh
+          : null;
       return UnsavedChangesGuard(
         strings: strings,
         dirty: _dirty,
@@ -164,30 +194,32 @@ class _GeoDirectSettingsScreenState extends State<GeoDirectSettingsScreen> {
           contentWidth: 880,
           title: strings.get('geo_direct'),
           backLabel: strings.get('back'),
-          bottomBar: SaveChangesBar(
-            strings: strings,
-            dirty: _dirty,
-            saving: _saving,
-            saved: _saved,
-            error: _error,
-            validationError: validationError,
-            statusLabel:
-                controller.networkSettings.unconfirmed ||
-                    (_error == null &&
-                        (!_dirty ||
-                            controller.networkSettings.saveError != null))
-                ? controller.networkSettingsMessage
-                : null,
-            onReconnect: controller.networkSettingsCanReconnect
-                ? controller.retry
-                : null,
-            onRefresh: controller.networkSettings.canRefresh
-                ? controller.networkSettings.refresh
-                : null,
-            refreshing: controller.networkSettings.refreshing,
-            contentWidth: 880,
-            matchPageGutter: true,
-            onSave: validationError == null ? _save : null,
+          bottomBar: RevealedSaveBar(
+            visible: RevealedSaveBar.hasContent(
+              dirty: _dirty,
+              saving: _saving,
+              saved: _saved,
+              error: _error,
+              validationError: validationError,
+              statusLabel: statusLabel,
+              onReconnect: onReconnect,
+              onRefresh: onRefresh,
+            ),
+            child: SaveChangesBar(
+              strings: strings,
+              dirty: _dirty,
+              saving: _saving,
+              saved: _saved,
+              error: _error,
+              validationError: validationError,
+              statusLabel: statusLabel,
+              onReconnect: onReconnect,
+              onRefresh: onRefresh,
+              refreshing: controller.networkSettings.refreshing,
+              contentWidth: 880,
+              matchPageGutter: true,
+              onSave: validationError == null ? _save : null,
+            ),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -216,10 +248,12 @@ class _GeoDirectSettingsScreenState extends State<GeoDirectSettingsScreen> {
                   value: _routing,
                   strings: strings,
                   errorIds: errorIds,
+                  errorMessage: errorKey == null ? null : strings.get(errorKey),
+                  overlapIds: overlapIds,
                   onChanged: _customAvailable && !_saving ? _edited : null,
                 ),
               ),
-              for (final notice in notices.take(8))
+              for (final notice in listNotices)
                 Padding(
                   padding: const EdgeInsets.only(top: 8),
                   child: HintText(_issue(notice.key, notice.ids)),

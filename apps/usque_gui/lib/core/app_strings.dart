@@ -15,6 +15,7 @@ import 'l10n/onboarding.dart';
 import 'l10n/tls_fingerprint.dart';
 import 'l10n/ui_workflow.dart';
 import 'l10n/update_check.dart';
+import 'l10n/ux_refinements.dart';
 import 'l10n/vpngate.dart';
 import 'l10n/windows_recovery.dart';
 
@@ -65,6 +66,9 @@ class AppStrings {
     final tls =
         kTlsFingerprintCatalogs[catalogId] ?? kTlsFingerprintCatalogs['en']!;
     if (tls.containsKey(key)) return tls[key]!;
+    final refinements =
+        kUxRefinementCatalogs[catalogId] ?? kUxRefinementCatalogs['en']!;
+    if (refinements.containsKey(key)) return refinements[key]!;
     final ads = kAdsCatalogs[catalogId] ?? kAdsCatalogs['en']!;
     if (ads.containsKey(key)) return ads[key]!;
     final updates =
@@ -120,6 +124,10 @@ class AppStrings {
           kEndpointPresetCatalogs['en']!,
         ) ||
         !_featureTablesComplete(kAdsCatalogs, kAdsCatalogs['en']!) ||
+        !_featureTablesComplete(
+          kUxRefinementCatalogs,
+          kUxRefinementCatalogs['en']!,
+        ) ||
         !_featureTablesComplete(
           kTlsFingerprintCatalogs,
           kTlsFingerprintCatalogs['en']!,
@@ -233,6 +241,7 @@ class AppStrings {
     scan(kChainCatalogs, kChainEn);
     scan(kTlsFingerprintCatalogs, kTlsFingerprintCatalogs['en']!);
     scan(kEndpointPresetCatalogs, kEndpointPresetCatalogs['en']!);
+    scan(kUxRefinementCatalogs, kUxRefinementCatalogs['en']!);
     for (final catalogEntry in kWindowsAdapterCleanupCatalogs.entries) {
       if (catalogEntry.key == 'en') {
         continue;
@@ -272,7 +281,11 @@ class AppStrings {
           kNetworkSettingsEn,
           kNetworkSettingsCatalogs.values,
         ) ||
-        !_placeholdersPreserved(kChainEn, kChainCatalogs.values)) {
+        !_placeholdersPreserved(kChainEn, kChainCatalogs.values) ||
+        !_placeholdersPreserved(
+          kUxRefinementCatalogs['en']!,
+          kUxRefinementCatalogs.values,
+        )) {
       return false;
     }
     return true;

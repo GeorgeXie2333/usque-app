@@ -8,7 +8,6 @@ import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../core/frontend_presentation.dart';
-import '../core/usque_motion.dart';
 import '../models/app_models.dart';
 import '../state/app_controller.dart';
 import '../widgets/chain_proxy_entry.dart';
@@ -336,33 +335,24 @@ class _ProxyScreenState extends State<ProxyScreen> {
         ),
         // With nothing to apply or report, the bar would only hold a disabled
         // button, so it appears with the first edit, save or status instead.
-        AnimatedSwitcher(
-          duration: UsqueMotion.of(context, UsqueMotion.fast),
-          switchInCurve: UsqueMotion.standard,
-          switchOutCurve: UsqueMotion.exit,
-          transitionBuilder: (child, animation) => SizeTransition(
-            sizeFactor: animation,
-            alignment: AlignmentDirectional.topStart,
-            child: child,
+        RevealedSaveBar(
+          visible: showBar,
+          child: SaveChangesBar(
+            key: const ValueKey('proxy-save-bar'),
+            strings: strings,
+            dirty: _dirty,
+            saving: _saving,
+            saved: _saved,
+            statusLabel: statusLabel,
+            onReconnect: onReconnect,
+            onRefresh: settings.canRefresh ? settings.refresh : null,
+            refreshing: settings.refreshing,
+            error: _saveError,
+            validationError: _validationError,
+            contentWidth: 880,
+            matchPageGutter: true,
+            onSave: _save,
           ),
-          child: showBar
-              ? SaveChangesBar(
-                  key: const ValueKey('proxy-save-bar'),
-                  strings: strings,
-                  dirty: _dirty,
-                  saving: _saving,
-                  saved: _saved,
-                  statusLabel: statusLabel,
-                  onReconnect: onReconnect,
-                  onRefresh: settings.canRefresh ? settings.refresh : null,
-                  refreshing: settings.refreshing,
-                  error: _saveError,
-                  validationError: _validationError,
-                  contentWidth: 880,
-                  matchPageGutter: true,
-                  onSave: _save,
-                )
-              : const SizedBox(width: double.infinity),
         ),
       ],
     );
@@ -434,33 +424,48 @@ class _ProxyScreenState extends State<ProxyScreen> {
       tone: state.tone,
       icon: state.icon,
     );
-    final compact =
-        MediaQuery.sizeOf(context).width < 760 ||
-        MediaQuery.textScalerOf(context).scale(14) > 21;
+    final controller = widget.controller;
     return ContentSection(
-      icon: socks5 ? LucideIcons.network : LucideIcons.globe,
-      title: strings.get(socks5 ? 'socks_listener' : 'http_listener'),
-      // The status beside the title already says whether the output is on.
-      subtitle: strings.get(
-        socks5 ? 'socks_capabilities' : 'http_capabilities',
-      ),
-      trailing: compact ? null : pill,
-      gap: compact ? 10 : 22,
       children: [
-        if (compact) ...[
-          // Below the heading the status joins its text column, as in the
-          // chain proxy section above.
-          Padding(
-            padding: const EdgeInsetsDirectional.only(
-              start: ChainProxyEntry.textIndent,
+        // The listener's switch is its heading: it applies immediately, like
+        // the device outputs above, while the addresses below stay a draft.
+        RowTileTheme(
+          child: SwitchListTile(
+            key: ValueKey(socks5 ? 'proxy-socks5-switch' : 'proxy-http-switch'),
+            contentPadding: EdgeInsets.zero,
+            secondary: Icon(socks5 ? LucideIcons.network : LucideIcons.globe),
+            title: Text(
+              strings.get(socks5 ? 'socks_listener' : 'http_listener'),
             ),
-            child: Align(
-              alignment: AlignmentDirectional.centerStart,
-              child: pill,
+            subtitle: Text(
+              strings.get(socks5 ? 'socks_capabilities' : 'http_capabilities'),
             ),
+            value: enabled,
+            onChanged: _saving
+                ? null
+                : (value) => controller.updateNetwork(
+                    profile.copyWith(
+                      frontends: socks5
+                          ? profile.frontends.copyWith(socks5: value)
+                          : profile.frontends.copyWith(http: value),
+                    ),
+                    changedFields: [
+                      socks5 ? 'frontends.socks5' : 'frontends.http',
+                    ],
+                  ),
           ),
-          const SizedBox(height: 22),
-        ],
+        ),
+        const SizedBox(height: 6),
+        Padding(
+          padding: const EdgeInsetsDirectional.only(
+            start: ChainProxyEntry.textIndent,
+          ),
+          child: Align(
+            alignment: AlignmentDirectional.centerStart,
+            child: pill,
+          ),
+        ),
+        const SizedBox(height: 22),
         if (socks5 ? _customSocks : _customHttp)
           TextFormField(
             key: ValueKey(

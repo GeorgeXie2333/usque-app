@@ -46,7 +46,6 @@ const Map<String, String> kIdCatalog = <String, String>{
   'notice_kill_switch_blocking':
       'Kill Switch memblokir lalu lintas jaringan hingga koneksi pulih atau Anda memutuskan koneksi.',
   'connection_status': 'Status koneksi',
-  'outputs': '{tunnel} dan proksi lokal',
   'home': 'Beranda',
   'profiles': 'Akun',
   'profiles_subtitle': 'Beralih dan kelola akun WARP.',
@@ -347,7 +346,6 @@ const Map<String, String> kIdCatalog = <String, String>{
   'invalid_address': 'Alamat tidak valid',
   'invalid_dns_name': 'Nama DNS tidak valid',
   'invalid_cidr': 'CIDR tidak valid',
-  'diagnostics_title': 'Diagnostik dan informasi aplikasi',
   'diagnostics_subtitle':
       'Periksa masalah koneksi, ekspor log, dan kelola data lokal.',
   'engine_status': 'Informasi koneksi',

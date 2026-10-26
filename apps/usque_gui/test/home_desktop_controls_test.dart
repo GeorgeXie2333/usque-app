@@ -134,8 +134,8 @@ void main() {
         proxy: const ProxySettings(httpPort: 9090, systemProxy: true),
       );
       final app = await _app(tester, engine, profile: original);
-      // Without a ring beside them the rows keep their natural height.
-      expect(tester.getSize(find.byType(ContentList)).height, 333);
+      // The rows keep their natural height.
+      expect(tester.getSize(find.byType(ContentList)).height, 323);
       engine.saveBarrier = Completer();
       await tester.tap(_toggle('tun'));
       await tester.pump();

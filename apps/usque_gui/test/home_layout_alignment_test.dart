@@ -34,21 +34,24 @@ Future<AppController> _home(
 
 void main() {
   testWidgets(
-    'desktop output rows share the ring height and one text column',
+    'desktop session and output cards share one height and text column',
     (tester) async {
-      for (final size in const [Size(1280, 900), Size(1440, 900)]) {
+      for (final size in const [Size(1020, 688), Size(1280, 900)]) {
         final app = await _home(tester, size);
-        final ring = tester.getRect(find.byType(ConnectionRing));
-        final rows = tester.getRect(
-          find.descendant(
-            of: find.byType(HomeDesktopControls),
-            matching: find.byType(ContentList),
-          ),
+        Rect card(Finder child) => tester.getRect(
+          find.ancestor(of: child, matching: find.byType(Panel)).first,
         );
-        expect(rows.top, moreOrLessEquals(ring.top, epsilon: 0.5));
-        // The test font is wider than the bundled one, so rows may grow past
-        // the ring here; they are never shorter than it.
-        expect(rows.bottom, greaterThanOrEqualTo(ring.bottom - 0.5));
+        final session = card(find.byType(ConnectionRing));
+        final outputs = card(find.byType(HomeDesktopControls));
+        final traffic = tester.getRect(
+          find.byKey(const ValueKey('home-traffic')),
+        );
+        expect(outputs.top, moreOrLessEquals(session.top, epsilon: 0.5));
+        expect(outputs.height, moreOrLessEquals(session.height, epsilon: 0.5));
+        expect(outputs.left, greaterThan(session.right));
+        expect(traffic.top, greaterThan(session.bottom));
+        expect(traffic.left, moreOrLessEquals(session.left, epsilon: 0.5));
+        expect(traffic.right, moreOrLessEquals(outputs.right, epsilon: 0.5));
         for (final (title, hint) in [
           ('TUN', 'home_tun_hint'),
           ('System proxy', 'home_system_proxy_hint'),
@@ -69,48 +72,8 @@ void main() {
             findsNothing,
           );
         }
+        expect(tester.takeException(), isNull);
       }
-    },
-    variant: TargetPlatformVariant.only(TargetPlatform.windows),
-  );
-
-  testWidgets(
-    'rows divide a shared height evenly and centre their content',
-    (tester) async {
-      final app = await _home(tester, const Size(1280, 900));
-      await tester.pumpWidget(
-        workflowHost(
-          app,
-          home: Scaffold(
-            body: Align(
-              alignment: Alignment.topLeft,
-              child: SizedBox(
-                width: 320,
-                child: HomeDesktopControls(
-                  controller: app,
-                  onOpenChainProxy: () {},
-                  minHeight: 900,
-                ),
-              ),
-            ),
-          ),
-        ),
-      );
-      await tester.pumpAndSettle();
-      final rows = tester.getRect(find.byType(ContentList));
-      expect(rows.height, moreOrLessEquals(900, epsilon: 0.5));
-      final tun = tester.getCenter(
-        find.byKey(const ValueKey('home-tun-switch')),
-      );
-      final chain = tester.getCenter(
-        find.byKey(const ValueKey('home-chain-proxy-switch')),
-      );
-      // Three rows of (900 - 2) / 3 with a switch centred in each.
-      expect(tun.dy, moreOrLessEquals(rows.top + 898 / 6, epsilon: 0.5));
-      expect(
-        chain.dy,
-        moreOrLessEquals(rows.top + 2 + 898 * 5 / 6, epsilon: 0.5),
-      );
     },
     variant: TargetPlatformVariant.only(TargetPlatform.windows),
   );

@@ -49,7 +49,6 @@ const Map<String, String> kFrCatalog = <String, String>{
   'notice_kill_switch_blocking':
       'Le Kill Switch bloque le trafic réseau jusqu’au rétablissement de la connexion ou à votre déconnexion.',
   'connection_status': 'État de la connexion',
-  'outputs': '{tunnel} et proxys locaux',
   'home': 'Accueil',
   'profiles': 'Comptes',
   'profiles_subtitle': 'Changez et gérez les comptes WARP.',
@@ -359,7 +358,6 @@ const Map<String, String> kFrCatalog = <String, String>{
   'invalid_address': 'Adresse non valide',
   'invalid_dns_name': 'Nom DNS non valide',
   'invalid_cidr': 'CIDR non valide',
-  'diagnostics_title': 'Diagnostics et informations',
   'diagnostics_subtitle':
       'Vérifiez les problèmes de connexion, exportez les journaux et gérez les données locales.',
   'engine_status': 'Informations de connexion',

@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../core/app_strings.dart';
+import '../core/diagnostics_presentation.dart';
 import '../core/diagnostics_strings.dart';
 import '../core/usque_theme.dart';
 import '../models/diagnostics_models.dart';
@@ -24,7 +25,7 @@ class DiagnosticFindingCard extends StatelessWidget {
     final evidence = finding.publicEvidence;
     final theme = Theme.of(context);
     final tokens = UsqueTokens.of(context);
-    final color = _statusColor(tokens, finding.status);
+    final color = diagnosticCheckStatusColor(tokens, finding.status);
     final remediation =
         finding.remediationKey.isNotEmpty && finding.remediationKey != 'none'
         ? finding.remediationKey
@@ -203,16 +204,4 @@ String _yesNo(AppStrings strings, bool value) {
 
 String _summaryText(AppStrings strings, DiagnosticFinding finding) {
   return diagnosticFindingSummary(strings, finding);
-}
-
-Color _statusColor(UsqueTokens tokens, DiagnosticCheckStatus status) {
-  return switch (status) {
-    DiagnosticCheckStatus.passed => tokens.success,
-    DiagnosticCheckStatus.warning => tokens.caution,
-    DiagnosticCheckStatus.failed => tokens.danger,
-    DiagnosticCheckStatus.running => tokens.brand,
-    DiagnosticCheckStatus.pending ||
-    DiagnosticCheckStatus.skipped ||
-    DiagnosticCheckStatus.cancelled => tokens.hairlineStrong,
-  };
 }

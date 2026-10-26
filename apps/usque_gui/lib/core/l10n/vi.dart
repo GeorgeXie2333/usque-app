@@ -46,7 +46,6 @@ const Map<String, String> kViCatalog = <String, String>{
   'notice_kill_switch_blocking':
       'Kill Switch đang chặn lưu lượng mạng cho đến khi kết nối được khôi phục hoặc bạn ngắt kết nối.',
   'connection_status': 'Trạng thái kết nối',
-  'outputs': '{tunnel} và proxy cục bộ',
   'home': 'Trang chủ',
   'profiles': 'Tài khoản',
   'profiles_subtitle': 'Chuyển đổi và quản lý tài khoản WARP.',
@@ -344,7 +343,6 @@ const Map<String, String> kViCatalog = <String, String>{
   'invalid_address': 'Địa chỉ không hợp lệ',
   'invalid_dns_name': 'Tên DNS không hợp lệ',
   'invalid_cidr': 'CIDR không hợp lệ',
-  'diagnostics_title': 'Chẩn đoán & Giới thiệu về ứng dụng',
   'diagnostics_subtitle':
       'Kiểm tra sự cố kết nối, xuất nhật ký và quản lý dữ liệu cục bộ.',
   'engine_status': 'Thông tin kết nối',

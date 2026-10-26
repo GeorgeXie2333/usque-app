@@ -46,7 +46,6 @@ const Map<String, String> kPlCatalog = <String, String>{
   'notice_kill_switch_blocking':
       'Kill Switch blokuje ruch sieciowy do czasu przywrócenia połączenia lub rozłączenia.',
   'connection_status': 'Stan połączenia',
-  'outputs': '{tunnel} i lokalne proxy',
   'home': 'Główna',
   'profiles': 'Konta',
   'profiles_subtitle': 'Przełączanie i zarządzanie kontami WARP.',
@@ -352,7 +351,6 @@ const Map<String, String> kPlCatalog = <String, String>{
   'invalid_address': 'Nieprawidłowy adres',
   'invalid_dns_name': 'Nieprawidłowa nazwa DNS',
   'invalid_cidr': 'Nieprawidłowy CIDR',
-  'diagnostics_title': 'Diagnostyka i informacje',
   'diagnostics_subtitle':
       'Sprawdzaj problemy z połączeniem, eksportuj dzienniki i zarządzaj danymi lokalnymi.',
   'engine_status': 'Informacje o połączeniu',
