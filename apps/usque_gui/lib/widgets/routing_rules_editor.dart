@@ -6,18 +6,51 @@ import '../models/app_models.dart';
 import '../models/bypass_targets.dart';
 import 'common.dart';
 
+/// Localized name of a rule action; the wire names stay in the model.
+String routingActionLabel(AppStrings strings, RoutingAction action) =>
+    strings.get(switch (action) {
+      RoutingAction.direct => 'routing_action_direct',
+      RoutingAction.reject => 'routing_action_reject',
+      RoutingAction.proxy => 'routing_action_proxy',
+    });
+
+/// Status presentation for a rule action. The label carries the meaning;
+/// the icon and its tone only reinforce it.
+InlineStatus routingActionStatus(AppStrings strings, RoutingAction action) =>
+    InlineStatus(
+      label: routingActionLabel(strings, action),
+      tone: switch (action) {
+        RoutingAction.direct => StatusTone.neutral,
+        RoutingAction.reject => StatusTone.danger,
+        RoutingAction.proxy => StatusTone.brand,
+      },
+      icon: switch (action) {
+        RoutingAction.direct => LucideIcons.arrowUpRight,
+        RoutingAction.reject => LucideIcons.ban,
+        RoutingAction.proxy => LucideIcons.waypoints,
+      },
+    );
+
 class RoutingRulesEditor extends StatelessWidget {
   const RoutingRulesEditor({
     required this.value,
     required this.strings,
     required this.onChanged,
     this.errorIds = const [],
+    this.errorMessage,
+    this.overlapIds = const {},
     super.key,
   });
   final RoutingSettings value;
   final AppStrings strings;
   final ValueChanged<RoutingSettings>? onChanged;
   final List<String> errorIds;
+
+  /// Why the rules in [errorIds] cannot be applied.
+  final String? errorMessage;
+
+  /// Rules that overlap a rule with a different action.
+  final Set<String> overlapIds;
 
   Future<void> _edit(
     BuildContext context, {
@@ -59,7 +92,7 @@ class RoutingRulesEditor extends StatelessWidget {
                         .map(
                           (value) => DropdownMenuItem(
                             value: value,
-                            child: Text(value.name.toUpperCase()),
+                            child: Text(routingActionLabel(strings, value)),
                           ),
                         )
                         .toList(),
@@ -170,32 +203,55 @@ class RoutingRulesEditor extends StatelessWidget {
           subtitle: strings.get('routing_priority'),
         ),
         const SizedBox(height: 12),
-        for (var index = 0; index < value.rules.length; index++) ...[
+        // Specificity, not position, decides which rule wins, so rows carry
+        // no numbering.
+        for (final rule in value.rules) ...[
           ListTile(
-            key: ValueKey('routing-rule-${value.rules[index].id}'),
+            key: ValueKey('routing-rule-${rule.id}'),
             contentPadding: EdgeInsets.zero,
             title: Text(
-              '${index + 1}. ${value.rules[index].target}',
-              style: errorIds.contains(value.rules[index].id)
+              rule.target,
+              style: errorIds.contains(rule.id)
                   ? TextStyle(color: Theme.of(context).colorScheme.error)
                   : null,
             ),
-            subtitle: Text(
-              '${value.rules[index].action.name.toUpperCase()}${errorIds.contains(value.rules[index].id) ? ' · ${strings.get('error_generic')}' : ''}',
+            subtitle: Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  routingActionStatus(strings, rule.action),
+                  if (errorIds.contains(rule.id)) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      errorMessage ?? strings.get('error_generic'),
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
+                  ] else if (overlapIds.contains(rule.id)) ...[
+                    const SizedBox(height: 4),
+                    HintText(strings.get('routing_overlap')),
+                  ],
+                ],
+              ),
             ),
             onTap: onChanged == null
                 ? null
-                : () => _edit(context, existing: value.rules[index]),
+                : () => _edit(context, existing: rule),
             trailing: PopupMenuButton<String>(
               enabled: onChanged != null,
               tooltip: strings.get('edit'),
               onSelected: (action) {
                 if (action == 'edit') {
-                  _edit(context, existing: value.rules[index]);
+                  _edit(context, existing: rule);
                 } else {
                   onChanged?.call(
                     RoutingSettings(
-                      rules: [...value.rules]..removeAt(index),
+                      rules: [
+                        for (final other in value.rules)
+                          if (other.id != rule.id) other,
+                      ],
                       adsEnabled: value.adsEnabled,
                     ),
                   );

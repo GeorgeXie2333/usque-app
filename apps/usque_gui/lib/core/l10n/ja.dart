@@ -44,7 +44,6 @@ const Map<String, String> kJaCatalog = <String, String>{
   'notice_kill_switch_blocking':
       '接続が復旧するか切断するまで、Kill Switch がネットワーク通信をブロックしています。',
   'connection_status': '接続状態',
-  'outputs': '{tunnel} とローカルプロキシ',
   'home': 'ホーム',
   'profiles': 'アカウント',
   'profiles_subtitle': 'WARP アカウントの切り替えと管理。',
@@ -327,7 +326,6 @@ const Map<String, String> kJaCatalog = <String, String>{
   'invalid_address': '無効なアドレスです',
   'invalid_dns_name': '無効な DNS 名です',
   'invalid_cidr': '無効な CIDR です',
-  'diagnostics_title': '診断と Usque について',
   'diagnostics_subtitle': '接続の問題を調べ、ログの出力や端末内データの管理を行います。',
   'engine_status': '接続情報',
   'version': 'バージョン',

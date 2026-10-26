@@ -74,7 +74,7 @@ Upgrading from v0.3.1 migrates configuration from schema 24 to 26, which v0.3.1 
 
 1. Install a [verified official package](docs/INSTALLATION.md#verify-before-installing) and open Usque.
 2. Complete the first-run permissions and terms steps. Android setup requests only optional notifications. VPN authorization is requested when connecting with VPN output and may disconnect another VPN; proxy-only connections do not request it. Register a Consumer WARP® account, optionally with a WARP License Key. If setup was interrupted, check the saved result before registering again. Usque does not accept new WARP Secret imports.
-3. Open **Proxy → TUN and local proxies** on Windows, or **Proxy → VPN and local proxies** on Android, choose the outputs, then connect from Home. These switches take effect immediately; listener form edits require **Apply changes**.
+3. Open **Proxy**. Turn on **TUN** (Windows) or **VPN** (Android) under **Device traffic**, and the **SOCKS5 proxy** or **HTTP proxy** switch at the top of its own section, then connect from Home. These switches take effect immediately; listener address and port edits require **Apply changes**.
 
 | Connection option | When to use it |
 | --- | --- |

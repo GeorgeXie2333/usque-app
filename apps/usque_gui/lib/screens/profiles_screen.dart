@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../core/app_strings.dart';
+import '../core/chain_strings.dart';
 import '../core/user_facing_errors.dart';
 import '../core/usque_theme.dart';
 import '../models/app_models.dart';
@@ -559,10 +560,11 @@ class _ProfileRow extends StatelessWidget {
               alignment: WrapAlignment.end,
               crossAxisAlignment: WrapCrossAlignment.center,
               children: <Widget>[
+                // A switch action, not a completed state: no check mark.
                 if (!active)
                   TextButton.icon(
                     onPressed: onActivate,
-                    icon: const Icon(LucideIcons.check, size: 18),
+                    icon: const Icon(LucideIcons.arrowLeftRight, size: 18),
                     label: Text(strings.get('set_active')),
                   ),
                 if (identityState != ProfileIdentityState.ready)
@@ -571,17 +573,24 @@ class _ProfileRow extends StatelessWidget {
                     icon: const Icon(LucideIcons.keyRound, size: 18),
                     label: Text(strings.get('configure_identity')),
                   ),
-                // One icon per action: the license kind is already the tag's.
+                // Labelled, because touch screens never show a tooltip; the
+                // tooltip keeps the full action name.
                 if (identityState == ProfileIdentityState.ready)
-                  IconButton(
-                    tooltip: strings.get('identity_and_license'),
-                    onPressed: onManageIdentity,
-                    icon: const Icon(LucideIcons.keyRound),
+                  Tooltip(
+                    message: strings.get('identity_and_license'),
+                    child: TextButton.icon(
+                      onPressed: onManageIdentity,
+                      icon: const Icon(LucideIcons.keyRound, size: 18),
+                      label: Text(strings.get('license')),
+                    ),
                   ),
-                IconButton(
-                  tooltip: strings.get('edit_profile'),
-                  onPressed: onEdit,
-                  icon: const Icon(LucideIcons.pencil),
+                Tooltip(
+                  message: strings.get('edit_profile'),
+                  child: TextButton.icon(
+                    onPressed: onEdit,
+                    icon: const Icon(LucideIcons.pencil, size: 18),
+                    label: Text(strings.chain('rename')),
+                  ),
                 ),
                 IconButton(
                   key: ValueKey('profile-delete-${profile.id}'),

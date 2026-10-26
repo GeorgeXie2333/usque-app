@@ -5,8 +5,10 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../state/app_controller.dart';
 import 'common.dart';
 
-/// Immediate output preferences live beside the listener form, whose values
-/// remain a separate draft until Apply changes is pressed.
+/// Immediate device-wide outputs: the tunnel and, on desktop, the system proxy.
+/// Each local listener's switch sits in its own section on the Proxy page, so
+/// no output is listed twice; listener addresses remain a separate draft until
+/// Apply changes is pressed.
 class LocalProxyOutputs extends StatelessWidget {
   const LocalProxyOutputs({
     required this.controller,
@@ -25,7 +27,7 @@ class LocalProxyOutputs extends StatelessWidget {
     final systemProxy = profile.proxy.systemProxy;
     return ContentSection(
       icon: LucideIcons.share2,
-      title: strings.get('outputs'),
+      title: strings.get('proxy_device_outputs'),
       subtitle: strings.get('proxy_switches_hint'),
       gap: 10,
       child: RowTileTheme(
@@ -53,34 +55,6 @@ class LocalProxyOutputs extends StatelessWidget {
                         frontends: frontends.copyWith(tunnel: value),
                       ),
                       changedFields: const ['frontends.tunnel'],
-                    ),
-            ),
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              secondary: const Icon(LucideIcons.network),
-              title: const Text('SOCKS5'),
-              value: frontends.socks5,
-              onChanged: !enabled
-                  ? null
-                  : (value) => controller.updateNetwork(
-                      profile.copyWith(
-                        frontends: frontends.copyWith(socks5: value),
-                      ),
-                      changedFields: const ['frontends.socks5'],
-                    ),
-            ),
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              secondary: const Icon(LucideIcons.globe),
-              title: const Text('HTTP'),
-              value: frontends.http,
-              onChanged: !enabled
-                  ? null
-                  : (value) => controller.updateNetwork(
-                      profile.copyWith(
-                        frontends: frontends.copyWith(http: value),
-                      ),
-                      changedFields: const ['frontends.http'],
                     ),
             ),
             if (defaultTargetPlatform == TargetPlatform.windows ||

@@ -38,6 +38,15 @@ void main() {
           find.text(app.strings.get('proxy_switches_hint')),
           findsOneWidget,
         );
+        // Each listener's switch is its section heading, listed once.
+        for (final listener in ['socks_listener', 'http_listener']) {
+          expect(
+            find.widgetWithText(SwitchListTile, app.strings.get(listener)),
+            findsOneWidget,
+          );
+        }
+        expect(find.widgetWithText(SwitchListTile, 'SOCKS5'), findsNothing);
+        expect(find.widgetWithText(SwitchListTile, 'HTTP'), findsNothing);
         final systemProxy = find.widgetWithText(
           SwitchListTile,
           app.strings.get('home_system_proxy'),
@@ -61,7 +70,10 @@ void main() {
         );
         expect(
           rowIcon(
-            find.widgetWithText(SwitchListTile, 'HTTP'),
+            find.widgetWithText(
+              SwitchListTile,
+              app.strings.get('http_listener'),
+            ),
             LucideIcons.globe,
           ),
           findsOneWidget,
@@ -74,7 +86,10 @@ void main() {
         await tester.enterText(port, '9090');
         await tester.pumpAndSettle();
         expect(engine.writes, 0);
-        final http = find.widgetWithText(SwitchListTile, 'HTTP');
+        final http = find.widgetWithText(
+          SwitchListTile,
+          app.strings.get('http_listener'),
+        );
         await tester.ensureVisible(http);
         await tester.pumpAndSettle();
         await tester.tap(http);
