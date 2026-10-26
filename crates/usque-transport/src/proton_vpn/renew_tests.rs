@@ -46,6 +46,8 @@ impl LeasePersistence for MemoryStore {
 
 enum Answer {
     Json(Value),
+    Directory(Value),
+    NotModified,
     Status(u16, Value),
     Failed,
     FreshCertificate,
@@ -95,13 +97,16 @@ impl Http for MockHttp {
             .unwrap()
             .pop_front()
             .expect("unexpected network request");
+        let last_modified = matches!(answer, Answer::Directory(_))
+            .then(|| "Mon, 26 Oct 2026 00:00:00 GMT".to_owned());
         let (status, value) = match answer {
             Answer::WaitForCancel(started) => {
                 started.notify_one();
                 cancel.cancelled().await;
                 return Err(InternalHttpError::Cancelled);
             }
-            Answer::Json(v) => (200, v),
+            Answer::Json(v) | Answer::Directory(v) => (200, v),
+            Answer::NotModified => (304, Value::Null),
             Answer::Status(status, v) => (status, v),
             Answer::FreshCertificate => {
                 let body: Value = serde_json::from_slice(&request.body).unwrap();
@@ -127,7 +132,12 @@ impl Http for MockHttp {
         Ok(InternalResponse {
             status,
             retry_after: None,
-            body: Zeroizing::new(serde_json::to_vec(&value).unwrap()),
+            last_modified,
+            body: Zeroizing::new(if status == 304 {
+                Vec::new()
+            } else {
+                serde_json::to_vec(&value).unwrap()
+            }),
         })
     }
     fn generation(&self) -> Option<u64> {
@@ -291,6 +301,7 @@ fn cache_record(record: &mut Record) {
     };
     let mut peer = record.node.clone();
     peer.metadata.id = "logical".into();
+    cache.set_config(vec![443], now);
     cache.set_directory(&[peer], record.selected_server(), now);
     record.connection_cache = Some(cache);
 }
@@ -378,10 +389,34 @@ async fn warm_connection_uses_no_api_and_first_connection_only_requests_certific
 }
 
 #[tokio::test]
+async fn startup_renews_expired_or_nearly_expired_certificates_even_with_fresh_metadata() {
+    for remaining in [-1, 0, 180] {
+        let (mut record, mut profile, store) = fixture();
+        cache_record(&mut record);
+        record.expires_at = super::super::interaction::now() + remaining;
+        record.refresh_at = record.expires_at - 1_800;
+        record.certificate_chain = Zeroizing::new(certificate(
+            &KeyMaterial::from_seed([7; 32]).unwrap(),
+            record.expires_at,
+        ));
+        *store.record.lock().unwrap() = record;
+        let http = mock(vec![Answer::FreshCertificate]);
+        let (credentials, _) =
+            prepare_with_http(&mut profile, http.clone(), &CancellationToken::new())
+                .await
+                .unwrap();
+        assert!(credentials.expires_at > super::super::interaction::now() + 180);
+        let requests = http.requests.lock().unwrap();
+        assert_eq!(requests.len(), 1);
+        assert!(requests[0].ends_with("/vpn/v1/certificate"));
+    }
+}
+
+#[tokio::test]
 async fn cache_expiry_and_clock_rollback_refetch_only_necessary_metadata() {
     for (permissions_age, directory_age, permission_requests, directory_requests) in [
-        (300, 0, true, false),
-        (0, 900, false, true),
+        (43_200, 0, true, false),
+        (0, 43_200, false, true),
         (-60, -60, true, true),
     ] {
         let (mut record, mut profile, store) = fixture();
@@ -389,13 +424,19 @@ async fn cache_expiry_and_clock_rollback_refetch_only_necessary_metadata() {
         let cache = record.connection_cache.as_mut().unwrap();
         cache.permissions_at -= permissions_age;
         cache.directory_at -= directory_age;
+        if permissions_age < 0 {
+            cache.config_at -= permissions_age;
+        }
         *store.record.lock().unwrap() = record;
         let mut answers = Vec::new();
         if permission_requests {
             answers.extend([Answer::Json(user()), Answer::Json(permissions())]);
         }
         if directory_requests {
-            answers.extend([Answer::Json(config()), Answer::Json(directory())]);
+            if permissions_age < 0 {
+                answers.push(Answer::Json(config()));
+            }
+            answers.push(Answer::Json(directory()));
         }
         let http = mock(answers);
         prepare_with_http(&mut profile, http.clone(), &CancellationToken::new())
@@ -403,9 +444,134 @@ async fn cache_expiry_and_clock_rollback_refetch_only_necessary_metadata() {
             .unwrap();
         assert_eq!(
             http.requests.lock().unwrap().len(),
-            usize::from(permission_requests) * 2 + usize::from(directory_requests) * 2
+            usize::from(permission_requests) * 2
+                + usize::from(directory_requests)
+                + usize::from(permissions_age < 0)
         );
     }
+}
+
+#[tokio::test]
+async fn expired_directory_uses_304_without_replacing_catalogue_or_selection() {
+    let (_, mut profile, store) = fixture();
+    let mut original_profile = profile.clone();
+    let mut answers = success_answers();
+    *answers.last_mut().unwrap() = Answer::Directory(directory());
+    let first = mock(answers);
+    prepare_with_http(&mut profile, first, &CancellationToken::new())
+        .await
+        .unwrap();
+    let saved = store.load().unwrap();
+    let mut expired = saved.clone();
+    let cache = expired.connection_cache.as_mut().unwrap();
+    cache.permissions_at -= 43_201;
+    cache.config_at -= 43_201;
+    cache.directory_at -= 43_201;
+    *store.record.lock().unwrap() = expired;
+    // Use the original bound profile, as the engine does on a new connection.
+    let http = mock(vec![
+        Answer::Json(user()),
+        Answer::Json(permissions()),
+        Answer::Json(config()),
+        Answer::NotModified,
+    ]);
+    let (_, lease) = prepare_with_http(
+        &mut original_profile,
+        http.clone(),
+        &CancellationToken::new(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(lease.peer.unwrap().metadata.id, "logical");
+    let after = store.load().unwrap();
+    assert_eq!(after.catalog_revision, saved.catalog_revision);
+    assert!(after.server_catalog == saved.server_catalog);
+    assert_eq!(after.server_id, saved.server_id);
+    assert!(
+        after
+            .connection_cache
+            .unwrap()
+            .peer(Some("logical"), super::super::interaction::now())
+            .is_some()
+    );
+    let headers = http.headers.lock().unwrap();
+    assert!(headers[3].iter().any(
+        |(name, value)| name == "if-modified-since" && value == "Mon, 26 Oct 2026 00:00:00 GMT"
+    ));
+    assert!(
+        headers[..3]
+            .iter()
+            .all(|headers| !headers.iter().any(|(name, _)| name == "if-modified-since"))
+    );
+}
+
+#[tokio::test]
+async fn incomplete_directory_and_session_recovery_cannot_accept_304() {
+    for recover in [false, true] {
+        let (mut record, mut profile, store) = fixture();
+        cache_record(&mut record);
+        let cache = record.connection_cache.as_mut().unwrap();
+        cache.directory_at -= 43_201;
+        cache.directory_complete = recover;
+        cache.directory_last_modified = Some("Mon, 26 Oct 2026 00:00:00 GMT".into());
+        *store.record.lock().unwrap() = record;
+        let mut answers = Vec::new();
+        if recover {
+            answers.extend([unauthorized(), Answer::Json(refresh())]);
+        }
+        answers.push(Answer::NotModified);
+        let http = mock(answers);
+        let failure = prepare_with_http(&mut profile, http.clone(), &CancellationToken::new())
+            .await
+            .err()
+            .unwrap();
+        assert_eq!(failure.reason, "invalid_api_response");
+        let headers = http.headers.lock().unwrap();
+        assert!(
+            !headers
+                .last()
+                .unwrap()
+                .iter()
+                .any(|(name, _)| name == "if-modified-since")
+        );
+        if recover {
+            assert_eq!(
+                store.load().unwrap().session.access_token.as_str(),
+                "fresh-access"
+            );
+        }
+    }
+}
+
+#[tokio::test]
+async fn switching_to_a_cached_node_beyond_32_needs_no_api_or_new_certificate() {
+    let (mut record, mut profile, store) = fixture();
+    cache_record(&mut record);
+    let peers: Vec<_> = (0..100)
+        .map(|i| {
+            let mut peer = record.node.clone();
+            peer.metadata.id = format!("node-{i}");
+            peer.domain = format!("node-{i}.example.invalid");
+            peer
+        })
+        .collect();
+    record.connection_cache.as_mut().unwrap().set_directory(
+        &peers,
+        None,
+        super::super::interaction::now(),
+    );
+    let certificate = record.certificate_chain.clone();
+    *store.record.lock().unwrap() = record;
+    profile.proton_server_id = Some("node-99".into());
+    let http = mock(vec![]);
+    let (credentials, lease) =
+        prepare_with_http(&mut profile, http.clone(), &CancellationToken::new())
+            .await
+            .unwrap();
+    assert_eq!(lease.peer.unwrap().metadata.id, "node-99");
+    assert_eq!(credentials.server_name, "node-99.example.invalid");
+    assert_eq!(credentials.certificate_chain, certificate);
+    assert!(http.requests.lock().unwrap().is_empty());
 }
 
 #[tokio::test]
@@ -414,13 +580,13 @@ async fn uncached_selection_and_failed_endpoint_require_a_fresh_directory() {
     cache_record(&mut record);
     record.server_id = Some("missing".into());
     *store.record.lock().unwrap() = record;
-    let http = mock(vec![Answer::Json(config()), Answer::Json(directory())]);
+    let http = mock(vec![Answer::Json(directory())]);
     let failure = prepare_with_http(&mut profile, http.clone(), &CancellationToken::new())
         .await
         .err()
         .unwrap();
     assert_eq!(failure.reason, "selected_server_unavailable");
-    assert_eq!(http.requests.lock().unwrap().len(), 2);
+    assert_eq!(http.requests.lock().unwrap().len(), 1);
     let before = store.load().unwrap();
     invalidate_peer(store.clone()).await.unwrap();
     let after = store.load().unwrap();
@@ -430,11 +596,45 @@ async fn uncached_selection_and_failed_endpoint_require_a_fresh_directory() {
 }
 
 #[tokio::test]
+async fn failed_peer_retry_refreshes_default_ports_before_rebuilding_directory() {
+    let (mut record, mut profile, store) = fixture();
+    cache_record(&mut record);
+    record.connection_cache.as_mut().unwrap().peers[0]
+        .endpoint
+        .port = 443;
+    *store.record.lock().unwrap() = record.clone();
+    let mut retry_profile = profile.clone();
+    let (_, first) = prepare_with_http(&mut profile, mock(vec![]), &CancellationToken::new())
+        .await
+        .unwrap();
+    assert_eq!(first.peer.unwrap().endpoint.port, 443);
+    invalidate_peer(store.clone()).await.unwrap();
+
+    // The server now requires a different default, with no per-node override.
+    let http = mock(vec![
+        Answer::Json(json!({"Code":1000,"DefaultPorts":{"WireGuard":{"UDP":[51820]}}})),
+        Answer::Directory(directory()),
+    ]);
+    let result =
+        prepare_with_http(&mut retry_profile, http.clone(), &CancellationToken::new()).await;
+    assert!(http.requests.lock().unwrap()[0].ends_with("/vpn/v2/clientconfig"));
+    let (_, retry) = result.unwrap();
+    assert_eq!(retry.peer.unwrap().endpoint.port, 51820);
+    assert_eq!(http.requests.lock().unwrap().len(), 2);
+    let saved = store.load().unwrap();
+    assert_eq!(saved.connection_cache.unwrap().udp_ports, vec![51820]);
+    assert_eq!(saved.server_id, record.server_id);
+    assert_eq!(saved.session.access_token, record.session.access_token);
+    assert_eq!(saved.certificate_chain, record.certificate_chain);
+}
+
+#[tokio::test]
 async fn metadata_refresh_waits_for_admission_and_never_replaces_live_peer() {
     let (mut record, prepared, store) = fixture();
     cache_record(&mut record);
-    record.connection_cache.as_mut().unwrap().permissions_at -= 151;
-    record.connection_cache.as_mut().unwrap().directory_at -= 451;
+    record.connection_cache.as_mut().unwrap().permissions_at -= 43_201;
+    record.connection_cache.as_mut().unwrap().directory_at -= 43_201;
+    record.connection_cache.as_mut().unwrap().config_at -= 43_201;
     *store.record.lock().unwrap() = record.clone();
     let http = mock(success_answers());
     let peer = record.node.clone();
@@ -492,7 +692,7 @@ async fn metadata_refresh_waits_for_admission_and_never_replaces_live_peer() {
 async fn metadata_tier_change_invalidates_certificate_and_cache_without_touching_peer_binding() {
     let (mut record, _, store) = fixture();
     cache_record(&mut record);
-    record.connection_cache.as_mut().unwrap().permissions_at -= 151;
+    record.connection_cache.as_mut().unwrap().permissions_at -= 43_201;
     *store.record.lock().unwrap() = record.clone();
     let mut permissions = permissions();
     permissions["VPN"]["MaxTier"] = json!(2);
@@ -526,7 +726,7 @@ async fn metadata_tier_change_invalidates_certificate_and_cache_without_touching
 async fn transient_metadata_failure_preserves_admission_and_uses_backoff() {
     let (mut record, prepared, store) = fixture();
     cache_record(&mut record);
-    record.connection_cache.as_mut().unwrap().permissions_at -= 151;
+    record.connection_cache.as_mut().unwrap().permissions_at -= 43_201;
     *store.record.lock().unwrap() = record.clone();
     let http = mock(vec![
         Answer::Failed,
@@ -596,7 +796,7 @@ async fn recovery_and_shutdown_preempt_and_await_metadata_requests() {
     for recovery in [false, true] {
         let (mut record, prepared, store) = fixture();
         cache_record(&mut record);
-        record.connection_cache.as_mut().unwrap().permissions_at -= 151;
+        record.connection_cache.as_mut().unwrap().permissions_at -= 43_201;
         *store.record.lock().unwrap() = record.clone();
         let started = Arc::new(tokio::sync::Notify::new());
         let mut answers = vec![Answer::WaitForCancel(started.clone())];
@@ -648,7 +848,7 @@ async fn recovery_and_shutdown_preempt_and_await_metadata_requests() {
 async fn explicit_background_permission_denial_is_terminal_and_invalidates_hints() {
     let (mut record, _, store) = fixture();
     cache_record(&mut record);
-    record.connection_cache.as_mut().unwrap().permissions_at -= 151;
+    record.connection_cache.as_mut().unwrap().permissions_at -= 43_201;
     *store.record.lock().unwrap() = record.clone();
     let mut denied = permissions();
     denied["VPN"]["Status"] = json!(0);
@@ -792,7 +992,10 @@ async fn guest_recovery_and_certificates_retain_real_or_synthetic_android_identi
             let mut record = storage.record.lock().unwrap();
             record.identity = "guest".into();
             record.api_identity = client_config.identity.clone();
-            record.refresh_at = super::super::interaction::now() - 1;
+            record.refresh_at = 0;
+            record.expires_at = 0;
+            record.certificate_chain.zeroize();
+            record.promote();
         }
         let http = mock(vec![
             unauthorized(),
@@ -1033,6 +1236,7 @@ async fn sidecar_change_revokes_the_running_lease_without_network_or_overwriting
 #[tokio::test]
 async fn due_certificate_renewal_uses_the_existing_session_and_publishes_the_same_identity() {
     let (mut record, prepared, storage) = fixture();
+    cache_record(&mut record);
     record.refresh_at = super::super::interaction::now() - 1;
     *storage.record.lock().unwrap() = record.clone();
     let mut renewed = record.clone();
@@ -1059,7 +1263,16 @@ async fn due_certificate_renewal_uses_the_existing_session_and_publishes_the_sam
     let (sender, mut observed) = watch::channel(original.clone());
     let cancel = CancellationToken::new();
     let worker_cancel = cancel.clone();
-    let worker = tokio::spawn(async move { lease.run(sender, &worker_cancel).await });
+    let (admit, admitted) = watch::channel(false);
+    let (_requests, receiver) = mpsc::channel(1);
+    let worker = tokio::spawn(async move {
+        lease
+            .run_with_recovery(sender, receiver, admitted, &worker_cancel)
+            .await
+    });
+    tokio::time::sleep(MONITOR_INTERVAL + Duration::from_millis(10)).await;
+    assert!(http.requests.lock().unwrap().is_empty());
+    admit.send_replace(true);
     observed.changed().await.unwrap();
     assert_eq!(
         observed.borrow().private_key_pkcs8,
@@ -1185,7 +1398,7 @@ async fn revoked_certificate_rotates_only_runtime_key_and_next_start_uses_it() {
         .await
         .unwrap();
     let saved = storage.load().unwrap();
-    assert_eq!(saved.version, 4);
+    assert_eq!(saved.version, 5);
     assert_eq!(saved.ed25519_seed, record.ed25519_seed);
     assert_ne!(saved.tunnel_seed(), record.tunnel_seed());
     assert_eq!(saved.revision, record.revision);
@@ -1274,6 +1487,7 @@ async fn cancelled_key_recovery_never_persists_or_requests_a_new_key() {
 #[tokio::test(start_paused = true)]
 async fn temporary_renewal_failure_keeps_unexpired_certificate_and_retries_with_backoff() {
     let (mut record, prepared, storage) = fixture();
+    cache_record(&mut record);
     record.refresh_at = super::super::interaction::now() - 1;
     *storage.record.lock().unwrap() = record.clone();
     let http = mock(vec![
@@ -1348,17 +1562,17 @@ fn api_failure_classification_preserves_provider_status_and_never_becomes_warp_a
 }
 
 #[tokio::test]
-async fn connect_can_reuse_a_valid_certificate_after_a_transient_due_refresh_failure() {
+async fn connect_uses_a_valid_refresh_due_certificate_without_waiting_for_the_api() {
     let (mut record, mut prepared, storage) = fixture();
     record.refresh_at = super::super::interaction::now() - 1;
     *storage.record.lock().unwrap() = record.clone();
-    let mut answers = success_answers();
-    answers.push(Answer::Status(503, json!({"Code":503})));
+    let http = mock(success_answers());
     let (credentials, lease) =
-        prepare_with_http(&mut prepared, mock(answers), &CancellationToken::new())
+        prepare_with_http(&mut prepared, http.clone(), &CancellationToken::new())
             .await
             .unwrap();
     assert_eq!(credentials.certificate_chain, record.certificate_chain);
-    assert!(lease.retry_at.is_some());
+    assert!(lease.retry_at.is_none());
+    assert_eq!(http.requests.lock().unwrap().len(), 4);
     assert!(lease.current.expires_at > super::super::interaction::now());
 }

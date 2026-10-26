@@ -192,6 +192,14 @@ impl<'a> SessionStore<'a> {
                     break encrypted;
                 }
             }
+            let selected = candidate.selected_server().map(str::to_owned);
+            if candidate
+                .connection_cache
+                .as_mut()
+                .is_some_and(|cache| cache.shrink(selected.as_deref()))
+            {
+                continue;
+            }
             // Optional hints may be omitted. The full catalogue, credentials
             // and base record still have to fit the original storage limits.
             if candidate.connection_cache.take().is_none() {

@@ -86,6 +86,7 @@ impl Http for System {
         Ok(InternalResponse {
             status,
             retry_after: None,
+            last_modified: None,
             body: Zeroizing::new(b"{\"Code\":1000}".to_vec()),
         })
     }

@@ -731,7 +731,7 @@ fn recovered_key_record_is_atomic_private_and_legacy_binding_remains_unchanged()
     let store = store::SessionStore::new(parent.path(), &cipher);
     store.save(&record).unwrap();
     let saved = store.load(record.id).unwrap();
-    assert_eq!(saved.version, 4);
+    assert_eq!(saved.version, 5);
     assert_eq!(saved.tunnel_seed(), &[8; 32]);
     assert_eq!(saved.ed25519_seed, binding);
     assert!(
@@ -760,16 +760,16 @@ fn connection_hints_expire_fail_closed_and_keep_selected_peers_bounded() {
     }
     cache.set_directory(&nodes, Some("node-99"), 1_000);
     cache.validate().unwrap();
-    assert_eq!(cache.peers.len(), 32);
-    assert!(cache.permissions_fresh(1_299));
-    assert!(!cache.permissions_fresh(1_300));
-    assert!(!cache.permissions_refresh_due(1_149));
-    assert!(cache.permissions_refresh_due(1_150));
-    assert!(cache.peer(Some("node-99"), 1_899).is_some());
-    assert!(cache.peer(Some("node-99"), 1_900).is_none());
-    assert!(cache.peer(Some("node-98"), 1_000).is_none());
-    assert!(!cache.directory_refresh_due(1_449));
-    assert!(cache.directory_refresh_due(1_450));
+    assert_eq!(cache.peers.len(), 100);
+    assert!(cache.permissions_fresh(44_199));
+    assert!(!cache.permissions_fresh(44_200));
+    assert!(!cache.permissions_refresh_due(44_199));
+    assert!(cache.permissions_refresh_due(44_200));
+    assert!(cache.peer(Some("node-99"), 44_199).is_some());
+    assert!(cache.peer(Some("node-99"), 44_200).is_none());
+    assert!(cache.peer(Some("node-98"), 1_000).is_some());
+    assert!(!cache.directory_refresh_due(44_199));
+    assert!(cache.directory_refresh_due(44_200));
     for now in [-1, 999, i64::MAX] {
         assert!(!cache.permissions_fresh(now));
         assert!(cache.peer(None, now).is_none());
@@ -780,7 +780,7 @@ fn connection_hints_expire_fail_closed_and_keep_selected_peers_bounded() {
 
 #[test]
 fn all_legacy_versions_load_without_connection_hints() {
-    for version in 1..=3 {
+    for version in 1..=4 {
         let mut value = serde_json::to_value(record()).unwrap();
         value["version"] = version.into();
         value.as_object_mut().unwrap().remove("connection_cache");
@@ -791,8 +791,59 @@ fn all_legacy_versions_load_without_connection_hints() {
         restored.promote();
         restored.connection_cache = Some(ConnectionCache::default());
         restored.validate().unwrap();
-        assert_eq!(restored.version, 4);
+        assert_eq!(restored.version, 5);
     }
+}
+
+#[test]
+fn directory_validators_require_a_complete_snapshot_and_unchanged_ports() {
+    let mut cache = ConnectionCache::default();
+    cache.set_config(vec![443], 1_000);
+    let nodes: Vec<_> = (0..100)
+        .map(|i| {
+            let mut node = record().node;
+            node.metadata.id = format!("node-{i}");
+            node
+        })
+        .collect();
+    cache.set_directory(&nodes, Some("node-99"), 1_000);
+    let modified = "Mon, 26 Oct 2026 00:00:00 GMT";
+    cache.directory_last_modified = Some(modified.into());
+    assert!(cache.config_fresh(44_199));
+    assert!(!cache.config_fresh(44_200));
+    assert_eq!(cache.directory_validator(44_200), Some(modified));
+    assert_eq!(cache.directory_validator(999), None);
+    cache.set_config(vec![443], 44_200);
+    assert_eq!(cache.directory_validator(44_200), Some(modified));
+    let mut shrunk = cache.clone();
+    assert!(shrunk.shrink(Some("node-99")));
+    assert_eq!(shrunk.directory_validator(44_200), None);
+    assert!(shrunk.peer(Some("node-99"), 1_001).is_some());
+    assert_eq!(shrunk.peers[0].metadata.id, "node-0");
+    cache.set_config(vec![51820], 44_200);
+    assert!(cache.peers.is_empty());
+    assert!(cache.directory_refresh_due(44_200));
+    assert_eq!(cache.directory_validator(44_200), None);
+    for invalid in ["", "Mon\r\nInjected: value", "\u{00e9}", &"x".repeat(65)] {
+        cache.directory_last_modified = Some(invalid.into());
+        assert!(cache.validate().is_err());
+    }
+}
+
+#[test]
+fn legacy_v4_cache_cannot_claim_a_complete_conditional_snapshot() {
+    let mut value = serde_json::to_value(record()).unwrap();
+    value["version"] = 4.into();
+    value["connection_cache"] = serde_json::json!({
+        "permissions_at": 1_000, "directory_at": 1_000, "peers": [record().node]
+    });
+    let restored: Record = serde_json::from_value(value).unwrap();
+    restored.validate().unwrap();
+    let cache = restored.connection_cache.unwrap();
+    assert!(!cache.directory_complete);
+    assert!(cache.peer(None, 1_001).is_some());
+    assert_eq!(cache.directory_validator(44_200), None);
+    assert!(cache.config_refresh_due(1_001));
 }
 
 #[test]

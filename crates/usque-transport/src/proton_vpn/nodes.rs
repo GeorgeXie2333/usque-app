@@ -8,6 +8,22 @@ use usque_core::{
     proton_vpn::{Node, SelectedNode},
 };
 
+pub(super) fn default_ports(config: &Value) -> Result<Vec<u16>, Failure> {
+    config
+        .pointer("/DefaultPorts/WireGuard/UDP")
+        .and_then(Value::as_array)
+        .filter(|ports| !ports.is_empty() && ports.len() <= 32)
+        .ok_or_else(|| Failure::new("invalid_client_configuration"))?
+        .iter()
+        .map(|port| {
+            port.as_u64()
+                .and_then(|p| u16::try_from(p).ok())
+                .filter(|p| *p > 0)
+                .ok_or_else(|| Failure::new("invalid_client_configuration"))
+        })
+        .collect()
+}
+
 #[cfg(test)]
 pub(super) fn collect(directory: &Value, config: &Value) -> Result<Vec<SelectedNode>, Failure> {
     collect_for_tier(directory, config, 0)

@@ -145,6 +145,12 @@ impl Http for SystemHttp {
                 }
             })?;
             let status = response.status().as_u16();
+            let last_modified = response
+                .headers()
+                .get(http::header::LAST_MODIFIED)
+                .and_then(|v| v.to_str().ok())
+                .filter(|v| usque_core::proton_vpn::valid_directory_validator(v))
+                .map(str::to_owned);
             let retry_after = response
                 .headers()
                 .get(header::RETRY_AFTER)
@@ -175,6 +181,7 @@ impl Http for SystemHttp {
             Ok(InternalResponse {
                 status,
                 retry_after,
+                last_modified,
                 body: bytes,
             })
         };

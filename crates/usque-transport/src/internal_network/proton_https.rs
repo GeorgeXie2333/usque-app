@@ -55,7 +55,7 @@ impl Session {
             let started = Instant::now();
             let stream = self
                 .network
-                .connect_host("vpn-api.proton.me", 443, cancel, deadline, ipv6)
+                .connect_proton_api(cancel, deadline, ipv6)
                 .await?;
             tracing::debug!(
                 probe_stage = "tcp",
@@ -219,6 +219,12 @@ impl Session {
                         })
                     });
             let status = response.status().as_u16();
+            let last_modified = response
+                .headers()
+                .get(http::header::LAST_MODIFIED)
+                .and_then(|v| v.to_str().ok())
+                .filter(|v| usque_core::proton_vpn::valid_directory_validator(v))
+                .map(str::to_owned);
             let retry_after = response
                 .headers()
                 .get(http::header::RETRY_AFTER)
@@ -243,6 +249,7 @@ impl Session {
                 return Err(InternalHttpError::SizeLimit);
             }
             let mut body = zeroize::Zeroizing::new(Vec::new());
+            let started = Instant::now();
             while let Some(frame) = response.body_mut().frame().await {
                 let frame = frame.map_err(|_| InternalHttpError::Protocol)?;
                 if let Some(data) = frame.data_ref() {
@@ -252,10 +259,17 @@ impl Session {
                     body.extend_from_slice(data);
                 }
             }
+            tracing::debug!(
+                probe_stage = "body",
+                elapsed_us = started.elapsed().as_micros(),
+                response_bytes = body.len(),
+                "Proton HTTPS timing"
+            );
             Ok((
                 InternalResponse {
                     status,
                     retry_after,
+                    last_modified,
                     body,
                 },
                 reusable,

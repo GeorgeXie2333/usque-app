@@ -382,6 +382,10 @@ pub(super) async fn provision(
         access
             .permissions(client, &mut record, interaction, cancel)
             .await?;
+        if let Some(cache) = &mut record.connection_cache {
+            // An explicit refresh must also recover changed default ports.
+            cache.config_at = 0;
+        }
         access
             .directory(client, &mut record, interaction, cancel)
             .await?;
@@ -447,15 +451,8 @@ pub(super) async fn provision(
             cancel,
         )
         .await?;
-    let directory = client
-        .request(
-            Method::GET,
-            "/vpn/v2/logicals?WithEntriesForProtocols=WireGuardUDP&WithState=true",
-            &Value::Null,
-            interaction,
-            cancel,
-        )
-        .await?;
+    let (directory, last_modified) = client.directory(None, interaction, cancel).await?;
+    let directory = directory.ok_or_else(|| Failure::new("invalid_server_directory"))?;
     let nodes = nodes::collect_for_tier(&directory.0, &config.0, max_tier)?;
     let keys = if let Some(record) = &existing {
         KeyMaterial::from_seed(
@@ -558,11 +555,12 @@ pub(super) async fn provision(
     };
     record.promote();
     let selected = record.selected_server().map(str::to_owned);
-    record
-        .connection_cache
-        .as_mut()
-        .expect("new cache")
-        .set_directory(&nodes, selected.as_deref(), super::interaction::now());
+    let cache = record.connection_cache.as_mut().expect("new cache");
+    cache.set_config(nodes::default_ports(&config.0)?, super::interaction::now());
+    cache.set_directory(&nodes, selected.as_deref(), super::interaction::now());
+    if cache.directory_complete {
+        cache.directory_last_modified = last_modified;
+    }
     if let Err(failure) = client
         .checkpoint(generation, cancel)
         .map_err(|failure| usque_core::proton_vpn::error(&failure.reason))

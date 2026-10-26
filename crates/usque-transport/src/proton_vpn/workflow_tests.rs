@@ -197,6 +197,7 @@ impl Http for Peer {
         Ok(InternalResponse {
             status: 200,
             retry_after: None,
+            last_modified: None,
             body: Zeroizing::new(serde_json::to_vec(&value).unwrap()),
         })
     }
@@ -307,7 +308,7 @@ async fn guest_provisions_persistent_session_profile_and_bound_runtime_credentia
     }
     assert_eq!(record.session.access_token, "synthetic-private-access");
     assert!(!record.rotation_pending);
-    assert_eq!(record.version, 4);
+    assert_eq!(record.version, 5);
     assert!(record.certificate_chain.is_empty());
     assert_eq!(record.server_catalog.len(), 1);
     assert!(record.server_id.is_none());
@@ -588,6 +589,55 @@ async fn guest_provision_preserves_an_explicit_android_context() {
         .load(id)
         .unwrap();
     assert!(record.api_identity == config.identity);
+}
+
+#[tokio::test]
+async fn manual_refresh_refreshes_default_ports_before_the_configuration_ttl_expires() {
+    let directory = tempfile::tempdir().unwrap();
+    let parent = directory.path();
+    let (id, http) = saved_fixture(parent).await;
+    let sessions = SessionStore::new(parent, &FixtureCipher);
+    let mut record = sessions.load(id).unwrap();
+    let cache = record.connection_cache.as_mut().unwrap();
+    // Simulate a still-fresh snapshot from before the server's port change.
+    cache.udp_ports = vec![443];
+    for peer in &mut cache.peers {
+        peer.endpoint.port = 443;
+    }
+    assert!(cache.config_fresh(interaction::now()));
+    assert!(!cache.directory_refresh_due(interaction::now()));
+    sessions.save(&record).unwrap();
+    http.seen.lock().unwrap().clear();
+    provision(
+        &mut Client::new(http.clone()),
+        &request("refresh", id),
+        Zeroizing::new(Vec::new()),
+        Storage {
+            parent,
+            cipher: Arc::new(FixtureCipher),
+            accounts: Default::default(),
+        },
+        &Select,
+        &CancellationToken::new(),
+    )
+    .await
+    .unwrap();
+    let saved = sessions.load(id).unwrap();
+    let cache = saved.connection_cache.unwrap();
+    assert_eq!(cache.udp_ports, vec![51820]);
+    assert_eq!(cache.peers[0].endpoint.port, 51820);
+    assert_eq!(saved.server_id, record.server_id);
+    assert_eq!(saved.session.access_token, record.session.access_token);
+    let seen = http.seen.lock().unwrap();
+    let config = seen
+        .iter()
+        .position(|(_, path, _)| path == "/vpn/v2/clientconfig")
+        .unwrap();
+    let directory = seen
+        .iter()
+        .position(|(_, path, _)| path.starts_with("/vpn/v2/logicals?"))
+        .unwrap();
+    assert!(config < directory);
 }
 
 #[tokio::test]

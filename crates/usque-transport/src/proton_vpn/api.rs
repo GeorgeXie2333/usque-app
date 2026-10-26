@@ -11,6 +11,9 @@ use tokio_util::sync::CancellationToken;
 use usque_core::proton_vpn::{API_ORIGIN, MAX_RESPONSE_BYTES, SessionSecrets};
 use zeroize::{Zeroize, Zeroizing};
 
+pub(super) const DIRECTORY_PATH: &str =
+    "/vpn/v2/logicals?WithEntriesForProtocols=WireGuardUDP&WithState=true";
+
 pub(super) struct Json(pub Value);
 impl std::ops::Deref for Json {
     type Target = Value;
@@ -159,6 +162,40 @@ impl Client {
         interaction: &dyn Interaction,
         cancel: &CancellationToken,
     ) -> Result<Json, Failure> {
+        self.request_inner(method, (path, None), body, interaction, cancel)
+            .await?
+            .0
+            .ok_or_else(|| Failure::new("invalid_api_response"))
+    }
+
+    pub async fn directory(
+        &mut self,
+        validator: Option<&str>,
+        interaction: &dyn Interaction,
+        cancel: &CancellationToken,
+    ) -> Result<(Option<Json>, Option<String>), Failure> {
+        self.request_inner(
+            Method::GET,
+            (DIRECTORY_PATH, validator),
+            &Value::Null,
+            interaction,
+            cancel,
+        )
+        .await
+    }
+
+    async fn request_inner(
+        &mut self,
+        method: Method,
+        target: (&str, Option<&str>),
+        body: &Value,
+        interaction: &dyn Interaction,
+        cancel: &CancellationToken,
+    ) -> Result<(Option<Json>, Option<String>), Failure> {
+        let (path, validator) = target;
+        if validator.is_some_and(|v| !usque_core::proton_vpn::valid_directory_validator(v)) {
+            return Err(Failure::new("invalid_api_request"));
+        }
         if !path.starts_with('/')
             || path.starts_with("//")
             || path.contains(['\r', '\n', '#'])
@@ -173,7 +210,7 @@ impl Client {
         };
         let bytes = Bytes::from_owner(PrivateBody(Zeroizing::new(bytes)));
         let mut answer = self
-            .send(method.clone(), path, bytes.clone(), None, cancel)
+            .send(method.clone(), target, bytes.clone(), None, cancel)
             .await?;
         let mut invalid_verification_retried = false;
         let mut migrated_verification = false;
@@ -222,7 +259,7 @@ impl Client {
                     }
                     migrated_verification = true;
                     answer = self
-                        .send(method.clone(), path, bytes.clone(), None, cancel)
+                        .send(method.clone(), target, bytes.clone(), None, cancel)
                         .await?;
                     continue;
                 }
@@ -237,7 +274,7 @@ impl Client {
             let submitted = self
                 .send(
                     method.clone(),
-                    path,
+                    target,
                     bytes.clone(),
                     Some((&result.0, &result.1)),
                     cancel,
@@ -255,7 +292,7 @@ impl Client {
                     }
                     migrated_verification = true;
                     answer = self
-                        .send(method.clone(), path, bytes.clone(), None, cancel)
+                        .send(method.clone(), target, bytes.clone(), None, cancel)
                         .await?;
                     continue;
                 }
@@ -273,11 +310,14 @@ impl Client {
                 self.checkpoint(generation, cancel)?;
                 invalid_verification_retried = true;
                 answer = self
-                    .send(method.clone(), path, bytes.clone(), None, cancel)
+                    .send(method.clone(), target, bytes.clone(), None, cancel)
                     .await?;
                 continue;
             }
             break;
+        }
+        if answer.1 == 304 {
+            return Ok((None, answer.2));
         }
         let code = answer
             .0
@@ -308,16 +348,17 @@ impl Client {
                 answer.1,
             ));
         }
-        Ok(answer.0)
+        Ok((Some(answer.0), answer.2))
     }
     async fn send(
         &mut self,
         method: Method,
-        path: &str,
+        target: (&str, Option<&str>),
         body: Bytes,
         verification: Option<(&str, &str)>,
         cancel: &CancellationToken,
-    ) -> Result<(Json, u16), Failure> {
+    ) -> Result<(Json, u16, Option<String>), Failure> {
+        let (path, validator) = target;
         self.http.prepare(cancel).await?;
         let previously_uncertain = self.uncertain;
         let changes_session = method == Method::POST
@@ -335,6 +376,9 @@ impl Client {
                 ("x-pm-appversion", self.config.identity.app_version.as_str()),
                 ("user-agent", self.config.identity.user_agent.as_str()),
             ];
+            if let Some(validator) = validator {
+                headers.push(("if-modified-since", validator));
+            }
             if !matches!(method, Method::GET | Method::DELETE) {
                 headers.push(("content-type", "application/json"));
             }
@@ -350,6 +394,7 @@ impl Client {
                 headers.push(("x-pm-human-verification-token", value));
                 headers.push(("x-pm-human-verification-token-type", kind));
             }
+            let started = tokio::time::Instant::now();
             let response = self
                 .http
                 .exchange_delivery(
@@ -390,9 +435,32 @@ impl Client {
                 tokio::select! { biased; _ = cancel.cancelled() => return Err(Failure::new("cancelled")), _ = tokio::time::sleep(Duration::from_secs(response.retry_after.unwrap_or(1).into())) => () }
                 continue;
             }
+            tracing::debug!(
+                probe_stage = api_stage(path),
+                elapsed_us = started.elapsed().as_micros(),
+                response_bytes = response.body.len(),
+                http_status = response.status,
+                "Proton API timing"
+            );
+            if response.status == 304 {
+                if method != Method::GET
+                    || path != DIRECTORY_PATH
+                    || validator.is_none()
+                    || !response.body.is_empty()
+                {
+                    return Err(Failure::new("invalid_api_response"));
+                }
+                return Ok((Json(Value::Null), 304, response.last_modified));
+            }
+            let started = tokio::time::Instant::now();
             let data = Json(
                 serde_json::from_slice::<Value>(&response.body)
                     .map_err(|_| Failure::new("invalid_api_response"))?,
+            );
+            tracing::debug!(
+                probe_stage = "api_parse",
+                elapsed_us = started.elapsed().as_micros(),
+                "Proton API timing"
             );
             if !data.0.is_object() {
                 return Err(Failure::new("invalid_api_response"));
@@ -404,7 +472,7 @@ impl Client {
             {
                 self.uncertain = false;
             }
-            return Ok((data, response.status));
+            return Ok((data, response.status, response.last_modified));
         }
     }
     pub async fn revoke_all(&mut self, cancel: &CancellationToken) -> bool {
@@ -428,7 +496,7 @@ impl Client {
             let answer = {
                 let request = self.send(
                     Method::DELETE,
-                    "/auth/v4",
+                    ("/auth/v4", None),
                     Bytes::new(),
                     None,
                     &cleanup_cancel,
@@ -440,7 +508,7 @@ impl Client {
                     result=&mut request=>result,
                 }
             };
-            success &= matches!(answer, Ok((ref data, status)) if (200..300).contains(&status) && data.0.get("Code").and_then(Value::as_u64) == Some(1000));
+            success &= matches!(answer, Ok((ref data, status, _)) if (200..300).contains(&status) && data.0.get("Code").and_then(Value::as_u64) == Some(1000));
             self.session = SessionSecrets::default();
         }
         success
@@ -461,4 +529,16 @@ pub(super) fn token(value: Option<&Value>) -> Result<String, Failure> {
         .filter(|s| !s.is_empty() && s.len() <= 8192 && s.bytes().all(|b| (33..=126).contains(&b)))
         .map(str::to_owned)
         .ok_or_else(|| Failure::new("invalid_api_response"))
+}
+
+fn api_stage(path: &str) -> &'static str {
+    match path {
+        "/core/v4/users" | "/auth/v4/scopes" => "identity",
+        "/vpn/v2" => "permissions",
+        "/vpn/v2/clientconfig" => "client_config",
+        DIRECTORY_PATH => "directory",
+        "/vpn/v1/certificate" => "certificate",
+        "/auth/v4/refresh" => "token_refresh",
+        _ => "account_api",
+    }
 }

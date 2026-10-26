@@ -148,6 +148,34 @@ struct Peer {
     seen: Mutex<Vec<Seen>>,
     generation: AtomicU64,
 }
+
+#[tokio::test]
+async fn conditional_directory_rejects_body_and_header_injection() {
+    let peer = make_peer(vec![Ok((304, json!({"Code":1000})))]);
+    let mut client = Client::new(peer.clone());
+    let io = manual();
+    let cancel = CancellationToken::new();
+    assert_eq!(
+        client
+            .directory(Some("Mon\r\nInjected: value"), &io, &cancel)
+            .await
+            .err()
+            .unwrap()
+            .reason,
+        "invalid_api_request"
+    );
+    assert!(peer.seen.lock().unwrap().is_empty());
+    assert_eq!(
+        client
+            .directory(Some("Mon, 26 Oct 2026 00:00:00 GMT"), &io, &cancel)
+            .await
+            .err()
+            .unwrap()
+            .reason,
+        "invalid_api_response"
+    );
+    assert_eq!(peer.seen.lock().unwrap().len(), 1);
+}
 #[async_trait]
 impl Http for Peer {
     async fn exchange(
@@ -174,6 +202,7 @@ impl Http for Peer {
         Ok(InternalResponse {
             status,
             retry_after: None,
+            last_modified: None,
             body: Zeroizing::new(serde_json::to_vec(&value).unwrap()),
         })
     }

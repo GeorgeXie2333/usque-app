@@ -68,10 +68,11 @@ pub(crate) struct InternalRequest<'a> {
 }
 
 /// Error bodies are needed by authentication callers, but are not printable or
-/// part of a transport error. Only the numeric Retry-After header is retained.
+/// part of a transport error. Only bounded Retry-After and Last-Modified metadata is retained.
 pub(crate) struct InternalResponse {
     pub status: u16,
     pub retry_after: Option<u32>,
+    pub last_modified: Option<String>,
     pub body: zeroize::Zeroizing<Vec<u8>>,
 }
 
@@ -577,6 +578,56 @@ impl InternalNetwork {
         }
     }
 
+    /// Start dialing as soon as a DNS family responds, with at most two
+    /// staggered attempts. All sockets still use this exact WARP dialer.
+    #[cfg(feature = "wireguard")]
+    async fn connect_proton_api(
+        &self,
+        cancel: &CancellationToken,
+        deadline: Instant,
+        ipv6: Option<bool>,
+    ) -> Result<TcpStream, InternalHttpError> {
+        if self.resolver.is_none() || ipv6.is_some() {
+            return self
+                .connect_host("vpn-api.proton.me", 443, cancel, deadline, ipv6)
+                .await;
+        }
+        if !matches!(*self.health.borrow(), RuntimeHealth::Connected { .. }) {
+            return Err(InternalHttpError::Connect);
+        }
+        let resolution = self
+            .resolver
+            .as_ref()
+            .expect("checked resolver")
+            .resolve_candidates("vpn-api.proton.me", deadline)
+            .map_err(|_| InternalHttpError::Dns)?;
+        self.connect_proton_candidates(resolution, cancel, deadline)
+            .await
+    }
+
+    #[cfg(feature = "wireguard")]
+    async fn connect_proton_candidates(
+        &self,
+        resolution: CandidateResolution,
+        cancel: &CancellationToken,
+        deadline: Instant,
+    ) -> Result<TcpStream, InternalHttpError> {
+        use crate::tcp_candidates::{CandidateDialError, connect_candidates};
+        tokio::select! {
+            biased;
+            _ = self.cancellation.cancelled() => Err(InternalHttpError::Cancelled),
+            _ = cancel.cancelled() => Err(InternalHttpError::Cancelled),
+            result = connect_candidates(Arc::new(InternalEndpointDialer(self.clone())), resolution, 443, deadline, cancel) => {
+                result.map_err(|error| match error {
+                    CandidateDialError::Resolve(_) => InternalHttpError::Dns,
+                    CandidateDialError::Dial(DialError::Cancelled) => InternalHttpError::Cancelled,
+                    CandidateDialError::Dial(DialError::Timeout) => InternalHttpError::Timeout,
+                    CandidateDialError::Dial(_) => InternalHttpError::Connect,
+                })
+            }
+        }
+    }
+
     /// Bounded HTTPS over this exact network. No redirect, system proxy,
     /// physical DNS, or physical TCP connection is available on this path.
     pub async fn get_https(
@@ -746,6 +797,12 @@ impl InternalNetwork {
                 "Internal HTTPS timing"
             );
             let status = response.status().as_u16();
+            let last_modified = response
+                .headers()
+                .get(http::header::LAST_MODIFIED)
+                .and_then(|v| v.to_str().ok())
+                .filter(|v| usque_core::proton_vpn::valid_directory_validator(v))
+                .map(str::to_owned);
             let retry_after = response
                 .headers()
                 .get(http::header::RETRY_AFTER)
@@ -782,6 +839,7 @@ impl InternalNetwork {
             Ok(InternalResponse {
                 status,
                 retry_after,
+                last_modified,
                 body: bytes,
             })
         };

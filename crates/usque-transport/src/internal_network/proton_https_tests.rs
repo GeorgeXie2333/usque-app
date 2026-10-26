@@ -221,3 +221,170 @@ async fn cancellation_during_response_closes_owned_driver() {
     assert_eq!(dialer.calls.load(Ordering::SeqCst), 0);
     assert!(session.idle.lock().await.is_none());
 }
+
+struct MemoryStream(DuplexStream);
+impl tokio::io::AsyncRead for MemoryStream {
+    fn poll_read(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.0).poll_read(cx, buf)
+    }
+}
+impl tokio::io::AsyncWrite for MemoryStream {
+    fn poll_write(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        bytes: &[u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        std::pin::Pin::new(&mut self.0).poll_write(cx, bytes)
+    }
+    fn poll_flush(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.0).poll_flush(cx)
+    }
+    fn poll_shutdown(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.0).poll_shutdown(cx)
+    }
+}
+impl crate::tcp::TcpIo for MemoryStream {
+    fn local_addr(&self) -> std::io::Result<std::net::SocketAddr> {
+        Ok("192.0.2.1:40000".parse().unwrap())
+    }
+}
+struct RaceDialer(std::sync::Mutex<Vec<CancellationToken>>);
+#[async_trait]
+impl TcpDialer for RaceDialer {
+    async fn connect(
+        &self,
+        target: TcpTarget,
+        _: Instant,
+        cancel: &CancellationToken,
+        class: FlowClass,
+    ) -> Result<TcpStream, DialError> {
+        self.0.lock().unwrap().push(cancel.clone());
+        assert_eq!(class, FlowClass::Business);
+        assert_eq!(target.socket_address().unwrap().port(), 443);
+        if target.socket_address().unwrap().ip()
+            == "198.51.100.1".parse::<std::net::IpAddr>().unwrap()
+        {
+            std::future::pending::<()>().await;
+        }
+        let (client, _server) = tokio::io::duplex(32);
+        Ok(Box::new(MemoryStream(client)))
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn api_dial_starts_before_stalled_aaaa_and_races_stalled_first_address() {
+    for stalled_first in [false, true] {
+        let (session, _server, _, _health) = fixture().await;
+        let mut network = session.network.clone();
+        let dialer = Arc::new(RaceDialer(Default::default()));
+        network.dialer = dialer.clone();
+        let resolution = if stalled_first {
+            crate::dns::CandidateResolution::from_addresses(vec![
+                "198.51.100.1".parse().unwrap(),
+                "198.51.100.2".parse().unwrap(),
+            ])
+        } else {
+            crate::dns::CandidateResolution::test_queries(
+                async { Ok(vec!["198.51.100.2".parse().unwrap()]) },
+                std::future::pending(),
+            )
+        };
+        let started = Instant::now();
+        let stream = network
+            .connect_proton_candidates(
+                resolution,
+                &CancellationToken::new(),
+                started + Duration::from_secs(5),
+            )
+            .await
+            .unwrap();
+        assert!(started.elapsed() <= Duration::from_millis(250));
+        {
+            let tokens = dialer.0.lock().unwrap();
+            assert_eq!(tokens.len(), if stalled_first { 2 } else { 1 });
+            assert!(!tokens.last().unwrap().is_cancelled());
+            if stalled_first {
+                assert!(tokens[0].is_cancelled());
+            }
+        }
+        drop(stream);
+        session.shutdown().await;
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn api_dial_same_family_backup_waits_for_pending_aaaa_with_a_stalled_first_address() {
+    let (session, _server, _, _health) = fixture().await;
+    let mut network = session.network.clone();
+    let dialer = Arc::new(RaceDialer(Default::default()));
+    network.dialer = dialer.clone();
+    let resolution = crate::dns::CandidateResolution::test_queries(
+        async {
+            Ok(vec![
+                "198.51.100.1".parse().unwrap(),
+                "198.51.100.2".parse().unwrap(),
+            ])
+        },
+        std::future::pending(),
+    );
+    let started = Instant::now();
+    let stream = network
+        .connect_proton_candidates(
+            resolution,
+            &CancellationToken::new(),
+            started + Duration::from_secs(5),
+        )
+        .await
+        .unwrap();
+    // The shared scheduler reserves its second slot until the other DNS family
+    // finishes. Preserve and document that policy in this minimal recovery fix.
+    assert_eq!(started.elapsed(), Duration::from_secs(4));
+    {
+        let tokens = dialer.0.lock().unwrap();
+        assert_eq!(tokens.len(), 2);
+        assert!(tokens[0].is_cancelled());
+        assert!(!tokens[1].is_cancelled());
+    }
+    drop(stream);
+    session.shutdown().await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn api_dial_cancellation_stops_all_candidates_on_its_private_network() {
+    let (session, _server, _, _health) = fixture().await;
+    let mut network = session.network.clone();
+    let dialer = Arc::new(RaceDialer(Default::default()));
+    network.dialer = dialer.clone();
+    let cancel = CancellationToken::new();
+    let stop = cancel.clone();
+    let stop_task = tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        stop.cancel();
+    });
+    let resolution =
+        crate::dns::CandidateResolution::from_addresses(vec!["198.51.100.1".parse().unwrap()]);
+    assert_eq!(
+        network
+            .connect_proton_candidates(resolution, &cancel, Instant::now() + Duration::from_secs(5))
+            .await
+            .err(),
+        Some(InternalHttpError::Cancelled)
+    );
+    stop_task.await.unwrap();
+    {
+        let tokens = dialer.0.lock().unwrap();
+        assert_eq!(tokens.len(), 1);
+        assert!(tokens[0].is_cancelled());
+    }
+    session.shutdown().await;
+}

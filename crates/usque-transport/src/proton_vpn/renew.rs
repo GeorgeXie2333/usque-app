@@ -24,6 +24,8 @@ use zeroize::{Zeroize, Zeroizing};
 
 const MONITOR_INTERVAL: Duration = Duration::from_secs(5);
 const KEY_RECOVERY_COOLDOWN: i64 = 300;
+// Cover the complete startup budget before accepting a refresh-due certificate.
+const CERTIFICATE_STARTUP_MARGIN: i64 = 180;
 
 pub(crate) struct RecoveryRequest {
     pub code: u32,
@@ -147,8 +149,9 @@ pub(crate) async fn invalidate_peer(
         let _lock = persistence.lock()?;
         let mut record = persistence.load()?;
         if let Some(cache) = &mut record.connection_cache {
-            cache.directory_at = 0;
-            cache.peers.clear();
+            // Nodes without a port override depend on the cached defaults too.
+            cache.config_at = 0;
+            cache.invalidate_directory();
             persistence.save(&record)?;
         }
         Ok::<_, usque_core::chain_exit::ImportError>(())
@@ -293,7 +296,7 @@ impl Lease {
         cancel: &CancellationToken,
     ) -> Result<(), GateFailure> {
         let (_requests, receiver) = mpsc::channel(1);
-        self.run_with_recovery(sender, receiver, watch::channel(false).1, cancel)
+        self.run_with_recovery(sender, receiver, watch::channel(true).1, cancel)
             .await
     }
 
@@ -314,7 +317,7 @@ impl Lease {
         mut self,
         sender: watch::Sender<Arc<TunnelCredentials>>,
         mut requests: mpsc::Receiver<RecoveryRequest>,
-        admitted: watch::Receiver<bool>,
+        mut admitted: watch::Receiver<bool>,
         cancel: &CancellationToken,
     ) -> Result<(), GateFailure> {
         let mut retry_at = self
@@ -324,6 +327,7 @@ impl Lease {
         let mut retry_delay = Duration::from_secs(30);
         let mut metadata_retry_at = tokio::time::Instant::now();
         let mut metadata_retry_delay = Duration::from_secs(30);
+        let mut admission_closed = false;
         loop {
             self.check(cancel)
                 .map_err(|failure| gate_failure(&failure))?;
@@ -333,7 +337,13 @@ impl Lease {
                     FailureKind::Certificate,
                 )));
             }
-            if now >= self.current.refresh_at && tokio::time::Instant::now() >= retry_at {
+            let renewal_allowed = *admitted.borrow()
+                || self.current.expires_at.saturating_sub(now) <= CERTIFICATE_STARTUP_MARGIN;
+            if renewal_allowed
+                && requests.is_empty()
+                && now >= self.current.refresh_at
+                && tokio::time::Instant::now() >= retry_at
+            {
                 let credentials = match self.rotate(cancel).await {
                     Ok(credentials) => credentials,
                     Err(failure) => {
@@ -369,7 +379,9 @@ impl Lease {
                 && now < self.current.refresh_at
                 && tokio::time::Instant::now() >= metadata_retry_at
                 && self.current.connection_cache.as_ref().is_none_or(|cache| {
-                    cache.permissions_refresh_due(now) || cache.directory_refresh_due(now)
+                    cache.permissions_refresh_due(now)
+                        || cache.directory_refresh_due(now)
+                        || cache.config_refresh_due(now)
                 })
             {
                 let refresh_cancel = cancel.child_token();
@@ -429,7 +441,9 @@ impl Lease {
                 )
                 .unwrap_or(0),
             );
-            let delay = if until_refresh.is_zero() {
+            let delay = if !renewal_allowed && until_refresh.is_zero() {
+                MONITOR_INTERVAL
+            } else if until_refresh.is_zero() {
                 MONITOR_INTERVAL
                     .min(retry_at.saturating_duration_since(tokio::time::Instant::now()))
             } else {
@@ -448,6 +462,9 @@ impl Lease {
                         sender.send_replace(credentials.clone());
                     }
                     let _ = request.reply.send(result);
+                }
+                changed = admitted.changed(), if !admission_closed => {
+                    admission_closed = changed.is_err();
                 }
                 _ = tokio::time::sleep(delay) => (),
             }
@@ -490,11 +507,9 @@ impl Lease {
             {
                 return Err(Failure::new("account_tier_changed"));
             }
-            if record
-                .connection_cache
-                .as_ref()
-                .is_none_or(|cache| cache.directory_refresh_due(now))
-            {
+            if record.connection_cache.as_ref().is_none_or(|cache| {
+                cache.directory_refresh_due(now) || cache.config_refresh_due(now)
+            }) {
                 access
                     .directory(&mut client, &mut record, &NoInteraction, cancel)
                     .await?;
@@ -651,6 +666,8 @@ async fn prepare_with_http(
         Some(id) => (!id.is_empty()).then(|| id.clone()),
         None => record.selected_server().map(str::to_owned),
     };
+    record.server_id = selected.clone();
+    record.promote();
     let cached_peer = record.connection_cache.as_ref().and_then(|cache| {
         cache
             .peer(selected.as_deref(), super::interaction::now())
@@ -683,8 +700,8 @@ async fn prepare_with_http(
     )?;
     let mut retry_at = None;
     let certificate_requested = record.certificate_chain.is_empty()
-        || record.refresh_at <= super::interaction::now()
-        || record.expires_at <= super::interaction::now();
+        || record.expires_at.saturating_sub(super::interaction::now())
+            <= CERTIFICATE_STARTUP_MARGIN;
     if certificate_requested {
         let certificate = access
             .certificate(&mut client, &mut record, &keys, &NoInteraction, cancel)

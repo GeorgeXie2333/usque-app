@@ -4,6 +4,7 @@ mod cache;
 mod connection;
 pub mod store;
 pub use cache::ConnectionCache;
+pub use cache::valid_directory_validator;
 pub use connection::{ConnectionFailure, FailureKind, valid_label};
 
 use crate::chain_exit::{Endpoint, ImportError};
@@ -425,17 +426,17 @@ impl Record {
             .map_or(&self.ed25519_seed, |seed| seed)
     }
     pub fn promote(&mut self) {
-        self.version = 4;
+        self.version = 5;
     }
     pub fn validate(&self) -> Result<(), ImportError> {
         self.api_identity.validate()?;
         self.session.validate()?;
         self.node.validate()?;
-        let deferred = matches!(self.version, 2..=4)
+        let deferred = matches!(self.version, 2..=5)
             && self.certificate_chain.is_empty()
             && self.expires_at == 0
             && self.refresh_at == 0;
-        if !matches!(self.version, 1..=4)
+        if !matches!(self.version, 1..=5)
             || self.ed25519_seed.len() != 32
             || self
                 .tunnel_seed
@@ -461,7 +462,7 @@ impl Record {
             return Err(error("invalid_record"));
         }
         if let Some(cache) = &self.connection_cache {
-            if self.version != 4 {
+            if !matches!(self.version, 4..=5) {
                 return Err(error("invalid_record"));
             }
             cache.validate()?;

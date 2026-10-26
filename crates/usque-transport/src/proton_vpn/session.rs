@@ -39,6 +39,7 @@ impl Access {
     }
     pub async fn save(&self, record: &Record, cancel: &CancellationToken) -> Result<(), Failure> {
         self.check(cancel)?;
+        let started = tokio::time::Instant::now();
         let persistence = self.persistence.clone();
         let http = self.http.clone();
         let generation = self.generation;
@@ -56,6 +57,11 @@ impl Access {
         })
         .await
         .map_err(|_| Failure::new("secure_storage_failed"))??;
+        tracing::debug!(
+            probe_stage = "account_save",
+            elapsed_us = started.elapsed().as_micros(),
+            "Proton connection preparation timing"
+        );
         self.check(cancel)
     }
     async fn recover(
@@ -227,28 +233,85 @@ impl Access {
         cancel: &CancellationToken,
     ) -> Result<Vec<SelectedNode>, Failure> {
         interaction.phase("directory");
-        let config = self
-            .get(client, record, "/vpn/v2/clientconfig", interaction, cancel)
-            .await?;
-        let directory = self
-            .get(
-                client,
-                record,
-                "/vpn/v2/logicals?WithEntriesForProtocols=WireGuardUDP&WithState=true",
-                interaction,
-                cancel,
-            )
-            .await?;
-        let nodes = nodes::collect_for_tier(&directory.0, &config.0, record.max_tier)?;
+        self.check(cancel)?;
+        let now = super::interaction::now();
+        let config_cached = record
+            .connection_cache
+            .as_ref()
+            .is_some_and(|cache| cache.config_fresh(now));
+        let ports = if config_cached {
+            record
+                .connection_cache
+                .as_ref()
+                .expect("fresh configuration")
+                .udp_ports
+                .clone()
+        } else {
+            let config = self
+                .get(client, record, "/vpn/v2/clientconfig", interaction, cancel)
+                .await?;
+            let ports = nodes::default_ports(&config.0)?;
+            record
+                .connection_cache
+                .get_or_insert_default()
+                .set_config(ports.clone(), super::interaction::now());
+            ports
+        };
+        let validator = record
+            .connection_cache
+            .as_ref()
+            .and_then(|cache| cache.directory_validator(now))
+            .map(str::to_owned);
+        let response = client
+            .directory(validator.as_deref(), interaction, cancel)
+            .await;
+        let (directory, modified) = match response {
+            Err(failure) if failure.status == Some(401) && !client.uncertain && !self.recovered => {
+                self.recover(client, record, interaction, cancel).await?;
+                // A validator belongs to the old authenticated snapshot. Never
+                // use a 304 across a recovered session, even with the same UID.
+                client.directory(None, interaction, cancel).await?
+            }
+            result => result?,
+        };
+        self.check(cancel)?;
+        let Some(directory) = directory else {
+            let cache = record
+                .connection_cache
+                .as_mut()
+                .ok_or_else(|| Failure::new("invalid_server_directory"))?;
+            if validator.is_none() || cache.directory_validator(now) != validator.as_deref() {
+                return Err(Failure::new("invalid_server_directory"));
+            }
+            cache.directory_at = super::interaction::now();
+            tracing::debug!(
+                probe_stage = "directory_cache",
+                config_cached,
+                not_modified = true,
+                "Proton connection preparation timing"
+            );
+            return Ok(cache.peers.clone());
+        };
+        let started = tokio::time::Instant::now();
+        let config = serde_json::json!({"DefaultPorts":{"WireGuard":{"UDP":ports}}});
+        let nodes = nodes::collect_for_tier(&directory.0, &config, record.max_tier)?;
+        tracing::debug!(
+            probe_stage = "directory_parse",
+            elapsed_us = started.elapsed().as_micros(),
+            config_cached,
+            not_modified = false,
+            "Proton connection preparation timing"
+        );
         record.server_catalog = nodes.iter().map(|node| node.metadata.clone()).collect();
         record.catalog_revision = uuid::Uuid::new_v4();
         let selected = record.selected_server().map(str::to_owned);
         record.server_id = selected.clone();
         record.promote();
-        record
-            .connection_cache
-            .get_or_insert_default()
-            .set_directory(&nodes, selected.as_deref(), super::interaction::now());
+        let cache = record.connection_cache.get_or_insert_default();
+        cache.set_directory(&nodes, selected.as_deref(), super::interaction::now());
+        if cache.directory_complete {
+            cache.directory_last_modified = modified;
+        }
         Ok(nodes)
     }
     pub async fn certificate(
