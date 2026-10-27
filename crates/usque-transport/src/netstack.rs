@@ -26,7 +26,8 @@ use crate::h2::{MasqueTlsIdentity, TransportError};
 use crate::h3::H3MigrationResult;
 use crate::network_quality::{NetworkQualitySnapshot, spawn_network_quality_sampler_with_counters};
 use crate::packet_batch::{
-    MAX_PACKET_BATCH_BYTES, PACKET_BATCH_CHANNEL_CAPACITY, PacketBatch, PacketBatchResult,
+    MAX_PACKET_BATCH_BYTES, MAX_PACKET_BATCH_PACKETS, PACKET_BATCH_CHANNEL_CAPACITY, PacketBatch,
+    PacketBatchResult,
 };
 use crate::packet_pipe::{
     PacketDevice, PacketPipe as WakingPipe, PacketReceiver as WakingPipeReceiver,
@@ -67,7 +68,7 @@ const H3_PROBE_JITTER_PERCENT: u64 = 20;
 const RAW_PACKET_CHANNEL_CAPACITY: usize = 1_024;
 const RAW_PACKET_CHANNEL_BYTE_CAPACITY: usize = RAW_PACKET_CHANNEL_CAPACITY * u16::MAX as usize;
 const PROXY_PACKET_PIPE_CAPACITY: usize = 1_024;
-const PREFERRED_TCP_RECEIVE_BUFFER: usize = 4 * 1024 * 1024;
+const PREFERRED_TCP_RECEIVE_BUFFER: usize = 16 * 1024 * 1024;
 const PREFERRED_TCP_TRANSMIT_BUFFER: usize = 1024 * 1024;
 const FALLBACK_TCP_RECEIVE_BUFFER: usize = 1024 * 1024;
 const FALLBACK_TCP_TRANSMIT_BUFFER: usize = 256 * 1024;
@@ -585,7 +586,7 @@ const fn tcp_buffer_budgets() -> (usize, usize) {
     }
     #[cfg(not(target_os = "android"))]
     {
-        (192 * 1024 * 1024, 256 * 1024 * 1024)
+        (768 * 1024 * 1024, 1024 * 1024 * 1024)
     }
 }
 
@@ -4146,7 +4147,14 @@ mod tests {
                 assert_eq!(ipv4_header_checksum(packet), 0);
             }
         }
-        assert_eq!(batch_sizes, [64, 64, 2]);
+        let expected_batch = MAX_PACKET_BATCH_PACKETS.min(130);
+        let full_batches = 130 / expected_batch;
+        let remainder = 130 % expected_batch;
+        let mut expected_sizes = vec![expected_batch; full_batches];
+        if remainder > 0 {
+            expected_sizes.push(remainder);
+        }
+        assert_eq!(batch_sizes, expected_sizes);
         assert_eq!(observed, (0..130_u16).collect::<Vec<_>>());
     }
 
