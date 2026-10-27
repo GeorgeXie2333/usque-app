@@ -33,6 +33,12 @@ transient missing snapshots and routes preserve the session. Windows automatic
 candidate authorization waits for the Agent to release a retiring lease before
 retrying the same exact endpoint and generation.
 
+Linux proxy observation compares source addresses and route snapshots. Its IPv6
+route fingerprint excludes reference/use counters and enumeration order, while
+retaining prefixes, gateways, metrics, flags and interfaces. Unknown snapshot
+formats retain their raw change detection; missing and empty snapshots remain
+distinct. These observations stay process-local and do not change host routing.
+
 HTTP and SOCKS listeners remain bound during recovery. Requests wait through a
 shared health subscription before sending application bytes. DNS/TCP work
 interrupted by a new outage returns to waiting, carrying its remaining ready-time

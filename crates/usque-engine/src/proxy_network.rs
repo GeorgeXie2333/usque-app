@@ -8,8 +8,32 @@ use usque_transport::{
     PhysicalNetworkAvailability, PhysicalNetworkSnapshot, SocketHandle, SocketProtector,
 };
 
+#[cfg(target_os = "linux")]
+mod linux_routes;
+#[cfg(all(test, target_os = "linux"))]
+mod tests;
+
 struct ProxyNetwork {
     state: watch::Sender<PhysicalNetworkSnapshot>,
+}
+
+impl ProxyNetwork {
+    fn update(
+        &self,
+        previous: &mut u64,
+        fingerprint: u64,
+        availability: PhysicalNetworkAvailability,
+        resumed: bool,
+    ) {
+        if fingerprint != *previous || resumed {
+            *previous = fingerprint;
+            let generation = self.state.borrow().generation.saturating_add(1);
+            self.state.send_replace(PhysicalNetworkSnapshot {
+                generation,
+                availability,
+            });
+        }
+    }
 }
 
 impl SocketProtector for ProxyNetwork {
@@ -64,14 +88,7 @@ pub(super) fn socket_protector() -> Arc<dyn SocketProtector> {
                 .duration_since(observed_at)
                 .is_ok_and(|gap| gap > Duration::from_secs(5));
             observed_at = now;
-            if fingerprint != previous || resumed {
-                previous = fingerprint;
-                let generation = network.state.borrow().generation.saturating_add(1);
-                network.state.send_replace(PhysicalNetworkSnapshot {
-                    generation,
-                    availability,
-                });
-            }
+            network.update(&mut previous, fingerprint, availability, resumed);
         }
     });
     network
@@ -95,8 +112,10 @@ fn observe() -> (u64, PhysicalNetworkAvailability) {
     v4.hash(&mut hash);
     v6.hash(&mut hash);
     #[cfg(target_os = "linux")]
-    for path in ["/proc/net/route", "/proc/net/ipv6_route"] {
-        std::fs::read(path).ok().hash(&mut hash);
+    {
+        std::fs::read("/proc/net/route").ok().hash(&mut hash);
+        let ipv6_routes = std::fs::read("/proc/net/ipv6_route").ok();
+        linux_routes::hash_ipv6_routes(ipv6_routes.as_deref(), &mut hash);
     }
     #[cfg(windows)]
     default_interfaces().hash(&mut hash);
