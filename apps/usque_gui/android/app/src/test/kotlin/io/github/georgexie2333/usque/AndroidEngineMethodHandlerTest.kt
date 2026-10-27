@@ -19,6 +19,32 @@ import java.util.concurrent.TimeUnit
 
 class AndroidEngineMethodHandlerTest {
     @Test
+    fun protonServerSwitchingCapabilityReachesFlutterOnlyWithExplicitNativeSupport() {
+        val cases =
+            listOf(
+                """{"chain_proton_vpn":true,"proton_server_switching":true,"unknown_capability":true}""" to true,
+                """{"chain_proton_vpn":true,"proton_account_warp_fallback":true}""" to false,
+                """{"proton_server_switching":false}""" to false,
+                """{"proton_server_switching":"true"}""" to false,
+                """{"proton_server_switching":1}""" to false,
+                "invalid" to false,
+                null to false,
+            )
+        for ((native, supported) in cases) {
+            engineBridge.capabilitiesJson = native
+            val result = RecordingResult()
+            handler.handle(MethodCall("getCapabilities", null), result)
+            val capabilities = result.successValue as Map<*, *>
+            assertEquals(supported, capabilities["proton_server_switching"])
+            assertFalse(capabilities.containsKey("unknown_capability"))
+            assertEquals(1, result.completionCount)
+        }
+        assertEquals(0, activityCommands.connectCount)
+        assertTrue(endpoint.whats.isEmpty())
+        assertTrue(engineBridge.commands.isEmpty())
+    }
+
+    @Test
     fun protonAccountFallbackCapabilityReachesFlutterOnlyWithExplicitNativeSupport() {
         val cases =
             listOf(

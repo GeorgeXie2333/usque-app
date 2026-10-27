@@ -141,6 +141,7 @@ internal object NetworkQualityFields {
             "chain_warp_wireguard",
             "chain_proton_vpn",
             "proton_account_warp_fallback",
+            "proton_server_switching",
             "chain_http_proxy",
             "chain_socks5_proxy",
             "chain_proxy_encrypted_dns",
