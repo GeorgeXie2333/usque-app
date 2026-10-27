@@ -526,6 +526,7 @@ fi
 
 def build_deb(root: Path, output: Path, version: str, architecture: str) -> None:
     record(root, version, architecture, "deb")
+    # Flutter dlopens libGLESv2.so.2; ELF NEEDED scans cannot infer the libgles2 dependency.
     write(
         root / "DEBIAN/control",
         f"""Package: usque
@@ -534,7 +535,7 @@ Architecture: {architecture}
 Maintainer: Usque contributors <65408965+GeorgeXie2333@users.noreply.github.com>
 Section: net
 Priority: optional
-Depends: libc6 (>= 2.35), libstdc++6 (>= 12), libgtk-3-0, libsecret-1-0, libgl1, systemd, policykit-1 | polkitd, policykit-1 | pkexec, nftables, iproute2, python3, desktop-file-utils
+Depends: libc6 (>= 2.35), libstdc++6 (>= 12), libgtk-3-0, libsecret-1-0, libgl1, libgles2, systemd, policykit-1 | polkitd, policykit-1 | pkexec, nftables, iproute2, python3, desktop-file-utils
 Recommends: gnome-keyring
 Description: Desktop client compatible with Cloudflare WARP
  Privilege-separated desktop client with a system service.

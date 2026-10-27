@@ -378,6 +378,23 @@ class LinuxPackageTests(unittest.TestCase):
                         fields[tag] = original
 
     @unittest.skipUnless(shutil.which("dpkg-deb"), "dpkg-deb required for inert archive fixture")
+    def test_debian_archives_require_dynamically_loaded_gles_library(self) -> None:
+        for architecture in linux_package.ARCHITECTURES:
+            with (
+                self.subTest(architecture=architecture),
+                tempfile.TemporaryDirectory() as directory,
+            ):
+                root = Path(directory) / "root"
+                linux_package.write(root / "usr/lib/usque/usque-engine", "inert engine\n", 0o755)
+                archive = Path(directory) / "fixture.deb"
+                with patch.object(linux_package, "inspect_bundle"):
+                    linux_package.build_deb(root, archive, "1.2.3", architecture)
+                dependencies = linux_package.run(["dpkg-deb", "--field", archive, "Depends"])
+                self.assertIn(
+                    "libgles2", [dependency.strip() for dependency in dependencies.split(",")]
+                )
+
+    @unittest.skipUnless(shutil.which("dpkg-deb"), "dpkg-deb required for inert archive fixture")
     def test_debian_round_trip_verifies_payload_and_maintainer_scripts(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "root"
