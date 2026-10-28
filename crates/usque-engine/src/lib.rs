@@ -6157,6 +6157,12 @@ fn exit_probe_for_session(
     runtime: &ActiveRuntime,
     listener_auth: Option<&ProxyAuthCredentials>,
 ) -> Option<IpSbProbe> {
+    // Provider contract tests have no system VPN/filter. Even a diagnostic DNS
+    // lookup must not escape their loopback-only transport boundary.
+    #[cfg(all(test, target_os = "macos"))]
+    if matches!(runtime, ActiveRuntime::MacVpn(_)) {
+        return None;
+    }
     let loopback = runtime
         .listeners()
         .iter()
