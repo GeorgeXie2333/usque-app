@@ -1457,6 +1457,10 @@ impl FrontendSpec {
 mod mux_progress_tests;
 
 #[cfg(test)]
+#[path = "masque_runtime/mux_routing_tests.rs"]
+mod mux_routing_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::queue_metrics::QueueMetrics;
