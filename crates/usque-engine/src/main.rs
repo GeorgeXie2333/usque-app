@@ -173,6 +173,14 @@ async fn run(
         usque_engine::linux_ipc::LinuxIpcServer::bind(socket).await?
     };
     let service = ControlService::open(store)?;
+    #[cfg(target_os = "macos")]
+    if let Ok(provider) = usque_engine::macos_runtime::BundledProviderControl::from_current_bundle()
+    {
+        service
+            .set_macos_provider_control(Arc::new(provider))
+            .await?;
+    }
+
     #[cfg(not(target_os = "linux"))]
     if let Err(error) = service.migrate_shared_proxy_password().await {
         warn!(%error, "shared proxy-password migration will be retried later");
@@ -230,13 +238,19 @@ async fn run(
         });
         info!(path = %socket_path.display(), "starting current-user Unix Socket control service");
         let service = Arc::new(service);
-        tokio::select! {
-            result = usque_engine::macos_ipc::serve(Arc::clone(&service), socket_path) => result?,
-            result = tokio::signal::ctrl_c() => result?,
+        let mut terminate =
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+        let result = tokio::select! {
+            result = usque_engine::macos_ipc::serve(Arc::clone(&service), socket_path) => result,
+            result = tokio::signal::ctrl_c() => result,
+            _ = terminate.recv() => Ok(()),
+        };
+        // UI/Engine process lifetime is distinct from explicit user Stop. The
+        // extension retains its session and protection after losing the UI.
+        if let Err(error) = service.detach_macos_process().await {
+            warn!(%error, "engine local frontend detach failed");
         }
-        if let Err(error) = service.shutdown().await {
-            warn!(%error, "engine shutdown could not fully restore platform state");
-        }
+        result?;
     }
 
     #[cfg(target_os = "linux")]

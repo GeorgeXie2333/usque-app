@@ -3188,6 +3188,7 @@ dependencies = [
  "usque-core",
  "usque-geo",
  "usque-ipc",
+ "usque-macos-runtime",
  "usque-platform",
  "usque-transport",
  "uuid",
@@ -3224,6 +3225,26 @@ dependencies = [
  "protoc-bin-vendored",
  "serde",
  "thiserror",
+]
+
+[[package]]
+name = "usque-macos-runtime"
+version = "0.3.3"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tokio-util",
+ "usque-core",
+ "usque-geo",
+ "usque-transport",
+ "uuid",
+ "zeroize",
 ]
 
 [[package]]

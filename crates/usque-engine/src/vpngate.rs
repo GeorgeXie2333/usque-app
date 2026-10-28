@@ -220,6 +220,13 @@ impl ControlService {
             let policy = Arc::new(crate::load_geo_direct_policy(profile, &self.cache_dir)?);
             ads_revision = policy.ads_revision().unwrap_or_default().to_owned();
             match &mut active.runtime {
+                #[cfg(target_os = "macos")]
+                crate::active_runtime::ActiveRuntime::MacVpn(runtime) => {
+                    let identity = self.load_warp_identity(profile.id).await?;
+                    runtime
+                        .replace(profile, &identity, selected, startup_cancel)
+                        .await
+                }
                 crate::active_runtime::ActiveRuntime::Proxy(runtime) => {
                     runtime
                         .runtime

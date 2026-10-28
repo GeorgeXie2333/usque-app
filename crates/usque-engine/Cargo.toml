@@ -45,6 +45,10 @@ windows-sys.workspace = true
 [target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]
 libc.workspace = true
 
+[target.'cfg(target_os = "macos")'.dependencies]
+usque-macos-runtime = { path = "../usque-macos-runtime" }
+tokio = { workspace = true, features = ["process"] }
+
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
 base64.workspace = true

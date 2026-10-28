@@ -21,6 +21,14 @@ pub(crate) struct LiveAds {
 }
 
 impl LiveAds {
+    pub(crate) fn snapshot(cache_dir: &Path, enabled: bool) -> Arc<Self> {
+        let ads = Arc::new(Self {
+            cache_dir: Some(cache_dir.to_owned()),
+            ..Default::default()
+        });
+        ads.set_enabled(enabled);
+        ads
+    }
     pub(crate) fn watch(cache_dir: &Path, enabled: bool) -> Arc<Self> {
         let ads = Arc::new(Self {
             cache_dir: Some(cache_dir.to_owned()),

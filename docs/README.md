@@ -43,6 +43,7 @@ Continuous connection behavior and control compatibility: [English / 简体中�
 | [Contributing](../CONTRIBUTING.md) | Toolchain setup and change-scoped checks / 工具链准备与检查矩阵 |
 | [Development-machine safety](../CONTRIBUTING.md#development-machines) | Workstation limits, isolation, and evidence requirements / 开发机安全边界与验证要求 |
 | [Implementation progress](IMPLEMENTATION.md) | Source-tree milestones, not proof of a test run / 源码实现进度，不等同于测试通过 |
+| [macOS network prototype](MACOS_NETWORK_PROTOTYPE.md) | Sole VPN owner, isolated contracts, dual-architecture developer builds and pending signed routing acceptance / 单会话 VPN 原型、隔离测试、双架构开发构建与待签名实机验收 |
 | [Routing validation record](ROUTING_VALIDATION.md) | Workstation commands, results and unavailable isolated checks / 分流功能开发机验证与未运行的隔离检查 |
 | [GUI development](../apps/usque_gui/README.md) | Editing workflows and native UI conventions / 界面交互与布局约定 |
 | [Linux and WSL development](LINUX_DEVELOPMENT.md) | Native tools, debug UI preview, hot reload and checks / Linux 工具、模拟界面预览、热重载与检查 |
