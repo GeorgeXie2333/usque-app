@@ -178,12 +178,21 @@ impl QueueMetrics {
     }
 
     pub fn start_entry(self: &Arc<Self>, bytes: usize) -> QueueEntry {
+        self.start_entry_weighted(bytes, 1)
+    }
+
+    fn start_entry_weighted(self: &Arc<Self>, bytes: usize, items: usize) -> QueueEntry {
         debug_assert!(self.registered, "cannot enqueue into an unregistered queue");
+        debug_assert!(
+            items > 0,
+            "a queued entry must account for at least one item"
+        );
+        let items = items as u64;
         let enqueued_at = Instant::now();
-        saturating_increment(&self.enqueue_count, 1);
+        saturating_increment(&self.enqueue_count, items);
         let timestamp = self.timestamp(enqueued_at);
-        let previous_items = self.current_items.fetch_add(1, Ordering::AcqRel);
-        let current_items = previous_items.saturating_add(1);
+        let previous_items = self.current_items.fetch_add(items, Ordering::AcqRel);
+        let current_items = previous_items.saturating_add(items);
         if previous_items == 0 {
             self.oldest_timestamp.store(timestamp, Ordering::Release);
         }
@@ -208,12 +217,17 @@ impl QueueMetrics {
             metrics: Arc::clone(self),
             timestamp,
             bytes: bytes as u64,
+            items,
             active: true,
         }
     }
 
     pub fn record_rejected(&self, bytes: usize) {
-        saturating_increment(&self.drop_items, 1);
+        self.record_rejected_weighted(bytes, 1);
+    }
+
+    fn record_rejected_weighted(&self, bytes: usize, items: usize) {
+        saturating_increment(&self.drop_items, items as u64);
         saturating_increment(&self.drop_bytes, bytes as u64);
     }
 
@@ -268,11 +282,11 @@ impl QueueMetrics {
             .saturating_add(1)
     }
 
-    fn finish(&self, timestamp: u64, bytes: u64, dropped: bool) {
+    fn finish(&self, timestamp: u64, bytes: u64, items: u64, dropped: bool) {
         if !dropped {
-            saturating_increment(&self.dequeue_count, 1);
+            saturating_increment(&self.dequeue_count, items);
         }
-        let previous_items = saturating_subtract(&self.current_items, 1);
+        let previous_items = saturating_subtract(&self.current_items, items);
         saturating_subtract(&self.current_bytes, bytes);
         if let Some(timestamps) = &self.unordered_timestamps {
             let mut timestamps = lock_unpoisoned(timestamps);
@@ -288,7 +302,8 @@ impl QueueMetrics {
                     .map_or(0, |(&oldest, _)| oldest),
                 Ordering::Release,
             );
-        } else if previous_items <= 1 || self.oldest_timestamp.load(Ordering::Acquire) == timestamp
+        } else if previous_items <= items
+            || self.oldest_timestamp.load(Ordering::Acquire) == timestamp
         {
             // The receiver installs the next FIFO item's timestamp after the
             // dequeue. A concurrent first enqueue sees current_items == 0 and
@@ -301,7 +316,7 @@ impl QueueMetrics {
             );
         }
         if dropped {
-            saturating_increment(&self.drop_items, 1);
+            saturating_increment(&self.drop_items, items);
             saturating_increment(&self.drop_bytes, bytes);
         }
     }
@@ -320,17 +335,20 @@ pub struct QueueEntry {
     metrics: Arc<QueueMetrics>,
     timestamp: u64,
     bytes: u64,
+    items: u64,
     active: bool,
 }
 
 impl QueueEntry {
     pub fn complete(mut self) {
-        self.metrics.finish(self.timestamp, self.bytes, false);
+        self.metrics
+            .finish(self.timestamp, self.bytes, self.items, false);
         self.active = false;
     }
 
     pub fn drop_item(mut self) {
-        self.metrics.finish(self.timestamp, self.bytes, true);
+        self.metrics
+            .finish(self.timestamp, self.bytes, self.items, true);
         self.active = false;
     }
 }
@@ -338,7 +356,8 @@ impl QueueEntry {
 impl Drop for QueueEntry {
     fn drop(&mut self) {
         if self.active {
-            self.metrics.finish(self.timestamp, self.bytes, true);
+            self.metrics
+                .finish(self.timestamp, self.bytes, self.items, true);
             self.active = false;
         }
     }
@@ -412,18 +431,41 @@ impl<T> TrackedSender<T> {
         self.send_inner(value, bytes, Some(cancellation)).await
     }
 
+    #[cfg(test)]
     pub fn try_send(&self, value: T, bytes: usize) -> Result<(), TrackedTrySendError<T>> {
+        self.try_send_weighted(value, bytes, 1)
+    }
+
+    /// Admit one payload containing multiple logical items. Capacity and every
+    /// item counter use the same weight, including receiver-prefetched entries.
+    /// Ordinary queues retain their existing one-item-per-payload semantics.
+    pub(crate) fn try_send_weighted(
+        &self,
+        value: T,
+        bytes: usize,
+        item_count: usize,
+    ) -> Result<(), TrackedTrySendError<T>> {
+        let items = match u32::try_from(item_count) {
+            Ok(items) if items != 0 && u64::from(items) <= self.metrics.item_capacity => items,
+            _ => {
+                self.metrics.record_rejected_weighted(bytes, item_count);
+                return Err(TrackedTrySendError {
+                    kind: TrackedSendErrorKind::Full,
+                    value,
+                });
+            }
+        };
         let permits = match self.permit_count(bytes) {
             Ok(permits) => permits,
             Err(kind) => {
-                self.metrics.record_rejected(bytes);
+                self.metrics.record_rejected_weighted(bytes, item_count);
                 return Err(TrackedTrySendError { kind, value });
             }
         };
         let byte_permit = match Arc::clone(&self.byte_budget).try_acquire_many_owned(permits) {
             Ok(permit) => permit,
             Err(tokio::sync::TryAcquireError::NoPermits) => {
-                self.metrics.record_rejected(bytes);
+                self.metrics.record_rejected_weighted(bytes, item_count);
                 return Err(TrackedTrySendError {
                     kind: TrackedSendErrorKind::Full,
                     value,
@@ -431,17 +473,17 @@ impl<T> TrackedSender<T> {
             }
             Err(tokio::sync::TryAcquireError::Closed) => {
                 self.metrics.mark_closed();
-                self.metrics.record_rejected(bytes);
+                self.metrics.record_rejected_weighted(bytes, item_count);
                 return Err(TrackedTrySendError {
                     kind: TrackedSendErrorKind::Closed,
                     value,
                 });
             }
         };
-        let slot = match Arc::clone(&self.item_budget).try_acquire_owned() {
+        let slot = match Arc::clone(&self.item_budget).try_acquire_many_owned(items) {
             Ok(permit) => permit,
             Err(error) => {
-                self.metrics.record_rejected(bytes);
+                self.metrics.record_rejected_weighted(bytes, item_count);
                 let kind = match error {
                     tokio::sync::TryAcquireError::NoPermits => TrackedSendErrorKind::Full,
                     tokio::sync::TryAcquireError::Closed => TrackedSendErrorKind::Closed,
@@ -452,7 +494,7 @@ impl<T> TrackedSender<T> {
         let item_permit = match self.inner.clone().try_reserve_owned() {
             Ok(permit) => permit,
             Err(mpsc::error::TrySendError::Full(_)) => {
-                self.metrics.record_rejected(bytes);
+                self.metrics.record_rejected_weighted(bytes, item_count);
                 return Err(TrackedTrySendError {
                     kind: TrackedSendErrorKind::Full,
                     value,
@@ -460,7 +502,7 @@ impl<T> TrackedSender<T> {
             }
             Err(mpsc::error::TrySendError::Closed(_)) => {
                 self.metrics.mark_closed();
-                self.metrics.record_rejected(bytes);
+                self.metrics.record_rejected_weighted(bytes, item_count);
                 return Err(TrackedTrySendError {
                     kind: TrackedSendErrorKind::Closed,
                     value,
@@ -469,7 +511,7 @@ impl<T> TrackedSender<T> {
         };
         item_permit.send(TrackedItem {
             value: Some(value),
-            entry: Some(self.metrics.start_entry(bytes)),
+            entry: Some(self.metrics.start_entry_weighted(bytes, item_count)),
             _byte_permit: byte_permit,
             _item_permit: slot,
         });
@@ -844,6 +886,208 @@ mod tests {
     use tokio::time::advance;
 
     use super::*;
+
+    fn packet_batch(items: usize, packet_bytes: usize) -> crate::packet_batch::PacketBatch {
+        use crate::packet_batch::PacketBatch;
+        use bytes::Bytes;
+
+        if items == 1 {
+            return PacketBatch::single(Bytes::from(vec![0; packet_bytes]));
+        }
+        let mut batch = PacketBatch::new();
+        for _ in 0..items {
+            batch.push_back(Bytes::from(vec![0; packet_bytes])).unwrap();
+        }
+        batch
+    }
+
+    #[test]
+    fn singleton_and_full_batches_share_the_same_packet_budget() {
+        const PACKETS: usize = 1024;
+        for batch_items in [1, crate::packet_batch::MAX_PACKET_BATCH_PACKETS] {
+            let metrics = QueueMetrics::new(QueueKind::TransportToTun, PACKETS, 4 * 1024 * 1024);
+            let (sender, mut receiver) = tracked_channel(Arc::clone(&metrics));
+            for _ in 0..PACKETS / batch_items {
+                let batch = packet_batch(batch_items, 32);
+                sender
+                    .try_send_weighted(batch, batch_items * 32, batch_items)
+                    .unwrap();
+            }
+            assert_eq!(sender.capacity(), 0);
+            let rejected = sender
+                .try_send_weighted(packet_batch(1, 32), 32, 1)
+                .unwrap_err();
+            assert_eq!(rejected.kind, TrackedSendErrorKind::Full);
+            assert_eq!(rejected.value.len(), 1);
+            let snapshot = metrics.snapshot(Instant::now());
+            assert_eq!(snapshot.current_items, PACKETS as u64);
+            assert_eq!(snapshot.items_high_water, PACKETS as u64);
+            assert_eq!(snapshot.enqueue_count, PACKETS as u64);
+            assert_eq!(snapshot.current_bytes, (PACKETS * 32) as u64);
+            assert_eq!(snapshot.drop_items, 1);
+            assert_eq!(snapshot.drop_bytes, 32);
+            let mut received = 0;
+            while let Ok(batch) = receiver.try_recv() {
+                received += batch.len();
+            }
+            assert_eq!(received, PACKETS);
+            let snapshot = metrics.snapshot(Instant::now());
+            assert_eq!(snapshot.current_items, 0);
+            assert_eq!(snapshot.current_bytes, 0);
+            assert_eq!(snapshot.dequeue_count, PACKETS as u64);
+            assert_eq!(sender.item_budget.available_permits(), PACKETS);
+            assert_eq!(sender.byte_budget.available_permits(), 4 * 1024 * 1024);
+        }
+    }
+
+    #[test]
+    fn weighted_prefetch_and_receiver_cancellation_keep_exact_permits_and_drop_counts() {
+        let metrics = QueueMetrics::new(QueueKind::TransportToTun, 6, 32);
+        let (sender, mut receiver) = tracked_channel(Arc::clone(&metrics));
+        for items in [2, 3, 1] {
+            sender
+                .try_send_weighted(packet_batch(items, 1), items, items)
+                .unwrap();
+        }
+        assert_eq!(receiver.try_recv().unwrap().len(), 2);
+        // The second batch was prefetched out of Tokio, but still owns three
+        // logical item permits until the caller actually consumes it.
+        assert!(receiver.prefetched.is_some());
+        assert_eq!(sender.capacity(), 2);
+        sender.try_send_weighted(packet_batch(2, 1), 2, 2).unwrap();
+        assert_eq!(sender.capacity(), 0);
+        assert_eq!(
+            sender
+                .try_send_weighted(packet_batch(1, 1), 1, 1)
+                .unwrap_err()
+                .kind,
+            TrackedSendErrorKind::Full
+        );
+        let snapshot = metrics.snapshot(Instant::now());
+        assert_eq!((snapshot.current_items, snapshot.current_bytes), (6, 6));
+        assert_eq!((snapshot.enqueue_count, snapshot.dequeue_count), (8, 2));
+        receiver.cancel();
+        drop(receiver);
+        let snapshot = metrics.snapshot(Instant::now());
+        assert_eq!((snapshot.current_items, snapshot.current_bytes), (0, 0));
+        assert_eq!((snapshot.drop_items, snapshot.drop_bytes), (7, 7));
+        assert!(snapshot.cancelled && snapshot.closed);
+        assert_eq!(sender.item_budget.available_permits(), 6);
+        assert_eq!(sender.byte_budget.available_permits(), 32);
+        let rejected = sender
+            .try_send_weighted(packet_batch(2, 1), 2, 2)
+            .unwrap_err();
+        assert_eq!(rejected.kind, TrackedSendErrorKind::Closed);
+        assert_eq!(sender.item_budget.available_permits(), 6);
+        assert_eq!(sender.byte_budget.available_permits(), 32);
+        let snapshot = metrics.snapshot(Instant::now());
+        assert_eq!((snapshot.drop_items, snapshot.drop_bytes), (9, 9));
+    }
+
+    #[test]
+    fn weighted_byte_and_item_limits_are_independent_and_rejections_return_payloads() {
+        let metrics = QueueMetrics::new(QueueKind::TransportToTun, 1024, 64);
+        let (sender, mut receiver) = tracked_channel(Arc::clone(&metrics));
+        sender
+            .try_send_weighted(packet_batch(2, 32), 64, 2)
+            .unwrap();
+        assert_eq!(sender.item_budget.available_permits(), 1022);
+        let error = sender
+            .try_send_weighted(packet_batch(1, 1), 1, 1)
+            .unwrap_err();
+        assert_eq!(error.kind, TrackedSendErrorKind::Full);
+        assert_eq!(error.value.bytes(), 1);
+        assert_eq!(receiver.try_recv().unwrap().bytes(), 64);
+        let error = sender
+            .try_send_weighted(packet_batch(1, 65), 65, 1)
+            .unwrap_err();
+        assert_eq!(error.kind, TrackedSendErrorKind::ByteLimit);
+        assert_eq!(error.value.bytes(), 65);
+        assert_eq!(sender.item_budget.available_permits(), 1024);
+        assert_eq!(sender.byte_budget.available_permits(), 64);
+        let snapshot = metrics.snapshot(Instant::now());
+        assert_eq!((snapshot.current_items, snapshot.current_bytes), (0, 0));
+        assert_eq!((snapshot.drop_items, snapshot.drop_bytes), (2, 66));
+        assert_eq!(
+            (snapshot.items_high_water, snapshot.bytes_high_water),
+            (2, 64)
+        );
+        sender.try_send_weighted(packet_batch(4, 1), 4, 4).unwrap();
+        assert_eq!(receiver.try_recv().unwrap().len(), 4);
+    }
+
+    #[test]
+    fn invalid_weight_is_rejected_without_reserving_capacity() {
+        let metrics = QueueMetrics::new(QueueKind::TransportToTun, 1024, 128);
+        let (sender, _receiver) = tracked_channel(Arc::clone(&metrics));
+        let weights = [0usize, 1025, usize::MAX];
+        for weight in weights {
+            let error = sender.try_send_weighted(7u8, 1, weight).unwrap_err();
+            assert_eq!(error.kind, TrackedSendErrorKind::Full);
+            assert_eq!(error.value, 7);
+            assert_eq!(sender.item_budget.available_permits(), 1024);
+            assert_eq!(sender.byte_budget.available_permits(), 128);
+        }
+        let snapshot = metrics.snapshot(Instant::now());
+        assert_eq!(snapshot.enqueue_count, 0);
+        assert_eq!(snapshot.current_items, 0);
+        assert_eq!(
+            snapshot.drop_items,
+            weights
+                .into_iter()
+                .fold(0u64, |sum, weight| sum.saturating_add(weight as u64))
+        );
+        assert_eq!(snapshot.drop_bytes, 3);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn unweighted_async_cancellation_releases_reservations_behind_a_weighted_batch() {
+        let metrics = QueueMetrics::new(QueueKind::TransportToTun, 2, 2);
+        let (sender, mut receiver) = tracked_channel(Arc::clone(&metrics));
+        sender.try_send_weighted(packet_batch(2, 1), 2, 2).unwrap();
+        let cancellation = CancellationToken::new();
+        let mut pending =
+            std::pin::pin!(sender.send_cancellable(packet_batch(1, 1), 1, &cancellation));
+        assert!(
+            poll_fn(|cx| Poll::Ready(pending.as_mut().poll(cx)))
+                .await
+                .is_pending()
+        );
+        cancellation.cancel();
+        assert_eq!(
+            pending.await.unwrap_err().kind,
+            TrackedSendErrorKind::Cancelled
+        );
+        assert_eq!(receiver.try_recv().unwrap().len(), 2);
+        assert_eq!(sender.item_budget.available_permits(), 2);
+        assert_eq!(sender.byte_budget.available_permits(), 2);
+        assert_eq!(sender.capacity(), sender.max_capacity());
+        let snapshot = metrics.snapshot(Instant::now());
+        assert_eq!((snapshot.enqueue_count, snapshot.dequeue_count), (2, 2));
+        assert_eq!((snapshot.drop_items, snapshot.drop_bytes), (1, 1));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn weighted_fifo_age_tracks_the_next_batch_without_charging_it_as_dequeued() {
+        let metrics = QueueMetrics::new(QueueKind::TransportToTun, 8, 32);
+        let (sender, mut receiver) = tracked_channel(Arc::clone(&metrics));
+        sender.try_send_weighted(packet_batch(3, 1), 3, 3).unwrap();
+        advance(Duration::from_secs(2)).await;
+        sender.try_send_weighted(packet_batch(5, 1), 5, 5).unwrap();
+        advance(Duration::from_secs(3)).await;
+        assert_eq!(
+            metrics.snapshot(Instant::now()).oldest_age,
+            Some(Duration::from_secs(5))
+        );
+        assert_eq!(receiver.try_recv().unwrap().len(), 3);
+        let snapshot = metrics.snapshot(Instant::now());
+        assert_eq!(snapshot.oldest_age, Some(Duration::from_secs(3)));
+        assert_eq!((snapshot.current_items, snapshot.dequeue_count), (5, 3));
+        assert_eq!(receiver.try_recv().unwrap().len(), 5);
+        let snapshot = metrics.snapshot(Instant::now());
+        assert_eq!(snapshot.oldest_age, None);
+        assert_eq!((snapshot.current_items, snapshot.dequeue_count), (0, 8));
+    }
 
     #[test]
     fn manual_queue_accounting_does_not_claim_measured_zero_waits() {

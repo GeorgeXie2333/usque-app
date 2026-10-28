@@ -883,6 +883,9 @@ class UsqueVpnService : VpnService() {
             return
         }
         if (settingsToken != null && !settingsApplication.owns(settingsToken, connectionGeneration.get())) return
+        val previousProfile = activeProfileJson.get()
+        val previousMode = activeMode.get()
+        val previousRecoveryProfile = recoveryPreferences.getString(RECOVERY_PROFILE, null)
         val desiredProfileJson = request.data.getString(EXTRA_PROFILE_JSON).orEmpty()
         val profileJson =
             runCatching { ContinuousConnectionIntent.inherit(desiredProfileJson, activeProfileJson.get()) }
@@ -976,6 +979,48 @@ class UsqueVpnService : VpnService() {
 
                 NativeEngine.RECONFIGURE_NEED_ATTACH -> {
                     attachTunWhileRunning(generation, profileJson, request)
+                }
+
+                NativeEngine.RECONFIGURE_REJECTED -> {
+                    mainHandler.post {
+                        if (!isCurrent(generation)) {
+                            replyWithSnapshot(request)
+                            return@post
+                        }
+                        val restored =
+                            VpnReconfigure.restoreRejectedProfile(
+                                profileJson,
+                                previousProfile,
+                                previousMode,
+                                activeProfileJson,
+                                activeMode,
+                            )
+                        val recoveryRestored =
+                            if (restored) {
+                                recoveryPreferences
+                                    .edit()
+                                    .putString(RECOVERY_PROFILE, previousRecoveryProfile)
+                                    .commit()
+                            } else {
+                                true
+                            }
+                        // This command did not replace the live session or its TUN.
+                        // Keep saved desired settings separate from applied/recovery metadata.
+                        if (restored) {
+                            runtimeReconfigureInFlight = false
+                            ensureStatusTask()
+                            refreshNativeSnapshot()
+                        }
+                        replyControlError(
+                            request,
+                            if (recoveryRestored) "ROUTING_UPDATE_FAILED" else "RECOVERY_UNAVAILABLE",
+                            if (recoveryRestored) {
+                                "The settings could not be applied; the previous connection remains active."
+                            } else {
+                                "The previous connection remains active, but its recovery settings could not be restored."
+                            },
+                        )
+                    }
                 }
 
                 else -> {

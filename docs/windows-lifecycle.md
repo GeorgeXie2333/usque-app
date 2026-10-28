@@ -129,6 +129,25 @@ The observer distinguishes confirmed `AGENT_PHYSICAL_NETWORK_OFFLINE` from faile
 queries and older Agents' generic errors. This does not relax the Agent's startup,
 exact-egress, cleanup or automatic-recovery checks.
 
+The physical-network observer keeps a separate authenticated read-only pipe
+instead of creating one for every 500 ms sample. Complete offline/unavailable
+observations retain that pipe; cancellation, malformed frames, mismatched reply
+IDs and connection failures close it. A replacement connection goes through the
+normal caller authentication again. Each DIRECT socket still owns its own
+egress-lease pipe. Its binding is verified through that same pipe before the
+lease is handed to the socket lifetime; target, interface, operation ownership
+and both network-generation checks remain enforced.
+
+During application startup, a stopping service or a service with durable,
+device-only retirement pending is a bounded admission transition. The Engine
+closes each read pipe before waiting, allowing the old service to exit, then
+reconnects and rechecks its negotiated capabilities. Capability changes,
+missing device metadata, persistent recovery errors and owner conflicts remain
+terminal. Only capability/state reads are retried; recovery mutations are not
+replayed. The startup preflight retains one 30-second deadline and cancellation
+releases the actual pending read. This behavior does not prove a successful
+native restart or device retirement without snapshot-VM validation.
+
 ## System-proxy ownership and recovery
 
 The system-proxy output points at an explicit loopback HTTP listener. Turning it

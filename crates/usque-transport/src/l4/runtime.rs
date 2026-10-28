@@ -293,12 +293,11 @@ impl L4Runtime {
                 })
                 .or_else(|| {
                     (client.proxy.is_some()
-                        && profile.data_plane != usque_core::DataPlaneMode::L4Proxy
-                        && geo_policy.has_direct_routes())
-                    .then(|| {
-                        Arc::new(crate::proxy_udp::DirectOnly)
-                            as Arc<dyn crate::proxy_udp::UdpFactory>
-                    })
+                        && profile.data_plane != usque_core::DataPlaneMode::L4Proxy)
+                        .then(|| {
+                            Arc::new(crate::proxy_udp::DirectOnly)
+                                as Arc<dyn crate::proxy_udp::UdpFactory>
+                        })
                 }),
             resolver,
             protector,

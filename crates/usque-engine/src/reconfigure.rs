@@ -159,10 +159,15 @@ impl ControlService {
         routing_present: bool,
     ) -> Result<v1::ReconfigureResult, ControlServiceError> {
         let session_algorithm = previous.congestion_control;
+        let prepared = if class == ReconfigureClass::HotVpnGate {
+            None
+        } else {
+            Some(self.prepare_hot_routing_update(&profile).await?)
+        };
         let applied = self
             .upsert_client_profile_locked(profile, routing_present)
             .await?;
-        let applied_result = match class {
+        let mut applied_result = match class {
             ReconfigureClass::HotTrafficPolicy => Ok(()),
             ReconfigureClass::HotFrontends => self.hot_reconfigure_frontends(&applied).await,
             ReconfigureClass::HotSystemProxy => self.hot_apply_system_proxy(&applied).await,
@@ -174,6 +179,38 @@ impl ControlService {
                 unreachable!("commit_hot is only for in-place classes")
             }
         };
+        if applied_result.is_ok() {
+            // Gate replacement constructs a new final frontend with these
+            // rules. Its independently owned policy must prepare its own token.
+            let prepared = if matches!(
+                class,
+                ReconfigureClass::HotVpnGate | ReconfigureClass::HotTunnelAttach
+            ) {
+                self.prepare_hot_routing_update(&applied).await
+            } else {
+                Ok(prepared.expect("in-place policy was prepared before persistence"))
+            };
+            applied_result = match prepared {
+                Ok(prepared) => self.publish_hot_routing_update(&applied, prepared).await,
+                Err(error) => Err(error),
+            };
+            if let Err(error) = &applied_result {
+                // Frontend or proxy application may already have succeeded.
+                // Restore those resources before rolling back persisted intent.
+                let rollback = match class {
+                    ReconfigureClass::HotFrontends => {
+                        self.hot_reconfigure_frontends(&previous).await
+                    }
+                    ReconfigureClass::HotSystemProxy => {
+                        self.hot_apply_system_proxy(&previous).await
+                    }
+                    _ => Ok(()),
+                };
+                if rollback.is_err() {
+                    self.finish_failed_hot_update(&previous, error, true).await;
+                }
+            }
+        }
         if let Err(error) = applied_result {
             if class == ReconfigureClass::HotVpnGate {
                 return Err(error);
@@ -224,7 +261,6 @@ impl ControlService {
             }
             return Err(error);
         }
-        self.hot_update_traffic_policy(&applied).await?;
         self.apply_hot_profile_state(&applied).await;
         let mut confirmed = applied.clone();
         confirmed.congestion_control = session_algorithm;
@@ -249,6 +285,29 @@ impl ControlService {
         &self,
         profile: &Profile,
     ) -> Result<(), ControlServiceError> {
+        let prepared = self.prepare_hot_routing_update(profile).await?;
+        self.publish_hot_routing_update(profile, prepared).await
+    }
+
+    pub(crate) async fn prepare_hot_routing_update(
+        &self,
+        profile: &Profile,
+    ) -> Result<crate::active_runtime::PreparedRoutingUpdate, ControlServiceError> {
+        let data_plane = self.data_plane.lock().await;
+        let active = data_plane
+            .as_ref()
+            .filter(|active| active.profile_id == profile.id)
+            .ok_or_else(|| {
+                ControlServiceError::InvalidRequest("a connected session is required".into())
+            })?;
+        active.runtime.prepare_routing_update(profile)
+    }
+
+    pub(crate) async fn publish_hot_routing_update(
+        &self,
+        profile: &Profile,
+        prepared: crate::active_runtime::PreparedRoutingUpdate,
+    ) -> Result<(), ControlServiceError> {
         let mut data_plane = self.data_plane.lock().await;
         let active = data_plane
             .as_mut()
@@ -256,10 +315,17 @@ impl ControlService {
             .ok_or_else(|| {
                 ControlServiceError::InvalidRequest("a connected session is required".into())
             })?;
+        active.runtime.update_traffic_policy(profile.disable_quic)?;
+        if let Err(error) = active.runtime.publish_routing_update(prepared) {
+            let _ = active
+                .runtime
+                .update_traffic_policy(active.profile.disable_quic);
+            return Err(error);
+        }
         active
             .runtime
             .update_ads_enabled(profile.routing.ads_enabled);
-        active.runtime.update_traffic_policy(profile.disable_quic)
+        Ok(())
     }
 
     pub(crate) async fn hot_reconfigure_frontends(
@@ -321,7 +387,7 @@ impl ControlService {
         Err(error)
     }
 
-    async fn finish_failed_hot_update(
+    pub(crate) async fn finish_failed_hot_update(
         &self,
         previous: &Profile,
         error: &ControlServiceError,

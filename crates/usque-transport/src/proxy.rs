@@ -28,6 +28,18 @@ impl ProxyRuntime {
     pub fn update_ads_enabled(&self, enabled: bool) {
         self.inner().update_ads_enabled(enabled);
     }
+    pub fn prepare_routing_update(
+        &self,
+        profile: &Profile,
+    ) -> Result<crate::PreparedTrafficPolicyUpdate, TransportError> {
+        self.inner().prepare_routing_update(profile)
+    }
+    pub fn publish_routing_update(
+        &mut self,
+        prepared: crate::PreparedTrafficPolicyUpdate,
+    ) -> Result<(), TransportError> {
+        self.inner_mut().publish_routing_update(prepared)
+    }
     pub fn update_traffic_policy(&mut self, disable_quic: bool) {
         self.inner_mut().update_traffic_policy(disable_quic);
     }

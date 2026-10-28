@@ -14,6 +14,7 @@ mod chrome_fingerprint_tests;
 mod connect_ip_control;
 mod data_plane;
 mod diagnostic_probe;
+mod direct_diagnostics;
 mod direct_gateway;
 mod dns;
 mod dns_stream;
@@ -31,6 +32,7 @@ mod icmp;
 mod internal_network;
 mod l4;
 mod live_ads;
+mod live_routing;
 mod masque_runtime;
 mod migration_barrier;
 mod netstack;
@@ -84,18 +86,23 @@ mod fault_injection;
 #[cfg(all(feature = "fault-injection", not(debug_assertions), not(test)))]
 compile_error!("fault-injection is restricted to test/debug lab builds");
 
-pub use data_plane::{ChainExitStart, DataPlaneRuntime, TunPacketIo, VpnGateStart};
+pub use data_plane::{
+    ChainExitStart, DataPlaneRuntime, PreparedTrafficPolicyUpdate, TunPacketIo, VpnGateStart,
+};
 pub use diagnostic_probe::{
     NetworkProbeResult, PROBE_IO_TIMEOUT as NETWORK_PROBE_IO_TIMEOUT, ResolvedH3ProbeEndpoints,
     h3_probe_endpoints, h3_probe_endpoints_resolved, probe_encrypted_dns, probe_h3_handshake,
     probe_h3_handshake_candidates,
 };
+pub use direct_diagnostics::DirectGatewaySnapshot;
 pub use encrypted_dns::{DirectDnsError, DirectDnsQueryContext, DirectDnsResolver};
 pub use endpoint_race::excludes_dns_server as excludes_automatic_endpoint_dns_server;
 pub use feature_flags::{
     ENCRYPTED_DIRECT_DNS_ENABLED, NetworkFeatureFlags, PRODUCTION_NETWORK_FEATURES,
 };
-pub use geo_direct::{GeoDirectClassifier, GeoDirectPolicy, GeoRoute};
+pub use geo_direct::{
+    GeoDirectClassifier, GeoDirectPolicy, GeoRoute, PreparedRoutingUpdate, RoutingUpdateError,
+};
 pub use h2::{
     H2Driver, H2ReceiveHalf, H2SendHalf, H2Tunnel, MasqueTlsIdentity, TransportError, connect_h2,
 };

@@ -21,7 +21,7 @@ class OwnedHandle {
  public:
   explicit OwnedHandle(HANDLE handle) : handle_(handle) {}
   ~OwnedHandle() {
-    if (handle_ != INVALID_HANDLE_VALUE) {
+    if (handle_ != INVALID_HANDLE_VALUE && handle_ != nullptr) {
       ::CloseHandle(handle_);
     }
   }
@@ -89,25 +89,49 @@ bool ReadAll(HANDLE pipe, uint8_t* data, size_t length, std::string* error) {
 }
 
 bool ReadAllCancellable(HANDLE pipe, uint8_t* data, size_t length,
-                        const std::shared_ptr<std::atomic_bool>& active,
+                        const std::shared_ptr<EngineEventCancellation>&
+                            cancellation,
                         std::string* error) {
+  OwnedHandle completed(::CreateEventW(nullptr, TRUE, FALSE, nullptr));
+  if (completed.get() == nullptr) {
+    *error = WindowsError("CreateEventW");
+    return false;
+  }
   size_t offset = 0;
-  while (offset < length && active->load()) {
-    DWORD available = 0;
-    if (!::PeekNamedPipe(pipe, nullptr, 0, nullptr, &available, nullptr)) {
-      *error = WindowsError("PeekNamedPipe");
+  while (offset < length && !cancellation->IsCancelled()) {
+    OVERLAPPED operation{};
+    operation.hEvent = completed.get();
+    ::ResetEvent(operation.hEvent);
+    const DWORD chunk = static_cast<DWORD>(std::min<size_t>(
+        length - offset, std::numeric_limits<DWORD>::max()));
+    DWORD read = 0;
+    if (!::ReadFile(pipe, data + offset, chunk, nullptr, &operation)) {
+      if (::GetLastError() != ERROR_IO_PENDING) {
+        *error = WindowsError("ReadFile");
+        return false;
+      }
+      const HANDLE waiting[]{cancellation->stop_event(), operation.hEvent};
+      const DWORD ready = ::WaitForMultipleObjects(2, waiting, FALSE, INFINITE);
+      if (ready != WAIT_OBJECT_0 + 1) {
+        // Even ERROR_NOT_FOUND can mean completion won the cancellation race.
+        // Drain it before either the buffer or OVERLAPPED leaves this scope.
+        ::CancelIoEx(pipe, &operation);
+        ::GetOverlappedResult(pipe, &operation, &read, TRUE);
+        if (!cancellation->IsCancelled()) {
+          *error = "Engine event read wait failed";
+        }
+        return false;
+      }
+    }
+    if (!::GetOverlappedResult(pipe, &operation, &read, FALSE)) {
+      *error = WindowsError("GetOverlappedResult");
       return false;
     }
-    if (available == 0) {
-      std::this_thread::sleep_for(std::chrono::milliseconds(25));
-      continue;
+    if (read == 0) {
+      *error = "Engine event pipe reached EOF";
+      return false;
     }
-    const DWORD chunk = static_cast<DWORD>(std::min<size_t>(
-        std::min<size_t>(length - offset, available),
-        std::numeric_limits<DWORD>::max()));
-    DWORD read = 0;
-    if (!::ReadFile(pipe, data + offset, chunk, &read, nullptr) || read == 0) {
-      *error = WindowsError("ReadFile");
+    if (cancellation->IsCancelled()) {
       return false;
     }
     offset += read;
@@ -134,6 +158,27 @@ bool IsControlPipeName(const std::string& pipe_name) {
 }
 
 }  // namespace
+
+EngineEventCancellation::EngineEventCancellation()
+    : stop_event_(::CreateEventW(nullptr, TRUE, FALSE, nullptr)) {}
+
+EngineEventCancellation::~EngineEventCancellation() {
+  if (stop_event_ != nullptr) ::CloseHandle(stop_event_);
+}
+
+void EngineEventCancellation::Cancel() {
+  std::lock_guard<std::recursive_mutex> lock(callback_mutex_);
+  cancelled_.store(true);
+  if (stop_event_ != nullptr) ::SetEvent(stop_event_);
+}
+
+bool EngineEventCancellation::IsCancelled() const { return cancelled_.load(); }
+
+void EngineEventCancellation::Deliver(EngineIpcResult result,
+                                     const EngineEventCallback& callback) {
+  std::lock_guard<std::recursive_mutex> lock(callback_mutex_);
+  if (!IsCancelled()) callback(std::move(result));
+}
 
 std::string WaitForEnginePipe(const std::string& pipe_name,
                               uint32_t timeout_ms) {
@@ -245,42 +290,51 @@ EngineIpcResult ExchangeEngineFrame(const std::string& pipe_name,
 }
 
 void StreamEngineEvents(const std::string& pipe_name,
-                        const std::shared_ptr<std::atomic_bool>& active,
+                        const std::shared_ptr<EngineEventCancellation>&
+                            cancellation,
                         EngineEventCallback callback) {
+  const auto deliver = [&](EngineIpcResult event) {
+    cancellation->Deliver(std::move(event), callback);
+  };
+  if (cancellation->IsCancelled()) return;
+  if (cancellation->stop_event() == nullptr) {
+    deliver(EngineIpcResult{{}, "Engine event cancellation event is unavailable"});
+    return;
+  }
   if (pipe_name.size() < kPipePrefix.size() + 8 ||
       pipe_name.compare(0, kPipePrefix.size(), kPipePrefix) != 0 ||
       pipe_name.compare(pipe_name.size() - 7, 7, ".events") != 0) {
-    callback(EngineIpcResult{
+    deliver(EngineIpcResult{
         {}, "Named Pipe event name is outside the Usque namespace"});
     return;
   }
   const std::wstring pipe_name_wide = Utf16FromUtf8(pipe_name);
   if (pipe_name_wide.empty()) {
-    callback(
+    deliver(
         EngineIpcResult{{}, "Named Pipe event name is not valid UTF-8"});
     return;
   }
 
-  while (active->load()) {
+  while (!cancellation->IsCancelled()) {
     if (!::WaitNamedPipeW(pipe_name_wide.c_str(), 250)) {
       const DWORD error = ::GetLastError();
       if (!IsRecoverablePipeError(error)) {
-        callback(EngineIpcResult{
+        deliver(EngineIpcResult{
             {}, "WaitNamedPipeW failed with Win32 error " +
                     std::to_string(error)});
         return;
       }
-      std::this_thread::sleep_for(std::chrono::milliseconds(75));
+      ::WaitForSingleObject(cancellation->stop_event(), 75);
       continue;
     }
 
-    OwnedHandle pipe(::CreateFileW(pipe_name_wide.c_str(), GENERIC_READ, 0,
-                                   nullptr, OPEN_EXISTING,
-                                   FILE_ATTRIBUTE_NORMAL, nullptr));
+    OwnedHandle pipe(::CreateFileW(
+        pipe_name_wide.c_str(), GENERIC_READ, 0, nullptr, OPEN_EXISTING,
+        FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OVERLAPPED, nullptr));
     if (pipe.get() == INVALID_HANDLE_VALUE) {
       const DWORD error = ::GetLastError();
       if (!IsRecoverablePipeError(error)) {
-        callback(EngineIpcResult{
+        deliver(EngineIpcResult{
             {}, "CreateFileW failed with Win32 error " +
                     std::to_string(error)});
         return;
@@ -291,35 +345,37 @@ void StreamEngineEvents(const std::string& pipe_name,
     // SetNamedPipeHandleState here would require FILE_WRITE_ATTRIBUTES in
     // addition to GENERIC_READ and fails with ERROR_ACCESS_DENIED otherwise.
 
-    while (active->load()) {
+    while (!cancellation->IsCancelled()) {
       EngineIpcResult event;
       event.response.resize(4);
-      if (!ReadAllCancellable(pipe.get(), event.response.data(), 4, active,
+      if (!ReadAllCancellable(pipe.get(), event.response.data(), 4, cancellation,
                               &event.error)) {
-        if (active->load()) {
-          callback(EngineIpcResult{{}, "Engine event pipe closed during the frame header"});
+        if (!cancellation->IsCancelled()) {
+          deliver(EngineIpcResult{
+              {}, "Engine event pipe closed during the frame header"});
         }
         return;
       }
       const uint32_t payload_length = BigEndianLength(event.response.data());
       if (payload_length > kMaximumFrameBytes) {
-        callback(EngineIpcResult{{}, "event frame exceeds 4 MiB"});
+        deliver(EngineIpcResult{{}, "event frame exceeds 4 MiB"});
         return;
       }
       event.response.resize(static_cast<size_t>(payload_length) + 4);
       if (!ReadAllCancellable(pipe.get(), event.response.data() + 4,
-                              payload_length, active, &event.error)) {
-        if (active->load()) {
-          callback(EngineIpcResult{{}, "Engine event pipe closed during the frame body"});
+                              payload_length, cancellation, &event.error)) {
+        if (!cancellation->IsCancelled()) {
+          deliver(EngineIpcResult{
+              {}, "Engine event pipe closed during the frame body"});
         }
         return;
       }
       event.error.clear();
-      callback(std::move(event));
+      deliver(std::move(event));
     }
 
-    if (active->load()) {
-      std::this_thread::sleep_for(std::chrono::milliseconds(75));
+    if (!cancellation->IsCancelled()) {
+      ::WaitForSingleObject(cancellation->stop_event(), 75);
     }
   }
 }

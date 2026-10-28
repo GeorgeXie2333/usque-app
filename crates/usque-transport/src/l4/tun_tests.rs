@@ -503,6 +503,83 @@ fn udp(source: SocketAddr, destination: SocketAddr, payload: &[u8]) -> bytes::By
 }
 
 #[tokio::test]
+async fn custom_reject_updates_only_new_tcp_flows_in_both_families() {
+    for (local, remote) in [
+        ("192.0.2.2:40000", "203.0.113.7:8080"),
+        ("[fd00::2]:40000", "[2001:db8::7]:8080"),
+    ] {
+        let policy = Arc::new(crate::GeoDirectPolicy::disabled());
+        let (mut bridge, dialer, metrics) = bridge_with_policy(1280, false, policy.clone()).await;
+        let mut io = bridge.attach().unwrap();
+        let (stack, mut pipe) = crate::netstack::bounded_piped_with_capacity(
+            Config {
+                mtu: 1280,
+                tcp_nagle_enabled: false,
+                ..Config::default()
+            },
+            64,
+        );
+        let channel = stack.command_channel();
+        let stack_task = tokio_util::task::AbortOnDropHandle::new(stack.spawn_tokio());
+        let local: SocketAddr = local.parse().unwrap();
+        let remote: SocketAddr = remote.parse().unwrap();
+        channel.set_ips([local.ip()]).await.unwrap();
+        let wire = tokio_util::task::AbortOnDropHandle::new(tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    packet = pipe.rx.recv_async() => {
+                        let Some(packet) = packet else { break; };
+                        if io.send_owned_packet(packet).await.is_err() { break; }
+                    }
+                    packet = io.receive_packet() => {
+                        let Ok(packet) = packet else { break; };
+                        pipe.tx.send_async(&packet).await;
+                    }
+                }
+            }
+        }));
+        timeout(Duration::from_secs(5), async {
+            let mut stream = channel.tcp_connect(local, remote).await.unwrap();
+            stream.write_all(b"before").await.unwrap();
+            let mut echoed = [0; 6];
+            stream.read_exact(&mut echoed).await.unwrap();
+            assert_eq!(&echoed, b"before");
+            let mut profile = Profile::default();
+            profile.routing.rules.push(usque_core::RoutingRule {
+                id: uuid::Uuid::new_v4(),
+                kind: usque_core::RoutingMatch::Cidr,
+                target: format!(
+                    "{}/{}",
+                    remote.ip(),
+                    if remote.is_ipv4() { 32 } else { 128 }
+                ),
+                action: usque_core::RoutingAction::Reject,
+            });
+            policy
+                .publish_routing_update(policy.prepare_routing_update(&profile).unwrap())
+                .unwrap();
+            stream.write_all(b"after!").await.unwrap();
+            stream.read_exact(&mut echoed).await.unwrap();
+            assert_eq!(&echoed, b"after!");
+            assert!(
+                channel
+                    .tcp_connect(SocketAddr::new(local.ip(), local.port() + 1), remote)
+                    .await
+                    .is_err()
+            );
+        })
+        .await
+        .unwrap();
+        assert_eq!(*dialer.targets.lock().unwrap(), [remote.to_string()]);
+        bridge.shutdown().await;
+        drop(wire);
+        drop(stack_task);
+        drop(bridge);
+        assert_eq!(metrics.snapshot().tun_flows, 0);
+    }
+}
+
+#[tokio::test]
 async fn udp_dns_preserves_resolver_and_other_udp_never_dials() {
     let (mut bridge, dialer, metrics) = bridge().await;
     let mut io = bridge.attach().unwrap();

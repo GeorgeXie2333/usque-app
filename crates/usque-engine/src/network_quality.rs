@@ -537,6 +537,23 @@ mod tests {
     }
 
     #[test]
+    fn direct_gateway_export_counters_do_not_change_the_quality_wire_projection() {
+        let mut quality = disconnected_snapshot();
+        let mut before = snapshot_to_proto(&quality);
+        quality.direct_gateway = Some(usque_transport::DirectGatewaySnapshot {
+            fallback_total: 7,
+            fallback_unsupported_target: 7,
+            return_queue_drop_packets: 3,
+            ..Default::default()
+        });
+        let mut after = snapshot_to_proto(&quality);
+        // Wall-clock conversion can cross a millisecond between projections.
+        before.sampled_at_unix_ms = 0;
+        after.sampled_at_unix_ms = 0;
+        assert_eq!(before, after);
+    }
+
+    #[test]
     fn quality_wire_snapshot_contains_only_sanitized_state() {
         let telemetry = NetworkQualityTelemetry::default();
         let connection = telemetry.begin_connection(Transport::Http2, AddressFamily::Ipv4);

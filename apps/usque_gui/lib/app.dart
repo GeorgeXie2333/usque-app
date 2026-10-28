@@ -25,6 +25,7 @@ typedef _BootstrapView = ({
   bool onboardingBusy,
   String? onboardingError,
   String? startupError,
+  bool uiVisible,
 });
 
 class UsqueBootstrap extends StatefulWidget {
@@ -55,6 +56,11 @@ class _UsqueBootstrapState extends State<UsqueBootstrap>
       widget.engine ?? createDefaultEngineClient(),
       updateDownloader: widget.updateDownloader,
     );
+    if (defaultTargetPlatform == TargetPlatform.windows) {
+      // The native visibility query also covers an initially hidden --background
+      // launch, before Flutter has received any window lifecycle transition.
+      controller.setUiVisible(false);
+    }
     WidgetsBinding.instance.addObserver(this);
     final lifecycle = WidgetsBinding.instance.lifecycleState;
     if (lifecycle != null) didChangeAppLifecycleState(lifecycle);
@@ -99,6 +105,7 @@ class _UsqueBootstrapState extends State<UsqueBootstrap>
   Widget build(BuildContext context) {
     return ControllerSelector<_BootstrapView>(
       controller: controller,
+      observeWhenHidden: true,
       selector: (controller) => (
         initialized: controller.initialized,
         startupError: controller.startupError,
@@ -109,6 +116,7 @@ class _UsqueBootstrapState extends State<UsqueBootstrap>
         onboardingError: controller.onboardingComplete
             ? null
             : controller.lastError,
+        uiVisible: controller.uiVisible,
       ),
       builder: (context, view) {
         final themeMode = switch (view.theme) {
@@ -178,17 +186,18 @@ class _UsqueBootstrapState extends State<UsqueBootstrap>
             GlobalWidgetsLocalizations.delegate,
             GlobalCupertinoLocalizations.delegate,
           ],
-          builder: WindowFrame.instance.enabled || widget.builder != null
-              ? (context, child) {
-                  final content = WindowFrame.instance.enabled
-                      ? _WindowChrome(
-                          controller: controller,
-                          child: child ?? const SizedBox.shrink(),
-                        )
-                      : child ?? const SizedBox.shrink();
-                  return widget.builder?.call(context, content) ?? content;
-                }
-              : null,
+          builder: (context, child) {
+            final content = WindowFrame.instance.enabled
+                ? _WindowChrome(
+                    controller: controller,
+                    child: child ?? const SizedBox.shrink(),
+                  )
+                : child ?? const SizedBox.shrink();
+            return TickerMode(
+              enabled: view.uiVisible,
+              child: widget.builder?.call(context, content) ?? content,
+            );
+          },
           home: !view.initialized
               ? _LoadingScreen(controller: controller, error: view.startupError)
               : view.onboardingComplete

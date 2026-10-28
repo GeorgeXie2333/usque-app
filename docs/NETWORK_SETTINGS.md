@@ -13,9 +13,10 @@ unknown commit or runtime result. An ordinary website connection failure does
 not directly set this warning.
 
 Use **Refresh status** on Home or the affected settings page. The app also
-makes up to three automatic read-only checks while visible, waiting 1, 2 and
-4 seconds between checks. Overlapping refresh requests share one read. Hiding
-the app pauses retries; returning starts a fresh check. Reset and disposal cancel
+makes up to three automatic read-only checks, waiting 1, 2 and
+4 seconds between checks. Overlapping refresh requests share one read. Android
+backgrounding pauses retries; returning starts a fresh check. A hidden Windows
+window retains settings confirmation and tray control. Reset and disposal cancel
 scheduled checks. These reads never repeat a save or reconnect the VPN.
 An Engine without settings-query support instead shows the restart/update
 instructions and is not polled repeatedly.
@@ -30,8 +31,9 @@ lost save. Drafts and the warning remain until there is sufficient evidence.
 失败、保存回复丢失或缺少持久化确认，也可能是引擎无法确认磁盘提交或运行状态。
 普通网站连接失败不会直接触发此提示。
 
-可在首页或相关设置页点击 **刷新状态**。界面可见时也会按 1、2、4 秒间隔最多
-补查三次；并发刷新共用一次查询，隐藏应用会暂停，返回后重新检查，重置或退出
+可在首页或相关设置页点击 **刷新状态**。应用也会按 1、2、4 秒间隔最多
+补查三次；并发刷新共用一次查询。Android 进入后台会暂停，返回后重新检查；
+Windows 隐藏窗口仍保留设置确认和托盘控制。重置或退出
 会取消待执行的补查。这些查询不会重复保存或重新连接 VPN。不支持状态查询的
 旧引擎会直接提示重启或更新，不会反复查询。
 
@@ -447,7 +449,12 @@ identity and disconnect intent.
 
 Disabling HTTP clears its dependent system-proxy flag through the frontend hot
 update, preserving the other outputs and their underlying session. Combining
-that edit with a cold transport or routing change still requires reconnecting.
+that edit with a cold transport, country or LAN change still requires reconnecting.
+Custom `routing.rules` edits are hot for new flows during a stable session;
+combining them with a TUN output change remains cold. Each request captures one
+immutable revision. Existing TCP/CONNECT and active UDP targets retain their
+path, and HTTP idle pools and DNS hints cannot cross revisions. See
+[routing behavior](ROUTING.md) for flow lifetime and apply-failure semantics.
 
 Automatic recovery uses the captured session profile. Manual connect and Retry
 read saved settings. A cold application failure can attempt one runtime
@@ -770,12 +777,13 @@ CIDR parser, so valid long names, Unicode names and trailing-dot input can reach
 the shared validator during connection and reconfiguration. Its early parser
 does not implement a separate IDNA policy or change the existing CIDR limit.
 
-Domain changes require the existing cold-reconfigure path. Split DNS activates
-for country or custom domain rules, independently of the GEO cache. The direct
+Legacy bypass-field changes require the existing cold-reconfigure path. Current
+custom rules use the hot revision mechanism below. Internal Split DNS is prepared
+for TUN sessions independently of the GEO cache. The direct
 policy also evaluates explicit address rules at HTTP/SOCKS5 IP targets. The
 Windows exact-target leases and Android protected sockets are unchanged; failed
 GEO loading cannot be masked by a custom-rule hit. DNS hints remain bounded,
-non-persistent, TTL-limited and scoped to the current network generation.
+non-persistent, TTL-limited and scoped to the current network and rule revision.
 
 No new logs contain custom domains or target addresses. VPN cleanup and leak
 prevention are tested in the isolated environments in CONTRIBUTING.md.
@@ -854,7 +862,8 @@ WARP is a trademark and/or registered trademark of Cloudflare, Inc. in the Unite
 ## Routing and Ads
 
 Schema 24 stores custom DIRECT/REJECT/PROXY rules and the Ads preference in the
-shared `routing` field. Changes require cold reconfiguration; downloaded Ads data
-is used on the next connection. Legacy `split_exclusions` and `bypass_domains`
+shared `routing` field. Rule-only changes apply to new flows in the current
+stable session without replacing the transport; Ads switches and validated Ads
+updates also apply to new requests. Legacy `split_exclusions` and `bypass_domains`
 are import-only compatibility fields and cannot be edited by settings patches.
 See [routing and Ads](ROUTING.md) for priority, migration and visibility limits.

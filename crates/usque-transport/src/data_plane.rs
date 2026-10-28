@@ -35,6 +35,15 @@ pub struct DataPlaneRuntime {
     activation_deadline: Option<Instant>,
     prebound_frontends: Option<crate::masque_runtime::PendingFrontends>,
 }
+
+/// A validated application-rule replacement. Preparing never changes live
+/// routes; publication also verifies that its physical-network epoch survived
+/// persistence and any frontend work.
+pub struct PreparedTrafficPolicyUpdate {
+    routing: crate::geo_direct::PreparedRoutingUpdate,
+    generation: Option<u64>,
+    tunnel: bool,
+}
 #[derive(Default)]
 pub struct VpnGateStart {
     pub continuous: bool,
@@ -248,6 +257,62 @@ impl DataPlaneRuntime {
     }
     pub fn update_ads_enabled(&self, enabled: bool) {
         self.ads_policy().update_ads_enabled(enabled);
+    }
+    pub fn prepare_routing_update(
+        &self,
+        profile: &Profile,
+    ) -> Result<PreparedTrafficPolicyUpdate, TransportError> {
+        if self.stopped
+            || self.final_blocked
+            || self.prebound_frontends.is_some()
+            || self.pending_frontends.is_some()
+        {
+            return Err(TransportError::TunnelClosed);
+        }
+        let routing = self
+            .ads_policy()
+            .prepare_routing_update(profile)
+            .map_err(|error| TransportError::Netstack(error.to_string()))?;
+        let (protector, cancellation) = self.diagnostic_dns_context();
+        if cancellation.is_cancelled() {
+            return Err(TransportError::TunnelClosed);
+        }
+        if routing.changes_rules() {
+            validate_routing_resources(&routing, profile.frontends.tunnel, protector.as_ref())?;
+        }
+        Ok(PreparedTrafficPolicyUpdate {
+            routing,
+            generation: protector.network_generation(),
+            tunnel: profile.frontends.tunnel,
+        })
+    }
+    pub fn publish_routing_update(
+        &mut self,
+        prepared: PreparedTrafficPolicyUpdate,
+    ) -> Result<(), TransportError> {
+        if self.stopped
+            || self.final_blocked
+            || self.prebound_frontends.is_some()
+            || self.pending_frontends.is_some()
+        {
+            return Err(TransportError::TunnelClosed);
+        }
+        let (protector, cancellation) = self.diagnostic_dns_context();
+        if cancellation.is_cancelled() {
+            return Err(TransportError::TunnelClosed);
+        }
+        if prepared.routing.changes_rules() && protector.network_generation() != prepared.generation
+        {
+            return Err(TransportError::Netstack(
+                crate::socket::STALE_GENERATION_REASON.into(),
+            ));
+        }
+        if prepared.routing.changes_rules() {
+            validate_routing_resources(&prepared.routing, prepared.tunnel, protector.as_ref())?;
+        }
+        self.ads_policy()
+            .publish_routing_update(prepared.routing)
+            .map_err(|error| TransportError::Netstack(error.to_string()))
     }
     /// The authenticated endpoint eligibility is frozen for this outer runtime.
     pub fn endpoint_pool(&self) -> usque_core::EndpointPool {
@@ -1414,6 +1479,28 @@ impl DataPlaneRuntime {
     }
 }
 
+fn validate_routing_resources(
+    routing: &crate::geo_direct::PreparedRoutingUpdate,
+    tunnel: bool,
+    protector: &dyn SocketProtector,
+) -> Result<(), TransportError> {
+    if tunnel && routing.has_direct_routes() && !protector.tun_direct_available() {
+        return Err(TransportError::Dns(
+            "platform cannot safely bypass the TUN for custom routes".into(),
+        ));
+    }
+    if tunnel
+        && routing.needs_direct_dns()
+        && protector.direct_dns_resolver().is_none()
+        && protector.physical_dns_servers().is_empty()
+    {
+        return Err(TransportError::Dns(
+            "physical DNS unavailable for configured direct routes".into(),
+        ));
+    }
+    Ok(())
+}
+
 fn terminal_failure(failure: &TransportFailure) -> bool {
     !failure.retryable || failure.action() == usque_core::FailureAction::Stop
 }
@@ -1772,6 +1859,13 @@ mod tests {
     async fn memory_warp_with_profile(
         profile: &Profile,
     ) -> (DataPlaneRuntime, ExternalPacketChannels) {
+        memory_warp_with_protector(profile, crate::socket::noop_socket_protector()).await
+    }
+
+    async fn memory_warp_with_protector(
+        profile: &Profile,
+        protector: Arc<dyn SocketProtector>,
+    ) -> (DataPlaneRuntime, ExternalPacketChannels) {
         // Memory packet queues stand in for WARP. No OS tunnel or remote
         // connection is created, but the actual frontend shutdown runs.
         let profile = DataPlaneRuntime::headless_profile(profile);
@@ -1785,7 +1879,6 @@ mod tests {
             path,
             crate::NetworkQualityTelemetry::default(),
         );
-        let protector = crate::socket::noop_socket_protector();
         let policy = Arc::new(GeoDirectPolicy::disabled());
         let addresses = (
             "172.16.0.2".parse().unwrap(),
@@ -1822,6 +1915,138 @@ mod tests {
             prebound_frontends: None,
         };
         (runtime, channels)
+    }
+
+    struct RoutingProtector {
+        generation: std::sync::atomic::AtomicU64,
+        tun: bool,
+        dns: bool,
+    }
+    impl SocketProtector for RoutingProtector {
+        fn protect(&self, _: crate::SocketHandle) -> Result<(), String> {
+            Ok(())
+        }
+        fn network_generation(&self) -> Option<u64> {
+            Some(self.generation.load(std::sync::atomic::Ordering::SeqCst))
+        }
+        fn tun_direct_available(&self) -> bool {
+            self.tun
+        }
+        fn physical_dns_servers(&self) -> Vec<SocketAddr> {
+            if self.dns {
+                vec!["127.0.0.1:53".parse().unwrap()]
+            } else {
+                vec![]
+            }
+        }
+    }
+
+    #[test]
+    fn first_and_last_direct_rule_validate_tun_and_physical_dns_resources() {
+        let policy = GeoDirectPolicy::disabled();
+        let mut profile = Profile::default();
+        profile.routing.rules.push(usque_core::RoutingRule {
+            id: uuid::Uuid::new_v4(),
+            kind: usque_core::RoutingMatch::Domain,
+            target: "direct.test".into(),
+            action: usque_core::RoutingAction::Direct,
+        });
+        let update = policy.prepare_routing_update(&profile).unwrap();
+        let mut protector = RoutingProtector {
+            generation: 7.into(),
+            tun: false,
+            dns: false,
+        };
+        assert!(validate_routing_resources(&update, true, &protector).is_err());
+        assert!(validate_routing_resources(&update, false, &protector).is_ok());
+        protector.tun = true;
+        assert!(validate_routing_resources(&update, true, &protector).is_err());
+        protector.dns = true;
+        assert!(validate_routing_resources(&update, true, &protector).is_ok());
+        policy.publish_routing_update(update).unwrap();
+        profile.routing.rules.clear();
+        let removed = policy.prepare_routing_update(&profile).unwrap();
+        protector.dns = false;
+        assert!(validate_routing_resources(&removed, true, &protector).is_ok());
+        policy.publish_routing_update(removed).unwrap();
+        assert_eq!(policy.route_host("direct.test"), crate::GeoRoute::Tunnel);
+    }
+
+    #[tokio::test]
+    async fn prepared_routes_reject_changed_physical_epoch_and_deferred_underlay() {
+        let protector = Arc::new(RoutingProtector {
+            generation: 7.into(),
+            tun: true,
+            dns: true,
+        });
+        let mut profile = DataPlaneRuntime::headless_profile(&Profile::default());
+        profile.routing.rules.push(usque_core::RoutingRule {
+            id: uuid::Uuid::new_v4(),
+            kind: usque_core::RoutingMatch::Domain,
+            target: "blocked.test".into(),
+            action: usque_core::RoutingAction::Reject,
+        });
+        let (mut runtime, _packets) = memory_warp_with_protector(&profile, protector.clone()).await;
+        let revision = runtime.ads_policy().routing_revision();
+        let prepared = runtime.prepare_routing_update(&profile).unwrap();
+        protector
+            .generation
+            .store(8, std::sync::atomic::Ordering::SeqCst);
+        assert!(runtime.publish_routing_update(prepared).is_err());
+        assert_eq!(runtime.ads_policy().routing_revision(), revision);
+        runtime.pending_frontends = Some(profile.clone());
+        assert!(runtime.prepare_routing_update(&profile).is_err());
+        assert_eq!(
+            runtime.ads_policy().route_host("blocked.test"),
+            crate::GeoRoute::Tunnel
+        );
+        runtime.pending_frontends = None;
+        let prepared = runtime.prepare_routing_update(&profile).unwrap();
+        runtime.publish_routing_update(prepared).unwrap();
+        assert_eq!(
+            runtime.ads_policy().route_host("blocked.test"),
+            crate::GeoRoute::Reject
+        );
+        runtime.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn unchanged_rules_do_not_add_physical_resource_requirements_to_hot_knobs() {
+        let protector = Arc::new(RoutingProtector {
+            generation: 7.into(),
+            tun: false,
+            dns: false,
+        });
+        let mut profile = Profile::default();
+        profile.routing.rules.push(usque_core::RoutingRule {
+            id: uuid::Uuid::new_v4(),
+            kind: usque_core::RoutingMatch::Domain,
+            target: "retained.test".into(),
+            action: usque_core::RoutingAction::Direct,
+        });
+        let (mut runtime, _packets) = memory_warp_with_protector(&profile, protector.clone()).await;
+        // Simulate an already configured policy after the physical path loses
+        // capabilities. Changing QUIC/Ads must not authorize a new direct flow.
+        let policy = runtime.ads_policy();
+        policy
+            .publish_routing_update(policy.prepare_routing_update(&profile).unwrap())
+            .unwrap();
+        let revision = policy.routing_revision();
+        profile.disable_quic = true;
+        profile.routing.ads_enabled = true;
+        let prepared = runtime.prepare_routing_update(&profile).unwrap();
+        assert!(!prepared.routing.changes_rules());
+        protector
+            .generation
+            .store(8, std::sync::atomic::Ordering::SeqCst);
+        runtime.publish_routing_update(prepared).unwrap();
+        runtime.update_traffic_policy(profile.disable_quic);
+        assert_eq!(runtime.ads_policy().routing_revision(), revision);
+        assert_eq!(
+            runtime.ads_policy().route_host("retained.test"),
+            crate::GeoRoute::Direct
+        );
+        runtime.shutdown().await;
     }
 
     fn failed_underlay(path: RuntimePath, failure: TransportFailure) -> RuntimeHealth {

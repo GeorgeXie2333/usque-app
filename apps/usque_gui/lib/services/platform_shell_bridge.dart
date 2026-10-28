@@ -14,6 +14,9 @@ import '../widgets/common.dart';
 class PlatformShellBridge {
   PlatformShellBridge(this._controller) {
     _channel.setMethodCallHandler(_handleMethod);
+    if (defaultTargetPlatform == TargetPlatform.windows) {
+      unawaited(_readWindowVisibility());
+    }
     if (Platform.isWindows || Platform.isLinux) {
       _notices = ConnectionNoticeTracker(onNotice: _showNotice);
       _controller.addListener(_publishTrayState);
@@ -32,8 +35,32 @@ class PlatformShellBridge {
   ConnectionNoticeTracker? _notices;
   String? _lastTrayFingerprint;
   String? _lastAndroidLocale;
+  int _visibilityRevision = 0;
+  bool _disposed = false;
+
+  Future<void> _readWindowVisibility() async {
+    final revision = _visibilityRevision;
+    try {
+      final visible = await _channel.invokeMethod<bool>('getWindowVisibility');
+      if (!_disposed && revision == _visibilityRevision) {
+        _controller.setUiVisible(visible ?? true);
+      }
+    } on Object {
+      // Older native runners and fake hosts have no visibility method.
+      if (!_disposed && revision == _visibilityRevision) {
+        _controller.setUiVisible(true);
+      }
+    }
+  }
 
   Future<Object?> _handleMethod(MethodCall call) async {
+    if (call.method == 'windowVisibilityChanged') {
+      if (call.arguments is bool) {
+        _visibilityRevision++;
+        _controller.setUiVisible(call.arguments == true);
+      }
+      return null;
+    }
     if (call.method == 'trayAvailabilityChanged') {
       _controller.noteTrayAvailability(call.arguments == true);
       return null;
@@ -150,6 +177,7 @@ class PlatformShellBridge {
   }
 
   void dispose() {
+    _disposed = true;
     if (Platform.isWindows || Platform.isLinux) {
       _controller.removeListener(_publishTrayState);
     }

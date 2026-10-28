@@ -55,4 +55,18 @@ internal object VpnReconfigure {
         lastTunIdentity.set(null)
         closeQuietly(tunnel.getAndSet(null))
     }
+
+    /** A rejected update leaves the native session intact; retire only its speculative metadata. */
+    fun restoreRejectedProfile(
+        requested: String,
+        previous: String?,
+        previousMode: String?,
+        activeProfile: AtomicReference<String?>,
+        activeMode: AtomicReference<String?>,
+    ): Boolean {
+        // Do not let a late reply overwrite a newer request, even in the same session.
+        if (!activeProfile.compareAndSet(requested, previous)) return false
+        activeMode.set(previousMode)
+        return true
+    }
 }

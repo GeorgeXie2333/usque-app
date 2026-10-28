@@ -99,6 +99,7 @@ VPN、SOCKS5 和 HTTP 默认开启，Windows 系统代理默认关闭。它们�
 - 自动尝试 HTTP/3，失败时回退到 HTTP/2，并尝试通过 IPv4 和 IPv6 寻找可达入口。
   H3 在支持的网络切换场景下可以迁移连接，详见[路径行为](docs/h3-path-infrastructure.md)。
 - 全隧道 VPN、隧道内 DNS、Kill Switch（断网保护）、局域网访问和 [DIRECT／REJECT／PROXY 分流及 Ads 广告拦截](docs/ROUTING.md)。自定义域名、IP 和 CIDR 支持更具体的例外规则，保存时检查冲突。 开启广告拦截并应用后自动准备规则，应用运行期间每 7 天检查更新，新请求无需重连即可生效；规则详情提供状态、来源和手动更新。
+- 连接稳定时，自定义分流规则直接用于新流，无需重连；已有 TCP／CONNECT 连接和活跃 UDP 目标保持原路径。请查看应用结果，确认是否仍待应用或应用失败。
 - 自定义 [WARP 出口 DNS](docs/WARP_DNS.md)：打开“设置 → 高级网络设置 → WARP DNS”，选择普通 DNS、DoH 或 DoT，再点击“应用修改”。修改 DNS 会重新连接当前会话；最终链式出口仍使用自己的 DNS 策略。
 - 可选的按国家直连：单独下载所选国家的 GeoIP 数据和全局 GeoSite 域名规则。
   能看到域名时按域名判断，否则按 IP 判断；无法识别的目标继续走隧道。

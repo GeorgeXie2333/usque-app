@@ -303,9 +303,26 @@ impl TunBridge {
                             IpAddr::V4(SPLIT_DNS_IPV4) | IpAddr::V6(SPLIT_DNS_IPV6)
                         )
                 });
+                let routing = services.geo_policy.freeze_routing();
+                let existing_tcp = NatPacket::parse(&packet).is_some_and(|meta| {
+                    meta.protocol == 6
+                        && flows
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .forward
+                            .contains_key(&Key {
+                                client: SocketAddr::new(meta.source, meta.source_port),
+                                remote: SocketAddr::new(meta.destination, meta.destination_port),
+                            })
+                });
+                let ordinary_udp = NatPacket::parse(&packet)
+                    .is_some_and(|meta| meta.protocol == 17 && udp_flows.has_source(&meta))
+                    && !internal_dns;
                 if !internal_dns
+                    && !existing_tcp
+                    && !ordinary_udp
                     && crate::routing_reject::destination(&packet)
-                        .is_some_and(|ip| services.geo_policy.rejects_ip(ip))
+                        .is_some_and(|ip| routing.rejects_ip(ip))
                 {
                     if let Some(reply) = routing_rejector.reply(&packet) {
                         let _ = response_tx.try_send(reply);
@@ -324,10 +341,12 @@ impl TunBridge {
                     continue;
                 }
                 if !internal_dns
+                    && !existing_tcp
+                    && !ordinary_udp
                     && resolver.hints().route_ip(
                         meta.destination,
                         services.protector.network_generation(),
-                        &services.geo_policy,
+                        &routing,
                     ) == GeoRoute::Direct
                     && !crate::geo_direct::direct_family_available(
                         services.protector.as_ref(),
@@ -361,24 +380,16 @@ impl TunBridge {
                             let wire = udp_response(&meta, &response);
                             tokio::select! { _ = cancel.cancelled() => {}, _ = replies.send(wire) => {} }
                         }));
-                    } else if services.traffic_policy.blocks_udp(meta.destination_port)
+                    } else if !udp_flows.has_source(&meta)
+                        && services.traffic_policy.blocks_udp(meta.destination_port)
                         && resolver.hints().route_ip(
                             meta.destination,
                             services.protector.network_generation(),
-                            &services.geo_policy,
+                            &routing,
                         ) != GeoRoute::Direct
                     {
-                        // Reject known tunnel policy failures before a new
-                        // source can consume a worker's shared TCP slot/buffers.
-                        // Workers recheck after routing changes or direct failure.
                         udp_rejector.reject(&packet, &meta);
                     } else if udp_enabled
-                        && (services.udp.is_some()
-                            || resolver.hints().route_ip(
-                                meta.destination,
-                                services.protector.network_generation(),
-                                &services.geo_policy,
-                            ) == GeoRoute::Direct)
                         && udp_flows.enqueue(
                             meta,
                             packet.clone(),
@@ -465,11 +476,9 @@ impl TunBridge {
                         continue;
                     };
                     let generation = services.protector.network_generation();
-                    let route = resolver.hints().route_ip(
-                        key.remote.ip(),
-                        generation,
-                        &services.geo_policy,
-                    );
+                    let route = resolver
+                        .hints()
+                        .route_ip(key.remote.ip(), generation, &routing);
                     let cancel = task_cancel.child_token();
                     {
                         let mut table = flows.lock().unwrap_or_else(|e| e.into_inner());
@@ -765,6 +774,7 @@ async fn dns_query(
     meta: &NatPacket,
     query: &[u8],
 ) -> Vec<u8> {
+    let revision = resolver.routing_revision();
     if let Some(refused) = resolver.routing_refusal(query) {
         return refused;
     }
@@ -782,7 +792,7 @@ async fn dns_query(
             )
             .await
             .unwrap_or_else(|_| crate::split_dns::l4_dns_error(query));
-        resolver.filter_routing_response(query, response)
+        resolver.filter_routing_response_for_revision(query, response, revision)
     }
 }
 

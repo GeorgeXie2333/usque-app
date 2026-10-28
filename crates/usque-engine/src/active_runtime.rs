@@ -48,11 +48,20 @@ pub(crate) enum ActiveRuntime {
     Harness(Box<HarnessRuntime>),
 }
 
+pub(crate) enum PreparedRoutingUpdate {
+    Runtime(usque_transport::PreparedTrafficPolicyUpdate),
+    #[cfg(test)]
+    Harness(usque_transport::PreparedRoutingUpdate),
+}
+
 #[cfg(test)]
 pub(crate) struct HarnessRuntime {
     pub(crate) timeline: usque_transport::ConnectionTelemetry,
     pub(crate) disable_quic: bool,
     pub(crate) traffic_policy_updates: u32,
+    pub(crate) routing_policy: usque_transport::GeoDirectPolicy,
+    pub(crate) fail_routing_prepare: bool,
+    pub(crate) fail_routing_publish: bool,
     pub(crate) path: RuntimePath,
     pub(crate) reconnect_count: u32,
     pub(crate) vpn: bool,
@@ -106,6 +115,11 @@ impl HarnessRuntime {
             reconnect_count,
             disable_quic: profile.disable_quic,
             traffic_policy_updates: 0,
+            routing_policy: usque_transport::GeoDirectPolicy::disabled()
+                .with_custom_rules(profile)
+                .expect("validated harness routing policy"),
+            fail_routing_prepare: false,
+            fail_routing_publish: false,
             vpn,
             listeners,
             socks5_listeners,
@@ -633,6 +647,69 @@ impl ActiveRuntime {
             Self::Vpn(r) => r.update_ads_enabled(enabled),
             #[cfg(test)]
             Self::Harness(_) => {}
+        }
+    }
+
+    pub(crate) fn prepare_routing_update(
+        &self,
+        profile: &Profile,
+    ) -> Result<PreparedRoutingUpdate, ControlServiceError> {
+        match self {
+            Self::Proxy(runtime) => runtime
+                .runtime
+                .prepare_routing_update(profile)
+                .map(PreparedRoutingUpdate::Runtime)
+                .map_err(ControlServiceError::Transport),
+            #[cfg(any(windows, target_os = "linux"))]
+            Self::Vpn(runtime) => runtime
+                .prepare_routing_update(profile)
+                .map(PreparedRoutingUpdate::Runtime)
+                .map_err(map_platform_vpn_error),
+            #[cfg(test)]
+            Self::Harness(runtime) => {
+                if runtime.fail_routing_prepare {
+                    return Err(ControlServiceError::InvalidRequest(
+                        "routing preparation failed".into(),
+                    ));
+                }
+                runtime
+                    .routing_policy
+                    .prepare_routing_update(profile)
+                    .map(PreparedRoutingUpdate::Harness)
+                    .map_err(ControlServiceError::profile_configuration)
+            }
+        }
+    }
+
+    pub(crate) fn publish_routing_update(
+        &mut self,
+        prepared: PreparedRoutingUpdate,
+    ) -> Result<(), ControlServiceError> {
+        match (self, prepared) {
+            (Self::Proxy(runtime), PreparedRoutingUpdate::Runtime(prepared)) => runtime
+                .runtime
+                .publish_routing_update(prepared)
+                .map_err(ControlServiceError::Transport),
+            #[cfg(any(windows, target_os = "linux"))]
+            (Self::Vpn(runtime), PreparedRoutingUpdate::Runtime(prepared)) => runtime
+                .publish_routing_update(prepared)
+                .map_err(map_platform_vpn_error),
+            #[cfg(test)]
+            (Self::Harness(runtime), PreparedRoutingUpdate::Harness(prepared)) => {
+                if runtime.fail_routing_publish {
+                    return Err(ControlServiceError::InvalidRequest(
+                        "routing publication failed".into(),
+                    ));
+                }
+                runtime
+                    .routing_policy
+                    .publish_routing_update(prepared)
+                    .map_err(|error| ControlServiceError::InvalidRequest(error.to_string()))
+            }
+            #[cfg(test)]
+            _ => Err(ControlServiceError::InvalidRequest(
+                "routing runtime changed during preparation".into(),
+            )),
         }
     }
 

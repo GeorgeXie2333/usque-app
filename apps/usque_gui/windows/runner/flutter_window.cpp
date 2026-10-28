@@ -384,6 +384,11 @@ bool FlutterWindow::OnCreate() {
       [this](const flutter::MethodCall<flutter::EncodableValue>& call,
              std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>>
                  result) {
+        if (call.method_name() == "getWindowVisibility") {
+          result->Success(flutter::EncodableValue(
+              ::IsWindowVisible(GetHandle()) && !::IsIconic(GetHandle())));
+          return;
+        }
         if (call.method_name() == "completeProtonHumanVerification") {
           const auto* arguments = std::get_if<flutter::EncodableMap>(call.arguments());
           const auto found = arguments ? arguments->find(flutter::EncodableValue("handoff")) : flutter::EncodableMap::const_iterator{};
@@ -767,12 +772,13 @@ bool FlutterWindow::OnCreate() {
 
             StopEngineEventStream();
             engine_event_sink_ = std::move(events);
-            engine_event_active_ = std::make_shared<std::atomic_bool>(true);
+            engine_event_cancellation_ =
+                std::make_shared<EngineEventCancellation>();
             engine_event_generation_ =
                 g_engine_event_generation.fetch_add(1) + 1;
             const HWND window = GetHandle();
             const uint64_t generation = engine_event_generation_;
-            const auto active = engine_event_active_;
+            const auto active = engine_event_cancellation_;
             std::thread([window, generation, active,
                          pipe_name = *pipe_name]() {
               StreamEngineEvents(
@@ -1081,18 +1087,32 @@ void FlutterWindow::RequestDisconnectAndExit() {
 }
 
 void FlutterWindow::StopEngineEventStream() {
-  if (engine_event_active_) {
-    engine_event_active_->store(false);
-    engine_event_active_.reset();
+  if (engine_event_cancellation_) {
+    engine_event_cancellation_->Cancel();
+    engine_event_cancellation_.reset();
   }
   engine_event_generation_ = 0;
   engine_event_sink_.reset();
+}
+
+void FlutterWindow::NotifyWindowVisibility(bool visible) {
+  if (!engine_channel_ || last_window_visibility_ == visible) return;
+  last_window_visibility_ = visible;
+  engine_channel_->InvokeMethod(
+      "windowVisibilityChanged",
+      std::make_unique<flutter::EncodableValue>(visible));
 }
 
 LRESULT
 FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
                               WPARAM const wparam,
                               LPARAM const lparam) noexcept {
+  // Observe before Flutter/plugins can consume the native window message.
+  if (message == WM_SHOWWINDOW) {
+    NotifyWindowVisibility(wparam == TRUE && !::IsIconic(hwnd));
+  } else if (message == WM_SIZE) {
+    NotifyWindowVisibility(wparam != SIZE_MINIMIZED && ::IsWindowVisible(hwnd));
+  }
   if (message == WM_TIMER && wparam == kZeroTrustLoginTimer) {
     zero_trust_session_.Cancel();
     ReleaseZeroTrustProtocol();

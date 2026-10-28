@@ -637,6 +637,17 @@ impl ControlService {
         } else {
             class
         };
+        let prepared = if matches!(
+            class,
+            ReconfigureClass::HotTrafficPolicy
+                | ReconfigureClass::HotFrontends
+                | ReconfigureClass::HotSystemProxy
+                | ReconfigureClass::HotTunnelAttach
+        ) {
+            Some(self.prepare_hot_routing_update(target).await?)
+        } else {
+            None
+        };
         match class {
             ReconfigureClass::HotTrafficPolicy => {}
             ReconfigureClass::HotFrontends => self.hot_reconfigure_frontends(target).await?,
@@ -675,7 +686,27 @@ impl ControlService {
             }
             ReconfigureClass::PersistOnly | ReconfigureClass::Reject => {}
         }
-        self.hot_update_traffic_policy(target).await?;
+        let publication = if matches!(
+            class,
+            ReconfigureClass::HotVpnGate | ReconfigureClass::HotTunnelAttach
+        ) {
+            self.hot_update_traffic_policy(target).await
+        } else if let Some(prepared) = prepared {
+            self.publish_hot_routing_update(target, prepared).await
+        } else {
+            self.hot_update_traffic_policy(target).await
+        };
+        if let Err(error) = publication {
+            let rollback = match class {
+                ReconfigureClass::HotFrontends => self.hot_reconfigure_frontends(previous).await,
+                ReconfigureClass::HotSystemProxy => self.hot_apply_system_proxy(previous).await,
+                _ => Ok(()),
+            };
+            if rollback.is_err() {
+                self.finish_failed_hot_update(previous, &error, true).await;
+            }
+            return Err(error);
+        }
         self.apply_hot_profile_state(target).await;
         Ok(())
     }
@@ -1545,5 +1576,146 @@ mod tests {
         let config = service.store.load().unwrap();
         assert_eq!(config.network.mtu, 1400);
         assert_eq!(config.profiles[0].name, "Renamed");
+    }
+
+    #[tokio::test]
+    async fn custom_rules_hot_save_publishes_and_removes_without_replacing_the_session() {
+        let (_directory, service) = service();
+        let mut profile = service.config_snapshot().await.active_profile().unwrap();
+        service
+            .install_test_session(profile.clone(), false, 7)
+            .await
+            .unwrap();
+        let before = service.test_harness_counts().await;
+        for action in [
+            Some(usque_core::RoutingAction::Direct),
+            Some(usque_core::RoutingAction::Reject),
+            None,
+        ] {
+            profile.routing.rules.clear();
+            if let Some(action) = action {
+                profile.routing.rules.push(usque_core::RoutingRule {
+                    id: uuid::Uuid::new_v4(),
+                    kind: usque_core::RoutingMatch::Domain,
+                    target: "hot.test".into(),
+                    action,
+                });
+            }
+            service
+                .save_network_settings(request(&profile, &["routing"]))
+                .await
+                .unwrap();
+            let _finished = service.mutation_lock.lock().await;
+            let state = service.network_settings_state().await;
+            assert_eq!(state.apply_status, 3);
+            assert_eq!(
+                service.store.load().unwrap().network.routing,
+                profile.routing
+            );
+            assert_eq!(service.test_harness_counts().await, before);
+            let active = service.data_plane.lock().await;
+            let active = active.as_ref().unwrap();
+            assert_eq!(active.profile.routing, profile.routing);
+            let crate::active_runtime::ActiveRuntime::Harness(runtime) = &active.runtime else {
+                panic!("harness")
+            };
+            assert_eq!(
+                runtime.routing_policy.route_host("hot.test"),
+                match action {
+                    Some(usque_core::RoutingAction::Direct) => usque_transport::GeoRoute::Direct,
+                    Some(usque_core::RoutingAction::Reject) => usque_transport::GeoRoute::Reject,
+                    _ => usque_transport::GeoRoute::Tunnel,
+                }
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn failed_custom_rule_prepare_or_publish_cannot_confirm_or_change_live_rules() {
+        for stage in ["prepare", "publish"] {
+            let (_directory, service) = service();
+            let profile = service.config_snapshot().await.active_profile().unwrap();
+            service
+                .install_test_session(profile.clone(), false, 3)
+                .await
+                .unwrap();
+            {
+                let mut active = service.data_plane.lock().await;
+                let crate::active_runtime::ActiveRuntime::Harness(runtime) =
+                    &mut active.as_mut().unwrap().runtime
+                else {
+                    panic!("harness")
+                };
+                runtime.fail_routing_prepare = stage == "prepare";
+                runtime.fail_routing_publish = stage == "publish";
+            }
+            let mut next = profile.clone();
+            next.disable_quic = !profile.disable_quic;
+            next.routing.rules.push(usque_core::RoutingRule {
+                id: uuid::Uuid::new_v4(),
+                kind: usque_core::RoutingMatch::Domain,
+                target: "rejected.test".into(),
+                action: usque_core::RoutingAction::Reject,
+            });
+            assert!(service.reconfigure_active_profile(next).await.is_err());
+            assert_eq!(
+                service.store.load().unwrap().network.routing,
+                profile.routing
+            );
+            let active = service.data_plane.lock().await;
+            let active = active.as_ref().unwrap();
+            assert_eq!(active.profile.routing, profile.routing);
+            let crate::active_runtime::ActiveRuntime::Harness(runtime) = &active.runtime else {
+                panic!("harness")
+            };
+            assert_eq!(
+                runtime.routing_policy.route_host("rejected.test"),
+                usque_transport::GeoRoute::Tunnel
+            );
+            assert_eq!(runtime.disable_quic, profile.disable_quic);
+            assert_eq!(runtime.reconnect_count, 3);
+        }
+    }
+
+    #[tokio::test]
+    async fn failed_custom_rule_persistence_never_publishes_prepared_rules() {
+        let (directory, service) = service();
+        let profile = service.config_snapshot().await.active_profile().unwrap();
+        service
+            .install_test_session(profile.clone(), false, 1)
+            .await
+            .unwrap();
+        let path = service.store.path().to_owned();
+        let retained = directory.path().join("retained-config.json");
+        let original = std::fs::read(&path).unwrap();
+        // A directory at the JSON destination deterministically rejects the
+        // transaction on every workstation OS, without permissions or faults
+        // in a real user's configuration directory.
+        std::fs::rename(&path, &retained).unwrap();
+        std::fs::create_dir(&path).unwrap();
+        let mut next = profile.clone();
+        next.routing.rules.push(usque_core::RoutingRule {
+            id: uuid::Uuid::new_v4(),
+            kind: usque_core::RoutingMatch::Domain,
+            target: "uncommitted.test".into(),
+            action: usque_core::RoutingAction::Reject,
+        });
+        assert!(service.reconfigure_active_profile(next).await.is_err());
+        std::fs::remove_dir(&path).unwrap();
+        std::fs::rename(retained, &path).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), original);
+        assert_eq!(
+            service.config_snapshot().await.network.routing,
+            profile.routing
+        );
+        let active = service.data_plane.lock().await;
+        let active = active.as_ref().unwrap();
+        let crate::active_runtime::ActiveRuntime::Harness(runtime) = &active.runtime else {
+            panic!("harness")
+        };
+        assert_eq!(
+            runtime.routing_policy.route_host("uncommitted.test"),
+            usque_transport::GeoRoute::Tunnel
+        );
     }
 }

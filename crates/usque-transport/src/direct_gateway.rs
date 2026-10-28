@@ -12,6 +12,7 @@ use ts_netstack_smoltcp::netcore::{Channel, HasChannel, NetstackControl};
 use ts_netstack_smoltcp::netsock::UdpSocket as StackUdpSocket;
 use usque_core::Profile;
 
+use crate::direct_diagnostics::{DirectFallbackReason, DirectGatewayDiagnostics};
 use crate::geo_direct::{GeoDirectPolicy, GeoRoute, bind_direct_udp, connect_direct_ip};
 use crate::h2::TransportError;
 use crate::netstack::{TrafficCounters, bounded_piped, direct_netstack_config};
@@ -62,6 +63,42 @@ struct Mapping {
     network_generation: Option<u64>,
     cancel: CancellationToken,
     last_seen: Instant,
+}
+
+/// A reservation is not a live flow until its first packet is admitted. An
+/// attachment may be cancelled while physical authorization or stack creation
+/// is pending, so cleanup must follow future ownership rather than an error
+/// branch that cancellation can skip.
+struct NatReservation {
+    flows: Arc<Mutex<NatTable>>,
+    flow: FlowKey,
+    id: u64,
+    committed: bool,
+}
+
+impl NatReservation {
+    fn new(flows: &Arc<Mutex<NatTable>>, flow: &FlowKey, id: u64) -> Self {
+        Self {
+            flows: Arc::clone(flows),
+            flow: flow.clone(),
+            id,
+            committed: false,
+        }
+    }
+
+    fn commit(&mut self) {
+        self.committed = true;
+    }
+}
+
+impl Drop for NatReservation {
+    fn drop(&mut self) {
+        if !self.committed
+            && let Ok(mut flows) = self.flows.lock()
+        {
+            flows.remove_if(&self.flow, self.id);
+        }
+    }
 }
 
 struct NatTable {
@@ -251,6 +288,7 @@ pub(crate) struct DirectGatewayRouter {
     policy: Arc<GeoDirectPolicy>,
     protector: Arc<dyn SocketProtector>,
     counters: Arc<TrafficCounters>,
+    diagnostics: Arc<DirectGatewayDiagnostics>,
     flows: Arc<Mutex<NatTable>>,
     cancellation: CancellationToken,
     stack_task: Option<JoinHandle<()>>,
@@ -317,8 +355,9 @@ impl DirectGatewayRouter {
         // Prepare Ads DNS for a later hot TUN attachment. Domain-direct proxy
         // sessions always reconnect before attaching TUN, and their system
         // resolver need not expose the numeric servers Split DNS requires.
-        let split_dns_enabled = (policy.supports_live_ads()
-            && (profile.frontends.tunnel || !policy.needs_direct_dns()))
+        let split_dns_enabled = (profile.frontends.tunnel && tunnel_dns.is_some())
+            || (policy.supports_live_ads()
+                && (profile.frontends.tunnel || !policy.needs_direct_dns()))
             || gate_dns
             || (profile.frontends.tunnel && profile.needs_domain_routing() && policy.is_enabled());
         if profile.frontends.tunnel
@@ -330,7 +369,7 @@ impl DirectGatewayRouter {
                 "platform cannot safely bypass the TUN for Split DNS".to_owned(),
             ));
         }
-        if (!policy.is_enabled() && !split_dns_enabled)
+        if (!policy.is_enabled() && !split_dns_enabled && !protector.tun_direct_available())
             || (!protector.tun_direct_available() && !split_dns_enabled)
         {
             return Ok((
@@ -340,6 +379,7 @@ impl DirectGatewayRouter {
                     policy,
                     protector,
                     counters,
+                    diagnostics: quality.register_direct_gateway(),
                     flows,
                     cancellation,
                     stack_task: None,
@@ -411,6 +451,8 @@ impl DirectGatewayRouter {
         let incoming_flows = Arc::clone(&flows);
         let incoming_cancel = cancellation.clone();
         let incoming_counters = Arc::clone(&counters);
+        let diagnostics = quality.register_direct_gateway();
+        let incoming_diagnostics = Arc::clone(&diagnostics);
         let incoming_task = tokio::spawn(async move {
             loop {
                 let packet = tokio::select! {
@@ -427,10 +469,9 @@ impl DirectGatewayRouter {
                     || is_split_dns_server_packet(&packet)
                 {
                     incoming_counters.record_received(packet.len());
-                    match incoming_tx.try_send(packet.freeze()) {
-                        Ok(()) => {}
-                        Err(mpsc::error::TrySendError::Full(_)) => {}
-                        Err(mpsc::error::TrySendError::Closed(_)) => break,
+                    if !try_send_return_packet(&incoming_tx, packet.freeze(), &incoming_diagnostics)
+                    {
+                        break;
                     }
                 }
             }
@@ -443,6 +484,7 @@ impl DirectGatewayRouter {
                 policy,
                 protector,
                 counters,
+                diagnostics,
                 flows,
                 cancellation,
                 stack_task: Some(stack_task),
@@ -460,14 +502,29 @@ impl DirectGatewayRouter {
 
     /// Returns true when the packet was consumed by the direct gateway.
     pub(crate) async fn route_outgoing(&mut self, packet: &mut BytesMut) -> bool {
-        let internal_dns = self.split_dns.is_some()
-            && NatPacket::parse(packet).is_some_and(|meta| is_split_dns_client_packet(&meta));
-        if !internal_dns
-            && crate::routing_reject::destination(packet)
-                .is_some_and(|ip| self.policy.rejects_ip(ip))
+        let parsed = NatPacket::parse(packet);
+        let network_generation = self.protector.network_generation();
+        let routing = self.policy.freeze_routing();
+        let flow = parsed.as_ref().map(|parsed| FlowKey {
+            protocol: parsed.protocol,
+            client: SocketAddr::new(parsed.source, parsed.source_port),
+            remote: SocketAddr::new(parsed.destination, parsed.destination_port),
+        });
+        let existing = flow.as_ref().and_then(|flow| {
+            self.flows
+                .lock()
+                .ok()
+                .and_then(|mut flows| flows.existing(flow, network_generation))
+        });
+        let admitted_flow = existing.is_some();
+        let internal_dns =
+            self.split_dns.is_some() && parsed.as_ref().is_some_and(is_split_dns_client_packet);
+        if existing.is_none()
+            && !internal_dns
+            && crate::routing_reject::destination(packet).is_some_and(|ip| routing.rejects_ip(ip))
         {
             if let Some(reply) = self.rejector.reply(packet) {
-                let _ = self.rejection_tx.try_send(reply);
+                try_send_return_packet(&self.rejection_tx, reply, &self.diagnostics);
             }
             return true;
         }
@@ -479,7 +536,7 @@ impl DirectGatewayRouter {
                 .incoming_task
                 .as_ref()
                 .is_some_and(JoinHandle::is_finished);
-        let Some(parsed) = NatPacket::parse(packet) else {
+        let Some(parsed) = parsed else {
             return false;
         };
         if !matches!(parsed.protocol, 6 | 17)
@@ -488,11 +545,21 @@ impl DirectGatewayRouter {
             return false;
         }
         let split_dns_client = self.split_dns.is_some() && is_split_dns_client_packet(&parsed);
-        let route = self.dns_hints.route_ip(
-            parsed.destination,
-            self.protector.network_generation(),
-            &self.policy,
-        );
+        let route = if existing.is_some() {
+            GeoRoute::Direct
+        } else {
+            self.dns_hints.route_ip(
+                parsed.destination,
+                self.protector.network_generation(),
+                &routing,
+            )
+        };
+        if !split_dns_client && route == GeoRoute::Reject {
+            if let Some(reply) = self.rejector.reply(packet) {
+                try_send_return_packet(&self.rejection_tx, reply, &self.diagnostics);
+            }
+            return true;
+        }
         if !split_dns_client
             && route == GeoRoute::Direct
             && !crate::geo_direct::direct_family_available(
@@ -504,19 +571,52 @@ impl DirectGatewayRouter {
             // particular, failed UDP setup must not send IPv6 through WARP
             // when the selected physical network only carries IPv4.
             if let Some(reply) = self.rejector.reply(packet) {
-                let _ = self.rejection_tx.try_send(reply);
+                try_send_return_packet(&self.rejection_tx, reply, &self.diagnostics);
             }
             return true;
         }
+        // Unsupported destinations cannot acquire a physical-egress lease.
+        // Keep the existing tunnel fallback without repeatedly authenticating
+        // an Agent request that will be refused, including mapped IPv4 targets.
+        let target = parsed.destination.to_canonical();
+        if !split_dns_client
+            && route == GeoRoute::Direct
+            && (parsed.destination_port == 0 || target.is_unspecified() || target.is_multicast())
+        {
+            return self.fallback(DirectFallbackReason::UnsupportedTarget);
+        }
         if worker_failed {
+            if existing.is_some() {
+                if let Some(flow) = &flow
+                    && let Ok(mut flows) = self.flows.lock()
+                {
+                    flows.remove(flow);
+                }
+                if let Some(reply) = self.rejector.reply(packet) {
+                    try_send_return_packet(&self.rejection_tx, reply, &self.diagnostics);
+                }
+                return true;
+            }
             // Never let an Engine-internal DNS query fall through into MASQUE
             // if its local listener or packet pump has failed.
+            if !split_dns_client && route == GeoRoute::Direct {
+                self.diagnostics
+                    .record_fallback(DirectFallbackReason::WorkerFailed);
+            }
             return split_dns_client;
         }
         let Some(channel) = self.channel.as_ref() else {
+            if !split_dns_client && route == GeoRoute::Direct {
+                self.diagnostics
+                    .record_fallback(DirectFallbackReason::Unavailable);
+            }
             return false;
         };
         let Some(stack_incoming) = self.stack_incoming.as_ref() else {
+            if !split_dns_client && route == GeoRoute::Direct {
+                self.diagnostics
+                    .record_fallback(DirectFallbackReason::Unavailable);
+            }
             return false;
         };
         if split_dns_client {
@@ -526,31 +626,22 @@ impl DirectGatewayRouter {
         }
         // A prepared DNS listener does not authorize physical packet egress.
         // Keep the original TUN protection boundary after a hot attachment.
-        if !self.protector.tun_direct_available() {
-            return false;
-        }
         if route != GeoRoute::Direct {
             return false;
         }
-        let flow = FlowKey {
-            protocol: parsed.protocol,
-            client: SocketAddr::new(parsed.source, parsed.source_port),
-            remote: SocketAddr::new(parsed.destination, parsed.destination_port),
-        };
-        let network_generation = self.protector.network_generation();
-        let existing = self
-            .flows
-            .lock()
-            .ok()
-            .and_then(|mut flows| flows.existing(&flow, network_generation));
-        let (mapping, newly_reserved) = if let Some(mapping) = existing {
-            (mapping, false)
+        if !self.protector.tun_direct_available() {
+            return self.fallback(DirectFallbackReason::Unavailable);
+        }
+        let flow = flow.expect("parsed packet has a flow key");
+        let (mapping, mut reservation, socket) = if let Some(mapping) = existing {
+            (mapping, None, None)
         } else {
             let Some(mapping) = self.flows.lock().ok().and_then(|mut flows| {
                 flows.reserve(flow.clone(), network_generation, &self.cancellation)
             }) else {
-                return false;
+                return self.fallback(DirectFallbackReason::FlowCapacity);
             };
+            let reservation = NatReservation::new(&self.flows, &flow, mapping.id);
             let setup = match parsed.protocol {
                 6 => OnceListener::bind(channel.clone(), mapping.gateway)
                     .await
@@ -563,25 +654,62 @@ impl DirectGatewayRouter {
                 Ok(socket) => socket,
                 Err(error) => {
                     tracing::debug!(%error, remote = %flow.remote, "could not create GEO direct flow; using tunnel");
-                    if let Ok(mut flows) = self.flows.lock() {
-                        flows.remove_if(&flow, mapping.id);
-                    }
-                    return false;
+                    return self.fallback(DirectFallbackReason::SetupFailed);
                 }
             };
-            self.spawn_flow(flow.clone(), mapping.clone(), socket);
-            (mapping, true)
+            (mapping, Some(reservation), Some(socket))
         };
 
-        if !rewrite_destination(packet, &parsed, mapping.gateway) {
-            if newly_reserved && let Ok(mut flows) = self.flows.lock() {
+        // Authorization can await an Agent or a stack command. Neither a stale
+        // generation nor a retired/replaced reservation may become a new flow
+        // when that wait completes. RAII releases both socket and reservation.
+        if mapping.cancel.is_cancelled()
+            || self.cancellation.is_cancelled()
+            || mapping.network_generation != self.protector.network_generation()
+            || !self.flows.lock().is_ok_and(|flows| {
+                flows
+                    .forward
+                    .get(&flow)
+                    .is_some_and(|current| current.id == mapping.id)
+            })
+        {
+            if let Ok(mut flows) = self.flows.lock() {
                 flows.remove_if(&flow, mapping.id);
             }
-            return false;
+            if admitted_flow {
+                if let Some(reply) = self.rejector.reply(packet) {
+                    try_send_return_packet(&self.rejection_tx, reply, &self.diagnostics);
+                }
+                return true;
+            }
+            return self.fallback(DirectFallbackReason::SetupFailed);
+        }
+        if !rewrite_destination(packet, &parsed, mapping.gateway) {
+            if admitted_flow {
+                if let Ok(mut flows) = self.flows.lock() {
+                    flows.remove_if(&flow, mapping.id);
+                }
+                if let Some(reply) = self.rejector.reply(packet) {
+                    try_send_return_packet(&self.rejection_tx, reply, &self.diagnostics);
+                }
+                return true;
+            }
+            return self.fallback(DirectFallbackReason::RewriteFailed);
+        }
+        if let Some(socket) = socket {
+            self.spawn_flow(flow.clone(), mapping.clone(), socket);
         }
         stack_incoming.send_async(packet).await;
+        if let Some(reservation) = reservation.as_mut() {
+            reservation.commit();
+        }
         self.counters.record_sent(packet.len());
         true
+    }
+
+    fn fallback(&self, reason: DirectFallbackReason) -> bool {
+        self.diagnostics.record_fallback(reason);
+        false
     }
 
     async fn setup_udp(
@@ -609,6 +737,7 @@ impl DirectGatewayRouter {
     fn spawn_flow(&self, flow: FlowKey, mapping: Mapping, socket: DirectSocket) {
         let protector = Arc::clone(&self.protector);
         let flows = Arc::clone(&self.flows);
+        let diagnostics = Arc::clone(&self.diagnostics);
         tokio::spawn(async move {
             let result = match socket {
                 DirectSocket::Tcp(listener) => {
@@ -624,9 +753,26 @@ impl DirectGatewayRouter {
                 flows.remove_if(&flow, mapping.id);
             }
             if let Err(error) = result {
+                diagnostics.record_flow_failure();
                 tracing::debug!(%error, remote = %flow.remote, "GEO direct flow ended");
             }
         });
+    }
+}
+
+/// Full queues drop one packet but remain usable; closed queues end the pump.
+fn try_send_return_packet(
+    sender: &mpsc::Sender<Bytes>,
+    packet: Bytes,
+    diagnostics: &DirectGatewayDiagnostics,
+) -> bool {
+    match sender.try_send(packet) {
+        Ok(()) => true,
+        Err(mpsc::error::TrySendError::Full(packet)) => {
+            diagnostics.record_return_queue_drop(packet.len());
+            true
+        }
+        Err(mpsc::error::TrySendError::Closed(_)) => false,
     }
 }
 
@@ -971,6 +1117,7 @@ fn write_u16(packet: &mut [u8], offset: usize, value: u16) {
 
 #[cfg(test)]
 mod tests {
+    use std::future::Future;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -987,6 +1134,374 @@ mod tests {
     const CLIENT_IPV4: Ipv4Addr = Ipv4Addr::new(10, 0, 0, 2);
     const CLIENT_IPV6: Ipv6Addr = Ipv6Addr::new(0xfd00, 0, 0, 0, 0, 0, 0, 2);
     const TEST_TIMEOUT: Duration = Duration::from_secs(3);
+
+    struct LeaseDrop(Arc<AtomicUsize>);
+    impl Drop for LeaseDrop {
+        fn drop(&mut self) {
+            self.0.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    struct PausedProtector {
+        calls: AtomicUsize,
+        generation: std::sync::atomic::AtomicU64,
+        release: tokio::sync::Semaphore,
+        dropped_leases: Arc<AtomicUsize>,
+    }
+
+    impl PausedProtector {
+        fn new() -> Self {
+            Self {
+                calls: AtomicUsize::new(0),
+                generation: std::sync::atomic::AtomicU64::new(7),
+                release: tokio::sync::Semaphore::new(0),
+                dropped_leases: Arc::new(AtomicUsize::new(0)),
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl SocketProtector for PausedProtector {
+        fn protect(&self, _socket: SocketHandle) -> Result<(), String> {
+            Ok(())
+        }
+
+        fn tun_direct_available(&self) -> bool {
+            true
+        }
+
+        fn network_generation(&self) -> Option<u64> {
+            Some(self.generation.load(Ordering::SeqCst))
+        }
+
+        async fn protect_for_target(
+            &self,
+            _socket: SocketHandle,
+            _remote: SocketAddr,
+            _protocol: crate::DirectProtocol,
+        ) -> Result<DirectEgressLease, String> {
+            let generation = self.generation.load(Ordering::SeqCst);
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            self.release.acquire().await.unwrap().forget();
+            Ok(DirectEgressLease::hold_for_generation(
+                LeaseDrop(Arc::clone(&self.dropped_leases)),
+                generation,
+            ))
+        }
+    }
+
+    async fn paused_gateway(
+        protector: Arc<PausedProtector>,
+    ) -> (DirectGatewayRouter, mpsc::Receiver<Bytes>) {
+        DirectGatewayRouter::start(
+            &Profile::default(),
+            direct_policy(),
+            protector,
+            Arc::default(),
+            None,
+            &CancellationToken::new(),
+        )
+        .await
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn cancelling_pending_udp_setup_releases_only_its_uncommitted_reservation() {
+        let first_remote = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+        let second_remote = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+        let protector = Arc::new(PausedProtector::new());
+        let (mut gateway, _incoming) = paused_gateway(Arc::clone(&protector)).await;
+        // Retain the gateway output consumer so an established worker stays healthy.
+        // The first packet is admitted before we pause a different new flow.
+        protector.release.add_permits(1);
+        let first = diagnostic_datagram(first_remote.local_addr().unwrap());
+        assert!(gateway.route_outgoing(&mut first.clone()).await);
+        let flows = Arc::clone(&gateway.flows);
+        assert_eq!(flows.lock().unwrap().forward.len(), 1);
+        let mut second = diagnostic_datagram(second_remote.local_addr().unwrap());
+        let original = second.clone();
+        let mut pending = Box::pin(gateway.route_outgoing(&mut second));
+        assert!(
+            std::future::poll_fn(|cx| std::task::Poll::Ready(pending.as_mut().poll(cx)))
+                .await
+                .is_pending()
+        );
+        assert_eq!(flows.lock().unwrap().forward.len(), 2);
+        drop(pending);
+        assert_eq!(second, original);
+        {
+            let table = flows.lock().unwrap();
+            assert_eq!(table.forward.len(), 1);
+            assert_eq!(table.reverse.len(), 1);
+            assert_eq!(table.ports.len(), 1);
+            assert_eq!(table.udp_flows, 1);
+        }
+        assert!(!gateway.cancellation.is_cancelled());
+        assert!(gateway.route_outgoing(&mut first.clone()).await);
+        assert_eq!(protector.calls.load(Ordering::SeqCst), 2);
+        drop(gateway);
+        timeout(TEST_TIMEOUT, async {
+            while protector.dropped_leases.load(Ordering::SeqCst) != 1 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("established flow lease did not close after gateway shutdown");
+    }
+
+    #[tokio::test]
+    async fn late_udp_setup_cannot_commit_after_network_or_reservation_changes() {
+        for replace_mapping in [false, true] {
+            let remote = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+            let protector = Arc::new(PausedProtector::new());
+            let (mut gateway, _incoming) = paused_gateway(Arc::clone(&protector)).await;
+            let flows = Arc::clone(&gateway.flows);
+            let cancellation = gateway.cancellation.clone();
+            let mut packet = diagnostic_datagram(remote.local_addr().unwrap());
+            let original = packet.clone();
+            let mut pending = Box::pin(gateway.route_outgoing(&mut packet));
+            assert!(
+                std::future::poll_fn(|cx| std::task::Poll::Ready(pending.as_mut().poll(cx)))
+                    .await
+                    .is_pending()
+            );
+            let replacement_id = if replace_mapping {
+                let mut table = flows.lock().unwrap();
+                let key = table.forward.keys().next().unwrap().clone();
+                table.remove(&key);
+                Some(table.reserve(key, Some(7), &cancellation).unwrap().id)
+            } else {
+                protector.generation.store(8, Ordering::SeqCst);
+                None
+            };
+            protector.release.add_permits(1);
+            assert!(!pending.await);
+            assert_eq!(packet, original);
+            assert_eq!(protector.dropped_leases.load(Ordering::SeqCst), 1);
+            let table = flows.lock().unwrap();
+            if let Some(id) = replacement_id {
+                assert_eq!(table.forward.len(), 1);
+                assert_eq!(table.forward.values().next().unwrap().id, id);
+                assert_eq!(table.ports.len(), 1);
+            } else {
+                assert!(table.forward.is_empty());
+                assert!(table.reverse.is_empty());
+                assert!(table.ports.is_empty());
+                assert_eq!(table.udp_flows, 0);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn custom_rule_publication_preserves_direct_nat_and_rejects_only_new_flows() {
+        let first = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+        let second = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+        let protector = Arc::new(PausedProtector::new());
+        let (mut gateway, mut incoming) = paused_gateway(protector.clone()).await;
+        protector.release.add_permits(1);
+        let packet = diagnostic_datagram(first.local_addr().unwrap());
+        assert!(gateway.route_outgoing(&mut packet.clone()).await);
+        let mut profile = Profile::default();
+        profile.routing.rules.push(usque_core::RoutingRule {
+            id: uuid::Uuid::new_v4(),
+            kind: usque_core::RoutingMatch::Cidr,
+            target: "127.0.0.1/32".into(),
+            action: usque_core::RoutingAction::Reject,
+        });
+        gateway
+            .policy
+            .publish_routing_update(gateway.policy.prepare_routing_update(&profile).unwrap())
+            .unwrap();
+        assert!(gateway.route_outgoing(&mut packet.clone()).await);
+        assert_eq!(gateway.flows.lock().unwrap().forward.len(), 1);
+        assert_eq!(protector.calls.load(Ordering::SeqCst), 1);
+        let mut rejected = diagnostic_datagram(second.local_addr().unwrap());
+        assert!(gateway.route_outgoing(&mut rejected).await);
+        let response = timeout(TEST_TIMEOUT, incoming.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(response[9], 1);
+        assert_eq!(gateway.flows.lock().unwrap().forward.len(), 1);
+        assert_eq!(protector.calls.load(Ordering::SeqCst), 1);
+        // Rule changes preserve NAT; physical-generation changes still revoke it.
+        protector.generation.store(8, Ordering::SeqCst);
+        assert!(gateway.route_outgoing(&mut packet.clone()).await);
+        assert!(gateway.flows.lock().unwrap().forward.is_empty());
+    }
+
+    #[tokio::test]
+    async fn admitted_direct_flow_never_falls_back_when_its_stack_worker_exits() {
+        let remote = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+        let protector = Arc::new(PausedProtector::new());
+        let (mut gateway, mut incoming) = paused_gateway(protector.clone()).await;
+        protector.release.add_permits(1);
+        let packet = diagnostic_datagram(remote.local_addr().unwrap());
+        assert!(gateway.route_outgoing(&mut packet.clone()).await);
+        let task = gateway.stack_task.as_mut().unwrap();
+        task.abort();
+        let _ = task.await;
+        assert!(gateway.route_outgoing(&mut packet.clone()).await);
+        assert!(gateway.flows.lock().unwrap().forward.is_empty());
+        assert_eq!(gateway.diagnostics.snapshot().fallback_total, 0);
+        assert_eq!(protector.calls.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            timeout(TEST_TIMEOUT, incoming.recv())
+                .await
+                .unwrap()
+                .unwrap()[9],
+            1
+        );
+    }
+
+    #[tokio::test]
+    async fn empty_tun_policy_has_resources_for_first_direct_rule_and_retains_last_flow() {
+        let profile = Profile::default();
+        let (tunnel_stack, _pipe) = bounded_piped(proxy_netstack_config(&profile).0);
+        let channel = tunnel_stack.command_channel();
+        let tunnel_task = tokio_util::task::AbortOnDropHandle::new(tunnel_stack.spawn_tokio());
+        let addresses = (Ipv4Addr::new(192, 0, 2, 1), "2001:db8::1".parse().unwrap());
+        channel
+            .set_ips([IpAddr::V4(addresses.0), IpAddr::V6(addresses.1)])
+            .await
+            .unwrap();
+        let policy = Arc::new(GeoDirectPolicy::disabled());
+        let protector = Arc::new(PausedProtector::new());
+        let (mut gateway, _incoming) = DirectGatewayRouter::start(
+            &profile,
+            policy.clone(),
+            protector.clone(),
+            Arc::default(),
+            Some((channel, addresses)),
+            &CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+        assert!(gateway.channel.is_some());
+        assert!(gateway.split_dns.is_some());
+        let remote = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+        let packet = diagnostic_datagram(remote.local_addr().unwrap());
+        let mut updated = profile.clone();
+        updated.routing.rules.push(usque_core::RoutingRule {
+            id: uuid::Uuid::new_v4(),
+            kind: usque_core::RoutingMatch::Cidr,
+            target: "127.0.0.1/32".into(),
+            action: usque_core::RoutingAction::Direct,
+        });
+        policy
+            .publish_routing_update(policy.prepare_routing_update(&updated).unwrap())
+            .unwrap();
+        protector.release.add_permits(1);
+        assert!(gateway.route_outgoing(&mut packet.clone()).await);
+        updated.routing.rules.clear();
+        policy
+            .publish_routing_update(policy.prepare_routing_update(&updated).unwrap())
+            .unwrap();
+        assert!(gateway.route_outgoing(&mut packet.clone()).await);
+        let new_remote = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+        assert!(
+            !gateway
+                .route_outgoing(&mut diagnostic_datagram(new_remote.local_addr().unwrap()))
+                .await
+        );
+        assert_eq!(gateway.flows.lock().unwrap().forward.len(), 1);
+        assert_eq!(protector.calls.load(Ordering::SeqCst), 1);
+        drop(gateway);
+        drop(tunnel_task);
+    }
+
+    #[tokio::test]
+    async fn publication_during_route_lookup_preserves_one_captured_decision() {
+        struct UpdatingProtector {
+            policy: Arc<GeoDirectPolicy>,
+            armed: std::sync::atomic::AtomicBool,
+            observations: AtomicUsize,
+        }
+        impl SocketProtector for UpdatingProtector {
+            fn protect(&self, _: SocketHandle) -> Result<(), String> {
+                Ok(())
+            }
+            fn network_generation(&self) -> Option<u64> {
+                if self.observations.fetch_add(1, Ordering::SeqCst) == 1
+                    && self.armed.swap(false, Ordering::SeqCst)
+                {
+                    let mut profile = Profile::default();
+                    profile.routing.rules.push(usque_core::RoutingRule {
+                        id: uuid::Uuid::new_v4(),
+                        kind: usque_core::RoutingMatch::Cidr,
+                        target: "127.0.0.1/32".into(),
+                        action: usque_core::RoutingAction::Reject,
+                    });
+                    self.policy
+                        .publish_routing_update(
+                            self.policy.prepare_routing_update(&profile).unwrap(),
+                        )
+                        .unwrap();
+                }
+                None
+            }
+            fn tun_direct_available(&self) -> bool {
+                true
+            }
+        }
+        let mut profile = Profile::default();
+        profile.frontends.tunnel = false;
+        profile.routing.rules.push(usque_core::RoutingRule {
+            id: uuid::Uuid::new_v4(),
+            kind: usque_core::RoutingMatch::Cidr,
+            target: "127.0.0.1/32".into(),
+            action: usque_core::RoutingAction::Direct,
+        });
+        let policy = Arc::new(
+            GeoDirectPolicy::disabled()
+                .with_custom_rules(&profile)
+                .unwrap(),
+        );
+        let protector = Arc::new(UpdatingProtector {
+            policy: policy.clone(),
+            armed: false.into(),
+            observations: 0.into(),
+        });
+        let (mut gateway, mut incoming) = DirectGatewayRouter::start(
+            &profile,
+            policy,
+            protector.clone(),
+            Arc::default(),
+            None,
+            &CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+        let remote = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+        let new_remote = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+        protector.observations.store(0, Ordering::SeqCst);
+        protector.armed.store(true, Ordering::SeqCst);
+        let mut packet = diagnostic_datagram(remote.local_addr().unwrap());
+        assert!(
+            gateway.route_outgoing(&mut packet).await,
+            "a captured DIRECT decision cannot be reinterpreted as tunnel fallback"
+        );
+        assert_eq!(gateway.flows.lock().unwrap().forward.len(), 1);
+        assert_eq!(
+            protector.policy.route_ip(Ipv4Addr::LOCALHOST.into()),
+            GeoRoute::Reject
+        );
+        // The next flow captures the published REJECT and is consumed without
+        // creating another mapping. The admitted first flow retains DIRECT.
+        assert!(
+            gateway
+                .route_outgoing(&mut diagnostic_datagram(new_remote.local_addr().unwrap()))
+                .await
+        );
+        assert_eq!(
+            timeout(TEST_TIMEOUT, incoming.recv())
+                .await
+                .unwrap()
+                .unwrap()[9],
+            1
+        );
+        assert_eq!(gateway.flows.lock().unwrap().forward.len(), 1);
+    }
 
     #[test]
     fn ordinary_and_one_shot_listeners_share_the_direct_buffer_budget() {
@@ -1072,7 +1587,7 @@ mod tests {
                         .unwrap()
                         .with_ads(dir.path()),
                 );
-                let (gateway, _) = DirectGatewayRouter::start(
+                let (mut gateway, _) = DirectGatewayRouter::start(
                     &profile,
                     policy.clone(),
                     crate::socket::noop_socket_protector(),
@@ -1097,6 +1612,12 @@ mod tests {
                 policy.update_ads_enabled(false);
                 policy.update_ads_enabled(true);
                 assert!(gateway.split_dns.is_some());
+                let worker = gateway.incoming_task.as_mut().unwrap();
+                worker.abort();
+                let _ = worker.await;
+                let mut internal_dns = diagnostic_datagram(SocketAddr::from((SPLIT_DNS_IPV4, 53)));
+                assert!(gateway.route_outgoing(&mut internal_dns).await);
+                assert_eq!(gateway.diagnostics.snapshot().fallback_total, 0);
                 drop(gateway);
                 profile.frontends.tunnel = true;
                 let result = DirectGatewayRouter::start(
@@ -1263,6 +1784,312 @@ mod tests {
         ))
     }
 
+    async fn diagnostic_gateway(
+        rules: &[(&str, usque_core::RoutingAction)],
+        available: bool,
+    ) -> (
+        DirectGatewayRouter,
+        Arc<TestProtector>,
+        mpsc::Receiver<Bytes>,
+    ) {
+        let protector = Arc::new(TestProtector {
+            direct_available: available,
+            reject_protection: true,
+            protect_calls: AtomicUsize::new(0),
+        });
+        let (gateway, incoming) = DirectGatewayRouter::start(
+            &Profile::default(),
+            Arc::new(crate::geo_direct::routing_test_policy(rules)),
+            protector.clone(),
+            Arc::default(),
+            None,
+            &CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+        (gateway, protector, incoming)
+    }
+
+    fn diagnostic_datagram(remote: SocketAddr) -> BytesMut {
+        let ipv6 = remote.is_ipv6();
+        let response_meta = NatPacket {
+            version: if ipv6 { 6 } else { 4 },
+            protocol: 17,
+            source: remote.ip(),
+            destination: if ipv6 {
+                CLIENT_IPV6.into()
+            } else {
+                CLIENT_IPV4.into()
+            },
+            source_port: remote.port(),
+            destination_port: 50_030,
+            transport_offset: if ipv6 { 40 } else { 20 },
+            checksum_offset: if ipv6 { 46 } else { 26 },
+            checksum_optional: !ipv6,
+        };
+        BytesMut::from(crate::l4::tun_wire::udp_response(&response_meta, b"direct-test").as_ref())
+    }
+
+    #[tokio::test]
+    async fn unsupported_direct_bursts_preserve_packets_without_nat_or_protection() {
+        use usque_core::RoutingAction::Direct;
+
+        let (mut gateway, protector, _incoming) = diagnostic_gateway(
+            &[
+                ("0.0.0.0/0", Direct),
+                ("::/0", Direct),
+                ("224.0.0.0/24", Direct),
+                ("239.255.255.250", Direct),
+                ("ff00::/8", Direct),
+            ],
+            true,
+        )
+        .await;
+        let targets = [
+            "224.0.0.251:5353",
+            "239.255.255.250:1900",
+            "[ff02::fb]:5353",
+            "0.0.0.0:53",
+            "[::]:53",
+            "[::ffff:224.0.0.251]:5353",
+            "[::ffff:0.0.0.0]:53",
+            "127.0.0.1:0",
+        ];
+        for target in targets {
+            for _ in 0..4 {
+                let original = diagnostic_datagram(target.parse().unwrap());
+                let mut packet = original.clone();
+                assert!(!gateway.route_outgoing(&mut packet).await, "{target}");
+                assert_eq!(packet, original, "{target}");
+            }
+        }
+        let snapshot = gateway.diagnostics.snapshot();
+        assert_eq!(
+            snapshot.fallback_unsupported_target,
+            targets.len() as u64 * 4
+        );
+        assert_eq!(
+            snapshot.fallback_total,
+            snapshot.fallback_unsupported_target
+        );
+        assert_eq!(snapshot.flow_failures, 0);
+        assert_eq!(protector.protect_calls.load(Ordering::SeqCst), 0);
+        let flows = gateway.flows.lock().unwrap();
+        assert!(flows.forward.is_empty());
+        assert!(flows.reverse.is_empty());
+        assert!(flows.ports.is_empty());
+    }
+
+    #[tokio::test]
+    async fn unsupported_preflight_preserves_proxy_reject_and_unicast_direct() {
+        use usque_core::RoutingAction::{Direct, Proxy, Reject};
+
+        let (mut gateway, protector, _incoming) = diagnostic_gateway(
+            &[
+                ("0.0.0.0/0", Direct),
+                ("239.255.255.250", Proxy),
+                ("224.0.0.251", Reject),
+            ],
+            true,
+        )
+        .await;
+        let mut proxy = diagnostic_datagram("239.255.255.250:1900".parse().unwrap());
+        let original = proxy.clone();
+        assert!(!gateway.route_outgoing(&mut proxy).await);
+        assert_eq!(proxy, original);
+        let mut rejected = diagnostic_datagram("224.0.0.251:5353".parse().unwrap());
+        assert!(gateway.route_outgoing(&mut rejected).await);
+        assert_eq!(gateway.diagnostics.snapshot().fallback_total, 0);
+        assert_eq!(protector.protect_calls.load(Ordering::SeqCst), 0);
+
+        // A broad DIRECT rule still admits unicast: the fake protector, rather
+        // than the unsupported-target preflight, rejects its physical setup.
+        let mut unicast = diagnostic_datagram("127.0.0.1:9".parse().unwrap());
+        let original = unicast.clone();
+        assert!(!gateway.route_outgoing(&mut unicast).await);
+        assert_eq!(unicast, original);
+        assert_eq!(protector.protect_calls.load(Ordering::SeqCst), 1);
+        let snapshot = gateway.diagnostics.snapshot();
+        assert_eq!(snapshot.fallback_total, 1);
+        assert_eq!(snapshot.fallback_setup_failed, 1);
+        assert_eq!(snapshot.fallback_unsupported_target, 0);
+        assert_eq!(snapshot.flow_failures, 0);
+        assert!(gateway.flows.lock().unwrap().forward.is_empty());
+    }
+
+    #[tokio::test]
+    async fn unavailable_gateway_counts_only_matching_direct_fallback() {
+        use usque_core::RoutingAction::{Direct, Proxy};
+
+        let (mut gateway, protector, _incoming) =
+            diagnostic_gateway(&[("127.0.0.0/8", Direct), ("127.0.0.2", Proxy)], false).await;
+        assert!(gateway.channel.is_none());
+        for (target, expected) in [("127.0.0.1:9", 1), ("127.0.0.2:9", 1)] {
+            let mut packet = diagnostic_datagram(target.parse().unwrap());
+            let original = packet.clone();
+            assert!(!gateway.route_outgoing(&mut packet).await);
+            assert_eq!(packet, original);
+            let snapshot = gateway.diagnostics.snapshot();
+            assert_eq!(snapshot.fallback_total, expected);
+            assert_eq!(snapshot.fallback_unavailable, expected);
+        }
+        assert!(
+            !gateway
+                .route_outgoing(&mut BytesMut::from(&b"invalid"[..]))
+                .await
+        );
+        assert_eq!(gateway.diagnostics.snapshot().fallback_total, 1);
+        assert_eq!(protector.protect_calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn failed_gateway_workers_count_only_matching_direct_fallback() {
+        use usque_core::RoutingAction::{Direct, Proxy};
+
+        for incoming_failed in [false, true] {
+            let (mut gateway, protector, _incoming) =
+                diagnostic_gateway(&[("127.0.0.0/8", Direct), ("127.0.0.2", Proxy)], true).await;
+            let worker = if incoming_failed {
+                gateway.incoming_task.as_mut().unwrap()
+            } else {
+                gateway.stack_task.as_mut().unwrap()
+            };
+            worker.abort();
+            let _ = worker.await;
+            for (target, expected) in [("127.0.0.1:9", 1), ("127.0.0.2:9", 1)] {
+                let mut packet = diagnostic_datagram(target.parse().unwrap());
+                let original = packet.clone();
+                assert!(!gateway.route_outgoing(&mut packet).await);
+                assert_eq!(packet, original);
+                let snapshot = gateway.diagnostics.snapshot();
+                assert_eq!(snapshot.fallback_total, expected);
+                assert_eq!(snapshot.fallback_worker_failed, expected);
+            }
+            assert_eq!(protector.protect_calls.load(Ordering::SeqCst), 0);
+        }
+    }
+
+    #[tokio::test]
+    async fn exhausted_flow_table_reports_fallback_without_a_setup_attempt() {
+        use usque_core::RoutingAction::Direct;
+
+        let (mut gateway, protector, _incoming) =
+            diagnostic_gateway(&[("127.0.0.0/8", Direct)], true).await;
+        let remote: SocketAddr = "127.0.0.1:9".parse().unwrap();
+        {
+            let mut flows = gateway.flows.lock().unwrap();
+            for index in 0..MAX_DIRECT_UDP_FLOWS {
+                assert!(
+                    flows
+                        .reserve(
+                            FlowKey {
+                                protocol: 17,
+                                client: SocketAddr::from((
+                                    CLIENT_IPV4,
+                                    10_000 + u16::try_from(index).unwrap()
+                                )),
+                                remote,
+                            },
+                            None,
+                            &gateway.cancellation
+                        )
+                        .is_some()
+                );
+            }
+        }
+        let mut packet = diagnostic_datagram(remote);
+        let original = packet.clone();
+        assert!(!gateway.route_outgoing(&mut packet).await);
+        assert_eq!(packet, original);
+        let snapshot = gateway.diagnostics.snapshot();
+        assert_eq!(snapshot.fallback_total, 1);
+        assert_eq!(snapshot.fallback_flow_capacity, 1);
+        assert_eq!(protector.protect_calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn invalid_existing_mapping_is_consumed_and_retired_without_tunnel_fallback() {
+        use usque_core::RoutingAction::Direct;
+
+        let (mut gateway, protector, mut incoming) =
+            diagnostic_gateway(&[("127.0.0.0/8", Direct)], true).await;
+        let remote: SocketAddr = "127.0.0.1:9".parse().unwrap();
+        let flow = FlowKey {
+            protocol: 17,
+            client: SocketAddr::from((CLIENT_IPV4, 50_030)),
+            remote,
+        };
+        {
+            let mut flows = gateway.flows.lock().unwrap();
+            flows
+                .reserve(flow.clone(), None, &gateway.cancellation)
+                .unwrap();
+            flows.forward.get_mut(&flow).unwrap().gateway =
+                SocketAddr::from((GATEWAY_IPV6, FIRST_DYNAMIC_PORT));
+        }
+        let mut packet = diagnostic_datagram(remote);
+        let original = packet.clone();
+        assert!(gateway.route_outgoing(&mut packet).await);
+        assert_eq!(packet, original);
+        let snapshot = gateway.diagnostics.snapshot();
+        assert_eq!(snapshot.fallback_total, 0);
+        assert_eq!(snapshot.fallback_rewrite_failed, 0);
+        assert!(gateway.flows.lock().unwrap().forward.is_empty());
+        assert_eq!(incoming.try_recv().unwrap()[9], 1);
+        assert_eq!(protector.protect_calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn return_queue_counts_full_drops_and_stops_only_when_closed() {
+        let diagnostics = DirectGatewayDiagnostics::default();
+        let (sender, mut receiver) = mpsc::channel(1);
+        assert!(try_send_return_packet(
+            &sender,
+            Bytes::from_static(b"first"),
+            &diagnostics
+        ));
+        assert!(try_send_return_packet(
+            &sender,
+            Bytes::from_static(b"lost"),
+            &diagnostics
+        ));
+        assert_eq!(receiver.try_recv().unwrap(), Bytes::from_static(b"first"));
+        assert!(try_send_return_packet(
+            &sender,
+            Bytes::from_static(b"next"),
+            &diagnostics
+        ));
+        let snapshot = diagnostics.snapshot();
+        assert_eq!(snapshot.return_queue_drop_packets, 1);
+        assert_eq!(snapshot.return_queue_drop_bytes, 4);
+        assert_eq!(snapshot.fallback_total, 0);
+        drop(receiver);
+        assert!(!try_send_return_packet(
+            &sender,
+            Bytes::from_static(b"closed"),
+            &diagnostics
+        ));
+        assert_eq!(diagnostics.snapshot(), snapshot);
+    }
+
+    #[tokio::test]
+    async fn local_rejection_uses_the_same_return_queue_drop_accounting() {
+        use usque_core::RoutingAction::Reject;
+
+        let (mut gateway, protector, _incoming) =
+            diagnostic_gateway(&[("192.0.2.7", Reject)], false).await;
+        let (sender, _receiver) = mpsc::channel(1);
+        sender.try_send(Bytes::from_static(b"occupied")).unwrap();
+        gateway.rejection_tx = sender;
+        let mut packet = diagnostic_datagram("192.0.2.7:9".parse().unwrap());
+        assert!(gateway.route_outgoing(&mut packet).await);
+        let snapshot = gateway.diagnostics.snapshot();
+        assert_eq!(snapshot.return_queue_drop_packets, 1);
+        assert!(snapshot.return_queue_drop_bytes > 0);
+        assert_eq!(snapshot.fallback_total, 0);
+        assert_eq!(protector.protect_calls.load(Ordering::SeqCst), 0);
+    }
+
     struct TestNetwork {
         channel: Channel,
         counters: Arc<TrafficCounters>,
@@ -1272,6 +2099,7 @@ mod tests {
         pump_task: JoinHandle<()>,
         cancellation: CancellationToken,
         tcp_metrics: ts_netstack_smoltcp::netcore::TcpBufferMetrics,
+        diagnostics: Arc<DirectGatewayDiagnostics>,
     }
 
     impl TestNetwork {
@@ -1306,6 +2134,7 @@ mod tests {
             .unwrap();
             let flows = Arc::clone(&gateway.flows);
             let tcp_metrics = gateway.tcp_metrics.clone();
+            let diagnostics = Arc::clone(&gateway.diagnostics);
             let crate::packet_pipe::PacketPipe {
                 mut rx,
                 tx: client_incoming,
@@ -1339,6 +2168,7 @@ mod tests {
                 pump_task,
                 cancellation,
                 tcp_metrics,
+                diagnostics,
             }
         }
     }
@@ -1624,6 +2454,7 @@ mod tests {
         let mut packet =
             BytesMut::from(crate::l4::tun_wire::udp_response(&proxy_meta, b"proxy").as_ref());
         assert!(!gateway.route_outgoing(&mut packet).await);
+        assert_eq!(gateway.diagnostics.snapshot().fallback_total, 0);
     }
 
     #[tokio::test]
@@ -1670,7 +2501,7 @@ mod tests {
                     .flows
                     .lock()
                     .is_ok_and(|flows| flows.forward.is_empty());
-                if attempted && empty {
+                if attempted && empty && network.diagnostics.snapshot().flow_failures > 0 {
                     break;
                 }
                 tokio::task::yield_now().await;
@@ -1683,6 +2514,8 @@ mod tests {
         let flows = network.flows.lock().expect("NAT table");
         assert!(flows.reverse.is_empty());
         assert!(flows.ports.is_empty());
+        assert!(network.diagnostics.snapshot().flow_failures > 0);
+        assert_eq!(network.diagnostics.snapshot().fallback_total, 0);
     }
 
     #[test]

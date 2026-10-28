@@ -14,6 +14,7 @@
 #include <string>
 #include <string_view>
 
+#include "engine_ipc.h"
 #include "win32_window.h"
 #include "proton_verification.h"
 #include "zero_trust_callback.h"
@@ -39,6 +40,7 @@ class FlutterWindow : public Win32Window {
 
  private:
   void StopEngineEventStream();
+  void NotifyWindowVisibility(bool visible);
   void AddTrayIcon();
   void RemoveTrayIcon();
   void ShowTrayMenu();
@@ -66,8 +68,9 @@ class FlutterWindow : public Win32Window {
       engine_event_channel_;
   std::unique_ptr<flutter::EventSink<flutter::EncodableValue>>
       engine_event_sink_;
-  std::shared_ptr<std::atomic_bool> engine_event_active_;
+  std::shared_ptr<EngineEventCancellation> engine_event_cancellation_;
   uint64_t engine_event_generation_ = 0;
+  std::optional<bool> last_window_visibility_;
   bool start_hidden_ = false;
   // Cleared by whichever path first makes the window visible.
   bool pending_maximize_ = false;

@@ -1,5 +1,5 @@
 //! Classify an in-place profile mutation so the engine can keep MASQUE when
-//! only local frontends change.
+//! only local frontends or application routing policy change.
 
 use crate::config::Profile;
 
@@ -34,9 +34,15 @@ pub fn classify_reconfigure(previous: &Profile, next: &Profile) -> ReconfigureCl
     runtime_next.congestion_control = previous.congestion_control;
     runtime_next.disable_quic = previous.disable_quic;
     runtime_next.routing.ads_enabled = previous.routing.ads_enabled;
+    runtime_next
+        .routing
+        .rules
+        .clone_from(&previous.routing.rules);
+    let rules_changed = previous.routing.rules != next.routing.rules;
     if previous == &runtime_next {
         return if previous.disable_quic != next.disable_quic
             || previous.routing.ads_enabled != next.routing.ads_enabled
+            || rules_changed
         {
             ReconfigureClass::HotTrafficPolicy
         } else {
@@ -70,7 +76,9 @@ pub fn classify_reconfigure(previous: &Profile, next: &Profile) -> ReconfigureCl
         || previous.split_exclusions != next.split_exclusions
         || previous.kill_switch != next.kill_switch
         || previous.bypass_domains != next.bypass_domains
-        || previous.routing.rules != next.routing.rules
+        // The tunnel transition may create its first split DNS/direct gateway.
+        // Keep rule publication separate from rebuilding those resources.
+        || rules_changed && previous.frontends.tunnel != next.frontends.tunnel
         || previous.geo_direct_countries != next.geo_direct_countries
         || previous.direct_dns != next.direct_dns
         || previous.warp_dns != next.warp_dns
@@ -209,7 +217,7 @@ mod tests {
     }
 
     #[test]
-    fn ads_switch_is_hot_but_custom_route_edits_keep_their_existing_plan() {
+    fn ads_and_custom_route_edits_share_hot_traffic_policy() {
         let previous = base();
         let mut next = previous.clone();
         next.routing.ads_enabled = true;
@@ -229,8 +237,219 @@ mod tests {
         });
         assert_eq!(
             classify_reconfigure(&previous, &next),
-            ReconfigureClass::ColdReconnect
+            ReconfigureClass::HotTrafficPolicy
         );
+    }
+
+    fn custom_rule(kind: crate::RoutingMatch, action: crate::RoutingAction) -> crate::RoutingRule {
+        crate::RoutingRule {
+            id: uuid::Uuid::new_v4(),
+            kind,
+            target: match kind {
+                crate::RoutingMatch::Domain => "example.test".into(),
+                crate::RoutingMatch::Cidr => "192.0.2.0/24".into(),
+            },
+            action,
+        }
+    }
+
+    #[test]
+    fn custom_rules_add_edit_reorder_and_remove_without_replacing_the_underlay() {
+        for data_plane in [
+            crate::DataPlaneMode::ConnectIp,
+            crate::DataPlaneMode::L4Proxy,
+        ] {
+            let previous = Profile {
+                data_plane,
+                ..base()
+            };
+            let mut next = previous.clone();
+            next.routing.rules = vec![
+                custom_rule(crate::RoutingMatch::Domain, crate::RoutingAction::Direct),
+                custom_rule(crate::RoutingMatch::Cidr, crate::RoutingAction::Reject),
+            ];
+            next.routing = next.routing.normalized().unwrap();
+            assert_eq!(
+                classify_reconfigure(&previous, &next),
+                ReconfigureClass::HotTrafficPolicy
+            );
+            assert_eq!(
+                classify_reconfigure(&next, &previous),
+                ReconfigureClass::HotTrafficPolicy
+            );
+
+            let mut edited = next.clone();
+            edited.routing.rules[0].action = crate::RoutingAction::Proxy;
+            assert_eq!(
+                classify_reconfigure(&next, &edited),
+                ReconfigureClass::HotTrafficPolicy
+            );
+            let mut reordered = edited.clone();
+            reordered.routing.rules.reverse();
+            assert_eq!(
+                classify_reconfigure(&edited, &reordered),
+                ReconfigureClass::HotTrafficPolicy
+            );
+            let mut removed = reordered.clone();
+            removed.routing.rules.pop();
+            assert_eq!(
+                classify_reconfigure(&reordered, &removed),
+                ReconfigureClass::HotTrafficPolicy
+            );
+
+            next.disable_quic = !previous.disable_quic;
+            next.routing.ads_enabled = !previous.routing.ads_enabled;
+            next.congestion_control = crate::CongestionControlAlgorithm::Reno;
+            assert_eq!(
+                classify_reconfigure(&previous, &next),
+                ReconfigureClass::HotTrafficPolicy
+            );
+        }
+    }
+
+    #[test]
+    fn custom_rules_keep_frontend_system_proxy_and_gate_changes_in_their_hot_classes() {
+        let previous = base();
+        let mut rules = previous.clone();
+        rules.routing.rules.push(custom_rule(
+            crate::RoutingMatch::Domain,
+            crate::RoutingAction::Direct,
+        ));
+        rules.disable_quic = !previous.disable_quic;
+        rules.routing.ads_enabled = !previous.routing.ads_enabled;
+        let mut frontends = rules.clone();
+        frontends.proxy.socks5_listeners[0].set_port(1081);
+        assert_eq!(
+            classify_reconfigure(&previous, &frontends),
+            ReconfigureClass::HotFrontends
+        );
+        frontends.frontends.http = false;
+        frontends.proxy.system_proxy = false;
+        assert_eq!(
+            classify_reconfigure(&previous, &frontends),
+            ReconfigureClass::HotFrontends
+        );
+        let mut system_proxy = rules.clone();
+        system_proxy.proxy.system_proxy = !previous.proxy.system_proxy;
+        assert_eq!(
+            classify_reconfigure(&previous, &system_proxy),
+            ReconfigureClass::HotSystemProxy
+        );
+        let mut gate = rules;
+        gate.vpn_gate.enabled = !previous.vpn_gate.enabled;
+        assert_eq!(
+            classify_reconfigure(&previous, &gate),
+            ReconfigureClass::HotVpnGate
+        );
+    }
+
+    #[test]
+    fn custom_rules_do_not_relax_cold_network_or_profile_identity_changes() {
+        let previous = base();
+        let mut rules = previous.clone();
+        rules.routing.rules.push(custom_rule(
+            crate::RoutingMatch::Domain,
+            crate::RoutingAction::Direct,
+        ));
+        for (setting, edit) in [
+            (
+                "country",
+                (|profile: &mut Profile| profile.geo_direct_countries.push("CN".into()))
+                    as fn(&mut Profile),
+            ),
+            ("LAN", |profile: &mut Profile| {
+                profile.allow_lan = !profile.allow_lan
+            }),
+            ("bypass", |profile: &mut Profile| {
+                profile.bypass_domains.push("bypass.test".into())
+            }),
+            ("split", |profile: &mut Profile| {
+                profile
+                    .split_exclusions
+                    .push("198.51.100.0/24".parse().unwrap())
+            }),
+            ("direct DNS", |profile: &mut Profile| {
+                profile.direct_dns.mode = crate::DirectDnsMode::Doh
+            }),
+            ("WARP DNS", |profile: &mut Profile| {
+                profile.warp_dns.mode = crate::WarpDnsMode::Dot
+            }),
+            ("DNS mode", |profile: &mut Profile| {
+                profile.dns_mode = crate::DnsMode::System
+            }),
+            ("DNS servers", |profile: &mut Profile| {
+                profile.dns_servers = vec!["9.9.9.9".parse().unwrap()]
+            }),
+            ("MTU", |profile: &mut Profile| profile.mtu += 1),
+            ("Kill Switch", |profile: &mut Profile| {
+                profile.kill_switch = !profile.kill_switch
+            }),
+            ("endpoint", |profile: &mut Profile| {
+                profile.endpoint.port = 8443
+            }),
+            ("fingerprint", |profile: &mut Profile| {
+                profile.tls_fingerprint = crate::TlsFingerprint::Default
+            }),
+        ] {
+            let mut next = rules.clone();
+            edit(&mut next);
+            assert_eq!(
+                classify_reconfigure(&previous, &next),
+                ReconfigureClass::ColdReconnect,
+                "{setting}"
+            );
+            assert_eq!(
+                classify_reconfigure(&next, &previous),
+                ReconfigureClass::ColdReconnect,
+                "reverting {setting}"
+            );
+        }
+        rules.id = uuid::Uuid::new_v4();
+        assert_eq!(
+            classify_reconfigure(&previous, &rules),
+            ReconfigureClass::Reject
+        );
+    }
+
+    #[test]
+    fn changing_custom_rules_while_attaching_or_detaching_a_tunnel_stays_cold() {
+        let mut proxy = base();
+        proxy.endpoint.selection = crate::EndpointSelection::Custom;
+        proxy.frontends.tunnel = false;
+        let mut vpn = proxy.clone();
+        vpn.frontends.tunnel = true;
+        assert_eq!(
+            classify_reconfigure(&proxy, &vpn),
+            ReconfigureClass::HotTunnelAttach
+        );
+        for kind in [crate::RoutingMatch::Domain, crate::RoutingMatch::Cidr] {
+            for action in [
+                crate::RoutingAction::Direct,
+                crate::RoutingAction::Proxy,
+                crate::RoutingAction::Reject,
+            ] {
+                let mut changed = vpn.clone();
+                changed.routing.rules.push(custom_rule(kind, action));
+                assert_eq!(
+                    classify_reconfigure(&proxy, &changed),
+                    ReconfigureClass::ColdReconnect
+                );
+                assert_eq!(
+                    classify_reconfigure(&changed, &proxy),
+                    ReconfigureClass::ColdReconnect
+                );
+                let mut changed_proxy = proxy.clone();
+                changed_proxy.routing.rules = changed.routing.rules.clone();
+                assert_eq!(
+                    classify_reconfigure(&vpn, &changed_proxy),
+                    ReconfigureClass::ColdReconnect
+                );
+                assert_eq!(
+                    classify_reconfigure(&changed_proxy, &vpn),
+                    ReconfigureClass::ColdReconnect
+                );
+            }
+        }
     }
 
     #[test]

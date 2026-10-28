@@ -1076,10 +1076,37 @@ async fn handle_runtime_command(
                 let _ = reply.send(START_INVALID_PROFILE);
                 return;
             }
-            let code = match classify_reconfigure(profile, &next) {
+            let class = classify_reconfigure(profile, &next);
+            if class == ReconfigureClass::HotTrafficPolicy {
+                let code = match super::runtime_routing::apply(tunnel, profile, next, &cancelled) {
+                    Ok(()) => RECONFIGURE_OK,
+                    Err(error) => reject_routing_update(status, tunnel, profile, &error),
+                };
+                let _ = reply.send(code);
+                return;
+            }
+            let previous = profile.clone();
+            let prepared = if matches!(
+                class,
+                ReconfigureClass::HotTrafficPolicy
+                    | ReconfigureClass::HotFrontends
+                    | ReconfigureClass::HotSystemProxy
+                    | ReconfigureClass::HotTunnelAttach
+            ) {
+                match tunnel.prepare_routing_update(&next) {
+                    Ok(prepared) => Some(prepared),
+                    Err(error) => {
+                        let code = reject_routing_update(status, tunnel, profile, &error);
+                        let _ = reply.send(code);
+                        return;
+                    }
+                }
+            } else {
+                None
+            };
+            let mut code = match class {
                 ReconfigureClass::HotTrafficPolicy => {
-                    *profile = next;
-                    RECONFIGURE_OK
+                    unreachable!("handled before frontend changes")
                 }
                 ReconfigureClass::PersistOnly => RECONFIGURE_OK,
                 ReconfigureClass::Reject => START_INVALID_PROFILE,
@@ -1177,13 +1204,20 @@ async fn handle_runtime_command(
                     match tunnel.reconfigure_frontends(&next).await {
                         Ok(()) => {
                             *profile = next;
-                            update_frontends(status, tunnel);
-                            spawn_exit_probe(gate_context, tunnel, profile);
                             RECONFIGURE_OK
                         }
                         Err(error) => {
-                            set_runtime_transport_error(status, &error, tunnel);
-                            START_TRANSPORT_FAILURE
+                            if tunnel.reconfigure_frontends(&previous).await.is_err() {
+                                tunnel.cancel_immediately();
+                                detach_tun_locked(tunnel, tun, tun_io);
+                                update_frontends(status, tunnel);
+                                set_runtime_transport_error(status, &error, tunnel);
+                                START_TRANSPORT_FAILURE
+                            } else {
+                                let code = reject_routing_update(status, tunnel, profile, &error);
+                                spawn_exit_probe(gate_context, tunnel, profile);
+                                code
+                            }
                         }
                     }
                 }
@@ -1194,7 +1228,6 @@ async fn handle_runtime_command(
                         gate_context.exit_probe.cancel();
                         detach_tun_locked(tunnel, tun, tun_io);
                         *profile = next;
-                        spawn_exit_probe(gate_context, tunnel, profile);
                         RECONFIGURE_OK
                     } else {
                         *profile = next;
@@ -1203,8 +1236,53 @@ async fn handle_runtime_command(
                 }
             };
             if code == RECONFIGURE_OK {
-                tunnel.update_ads_enabled(profile.routing.ads_enabled);
-                tunnel.update_traffic_policy(profile.disable_quic);
+                let publication = if super::jni_command_abandoned(&cancelled) {
+                    Err(TransportError::TunnelClosed)
+                } else if let Some(prepared) = prepared {
+                    tunnel.publish_routing_update(prepared)
+                } else {
+                    Ok(())
+                };
+                if let Err(error) = publication {
+                    gate_context.exit_probe.cancel();
+                    let mut rollback_failed = false;
+                    if class == ReconfigureClass::HotFrontends {
+                        rollback_failed = tunnel.reconfigure_frontends(&previous).await.is_err();
+                        if rollback_failed {
+                            tunnel.cancel_immediately();
+                            detach_tun_locked(tunnel, tun, tun_io);
+                        }
+                    }
+                    // Closing an owned TUN descriptor is already committed;
+                    // retain its actual detached profile while reporting the
+                    // failed policy publication, as on the desktop path.
+                    let detached = class == ReconfigureClass::HotTunnelAttach
+                        && !profile.frontends.tunnel
+                        && tun.is_none();
+                    if !detached {
+                        *profile = previous;
+                    }
+                    update_frontends(status, tunnel);
+                    code = if rollback_failed || detached {
+                        set_runtime_transport_error(status, &error, tunnel);
+                        START_TRANSPORT_FAILURE
+                    } else {
+                        reject_routing_update(status, tunnel, profile, &error)
+                    };
+                    if !rollback_failed && class == ReconfigureClass::HotFrontends {
+                        spawn_exit_probe(gate_context, tunnel, profile);
+                    }
+                } else {
+                    tunnel.update_ads_enabled(profile.routing.ads_enabled);
+                    tunnel.update_traffic_policy(profile.disable_quic);
+                    if matches!(
+                        class,
+                        ReconfigureClass::HotFrontends | ReconfigureClass::HotTunnelAttach
+                    ) {
+                        update_frontends(status, tunnel);
+                        spawn_exit_probe(gate_context, tunnel, profile);
+                    }
+                }
             }
             let _ = reply.send(code);
         }
@@ -1221,6 +1299,12 @@ async fn handle_runtime_command(
             }
             if tun.is_some() {
                 let _ = reply.send(START_ALREADY_RUNNING);
+                return;
+            }
+            // Attach may follow a prepared Gate handoff. It may not smuggle a
+            // different routing policy past the reconfigure transaction.
+            if !super::runtime_routing::attachment_rules_match(profile, &next) {
+                let _ = reply.send(RECONFIGURE_NEED_COLD);
                 return;
             }
             gate_context.exit_probe.cancel();
@@ -1439,6 +1523,26 @@ fn set_runtime_transport_error(
     tunnel: &DataPlaneRuntime,
 ) {
     set_transport_failure(status, error, tunnel.transport_failure(error));
+}
+
+fn reject_routing_update(
+    status: &Arc<Mutex<NativeSnapshot>>,
+    tunnel: &DataPlaneRuntime,
+    profile: &Profile,
+    error: &TransportError,
+) -> i32 {
+    if matches!(tunnel.health(), RuntimeHealth::Failed { .. })
+        || tunnel.gate_status().stage == usque_core::vpngate::GateStage::Error
+    {
+        set_runtime_transport_error(status, error, tunnel);
+        return super::START_TRANSPORT_FAILURE;
+    }
+    update_health(status, tunnel, profile);
+    update_frontends(status, tunnel);
+    if let Ok(mut snapshot) = status.lock() {
+        super::runtime_routing::record_rejection(&mut snapshot);
+    }
+    super::RECONFIGURE_REJECTED
 }
 
 fn set_transport_failure(

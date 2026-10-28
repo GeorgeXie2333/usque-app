@@ -94,8 +94,11 @@ const PACKET_RING_RETRY_INTERVAL: Duration = Duration::from_millis(1);
 const PHYSICAL_NETWORK_POLL_INTERVAL: Duration = Duration::from_millis(500);
 const AUTOMATIC_RECOVERY_ATTEMPT_LIMIT: u32 = 3;
 
+mod admission;
 mod device_owner;
+mod packet_pump;
 mod replacement;
+use packet_pump::start_packet_pumps;
 #[cfg(test)]
 mod system_proxy_cleanup_tests;
 pub(crate) use device_owner::WindowsDeviceOwner;
@@ -137,6 +140,14 @@ struct WindowsPhysicalState {
     agent_generation: Option<u64>,
     dns_servers: Vec<SocketAddr>,
     family_mask: u32,
+}
+
+struct DirectEgressReadback<'a> {
+    lease: &'a AgentDirectEgressLease,
+    remote: SocketAddr,
+    expected_generation: u64,
+    agent_generation: u64,
+    purpose: agent_v1::DirectEgressPurpose,
 }
 
 impl WindowsPhysicalState {
@@ -421,16 +432,45 @@ impl WindowsVpnSocketProtector {
             .map_err(|error| self.socket_setup_error("ACQUIRE_DIRECT_EGRESS", error))?;
         self.verify_generation(expected_generation, agent_generation)?;
         bind_socket_to_interface(socket, remote, lease.interface_index)?;
+        self.finish_direct_egress(
+            pipe,
+            DirectEgressReadback {
+                lease: &lease,
+                remote,
+                expected_generation,
+                agent_generation,
+                purpose,
+            },
+        )
+        .await
+    }
+
+    /// Recheck the bound socket's authorization on its existing lease pipe.
+    /// Ownership stays local until every readback check succeeds, so an error
+    /// or cancellation closes the pipe and revokes the Agent's permit.
+    async fn finish_direct_egress(
+        &self,
+        mut pipe: NamedPipeClient,
+        check: DirectEgressReadback<'_>,
+    ) -> Result<DirectEgressLease, String> {
+        let DirectEgressReadback {
+            lease,
+            remote,
+            expected_generation,
+            agent_generation,
+            purpose,
+        } = check;
         let current = self
             .agent
-            .get_physical_network_info(self.operation_id)
+            .get_physical_network_info_on_pipe(&mut pipe, self.operation_id, AGENT_RPC_TIMEOUT)
             .await
             .map_err(|error| self.socket_setup_error("VERIFY_PHYSICAL_NETWORK", error))?;
         self.observe_physical_snapshot(&current);
         if current.generation != agent_generation
-            || !current.interfaces.iter().any(|interface| {
-                direct_egress_interface_matches(interface, &lease, remote, purpose)
-            })
+            || !current
+                .interfaces
+                .iter()
+                .any(|interface| direct_egress_interface_matches(interface, lease, remote, purpose))
         {
             return Err(STALE_GENERATION_REASON.to_owned());
         }
@@ -646,6 +686,9 @@ fn start_physical_network_monitor(protector: &Arc<WindowsVpnSocketProtector>) {
     let cancellation = protector.monitor_cancel.clone();
     let weak_protector = Arc::downgrade(protector);
     tokio::spawn(async move {
+        // This read-only connection owns no egress lease. Each replacement
+        // connection is authenticated independently by the Agent.
+        let mut pipe = None;
         let mut ticker = tokio::time::interval(PHYSICAL_NETWORK_POLL_INTERVAL);
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         // The initial snapshot was read synchronously during startup.
@@ -663,7 +706,11 @@ fn start_physical_network_monitor(protector: &Arc<WindowsVpnSocketProtector>) {
             drop(protector);
             let update = tokio::select! {
                 _ = cancellation.cancelled() => break,
-                result = agent.get_physical_network_info(operation_id) => result,
+                result = agent.get_physical_network_info_reusing_pipe(
+                    &mut pipe,
+                    operation_id,
+                    AGENT_RPC_TIMEOUT,
+                ) => result,
             };
             let Some(protector) = Weak::upgrade(&weak_protector) else {
                 break;
@@ -1220,7 +1267,7 @@ impl WindowsVpnRuntime {
         if profile.endpoint.preset_region.is_some() {
             identity.endpoint_preset_tier()?;
         }
-        let geo_enabled = true; // Keep DNS filtering ready for live Ads toggles.
+        let geo_enabled = true; // Keep internal DNS ready for live traffic-policy updates.
         let agent = WindowsAgentClient::production();
         let capabilities = agent.get_capabilities().await?;
         validate_capabilities(&capabilities, profile.kill_switch)?;
@@ -1618,6 +1665,30 @@ impl WindowsVpnRuntime {
         if let Some(tunnel) = &self.tunnel {
             tunnel.update_ads_enabled(enabled);
         }
+    }
+
+    pub(crate) fn prepare_routing_update(
+        &self,
+        profile: &Profile,
+    ) -> Result<usque_transport::PreparedTrafficPolicyUpdate, WindowsVpnError> {
+        require_open_vpn_transaction(self.transaction_open, self.operation_id)?;
+        Ok(self
+            .tunnel
+            .as_ref()
+            .ok_or(WindowsVpnError::MissingMasqueRuntime)?
+            .prepare_routing_update(profile)?)
+    }
+
+    pub(crate) fn publish_routing_update(
+        &mut self,
+        update: usque_transport::PreparedTrafficPolicyUpdate,
+    ) -> Result<(), WindowsVpnError> {
+        require_open_vpn_transaction(self.transaction_open, self.operation_id)?;
+        Ok(self
+            .tunnel
+            .as_mut()
+            .ok_or(WindowsVpnError::MissingMasqueRuntime)?
+            .publish_routing_update(update)?)
     }
 
     pub(crate) fn update_traffic_policy(
@@ -2671,205 +2742,6 @@ fn validate_capabilities(
     }
 }
 
-fn start_packet_pumps(
-    mut tun_io: TunPacketIo,
-    mapping: Arc<PacketSessionMapping>,
-    tunnel_monitor: ManagedTunnelMonitor,
-    cancellation: CancellationToken,
-    failure: watch::Sender<Option<WindowsPumpFailure>>,
-) -> Vec<JoinHandle<()>> {
-    let (packet_ready_tx, mut packet_ready_rx) = mpsc::channel(1);
-
-    let wait_mapping = Arc::clone(&mapping);
-    let wait_task = spawn_packet_waiter(
-        move || wait_for_agent_packets(&wait_mapping, packet_ready_tx),
-        cancellation.clone(),
-        failure.clone(),
-    );
-
-    let pump_mapping = Arc::clone(&mapping);
-    let pump_cancel = cancellation.clone();
-    let pump_failure = failure.clone();
-    let pump_task = tokio::spawn(async move {
-        let mut ring_saturation_count = 0u64;
-        loop {
-            tokio::select! {
-                () = pump_cancel.cancelled() => break,
-                ready = packet_ready_rx.recv() => {
-                    if ready.is_none() {
-                        if !pump_cancel.is_cancelled() {
-                            report_pump_failure(
-                                &pump_failure,
-                                &pump_cancel,
-                                WindowsPumpFailure::agent(
-                                    "Agent packet notification channel closed",
-                                ),
-                            );
-                        }
-                        break;
-                    }
-                    loop {
-                        match pump_mapping
-                            .ring()
-                            .try_pop(PacketDirection::AgentToEngine)
-                        {
-                            Ok(Some(packet)) => {
-                                let send = tokio::select! {
-                                    biased;
-                                    _ = pump_cancel.cancelled() => return,
-                                    result = tun_io.send_owned_packet(Bytes::from(packet)) => result,
-                                };
-                                if let Err(error) = send {
-                                    if !pump_cancel.is_cancelled() {
-                                        report_pump_failure(
-                                            &pump_failure,
-                                            &pump_cancel,
-                                            WindowsPumpFailure::transport(
-                                                "failed to send a TUN packet into MASQUE",
-                                                &error,
-                                                tunnel_monitor.path(),
-                                            ),
-                                        );
-                                    }
-                                    return;
-                                }
-                            }
-                            Ok(None) => break,
-                            Err(error) => {
-                                report_pump_failure(
-                                    &pump_failure,
-                                    &pump_cancel,
-                                    WindowsPumpFailure::agent(format!(
-                                        "Agent-to-Engine packet ring failed: {error}"
-                                    )),
-                                );
-                                return;
-                            }
-                        }
-                    }
-                }
-                packet = tun_io.receive_packet() => {
-                    match packet {
-                        Ok(packet) => {
-                            match publish_engine_packet_batch(
-                                &mut tun_io,
-                                &pump_mapping,
-                                &tunnel_monitor,
-                                &pump_cancel,
-                                &mut ring_saturation_count,
-                                packet,
-                            )
-                            .await
-                            {
-                                Ok(true) => {}
-                                Ok(false) => break,
-                                Err(failure) => {
-                                    report_pump_failure(&pump_failure, &pump_cancel, failure);
-                                    break;
-                                }
-                            }
-                        }
-                        Err(error) => {
-                            if !pump_cancel.is_cancelled() {
-                                report_pump_failure(
-                                    &pump_failure,
-                                    &pump_cancel,
-                                    WindowsPumpFailure::transport(
-                                        "failed to receive a MASQUE packet",
-                                        &error,
-                                        tunnel_monitor.path(),
-                                    ),
-                                );
-                            }
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-        // Dropping tun_io detaches TUN. MASQUE stays owned by WindowsVpnRuntime.
-    });
-
-    vec![wait_task, pump_task]
-}
-
-async fn publish_engine_packet_batch(
-    tun_io: &mut TunPacketIo,
-    mapping: &PacketSessionMapping,
-    tunnel_monitor: &ManagedTunnelMonitor,
-    cancellation: &CancellationToken,
-    saturation_count: &mut u64,
-    first: Bytes,
-) -> Result<bool, WindowsPumpFailure> {
-    let ring = mapping.ring();
-    let wake_bytes = (ring.capacity() as usize / 4).max(1);
-    let mut packet = first;
-    let mut published = false;
-    let mut published_bytes = 0usize;
-    let mut packet_count = 0usize;
-    let result: Result<bool, WindowsPumpFailure> = 'batch: loop {
-        loop {
-            match ring.try_push_preserving(PacketDirection::EngineToAgent, &packet) {
-                Ok(true) => break,
-                Ok(false) => {
-                    if published {
-                        mapping
-                            .signal_engine_to_agent()
-                            .map_err(|error| WindowsPumpFailure::agent(error.to_string()))?;
-                        published = false;
-                        published_bytes = 0;
-                        packet_count = 0;
-                    }
-                    *saturation_count = saturation_count.saturating_add(1);
-                    if saturation_count.is_power_of_two() {
-                        tracing::warn!(
-                            wait_count = *saturation_count,
-                            ring_capacity = ring.capacity(),
-                            "waiting for capacity in the Engine-to-Agent packet ring"
-                        );
-                    }
-                    tokio::select! {
-                        biased;
-                        _ = cancellation.cancelled() => break 'batch Ok(false),
-                        () = sleep(PACKET_RING_RETRY_INTERVAL) => {}
-                    }
-                }
-                Err(error) => {
-                    break 'batch Err(WindowsPumpFailure::agent(format!(
-                        "Engine-to-Agent packet ring failed: {error}"
-                    )));
-                }
-            }
-        }
-        published = true;
-        published_bytes = published_bytes.saturating_add(packet.len());
-        packet_count += 1;
-        if packet_count == PACKET_WAKE_BATCH || published_bytes >= wake_bytes {
-            break 'batch Ok(true);
-        }
-        match tun_io.try_receive_packet() {
-            Ok(Some(next)) => packet = next,
-            Ok(None) => break 'batch Ok(true),
-            Err(error) => {
-                break 'batch Err(WindowsPumpFailure::transport(
-                    "failed to receive a MASQUE packet",
-                    &error,
-                    tunnel_monitor.path(),
-                ));
-            }
-        }
-    };
-
-    if published {
-        // Signal after publication, once per bounded batch. The Agent drains
-        // until empty, so coalesced auto-reset signals cannot strand packets.
-        mapping
-            .signal_engine_to_agent()
-            .map_err(|error| WindowsPumpFailure::agent(error.to_string()))?;
-    }
-    result
-}
-
 fn report_pump_failure(
     failure: &watch::Sender<Option<WindowsPumpFailure>>,
     cancellation: &CancellationToken,
@@ -3236,14 +3108,7 @@ impl WindowsAgentClient {
         &self,
         restart_exhausted: bool,
     ) -> Result<Option<AutomaticRecoveryObservation>, WindowsVpnError> {
-        let capabilities = self.get_capabilities().await?;
-        if capabilities.protocol_version != AGENT_PROTOCOL_VERSION {
-            return Err(WindowsVpnError::ProtocolVersion(
-                capabilities.protocol_version,
-            ));
-        }
-        self.automatic_recovery_preflight(&capabilities, restart_exhausted)
-            .await
+        self.admission_preflight(restart_exhausted).await
     }
     fn production() -> Self {
         Self {
@@ -3272,6 +3137,10 @@ impl WindowsAgentClient {
     }
 
     async fn get_capabilities(&self) -> Result<AgentCapabilities, WindowsVpnError> {
+        self.get_admission_capabilities().await
+    }
+
+    async fn get_capabilities_once(&self) -> Result<AgentCapabilities, WindowsVpnError> {
         match self
             .call(agent_request::Payload::GetCapabilities(
                 GetCapabilitiesRequest {},
@@ -3308,7 +3177,10 @@ impl WindowsAgentClient {
     ) -> Result<AgentState, WindowsVpnError> {
         timeout(budget, async {
             loop {
-                let state = self.get_state().await.map_err(recovery_rpc_error)?;
+                let state = self
+                    .get_admission_state(capabilities)
+                    .await
+                    .map_err(recovery_rpc_error)?;
                 if replacement::pending_replacement(&state)?.is_some() {
                     if !capabilities.protected_tunnel_replacement {
                         return Err(WindowsVpnError::MissingCapabilities(
@@ -3409,7 +3281,7 @@ impl WindowsAgentClient {
         if !capabilities.automatic_recovery {
             return Ok(None);
         }
-        let state = self.get_state().await?;
+        let state = self.get_admission_state(capabilities).await?;
         if replacement::pending_replacement(&state)?.is_some() {
             if !capabilities.protected_tunnel_replacement {
                 return Err(WindowsVpnError::MissingCapabilities(
@@ -3462,17 +3334,61 @@ impl WindowsAgentClient {
         &self,
         operation_id: Uuid,
     ) -> Result<PhysicalNetworkInfo, WindowsVpnError> {
-        match self
-            .call(agent_request::Payload::GetPhysicalNetworkInfo(
-                GetPhysicalNetworkInfoRequest {
+        let mut pipe = self.open_pipe().await?;
+        self.get_physical_network_info_on_pipe(&mut pipe, operation_id, AGENT_RPC_TIMEOUT)
+            .await
+    }
+
+    async fn get_physical_network_info_on_pipe(
+        &self,
+        pipe: &mut NamedPipeClient,
+        operation_id: Uuid,
+        budget: Duration,
+    ) -> Result<PhysicalNetworkInfo, WindowsVpnError> {
+        match timeout(
+            budget,
+            self.exchange(
+                pipe,
+                agent_request::Payload::GetPhysicalNetworkInfo(GetPhysicalNetworkInfoRequest {
                     operation_id: operation_id.to_string(),
-                },
-            ))
-            .await?
+                }),
+            ),
+        )
+        .await
+        .map_err(|_| WindowsVpnError::RpcTimeout)??
         {
             agent_response::Payload::PhysicalNetworkInfo(info) => Ok(info),
             payload => Err(WindowsVpnError::UnexpectedResponse(payload_name(&payload))),
         }
+    }
+
+    async fn get_physical_network_info_reusing_pipe(
+        &self,
+        connection: &mut Option<NamedPipeClient>,
+        operation_id: Uuid,
+        budget: Duration,
+    ) -> Result<PhysicalNetworkInfo, WindowsVpnError> {
+        // Move ownership into this future before any cancellable operation.
+        // Invalid/partial exchanges cannot leave a stale response in a reused
+        // connection, and cancellation drops the actual pipe rather than only
+        // a borrowed RPC future. Never replay a mutation on this connection.
+        let mut pipe = match connection.take() {
+            Some(pipe) => pipe,
+            None => self.open_pipe().await?,
+        };
+        let result = self
+            .get_physical_network_info_on_pipe(&mut pipe, operation_id, budget)
+            .await;
+        // These are fully framed, request-id-checked observations rather than
+        // stream failures. Retaining the read-only pipe avoids reauthenticating
+        // at the polling rate while the physical network is unavailable.
+        if result.is_ok()
+            || matches!(&result, Err(WindowsVpnError::Remote { code, .. })
+                if matches!(code.as_str(), "AGENT_PHYSICAL_NETWORK_OFFLINE" | "AGENT_PHYSICAL_NETWORK_UNAVAILABLE"))
+        {
+            *connection = Some(pipe);
+        }
+        result
     }
 
     async fn acquire_direct_egress(
@@ -4668,7 +4584,9 @@ mod tests {
         assert_eq!(plan.dns_servers, vec![SPLIT_DNS_IPV4.to_string()]);
     }
 
+    mod admission_tests;
     mod device_tests;
+    mod pipe_reuse_tests;
 
     fn test_device_lease() -> agent_v1::DeviceLease {
         agent_v1::DeviceLease {
@@ -4688,7 +4606,7 @@ mod tests {
     use tokio::net::windows::named_pipe::ServerOptions;
 
     // Anonymous memory and events only: no Agent, Wintun DLL or network mutation.
-    fn packet_mapping_fixture() -> Arc<PacketSessionMapping> {
+    pub(super) fn packet_mapping_fixture() -> Arc<PacketSessionMapping> {
         use windows_sys::Win32::{
             Foundation::INVALID_HANDLE_VALUE,
             System::{

@@ -80,7 +80,7 @@ oldest age, close, and cancellation state are process-local numeric data.
 | `TransportOutgoingPackets` | Managed runtime into the reconnecting transport supervisor | 1,024 packets and 67,107,840 bytes |
 | `H3DatagramSend` | quiche DATAGRAM send queue | 1,024 datagrams and a family-specific bound: 1,507,328 bytes for IPv4 or 1,486,848 for IPv6; a bounded metadata shadow is reconciled to quiche's public queue length |
 | `H3WireSend` | Pacing-aware QUIC wire deque | 64 datagrams and a family-specific bound: 94,208 bytes for IPv4 or 92,928 for IPv6; entries complete only after a full UDP send |
-| `TransportToTun` | Managed/final TUN batch sink | 16 batches and 4 MiB; a re-attach atomically replaces the old tracked sink |
+| `TransportToTun` | Managed/final TUN batch sink | 1,024 logical packets and 4 MiB, independent of batch grouping; a re-attach atomically replaces the old tracked sink |
 | `TransportToProxy` | Packet mux into the smoltcp proxy pipe | Existing 1,024-packet pipe; logical actor handoff time and bytes are tracked for the same locked-dependency reason |
 | `DirectDnsRequests` | Active GeoSite direct DNS queries | System mode: 512 requests and 33,553,920 bytes (512 × 65,535). DoH/DoT: 64 requests and 4,194,240 bytes (64 × 65,535). Semaphore rejection is a queue drop and returns SERVFAIL |
 
@@ -196,7 +196,7 @@ or 256 KiB limit. After the first packet, a batch polls at most 64 additional
 DATA frames and returns immediately when no more data is ready. This also
 bounds lookahead through empty or control-only frames. A peer that flushes one
 DATAGRAM per DATA frame therefore does not force every buffered packet to use
-its own downstream batch slot. The 16-slot handoffs retain their existing
+its own downstream batch slot. Protocol handoffs retain their existing
 memory limits; batches are not delayed to fill them. Partial capsules remain
 owned by the receiver across cancellation, receive capacity is returned once
 per consumed frame, and a lookahead failure is reported on the next receive
@@ -340,6 +340,55 @@ not measured zero. H2 and H3 groups are only present for the corresponding
 active transport. Detailed fields are exported locally through existing
 diagnostics, with fixed numeric allowlists and bounded histograms on Android.
 No packet data, destinations, credentials, or automatic upload are added.
+
+## DIRECT gateway diagnostics
+
+The shared TUN sink charges each batch for its packet count and bytes. A
+single-packet DIRECT return and a 64-packet tunnel batch consume the same
+per-packet budget. Receiver prefetch retains both permits until delivery;
+cancellation, replacement and closure release them. Batch bounds remain 64
+packets and 256 KiB, with a 4 MiB sink byte ceiling.
+
+The packet mux keeps at most one pending DIRECT setup. Physical authorization
+does not block DIRECT or tunnel return delivery, proxy traffic or maintenance.
+Further TUN ingress waits in the existing bounded FIFO until that setup finishes;
+this does not provide concurrent setup for all TUN flows. Attachment cancellation
+retires the pending setup and its uncommitted mapping without discarding the
+runtime's established DIRECT flows.
+
+The Windows shared-memory pump keeps at most one pending packet per direction.
+A full ring defers that direction while the other can progress. Published batches
+stop at 64 packets or one quarter of the ring, and any completed prefix signals
+its consumer before a blocked suffix is retried. These bounds and deterministic
+fairness tests do not establish real-time jitter or throughput on a native VPN.
+
+Desktop diagnostic exports add an optional `direct_gateway` section to
+`transport-performance.json`. It is separate from the H2/H3 attempt counters
+and the existing nine quality queues; it does not change the quality label or
+the protobuf/JNI UI payload. An absent gateway registration is `null`, not a
+measurement of zero. A new gateway starts a new counter lifetime, and retired
+gateway tasks cannot increment the replacement's counters.
+
+`fallback_total` counts TUN TCP/UDP packets selected for DIRECT that instead return to
+the tunnel path. Fixed reason counters distinguish `fallback_unavailable`,
+`fallback_worker_failed`, `fallback_flow_capacity`, `fallback_setup_failed`,
+`fallback_unsupported_target` and `fallback_rewrite_failed`. They count packet
+decisions, not unique destinations or flows. Ordinary PROXY traffic, internally
+handled DNS and packets consumed by REJECT or unavailable-family handling do not
+count as fallback. `flow_failures` separately counts asynchronous failures after
+a mapping was created; it does not claim that those packets were retransmitted
+through the tunnel.
+
+`return_queue_drop_packets` and `return_queue_drop_bytes` count packets rejected
+by the gateway's full 1,024-packet return channel, including internal DNS and
+local refusal replies using that channel. They do not include the later shared
+TUN sink's drops. Counters saturate and are independent of log suppression.
+Default WARN summaries contain only fixed reason codes and numbers. Each reason
+has one bounded suppression gate: its first event logs immediately, and a later
+event after 15 seconds reports cumulative and suppressed counts. There is no
+per-address limiter or periodic task; use the export for exact totals when no
+further event arrives. These are local observations, not external leak or
+performance measurements.
 
 ---
 

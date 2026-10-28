@@ -1094,6 +1094,8 @@ fn is_public_numeric_key(key: &str) -> bool {
             | "attempt_limit"
             | "reconnect_count"
             | "fallback_count"
+            | "flow_failures"
+            | "suppressed_count"
             | "listener_count"
             | "active_listener_count"
             | "endpoint_count"
@@ -1219,6 +1221,14 @@ pub fn project_public_log(bytes: &[u8]) -> Vec<u8> {
                         "direct_send_failed"
                             | "direct_resolution_failed"
                             | "direct_connect_failed"
+                            | "direct_unavailable"
+                            | "direct_worker_failed"
+                            | "direct_flow_capacity"
+                            | "direct_setup_failed"
+                            | "direct_unsupported_target"
+                            | "direct_rewrite_failed"
+                            | "direct_flow_failed"
+                            | "direct_return_queue_full"
                             | "timeout"
                             | "query_failed"
                     ),
@@ -1742,6 +1752,46 @@ mod tests {
             }
             assert_eq!(sanitized["listener_count"], 3);
         }
+    }
+
+    #[test]
+    fn public_direct_gateway_logs_keep_only_fixed_reasons_and_numeric_counts() {
+        for reason in [
+            "direct_unavailable",
+            "direct_worker_failed",
+            "direct_flow_capacity",
+            "direct_setup_failed",
+            "direct_unsupported_target",
+            "direct_rewrite_failed",
+            "direct_flow_failed",
+            "direct_return_queue_full",
+        ] {
+            let input = serde_json::json!({
+                "level": "WARN", "target": "usque_transport::direct_diagnostics",
+                "fields": {"reason_code": reason, "fallback_count": 7,
+                    "drop_items": 2, "drop_bytes": 128, "suppressed_count": 6, "flow_failures": 3,
+                    "capacity": 1024, "remote": "192.0.2.1:443",
+                    "error": "token=private", "rule": "private.example"}
+            });
+            let bytes = project_public_log(&serde_json::to_vec(&input).unwrap());
+            let projected: Value = serde_json::from_slice(&bytes).unwrap();
+            assert_eq!(projected["fields"]["reason_code"], reason);
+            assert_eq!(projected["fields"]["fallback_count"], 7);
+            assert_eq!(projected["fields"]["flow_failures"], 3);
+            assert_eq!(projected["fields"]["suppressed_count"], 6);
+            assert_eq!(projected["fields"]["drop_items"], 2);
+            assert_eq!(projected["fields"]["drop_bytes"], 128);
+            assert_eq!(projected["fields"]["capacity"], 1024);
+            let text = String::from_utf8(bytes).unwrap();
+            for private in ["192.0.2.1", "private", "remote", "rule"] {
+                assert!(!text.contains(private));
+            }
+        }
+        let bytes = project_public_log(
+            br#"{"fields":{"reason_code":"direct_private.example","suppressed_count":"secret"}}"#,
+        );
+        let projected: Value = serde_json::from_slice(&bytes).unwrap();
+        assert!(projected["fields"].as_object().unwrap().is_empty());
     }
 
     #[test]

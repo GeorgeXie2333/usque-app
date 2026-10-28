@@ -396,7 +396,7 @@ void engineEventPipeReadsFramesWithReadOnlyClientAccess() {
          "engineEventPipeReadsFramesWithReadOnlyClientAccess.create");
   if (server == INVALID_HANDLE_VALUE) return;
 
-  auto active = std::make_shared<std::atomic_bool>(true);
+  auto active = std::make_shared<EngineEventCancellation>();
   std::mutex mutex;
   std::condition_variable delivered;
   bool callback_called = false;
@@ -408,7 +408,7 @@ void engineEventPipeReadsFramesWithReadOnlyClientAccess() {
         received = std::move(event);
         callback_called = true;
       }
-      active->store(false);
+      active->Cancel();
       delivered.notify_one();
     });
   });
@@ -419,12 +419,13 @@ void engineEventPipeReadsFramesWithReadOnlyClientAccess() {
   Expect(connection_ready,
          "engineEventPipeReadsFramesWithReadOnlyClientAccess.connect");
   const std::vector<uint8_t> frame{0, 0, 0, 3, 1, 2, 3};
-  DWORD written = 0;
-  const bool wrote =
-      connection_ready &&
-      ::WriteFile(server, frame.data(), static_cast<DWORD>(frame.size()),
-                  &written, nullptr) &&
-      written == static_cast<DWORD>(frame.size());
+  bool wrote = connection_ready;
+  for (size_t index = 0; wrote && index < frame.size(); ++index) {
+    DWORD written = 0;
+    wrote = ::WriteFile(server, frame.data() + index, 1, &written, nullptr) &&
+            written == 1;
+    if (wrote) ::FlushFileBuffers(server);
+  }
   Expect(wrote, "engineEventPipeReadsFramesWithReadOnlyClientAccess.write");
 
   {
@@ -432,7 +433,7 @@ void engineEventPipeReadsFramesWithReadOnlyClientAccess() {
     delivered.wait_for(lock, std::chrono::seconds(2),
                        [&]() { return callback_called; });
   }
-  active->store(false);
+  active->Cancel();
   reader.join();
   Expect(callback_called,
          "engineEventPipeReadsFramesWithReadOnlyClientAccess.callback");
@@ -457,7 +458,7 @@ void engineEventPipeReportsTruncatedBody() {
          "engineEventPipeReportsTruncatedBody.create");
   if (server == INVALID_HANDLE_VALUE) return;
 
-  auto active = std::make_shared<std::atomic_bool>(true);
+  auto active = std::make_shared<EngineEventCancellation>();
   std::mutex mutex;
   std::condition_variable delivered;
   bool callback_called = false;
@@ -469,7 +470,7 @@ void engineEventPipeReportsTruncatedBody() {
         received = std::move(event);
         callback_called = true;
       }
-      active->store(false);
+      active->Cancel();
       delivered.notify_one();
     });
   });
@@ -496,7 +497,7 @@ void engineEventPipeReportsTruncatedBody() {
     delivered.wait_for(lock, std::chrono::seconds(2),
                        [&]() { return callback_called; });
   }
-  active->store(false);
+  active->Cancel();
   reader.join();
   Expect(callback_called,
          "engineEventPipeReportsTruncatedBody.callback");
@@ -509,7 +510,7 @@ void engineEventPipeReportsTruncatedBody() {
 }
 
 void engineEventPipeReportsFatalValidationErrors() {
-  auto active = std::make_shared<std::atomic_bool>(true);
+  auto active = std::make_shared<EngineEventCancellation>();
   std::mutex mutex;
   std::condition_variable delivered;
   bool callback_called = false;
@@ -530,13 +531,129 @@ void engineEventPipeReportsFatalValidationErrors() {
     delivered.wait_for(lock, std::chrono::seconds(1),
                        [&]() { return callback_called; });
   }
-  active->store(false);
+  active->Cancel();
   reader.join();
   Expect(callback_called,
          "engineEventPipeReportsFatalValidationErrors.callback");
   Expect(received.error.find("outside the Usque namespace") !=
              std::string::npos,
          "engineEventPipeReportsFatalValidationErrors.error");
+}
+
+void engineEventPipeScenario(const char* name, std::vector<uint8_t> bytes,
+                             bool cancel, bool expect_error, bool eof = false) {
+  const std::string pipe_name = TestPipeName(name) + ".events";
+  HANDLE server = ::CreateNamedPipeW(
+      Wide(pipe_name).c_str(), PIPE_ACCESS_OUTBOUND | FILE_FLAG_OVERLAPPED,
+      PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT, 1, 4096, 4096, 0,
+      nullptr);
+  Expect(server != INVALID_HANDLE_VALUE, name);
+  if (server == INVALID_HANDLE_VALUE) return;
+  HANDLE connected_event = ::CreateEventW(nullptr, TRUE, FALSE, nullptr);
+  OVERLAPPED connection{};
+  connection.hEvent = connected_event;
+  const BOOL connected = ::ConnectNamedPipe(server, &connection);
+  const DWORD connection_error = connected ? ERROR_SUCCESS : ::GetLastError();
+  auto cancellation = std::make_shared<EngineEventCancellation>();
+  std::mutex mutex;
+  std::condition_variable finished;
+  bool reader_finished = false;
+  int callbacks = 0;
+  EngineIpcResult received;
+  std::thread reader([&]() {
+    StreamEngineEvents(pipe_name, cancellation, [&](EngineIpcResult event) {
+      received = std::move(event);
+      ++callbacks;
+      cancellation->Cancel();
+    });
+    {
+      std::lock_guard<std::mutex> lock(mutex);
+      reader_finished = true;
+    }
+    finished.notify_one();
+  });
+  const bool connection_ready =
+      connected || connection_error == ERROR_PIPE_CONNECTED ||
+      (connection_error == ERROR_IO_PENDING &&
+       ::WaitForSingleObject(connected_event, 2000) == WAIT_OBJECT_0);
+  Expect(connection_ready, name);
+  if (!connection_ready) {
+    ::CancelIoEx(server, &connection);
+    DWORD ignored = 0;
+    ::GetOverlappedResult(server, &connection, &ignored, TRUE);
+  }
+  if (connection_ready && !bytes.empty()) {
+    HANDLE written_event = ::CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    OVERLAPPED write{};
+    write.hEvent = written_event;
+    DWORD written = 0;
+    const BOOL wrote = ::WriteFile(server, bytes.data(),
+                                   static_cast<DWORD>(bytes.size()), &written,
+                                   &write);
+    const DWORD write_error = wrote ? ERROR_SUCCESS : ::GetLastError();
+    bool write_completed = wrote;
+    if (!wrote && write_error == ERROR_IO_PENDING) {
+      if (::WaitForSingleObject(written_event, 2000) == WAIT_OBJECT_0) {
+        write_completed =
+            ::GetOverlappedResult(server, &write, &written, FALSE) != FALSE;
+      } else {
+        ::CancelIoEx(server, &write);
+        ::GetOverlappedResult(server, &write, &written, TRUE);
+      }
+    }
+    Expect(write_completed && written == bytes.size(), name);
+    ::CloseHandle(written_event);
+    // Ensure a partial header/body has reached the reader before cancelling
+    // or signalling EOF; the pending overlapped read still owns its buffer.
+    if (write_completed) ::FlushFileBuffers(server);
+  }
+  if (cancel || !connection_ready) {
+    cancellation->Cancel();
+  } else if (eof) {
+    ::DisconnectNamedPipe(server);
+  }
+  {
+    std::unique_lock<std::mutex> lock(mutex);
+    const bool stopped = finished.wait_for(lock, std::chrono::seconds(2),
+                                           [&]() { return reader_finished; });
+    Expect(stopped, name);
+    if (!stopped) {
+      cancellation->Cancel();
+      ::DisconnectNamedPipe(server);
+    }
+  }
+  reader.join();
+  Expect(callbacks == (cancel ? 0 : 1), name);
+  if (!cancel && callbacks == 1) {
+    Expect(!received.error.empty() == expect_error, name);
+    Expect(expect_error ? received.response.empty() : received.response == bytes,
+           name);
+  }
+  // Validation/error paths must use the same cancellation delivery gate.
+  cancellation->Cancel();
+  StreamEngineEvents("invalid-event-pipe", cancellation,
+                     [&](EngineIpcResult) { ++callbacks; });
+  Expect(callbacks == (cancel ? 0 : 1), name);
+  ::DisconnectNamedPipe(server);
+  ::CloseHandle(connected_event);
+  ::CloseHandle(server);
+}
+
+void engineEventPipeCancellationAndFrameBounds() {
+  engineEventPipeScenario("idle-cancel", {}, true, false);
+  engineEventPipeScenario("header-cancel", {0, 0}, true, false);
+  engineEventPipeScenario("body-cancel", {0, 0, 0, 4, 1}, true, false);
+  engineEventPipeScenario("header-eof", {}, false, true, true);
+  engineEventPipeScenario("header-truncated", {0, 0}, false, true, true);
+  engineEventPipeScenario("body-truncated", {0, 0, 0, 4, 1}, false, true, true);
+  engineEventPipeScenario("oversized", {0, 64, 0, 1}, false, true);
+  engineEventPipeScenario("empty-frame", {0, 0, 0, 0}, false, false);
+  std::vector<uint8_t> maximum(4 * 1024 * 1024 + 4, 0x5a);
+  maximum[0] = 0;
+  maximum[1] = 64;
+  maximum[2] = 0;
+  maximum[3] = 0;
+  engineEventPipeScenario("maximum-frame", std::move(maximum), false, false);
 }
 
 void maintenanceShutdownMessagesAreClassified() {
@@ -597,6 +714,7 @@ int main() {
   engineEventPipeReadsFramesWithReadOnlyClientAccess();
   engineEventPipeReportsTruncatedBody();
   engineEventPipeReportsFatalValidationErrors();
+  engineEventPipeCancellationAndFrameBounds();
   maintenanceShutdownMessagesAreClassified();
   if (g_failures != 0) {
     std::fprintf(stderr, "%d Windows runner tests failed\n", g_failures);

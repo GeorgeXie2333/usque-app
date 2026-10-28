@@ -271,6 +271,9 @@ class AppController extends ChangeNotifier {
   StreamSubscription<EngineSnapshotEvent>? _snapshotSubscription;
   Future<void>? _snapshotCancellation;
   bool _observationVisible = true;
+  bool _uiVisible = true;
+  int _uiObservationGeneration = 0;
+  bool get uiVisible => _uiVisible;
   int _observationGeneration = 0;
   int _snapshotReconnectAttempt = 0;
   int _snapshotSubscriptionGeneration = 0;
@@ -344,6 +347,10 @@ class AppController extends ChangeNotifier {
   EngineSnapshot _snapshot = const EngineSnapshot();
   EngineSnapshot get snapshot => _snapshot;
   set snapshot(EngineSnapshot value) {
+    _setSnapshot(value);
+  }
+
+  void _setSnapshot(EngineSnapshot value, {bool observeQuality = true}) {
     _snapshotRevision++;
     final becameConnected = !_snapshot.isConnected && value.isConnected;
     _snapshot = value;
@@ -356,7 +363,7 @@ class AppController extends ChangeNotifier {
         details: value.warning,
       );
     }
-    quality.updateConnection(value);
+    quality.updateConnection(value, observeQuality: observeQuality);
   }
 
   NetworkQualitySnapshot? get networkQuality => quality.latest;
@@ -1508,6 +1515,7 @@ class AppController extends ChangeNotifier {
   Future<void> _refreshSnapshotOnce({required bool silent}) async {
     final revision = _snapshotRevision;
     final observation = _observationGeneration;
+    final uiObservation = _uiObservationGeneration;
     try {
       final next = await _engine.snapshot();
       if (_disposed ||
@@ -1517,7 +1525,10 @@ class AppController extends ChangeNotifier {
         return;
       }
       _initialStatusLoaded = true;
-      snapshot = next;
+      _setSnapshot(
+        next,
+        observeQuality: uiObservation == _uiObservationGeneration,
+      );
       if (!snapshot.isConnected && !snapshotStreamDegraded) {
         _stopPolling();
       }
@@ -2913,14 +2924,31 @@ class AppController extends ChangeNotifier {
     }
   }
 
-  /// Suspend Android UI observations without cancelling user operations or VPN work.
+  /// Suspend presentation work while retaining desktop control/tray observation.
+  void setUiVisible(bool visible) {
+    if (_disposed || visible == _uiVisible) return;
+    _uiVisible = visible;
+    _uiObservationGeneration++;
+    quality.setObservationVisible(visible && _observationVisible);
+    diagnostics.setObservationVisible(visible && _observationVisible);
+    if (visible && initialized) {
+      // Retire a pre-hide status reply. The request owner retries after that
+      // reply settles, so visibility never adds concurrent control requests.
+      _observationGeneration++;
+      _snapshotRevision++;
+      unawaited(refreshSnapshot(silent: true));
+    }
+    _notifyListeners();
+  }
+
+  /// Suspend Android control observations without cancelling user operations or VPN work.
   void setObservationVisible(bool visible) {
     if (_disposed || visible == _observationVisible) return;
     _observationVisible = visible;
     _observationGeneration++;
     _snapshotRevision++;
-    quality.setObservationVisible(visible);
-    diagnostics.setObservationVisible(visible);
+    quality.setObservationVisible(visible && _uiVisible);
+    diagnostics.setObservationVisible(visible && _uiVisible);
     networkSettings.setObservationVisible(visible);
     if (!visible) {
       _stopPolling();
@@ -3033,10 +3061,11 @@ class AppController extends ChangeNotifier {
     }
     final nextQuality = event.networkQuality ?? event.snapshot?.networkQuality;
     final handledNetworkQuality =
+        _uiVisible &&
         nextQuality != null &&
         (nextQuality != networkQuality ||
             nextQuality.sampledAt != networkQuality?.sampledAt);
-    if (nextQuality != null && event.snapshot == null) {
+    if (_uiVisible && nextQuality != null && event.snapshot == null) {
       networkQuality = nextQuality;
     }
     final handledCapabilities =

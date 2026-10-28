@@ -334,6 +334,8 @@ pub struct H2FlowControlQuality {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NetworkQualitySnapshot {
     pub transport_performance: Option<crate::TransportPerformanceSnapshot>,
+    /// Runtime gateway observations exported locally, not through the UI wire schema.
+    pub direct_gateway: Option<crate::DirectGatewaySnapshot>,
     pub sampled_at: Instant,
     pub connection_id: Option<ConnectionInstanceId>,
     pub transport: Option<Transport>,
@@ -523,6 +525,7 @@ pub struct NetworkQualityTelemetry {
 
 struct NetworkQualityTelemetryInner {
     performance: crate::transport_performance::PerformanceCounters,
+    direct_gateway: RwLock<Option<Arc<crate::direct_diagnostics::DirectGatewayDiagnostics>>>,
     stream_data_plane: AtomicBool,
     features: crate::NetworkFeatureFlags,
     #[cfg(any(test, feature = "fault-injection"))]
@@ -555,6 +558,7 @@ impl NetworkQualityTelemetry {
         Self {
             inner: Arc::new(NetworkQualityTelemetryInner {
                 performance: Default::default(),
+                direct_gateway: RwLock::new(None),
                 stream_data_plane: AtomicBool::new(false),
                 features,
                 #[cfg(any(test, feature = "fault-injection"))]
@@ -570,6 +574,28 @@ impl NetworkQualityTelemetry {
 }
 
 impl NetworkQualityTelemetry {
+    /// Replace a gateway's registration so retired tasks cannot update its successor.
+    pub(crate) fn register_direct_gateway(
+        &self,
+    ) -> Arc<crate::direct_diagnostics::DirectGatewayDiagnostics> {
+        let diagnostics = Arc::new(crate::direct_diagnostics::DirectGatewayDiagnostics::default());
+        *self
+            .inner
+            .direct_gateway
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(Arc::clone(&diagnostics));
+        diagnostics
+    }
+
+    fn direct_gateway_snapshot(&self) -> Option<crate::DirectGatewaySnapshot> {
+        self.inner
+            .direct_gateway
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .as_ref()
+            .map(|diagnostics| diagnostics.snapshot())
+    }
+
     pub(crate) fn performance(&self) -> &crate::transport_performance::PerformanceCounters {
         &self.inner.performance
     }
@@ -1250,6 +1276,7 @@ impl NetworkQualitySampler {
             .load(Ordering::Relaxed);
         let mut snapshot = NetworkQualitySnapshot {
             transport_performance: state.connection_id.map(|_| performance),
+            direct_gateway: self.telemetry.direct_gateway_snapshot(),
             sampled_at,
             connection_id: state.connection_id,
             transport: state.transport,
@@ -1758,6 +1785,97 @@ mod tests {
     use tokio::time::advance;
 
     use super::*;
+
+    #[test]
+    fn direct_gateway_registration_distinguishes_missing_from_zero_and_retires_old_tasks() {
+        use crate::direct_diagnostics::DirectFallbackReason;
+
+        let connection = crate::ConnectionTelemetry::default();
+        let telemetry = connection.network_quality();
+        let mut sampler = NetworkQualitySampler::new(telemetry.clone());
+        assert!(sampler.sample().direct_gateway.is_none());
+        telemetry.begin_connection(Transport::Http2, AddressFamily::Ipv4);
+        let old = telemetry.register_direct_gateway();
+        assert_eq!(
+            sampler.sample().direct_gateway,
+            Some(crate::DirectGatewaySnapshot::default())
+        );
+        old.record_fallback(DirectFallbackReason::Unavailable);
+        assert_eq!(sampler.sample().direct_gateway.unwrap().fallback_total, 1);
+        let current = telemetry.register_direct_gateway();
+        old.record_fallback(DirectFallbackReason::SetupFailed);
+        assert_eq!(
+            sampler.sample().direct_gateway,
+            Some(crate::DirectGatewaySnapshot::default())
+        );
+        current.record_return_queue_drop(256);
+        assert_eq!(
+            sampler
+                .sample()
+                .direct_gateway
+                .unwrap()
+                .return_queue_drop_bytes,
+            256
+        );
+        connection.set_reconnect(
+            1,
+            &usque_core::TransportFailure::new(
+                usque_core::TransportFailureCode::PhysicalNetworkChanged,
+                usque_core::TransportStage::SocketConnect,
+            ),
+        );
+        current.record_flow_failure();
+        assert!(sampler.sample().connection_id.is_none());
+        assert_eq!(sampler.sample().direct_gateway, Some(current.snapshot()));
+        telemetry.begin_connection(Transport::Http3, AddressFamily::Ipv6);
+        current.record_fallback(DirectFallbackReason::WorkerFailed);
+        assert_eq!(sampler.sample().direct_gateway, Some(current.snapshot()));
+        let next = telemetry.register_direct_gateway();
+        current.record_fallback(DirectFallbackReason::Unavailable);
+        current.record_return_queue_drop(1200);
+        next.record_fallback(DirectFallbackReason::UnsupportedTarget);
+        let snapshot = sampler.sample().direct_gateway.unwrap();
+        assert_eq!(snapshot.fallback_total, 1);
+        assert_eq!(snapshot.fallback_unsupported_target, 1);
+        assert_eq!(snapshot.flow_failures, 0);
+        assert_eq!(snapshot.return_queue_drop_bytes, 0);
+    }
+
+    #[test]
+    fn direct_gateway_observations_belong_to_runtime_not_selected_transport_attempts() {
+        use crate::direct_diagnostics::DirectFallbackReason;
+
+        let telemetry = NetworkQualityTelemetry::default();
+        telemetry.begin_connection(Transport::Http3, AddressFamily::Ipv4);
+        let runtime = telemetry.register_direct_gateway();
+        runtime.record_fallback(DirectFallbackReason::FlowCapacity);
+        let first = telemetry.new_attempt(Transport::Http3, AddressFamily::Ipv6);
+        let rejected = first.register_direct_gateway();
+        rejected.record_fallback(DirectFallbackReason::SetupFailed);
+        rejected.record_return_queue_drop(65535);
+        telemetry.activate_attempt(&first);
+        let mut sampler = NetworkQualitySampler::new(telemetry.clone());
+        assert_eq!(sampler.sample().direct_gateway, Some(runtime.snapshot()));
+        let second = telemetry.new_attempt(Transport::Http2, AddressFamily::Ipv4);
+        second.register_direct_gateway().record_flow_failure();
+        telemetry.activate_attempt(&second);
+        assert_eq!(sampler.sample().direct_gateway, Some(runtime.snapshot()));
+
+        let final_runtime = NetworkQualityTelemetry::default();
+        final_runtime.begin_connection(Transport::Http2, AddressFamily::Ipv4);
+        let final_diagnostics = final_runtime.register_direct_gateway();
+        final_diagnostics.record_return_queue_drop(512);
+        let mut final_sampler = NetworkQualitySampler::new(final_runtime);
+        final_sampler.external_transport = Some(ExternalTransportTelemetry {
+            telemetry,
+            sessions: (None, None),
+            connection_id: None,
+        });
+        assert_eq!(
+            final_sampler.sample().direct_gateway,
+            Some(final_diagnostics.snapshot())
+        );
+    }
 
     fn h3_sample(sent: u64, lost: u64) -> H3MetricsSample {
         H3MetricsSample {

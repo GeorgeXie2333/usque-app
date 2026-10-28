@@ -19,8 +19,10 @@ use crate::netstack::{
     RuntimeHealth, RuntimePath, TrafficSnapshot,
 };
 use crate::network_quality::NetworkQualityTelemetry;
-use crate::packet_batch::{MAX_PACKET_BATCH_BYTES, PACKET_BATCH_CHANNEL_CAPACITY, PacketBatch};
-use crate::packet_mux::{PacketMuxTable, PacketOrigin};
+use crate::packet_batch::{
+    MAX_PACKET_BATCH_BYTES, MAX_PACKET_BATCH_PACKETS, PACKET_BATCH_CHANNEL_CAPACITY, PacketBatch,
+};
+use crate::packet_mux::{OutgoingPacketInspection, PacketMuxTable, PacketOrigin};
 use crate::pin_refresh::EndpointPinRefresher;
 use crate::queue_metrics::{
     QueueKind, TrackedReceiver, TrackedSendErrorKind, TrackedSender, tracked_channel,
@@ -806,7 +808,7 @@ impl MasqueRuntime {
             .ok_or(TransportError::TunnelClosed)?;
         let incoming_metrics = self.quality.register_queue(
             QueueKind::TransportToTun,
-            PACKET_BATCH_CHANNEL_CAPACITY,
+            PACKET_BATCH_CHANNEL_CAPACITY * MAX_PACKET_BATCH_PACKETS,
             PACKET_BATCH_CHANNEL_CAPACITY * MAX_PACKET_BATCH_BYTES,
         );
         let (incoming_tx, incoming) = tracked_channel(incoming_metrics);
@@ -1006,9 +1008,11 @@ async fn run_packet_mux(
     traffic_policy: Arc<crate::application_traffic::ApplicationTrafficPolicy>,
 ) {
     let DirectGatewayMux {
-        mut router,
+        router,
         mut incoming,
     } = direct_gateway;
+    // One allocation for the actor lifetime, never one per routed packet.
+    let mut direct_router = Some(Box::new(router));
     let WakingPipe {
         mut rx,
         tx: proxy_incoming,
@@ -1041,8 +1045,13 @@ async fn run_packet_mux(
     // No per-packet allocation/task is needed to retain an admission future.
     let mut pending_send = std::pin::pin!(None);
     let mut pending_proxy = std::pin::pin!(None);
+    // Own at most one direct classification/setup and its first packet. TUN
+    // ingress remains ordered and bounded while both return paths and proxy
+    // traffic continue to make progress during physical authorization.
+    let mut pending_direct = std::pin::pin!(None);
     loop {
         let can_send = pending_send.as_ref().get_ref().is_none();
+        let can_route = direct_router.is_some();
         let can_receive = pending_proxy.as_ref().get_ref().is_none();
         // Cancellation is prioritized, while data directions remain fair.
         let event = tokio::select! {
@@ -1051,12 +1060,13 @@ async fn run_packet_mux(
             event = async {
                 tokio::select! {
                     _ = maintenance.tick() => MuxEvent::Maintain,
-                    packet = raw_outgoing.recv(), if can_send => MuxEvent::Tun(packet),
+                    packet = raw_outgoing.recv(), if can_send && can_route => MuxEvent::Tun(packet),
                     packet = rx.recv_async(), if can_send => MuxEvent::Proxy(packet),
                     batch = tunnel.receive_batch(), if can_receive => MuxEvent::Incoming(batch),
                     packet = incoming.recv(), if direct_incoming_open => MuxEvent::Direct(packet),
                     result = wait_mux_pending(pending_send.as_mut()) => MuxEvent::Sent(result),
                     () = wait_mux_pending(pending_proxy.as_mut()) => MuxEvent::Delivered,
+                    result = wait_mux_pending(pending_direct.as_mut()), if can_send => MuxEvent::Routed(result),
                 }
             } => event,
         };
@@ -1075,6 +1085,25 @@ async fn run_packet_mux(
                 }
             }
             MuxEvent::Delivered => pending_proxy.set(None),
+            MuxEvent::Routed(result) => {
+                pending_direct.set(None);
+                direct_router = Some(result.router);
+                if let Some(RoutedTunPacket {
+                    mut packet,
+                    attachment,
+                    inspection,
+                }) = result.fallback
+                    && !attachment.is_cancelled()
+                    && flows.route_inspected_outgoing(&mut packet, inspection)
+                {
+                    pending_send.set(Some(send_mux_packet(
+                        sender.clone(),
+                        packet,
+                        Some(attachment),
+                        None,
+                    )));
+                }
+            }
             MuxEvent::Tun(packet) => {
                 let Some(packet) = packet else {
                     break;
@@ -1086,17 +1115,18 @@ async fn run_packet_mux(
                 let mut packet = packet.into_mut();
                 let inspection = flows.inspect_outgoing(PacketOrigin::Tunnel, &packet);
                 if !inspection.is_owned() {
-                    // GEO / internal DNS connection creation retains its existing
-                    // async lifecycle; it is separate from queue admission.
-                    let direct = tokio::select! {
-                        biased;
-                        _ = cancellation.cancelled() => break,
-                        _ = attachment.cancelled() => continue,
-                        direct = router.route_outgoing(&mut packet) => direct,
-                    };
-                    if direct {
-                        continue;
-                    }
+                    let router = direct_router
+                        .take()
+                        .expect("one owned direct route at a time");
+                    pending_direct.set(Some(route_mux_direct_packet(
+                        router,
+                        RoutedTunPacket {
+                            packet,
+                            attachment,
+                            inspection,
+                        },
+                    )));
+                    continue;
                 }
                 if flows.route_inspected_outgoing(&mut packet, inspection) {
                     pending_send.set(Some(send_mux_packet(
@@ -1180,6 +1210,7 @@ async fn run_packet_mux(
     }
     pending_send.set(None);
     pending_proxy.set(None);
+    pending_direct.set(None);
     if cancellation.is_cancelled() {
         raw_outgoing.cancel();
     }
@@ -1193,6 +1224,36 @@ enum MuxEvent {
     Direct(Option<Bytes>),
     Sent(Option<Result<(), TransportError>>),
     Delivered,
+    Routed(DirectRouteResult),
+}
+
+struct RoutedTunPacket {
+    packet: BytesMut,
+    attachment: CancellationToken,
+    inspection: OutgoingPacketInspection,
+}
+
+struct DirectRouteResult {
+    router: Box<DirectGatewayRouter>,
+    fallback: Option<RoutedTunPacket>,
+}
+
+async fn route_mux_direct_packet(
+    mut router: Box<DirectGatewayRouter>,
+    mut routed: RoutedTunPacket,
+) -> DirectRouteResult {
+    let consumed = tokio::select! {
+        biased;
+        () = routed.attachment.cancelled() => true,
+        consumed = router.route_outgoing(&mut routed.packet) => consumed,
+    };
+    // On attachment cancellation return ownership of the gateway instead of
+    // dropping its already-established flows. A new reservation is protected
+    // by route_outgoing's RAII guard even when its future was cancelled.
+    DirectRouteResult {
+        router,
+        fallback: (!consumed).then_some(routed),
+    }
 }
 
 fn maintain_mux_flows(flows: &mut PacketMuxTable, send_idle: bool, now: std::time::Instant) {
@@ -1276,7 +1337,8 @@ fn dispatch_tun_incoming_batch(
         return 0;
     };
     let bytes = batch.bytes();
-    match sink.try_send(batch, bytes) {
+    let packets = batch.len();
+    match sink.try_send_weighted(batch, bytes, packets) {
         Ok(()) => 0,
         Err(error) => match error.kind {
             TrackedSendErrorKind::Full | TrackedSendErrorKind::ByteLimit => error.value.len(),
@@ -1405,6 +1467,319 @@ mod tests {
     use tokio::time::timeout;
     use usque_core::FrontendSettings;
     use zeroize::Zeroizing;
+
+    struct BlockedDirectProtector {
+        calls: std::sync::atomic::AtomicUsize,
+        fail: std::sync::atomic::AtomicBool,
+        release: tokio::sync::Semaphore,
+    }
+
+    impl BlockedDirectProtector {
+        fn new() -> Self {
+            Self {
+                calls: std::sync::atomic::AtomicUsize::new(0),
+                fail: std::sync::atomic::AtomicBool::new(false),
+                release: tokio::sync::Semaphore::new(0),
+            }
+        }
+
+        async fn wait_for_calls(&self, expected: usize) {
+            timeout(Duration::from_secs(1), async {
+                while self.calls.load(std::sync::atomic::Ordering::SeqCst) != expected {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .expect("DIRECT authorization did not start");
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl SocketProtector for BlockedDirectProtector {
+        fn protect(&self, _: crate::SocketHandle) -> Result<(), String> {
+            Ok(())
+        }
+        fn tun_direct_available(&self) -> bool {
+            true
+        }
+        async fn protect_for_target(
+            &self,
+            _: crate::SocketHandle,
+            _: SocketAddr,
+            _: crate::DirectProtocol,
+        ) -> Result<crate::DirectEgressLease, String> {
+            self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            self.release.acquire().await.unwrap().forget();
+            if self.fail.load(std::sync::atomic::Ordering::SeqCst) {
+                Err("synthetic authorization failure".into())
+            } else {
+                Ok(crate::DirectEgressLease::default())
+            }
+        }
+    }
+
+    struct PendingDirectHarness {
+        io: MasqueTunIo,
+        inner_rx: TrackedReceiver<OutboundPacket>,
+        managed_incoming: TrackedSender<PacketBatch>,
+        direct_tx: mpsc::Sender<Bytes>,
+        _gateway_returns: mpsc::Receiver<Bytes>,
+        proxy: WakingPipe,
+        protector: Arc<BlockedDirectProtector>,
+        cancellation: CancellationToken,
+        task: JoinHandle<()>,
+    }
+
+    impl PendingDirectHarness {
+        async fn start() -> Self {
+            let (mut tunnel, inner_rx, managed_incoming) =
+                ManagedTunnelRuntime::packet_mux_test_channels(8);
+            let (io, raw_rx, incoming) = test_tun_io(8, 8);
+            let (tun_sink, _watch) = watch::channel(Some(incoming));
+            let (proxy_pipe, proxy) = WakingPipe::bounded(4);
+            let cancellation = CancellationToken::new();
+            let protector = Arc::new(BlockedDirectProtector::new());
+            let policy = Arc::new(crate::geo_direct::routing_test_policy(&[(
+                "198.51.100.2",
+                usque_core::RoutingAction::Direct,
+            )]));
+            let (router, gateway_returns) = DirectGatewayRouter::start(
+                &Profile::default(),
+                policy,
+                protector.clone(),
+                Arc::new(crate::netstack::TrafficCounters::default()),
+                None,
+                &cancellation,
+            )
+            .await
+            .unwrap();
+            // Feed deterministic DIRECT return events without creating native
+            // sockets or waiting for the deliberately blocked new flow.
+            let (direct_tx, incoming) = mpsc::channel(4);
+            let task_cancel = cancellation.clone();
+            let task = tokio::spawn(async move {
+                run_packet_mux(
+                    &mut tunnel,
+                    proxy_pipe,
+                    raw_rx,
+                    DirectGatewayMux { router, incoming },
+                    tun_sink,
+                    &task_cancel,
+                    NetworkQualityTelemetry::default(),
+                    Arc::default(),
+                )
+                .await;
+            });
+            Self {
+                io,
+                inner_rx,
+                managed_incoming,
+                direct_tx,
+                _gateway_returns: gateway_returns,
+                proxy,
+                protector,
+                cancellation,
+                task,
+            }
+        }
+
+        async fn stop(&mut self) {
+            self.cancellation.cancel();
+            timeout(Duration::from_secs(1), &mut self.task)
+                .await
+                .expect("pending DIRECT setup prevented mux cancellation")
+                .unwrap();
+        }
+    }
+
+    impl Drop for PendingDirectHarness {
+        fn drop(&mut self) {
+            self.cancellation.cancel();
+            self.task.abort();
+        }
+    }
+
+    fn mux_direct_packet(port: u16) -> Bytes {
+        let meta = crate::direct_gateway::NatPacket {
+            version: 4,
+            protocol: 17,
+            source: "198.51.100.2".parse().unwrap(),
+            destination: "172.16.0.2".parse().unwrap(),
+            source_port: 443,
+            destination_port: port,
+            transport_offset: 20,
+            checksum_offset: 26,
+            checksum_optional: true,
+        };
+        crate::l4::tun_wire::udp_response(&meta, b"blocked direct setup")
+    }
+
+    #[tokio::test]
+    async fn pending_direct_setup_keeps_both_return_paths_and_proxy_progressing() {
+        let mut harness = PendingDirectHarness::start().await;
+        harness
+            .io
+            .send_owned_packet(mux_udp_packet(51_000))
+            .await
+            .unwrap();
+        let wire = timeout(Duration::from_secs(1), harness.inner_rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        harness
+            .io
+            .send_owned_packet(mux_direct_packet(51_001))
+            .await
+            .unwrap();
+        harness.protector.wait_for_calls(1).await;
+
+        let meta = crate::direct_gateway::NatPacket::parse(&wire).unwrap();
+        let reply = crate::l4::tun_wire::udp_response(&meta, b"tunnel return");
+        let bytes = reply.len();
+        harness
+            .managed_incoming
+            .send(PacketBatch::single(reply), bytes)
+            .await
+            .unwrap();
+        let direct_reply = crate::l4::tun_wire::udp_response(
+            &crate::direct_gateway::NatPacket::parse(&mux_direct_packet(51_002)).unwrap(),
+            b"direct return",
+        );
+        harness.direct_tx.send(direct_reply).await.unwrap();
+        let mut saw_direct = false;
+        let mut saw_tunnel = false;
+        for _ in 0..2 {
+            let packet = timeout(Duration::from_secs(1), harness.io.receive_packet())
+                .await
+                .expect("new DIRECT setup blocked a return path")
+                .unwrap();
+            saw_direct |= packet.ends_with(b"direct return");
+            saw_tunnel |= packet.ends_with(b"tunnel return");
+        }
+        assert!(saw_direct && saw_tunnel);
+        harness.proxy.tx.send_async(&mux_udp_packet(51_003)).await;
+        assert!(
+            timeout(Duration::from_secs(1), harness.inner_rx.recv())
+                .await
+                .unwrap()
+                .is_some()
+        );
+        assert_eq!(
+            harness
+                .protector
+                .calls
+                .load(std::sync::atomic::Ordering::SeqCst),
+            1
+        );
+        assert!(!harness.task.is_finished());
+        harness.stop().await;
+    }
+
+    #[tokio::test]
+    async fn cancelled_direct_route_returns_router_and_fallback_pins_the_flow() {
+        let mut harness = PendingDirectHarness::start().await;
+        harness
+            .io
+            .send_owned_packet(mux_direct_packet(51_010))
+            .await
+            .unwrap();
+        harness.protector.wait_for_calls(1).await;
+        harness.io.cancellation.cancel();
+        harness.io.cancellation = CancellationToken::new();
+        harness
+            .io
+            .send_owned_packet(mux_udp_packet(51_011))
+            .await
+            .unwrap();
+        assert!(
+            timeout(Duration::from_secs(1), harness.inner_rx.recv())
+                .await
+                .unwrap()
+                .is_some()
+        );
+
+        harness
+            .protector
+            .fail
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        harness.protector.release.add_permits(1);
+        let direct = mux_direct_packet(51_012);
+        harness.io.send_owned_packet(direct.clone()).await.unwrap();
+        let fallback = timeout(Duration::from_secs(1), harness.inner_rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            crate::direct_gateway::NatPacket::parse(&fallback)
+                .unwrap()
+                .destination,
+            "198.51.100.2".parse::<IpAddr>().unwrap()
+        );
+        assert_eq!(
+            harness
+                .protector
+                .calls
+                .load(std::sync::atomic::Ordering::SeqCst),
+            2
+        );
+        harness.io.send_owned_packet(direct).await.unwrap();
+        assert!(
+            timeout(Duration::from_secs(1), harness.inner_rx.recv())
+                .await
+                .unwrap()
+                .is_some()
+        );
+        assert_eq!(
+            harness
+                .protector
+                .calls
+                .load(std::sync::atomic::Ordering::SeqCst),
+            2,
+            "a flow already owned by MASQUE must not attempt DIRECT again"
+        );
+        harness.stop().await;
+    }
+
+    #[tokio::test]
+    async fn tun_sink_counts_singletons_and_batches_against_the_same_packet_budget() {
+        for packets_per_batch in [1, MAX_PACKET_BATCH_PACKETS] {
+            let metrics = QueueMetrics::new(
+                QueueKind::TransportToTun,
+                1024,
+                PACKET_BATCH_CHANNEL_CAPACITY * MAX_PACKET_BATCH_BYTES,
+            );
+            let (sender, mut receiver) = tracked_channel(Arc::clone(&metrics));
+            let (sink, _watch) = watch::channel(Some(sender));
+            for _ in 0..1024 / packets_per_batch {
+                let mut batch = PacketBatch::new();
+                for _ in 0..packets_per_batch {
+                    batch.push_back(Bytes::from_static(b"packet")).unwrap();
+                }
+                assert_eq!(dispatch_tun_incoming_batch(&sink, batch), 0);
+            }
+            let full = metrics.snapshot(tokio::time::Instant::now());
+            assert_eq!(full.current_items, 1024);
+            assert_eq!(full.current_bytes, 1024 * b"packet".len() as u64);
+            assert_eq!(
+                dispatch_tun_incoming(&sink, Bytes::from_static(b"overflow")),
+                1
+            );
+            assert_eq!(receiver.recv().await.unwrap().len(), packets_per_batch);
+            let mut replacement = PacketBatch::new();
+            for _ in 0..packets_per_batch {
+                replacement
+                    .push_back(Bytes::from_static(b"packet"))
+                    .unwrap();
+            }
+            assert_eq!(dispatch_tun_incoming_batch(&sink, replacement), 0);
+            while receiver.try_recv().is_ok() {}
+            let empty = metrics.snapshot(tokio::time::Instant::now());
+            assert_eq!(empty.current_items, 0);
+            assert_eq!(empty.current_bytes, 0);
+            assert_eq!(empty.drop_items, 1);
+            assert_eq!(empty.dequeue_count, 1024 + packets_per_batch as u64);
+        }
+    }
 
     fn tracked_bytes(
         kind: QueueKind,

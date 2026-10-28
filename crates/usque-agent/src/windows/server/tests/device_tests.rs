@@ -228,3 +228,76 @@ async fn device_persistence_retry_finishes_without_a_client_or_connection_budget
         tokio::time::resume();
     }
 }
+
+#[tokio::test]
+async fn deferred_device_only_retirement_is_a_read_only_startup_transition() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = JournalStore::new(directory.path().join("retirement.json"));
+    let backend = Arc::new(ScriptedRecoveryBackend::transient(1));
+    let coordinator =
+        Arc::new(AgentCoordinator::open(store.clone(), Arc::clone(&backend)).unwrap());
+    let service = Arc::new(AgentService::new(
+        coordinator.clone(),
+        automatic_recovery_capabilities(),
+    ));
+    let (mut pipe, task) = client(service).await;
+    let lease = acquire(&mut pipe).await;
+    let prepared = exchange(
+        &mut pipe,
+        agent_request::Payload::PrepareTunnel(agent_v1::PrepareTunnelRequest {
+            operation_id: Uuid::new_v4().to_string(),
+            plan: Some(egress_plan().to_proto()),
+            device_lease_id: lease.lease_id.clone(),
+            device_lease_generation: lease.lease_generation,
+            expected_journal_generation: lease.journal_generation,
+        }),
+    )
+    .await;
+    assert!(prepared.error.is_some());
+    assert_eq!(
+        coordinator.state().await.device.unwrap().state,
+        crate::journal::DeviceState::Idle
+    );
+    release(&mut pipe, &lease).await;
+    assert!(coordinator.device_retirement_deferred());
+    assert!(coordinator.may_exit_idle().await);
+    let generation = coordinator.state().await.generation;
+    for _ in 0..2 {
+        let response = exchange(
+            &mut pipe,
+            agent_request::Payload::GetState(agent_v1::GetStateRequest {}),
+        )
+        .await;
+        let error = response
+            .error
+            .expect("retiring service must not admit a new session");
+        assert_eq!(error.code, "AGENT_DEVICE_RETIRING");
+        assert!(error.retryable);
+        assert_eq!(coordinator.state().await.generation, generation);
+        assert_eq!(backend.restore_calls.load(Ordering::Acquire), 1);
+    }
+    drop(pipe);
+    task.await.unwrap();
+
+    // A journal's persistent RecoveryRequired device is not, by itself, proof
+    // that a service is exiting. A fresh coordinator has no retirement attempt.
+    let fresh = Arc::new(AgentCoordinator::open(store, Arc::new(RejectingBackend)).unwrap());
+    assert!(!fresh.device_retirement_deferred());
+    let service = Arc::new(AgentService::new(fresh, automatic_recovery_capabilities()));
+    let (mut pipe, task) = client(service).await;
+    let response = exchange(
+        &mut pipe,
+        agent_request::Payload::GetState(agent_v1::GetStateRequest {}),
+    )
+    .await;
+    assert!(response.error.is_none());
+    let Some(agent_response::Payload::State(state)) = response.payload else {
+        panic!("state");
+    };
+    assert_eq!(
+        state.device.unwrap().phase,
+        agent_v1::ManagedDevicePhase::RecoveryRequired as i32
+    );
+    drop(pipe);
+    task.await.unwrap();
+}

@@ -3979,11 +3979,26 @@ void main() {
   testWidgets('Windows settings hide the per-app proxy picker', (tester) async {
     debugDefaultTargetPlatformOverride = TargetPlatform.windows;
     try {
+      const channel = MethodChannel('io.github.georgexie2333.usque/engine');
+      final messenger = tester.binding.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        if (call.method == 'getWindowVisibility') return true;
+        throw MissingPluginException();
+      });
+      addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
       SharedPreferences.setMockInitialValues(<String, Object>{
         'onboarding_complete': true,
       });
       await tester.pumpWidget(UsqueBootstrap(engine: FakeEngineClient()));
       await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<ShellScreen>(find.byType(ShellScreen))
+            .controller
+            .uiVisible,
+        isTrue,
+        reason: 'a visible desktop remains interactive after startup',
+      );
       await tester.tap(
         find.descendant(
           of: find.byType(NavigationRail),
@@ -4908,6 +4923,13 @@ void main() {
   ) async {
     debugDefaultTargetPlatformOverride = TargetPlatform.windows;
     try {
+      const channel = MethodChannel('io.github.georgexie2333.usque/engine');
+      final messenger = tester.binding.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        if (call.method == 'getWindowVisibility') return true;
+        throw MissingPluginException();
+      });
+      addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
       tester.view.devicePixelRatio = 1;
       tester.view.physicalSize = const Size(1280, 900);
       addTearDown(tester.view.resetDevicePixelRatio);

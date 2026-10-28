@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
+import '../state/app_controller.dart';
+
 /// Rebuilds only when the selected value changes, for pages that read more
 /// than the app controller (network quality, diagnostics).
 ///
@@ -55,6 +57,11 @@ class _ListenableSelectorState<T> extends State<ListenableSelector<T>> {
 
   void _changed() {
     if (!mounted) return;
+    if (widget.listenables.any(
+      (value) => value is AppController && !value.uiVisible,
+    )) {
+      return;
+    }
     final next = widget.selector();
     final same = widget.equals?.call(_value, next) ?? next == _value;
     if (same) return;

@@ -1319,6 +1319,15 @@ where
                 agent_response::Payload::Capabilities(self.capabilities.clone())
             }
             agent_request::Payload::GetState(_) => {
+                // A durable device-only retirement may need the current
+                // process to exit before startup can retry native removal.
+                // Report that precise transition rather than making a new
+                // Engine treat it as a permanent device-recovery failure.
+                if self.coordinator.device_retirement_deferred()
+                    && self.coordinator.may_exit_idle().await
+                {
+                    return Err((request_id, ServiceError::DeviceRetiring));
+                }
                 agent_response::Payload::State(self.current_proto_state().await)
             }
             agent_request::Payload::InspectPlatformState(_) => {
@@ -2788,6 +2797,8 @@ impl Drop for SecurityDescriptor {
 
 #[derive(Debug, thiserror::Error)]
 enum ServiceError {
+    #[error("the Agent is finishing durable device-only retirement; retry startup after it exits")]
+    DeviceRetiring,
     #[error("the physical network generation changed during socket preparation")]
     StaleGeneration,
     #[error("Agent protocol version {0} is unsupported")]
@@ -2837,6 +2848,7 @@ enum ServiceError {
 impl ServiceError {
     fn code(&self) -> (&'static str, bool) {
         match self {
+            Self::DeviceRetiring => ("AGENT_DEVICE_RETIRING", true),
             Self::StaleGeneration => ("AGENT_STALE_GENERATION", true),
             Self::ProtocolVersion(_) => ("AGENT_PROTOCOL_MISMATCH", false),
             Self::RequestId
@@ -2935,6 +2947,7 @@ pub enum ServerError {
 #[cfg(test)]
 mod tests {
     mod device_tests;
+    mod pipe_reuse_tests;
     use std::{
         io,
         sync::atomic::{AtomicBool, AtomicUsize, Ordering},

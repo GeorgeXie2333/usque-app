@@ -255,6 +255,7 @@ fn write_diagnostic_bundle(
         let value = serde_json::json!({
             "connection_instance_id": quality.connection_id.map(|id| id.0.to_string()),
             "transport_performance": quality.transport_performance.as_ref().map(usque_transport::TransportPerformanceSnapshot::to_json),
+            "direct_gateway": quality.direct_gateway.as_ref().map(usque_transport::DirectGatewaySnapshot::to_json),
             "queues": quality.queues.iter().map(|queue| serde_json::json!({
                 "kind": queue.kind.as_str(), "current_items": queue.current_items,
                 "current_bytes": queue.current_bytes, "drop_items": queue.drop_items,
@@ -1483,6 +1484,58 @@ mod tests {
                 transport == Some(usque_core::Transport::Http3)
             );
             assert!(!bundle.contains("private.example"));
+        }
+    }
+
+    #[test]
+    fn diagnostic_archive_exports_typed_direct_gateway_counters() {
+        use usque_transport::{
+            DirectGatewaySnapshot, NetworkQualitySampler, NetworkQualityTelemetry,
+        };
+
+        let directory = tempfile::tempdir().unwrap();
+        let destination = directory.path().join("direct.zip");
+        let mut quality = NetworkQualitySampler::new(NetworkQualityTelemetry::default()).sample();
+        let counts = DirectGatewaySnapshot {
+            fallback_total: 3,
+            fallback_unsupported_target: 2,
+            fallback_setup_failed: 1,
+            return_queue_drop_packets: 4,
+            return_queue_drop_bytes: 600,
+            ..Default::default()
+        };
+        quality.direct_gateway = Some(counts.clone());
+        let context = DiagnosticTransportContext {
+            network_quality: Some(quality),
+            ..Default::default()
+        };
+        let logs = directory.path().join("logs");
+        fs::create_dir_all(&logs).unwrap();
+        fs::write(
+            logs.join("engine.jsonl"),
+            br#"{"fields":{"reason_code":"direct_setup_failed","fallback_count":1,"remote":"192.0.2.1:443","error":"token=private"}}"#,
+        )
+        .unwrap();
+        write_diagnostic_bundle(
+            &destination,
+            &AppConfig::default(),
+            &ConnectionSnapshot::default(),
+            None,
+            &context,
+            &logs,
+        )
+        .unwrap();
+        let bytes = fs::read(destination).unwrap();
+        // The archive stores JSON entries without compression. Verify the
+        // complete numeric section, rather than finding unrelated log counts.
+        let expected = serde_json::to_string_pretty(&counts.to_json()).unwrap();
+        let indented = expected.replace('\n', "\n  ");
+        let section = format!("\"direct_gateway\": {indented}");
+        let text = String::from_utf8_lossy(&bytes);
+        assert!(text.contains("transport-performance.json"));
+        assert!(text.contains(&section), "missing direct gateway JSON");
+        for private in ["192.0.2.1", "token=private", "\"remote\":"] {
+            assert!(!text.contains(private));
         }
     }
 

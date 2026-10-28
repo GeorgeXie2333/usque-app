@@ -228,16 +228,55 @@ struct Fixture {
 }
 
 #[derive(Default)]
-struct RejectedPhysicalNetwork(AtomicUsize);
+struct RejectedPhysicalNetwork {
+    socket_protections: AtomicUsize,
+    resolutions: AtomicUsize,
+    target_leases: AtomicUsize,
+}
+
+impl RejectedPhysicalNetwork {
+    fn actual_attempts(&self) -> usize {
+        self.resolutions.load(Ordering::SeqCst) + self.target_leases.load(Ordering::SeqCst)
+    }
+}
+
+#[async_trait]
 impl crate::SocketProtector for RejectedPhysicalNetwork {
     fn protect(&self, _: crate::SocketHandle) -> Result<(), String> {
-        self.0.fetch_add(1, Ordering::SeqCst);
+        self.socket_protections.fetch_add(1, Ordering::SeqCst);
         Err("fixture forbids physical egress".into())
     }
+    async fn protect_for_target(
+        &self,
+        _: crate::SocketHandle,
+        _: SocketAddr,
+        _: crate::DirectProtocol,
+    ) -> Result<crate::DirectEgressLease, String> {
+        self.target_leases.fetch_add(1, Ordering::SeqCst);
+        Err("fixture forbids physical target leases".into())
+    }
     fn resolve(&self, _: &str, _: u16) -> Result<Vec<SocketAddr>, String> {
-        self.0.fetch_add(1, Ordering::SeqCst);
+        self.resolutions.fetch_add(1, Ordering::SeqCst);
         Err("fixture forbids physical DNS".into())
     }
+}
+
+#[tokio::test]
+async fn preparing_direct_sockets_does_not_resolve_lease_or_send_to_a_physical_peer() {
+    let physical = RejectedPhysicalNetwork::default();
+    let peer = TokioUdpSocket::bind((Ipv4Addr::LOCALHOST, 0))
+        .await
+        .unwrap();
+    let direct = DirectUdpSockets::new(&physical);
+    assert!(direct.v4.is_none() && direct.v6.is_none());
+    assert_eq!(physical.socket_protections.load(Ordering::SeqCst), 2);
+    assert_eq!(physical.resolutions.load(Ordering::SeqCst), 0);
+    assert_eq!(physical.target_leases.load(Ordering::SeqCst), 0);
+    assert!(
+        timeout(Duration::from_millis(30), peer.recv_from(&mut [0; 16]))
+            .await
+            .is_err()
+    );
 }
 
 impl Fixture {
@@ -446,7 +485,7 @@ impl Fixture {
             crate::l4::Limits::platform().active
         );
         assert_eq!(self.proxy.budget.available(), 16 << 20);
-        assert_eq!(self.physical.0.load(Ordering::SeqCst), 0);
+        assert_eq!(self.physical.actual_attempts(), 0);
         let expected = format!(
             "198.51.100.10:{}",
             if self.peer.source == ChainSource::HttpProxy {
@@ -594,11 +633,11 @@ async fn resolved_dns_server_ip_direct_uses_the_protected_direct_path_first() {
     let mut fixture =
         Fixture::with_policy(ChainSource::HttpProxy, ProxyDnsMode::EdgeResolved, policy).await;
     let (control, udp, relay) = fixture.associate().await;
-    let before = fixture.physical.0.load(Ordering::SeqCst);
+    let before = fixture.physical.actual_attempts();
     // The physical protector rejects without sending; the existing direct
     // failure fallback may then query the same checked numeric target.
     exchange(&udp, relay, &TcpTarget::new("dns.example", 53).unwrap(), 52).await;
-    assert!(fixture.physical.0.load(Ordering::SeqCst) > before);
+    assert!(fixture.physical.actual_attempts() > before);
     assert!(
         fixture
             .peer
@@ -773,7 +812,7 @@ async fn associate_timeout_keeps_udp_unknown_and_dns_bound_to_the_final_exit() {
         answer(&request)
     );
     assert_eq!(*fixture.peer.dns_targets.lock().unwrap(), vec![target]);
-    assert_eq!(fixture.physical.0.load(Ordering::SeqCst), 0);
+    assert_eq!(fixture.physical.actual_attempts(), 0);
     assert_eq!(
         fixture.proxy.status.borrow().proxy_udp.as_deref(),
         Some("unknown")
@@ -1041,7 +1080,7 @@ async fn regression_tcp_only_chain_resolver_must_try_healthy_backup() {
         .map(|t| t.authority().to_owned())
         .collect();
     cancel.cancel();
-    assert_eq!(physical.0.load(Ordering::SeqCst), 0);
+    assert_eq!(physical.actual_attempts(), 0);
     assert!(
         result.is_ok(),
         "healthy backup was starved by silent primary: {result:?}, attempts: {attempted:?}"
@@ -1082,7 +1121,7 @@ async fn regression_tcp_only_chain_system_dns_must_try_healthy_backup() {
         .map(|t| t.authority().to_owned())
         .collect();
     cancel.cancel();
-    assert_eq!(physical.0.load(Ordering::SeqCst), 0);
+    assert_eq!(physical.actual_attempts(), 0);
     assert_eq!(
         response,
         answer(&request),
@@ -1124,7 +1163,7 @@ async fn regression_system_dns_servfail_must_not_hide_healthy_backup() {
         .map(|t| t.authority().to_owned())
         .collect();
     cancel.cancel();
-    assert_eq!(physical.0.load(Ordering::SeqCst), 0);
+    assert_eq!(physical.actual_attempts(), 0);
     assert_eq!(
         response,
         answer(&request),
@@ -1168,7 +1207,7 @@ async fn regression_control_healthy_server_answers_both_dns_paths() {
     assert_eq!(resolver.handle_l4(&request, true).await, answer(&request));
     dns.clear();
     cancel.cancel();
-    assert_eq!(physical.0.load(Ordering::SeqCst), 0);
+    assert_eq!(physical.actual_attempts(), 0);
 }
 
 #[tokio::test(start_paused = true)]
@@ -1200,7 +1239,7 @@ async fn regression_control_domain_resolver_retries_servfail() {
     );
     dns.clear();
     cancel.cancel();
-    assert_eq!(physical.0.load(Ordering::SeqCst), 0);
+    assert_eq!(physical.actual_attempts(), 0);
 }
 
 #[tokio::test]
@@ -1231,7 +1270,7 @@ async fn pending_and_timed_out_udp_associate_do_not_block_local_dns() {
         fixture.proxy.status.borrow().proxy_udp.as_deref(),
         Some("unknown")
     );
-    assert_eq!(fixture.physical.0.load(Ordering::SeqCst), 0);
+    assert_eq!(fixture.physical.actual_attempts(), 0);
     drop(control);
     fixture.shutdown().await;
 }

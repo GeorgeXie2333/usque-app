@@ -26,6 +26,11 @@ pub(super) struct UdpFlows {
     rejector: UdpRejector,
 }
 impl UdpFlows {
+    pub(super) fn has_source(&self, meta: &NatPacket) -> bool {
+        self.senders
+            .get(&SocketAddr::new(meta.source, meta.source_port))
+            .is_some_and(|sender| !sender.is_closed())
+    }
     pub(super) fn new(idle: u32, hints: Arc<DnsRouteCache>, rejector: UdpRejector) -> Self {
         Self {
             senders: HashMap::new(),
@@ -107,7 +112,7 @@ async fn worker(
 ) {
     let mut association: Option<Arc<dyn crate::proxy_udp::UdpAssociation>> = None;
     let mut association_reader = None;
-    let mut targets: HashMap<SocketAddr, (NatPacket, Instant)> = HashMap::new();
+    let mut targets: HashMap<SocketAddr, (NatPacket, Instant, GeoRoute)> = HashMap::new();
     // Only one outstanding quote per bounded target. Charge retained bytes to
     // the same runtime budget and discard them after a reply or idle expiry.
     let mut pending_quotes: HashMap<SocketAddr, Bytes> = HashMap::new();
@@ -122,7 +127,7 @@ async fn worker(
             _ = cancel.cancelled() => break,
             _ = tick.tick() => {
                 if last.elapsed() >= idle || generation != services.protector.network_generation() { break; }
-                targets.retain(|_, (_, time)| time.elapsed() < idle);
+                targets.retain(|_, (_, time, _)| time.elapsed() < idle);
                 direct.retain(|a, _| targets.contains_key(a));
                 pending_quotes.retain(|a, _| targets.contains_key(a));
             }
@@ -130,7 +135,12 @@ async fn worker(
                 let Some((meta, packet)) = packet else { break; };
                 if generation != services.protector.network_generation() { break; }
                 let remote = SocketAddr::new(meta.destination, meta.destination_port);
-                let route = hints.route_ip(remote.ip(), generation, &services.geo_policy);
+                // A target owns its selected path until idle expiry. A new
+                // target in the same association observes the latest rules.
+                let routing = services.geo_policy.freeze_routing();
+                let admitted = targets.get(&remote).map(|(_, _, route)| *route);
+                let route = admitted
+                    .unwrap_or_else(|| hints.route_ip(remote.ip(), generation, &routing));
                 if route == GeoRoute::Reject { rejector.reject(&packet, &meta); continue; }
                 if route == GeoRoute::Direct && !crate::geo_direct::direct_family_available(services.protector.as_ref(), remote) {
                     rejector.reject(&packet, &meta); continue;
@@ -164,12 +174,17 @@ async fn worker(
                     }
                     if let Some((socket, _, _)) = direct.get(&remote)
                         && socket.send_to(payload, remote).await.is_ok() {
-                        targets.insert(remote, (meta, Instant::now()));
+                        targets.insert(remote, (meta, Instant::now(), GeoRoute::Direct));
                         last = Instant::now();
                         services.counters.record_sent(payload.len()); continue;
                     }
                     if !targets.contains_key(&remote) {
                         direct.remove(&remote);
+                    }
+                    if admitted == Some(GeoRoute::Direct) {
+                        // A previously admitted direct flow cannot migrate to
+                        // the final exit after a transient physical send error.
+                        rejector.reject(&packet, &meta); continue;
                     }
                     if !crate::geo_direct::direct_family_available(services.protector.as_ref(), remote) {
                         rejector.reject(&packet, &meta); continue;
@@ -215,7 +230,7 @@ async fn worker(
                 if let Some(association) = &association {
                     match tokio::time::timeout(Duration::from_secs(10), association.send(&TcpTarget::address(remote), payload)).await {
                         Ok(Ok(())) => {
-                            targets.insert(remote, (meta, Instant::now()));
+                            targets.insert(remote, (meta, Instant::now(), GeoRoute::Tunnel));
                             last = Instant::now();
                             services.counters.record_sent(payload.len());
                             pending_quotes.insert(remote, quote);
@@ -240,7 +255,8 @@ async fn worker(
                     None => break,
                 };
                 if generation != services.protector.network_generation() { break; }
-                let Some((meta,_)) = targets.get(&source) else { continue; };
+                let Some((meta,_, selected)) = targets.get(&source) else { continue; };
+                if *selected != route { continue; }
                 pending_quotes.remove(&source);
                 if route == GeoRoute::Tunnel && services.traffic_policy.blocks_udp(source.port()) { continue; }
                 if payload.len() + meta.transport_offset + 8 > mtu { continue; }

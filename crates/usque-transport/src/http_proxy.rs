@@ -511,8 +511,8 @@ async fn handle_forward(
         Ok(destination) => destination,
         Err(message) => return error_response(StatusCode::BAD_REQUEST, &message, false),
     };
-    if GeoTarget::from_host(&destination.host).route(&pool.context.geo_policy)
-        == crate::geo_direct::GeoRoute::Reject
+    let policy = pool.context.geo_policy.freeze_routing();
+    if GeoTarget::from_host(&destination.host).route(&policy) == crate::geo_direct::GeoRoute::Reject
     {
         return error_response(StatusCode::FORBIDDEN, "routing_rejected", false);
     }
@@ -529,7 +529,9 @@ async fn handle_forward(
         .boxed();
     let request = Request::from_parts(parts, body);
 
-    let first = pool.send(&destination.authority, request, false).await;
+    let first = pool
+        .send_with_policy(&destination.authority, request, false, &policy)
+        .await;
     let mut response = match first {
         Ok(response) => response,
         Err(PoolError::StaleReused) if replayable => {
@@ -537,7 +539,7 @@ async fn handle_forward(
                 return error_response(StatusCode::BAD_GATEWAY, "upstream closed", false);
             };
             match pool
-                .send(&destination.authority, replay.into_request(), true)
+                .send_with_policy(&destination.authority, replay.into_request(), true, &policy)
                 .await
             {
                 Ok(response) => response,
@@ -597,6 +599,7 @@ struct SessionPool {
 
 struct PoolEntry {
     authority: String,
+    routing_revision: u64,
     tunnel_epoch: Option<u32>,
     last_used: Instant,
     sender: SendRequest<ProxyBody>,
@@ -612,13 +615,28 @@ impl SessionPool {
         }
     }
 
+    #[cfg(test)]
     async fn send(
         &self,
         authority: &str,
         request: Request<ProxyBody>,
         force_new: bool,
     ) -> Result<Response<Incoming>, PoolError> {
-        let (mut entry, reused) = self.acquire(authority, force_new).await?;
+        let policy = self.context.geo_policy.freeze_routing();
+        self.send_with_policy(authority, request, force_new, &policy)
+            .await
+    }
+
+    async fn send_with_policy(
+        &self,
+        authority: &str,
+        request: Request<ProxyBody>,
+        force_new: bool,
+        policy: &GeoDirectPolicy,
+    ) -> Result<Response<Incoming>, PoolError> {
+        let (mut entry, reused) = self
+            .acquire_with_policy(authority, force_new, policy)
+            .await?;
         if entry.sender.ready().await.is_err() {
             if reused {
                 self.context
@@ -652,23 +670,37 @@ impl SessionPool {
         Ok(response)
     }
 
+    #[cfg(test)]
     async fn acquire(
         &self,
         authority: &str,
         force_new: bool,
     ) -> Result<(PoolEntry, bool), PoolError> {
+        let policy = self.context.geo_policy.freeze_routing();
+        self.acquire_with_policy(authority, force_new, &policy)
+            .await
+    }
+
+    async fn acquire_with_policy(
+        &self,
+        authority: &str,
+        force_new: bool,
+        policy: &GeoDirectPolicy,
+    ) -> Result<(PoolEntry, bool), PoolError> {
+        let routing_revision = policy.routing_revision();
         let destination = parse_destination(authority, 80).map_err(PoolError::Upstream)?;
-        if GeoTarget::from_host(&destination.host).route(&self.context.geo_policy)
+        if GeoTarget::from_host(&destination.host).route(policy)
             == crate::geo_direct::GeoRoute::Reject
         {
             return Err(PoolError::Rejected);
         }
-        if !force_new {
+        {
             let mut idle = self.idle.lock().await;
-            prune_idle(&mut idle);
+            prune_idle(&mut idle, &self.context.geo_policy);
             idle.retain(|entry| entry.tunnel_epoch.is_none_or(|epoch| matches!(*self.context.health.borrow(), RuntimeHealth::Connected { reconnect_count, .. } if reconnect_count == epoch)));
             if let Some(index) = idle.iter().rposition(|entry| {
-                entry.authority.eq_ignore_ascii_case(authority) && entry.sender.is_ready()
+                !force_new && entry.routing_revision == routing_revision
+                    && entry.authority.eq_ignore_ascii_case(authority) && entry.sender.is_ready()
                     && entry.tunnel_epoch.is_none_or(|epoch| matches!(*self.context.health.borrow(), RuntimeHealth::Connected { reconnect_count, .. } if reconnect_count == epoch))
             }) {
                 self.context
@@ -691,14 +723,14 @@ impl SessionPool {
                 .fetch_add(1, Ordering::Relaxed);
             PoolError::Busy
         })?;
-        let destination = parse_destination(authority, 80).map_err(PoolError::Upstream)?;
-        let remote = connect_remote(&self.context, &destination.host, destination.port)
-            .await
-            .map_err(|error| match error {
-                RemoteConnectError::Rejected => PoolError::Rejected,
-                RemoteConnectError::BudgetExhausted => PoolError::Busy,
-                RemoteConnectError::Failed(message) => PoolError::Upstream(message),
-            })?;
+        let remote =
+            connect_remote_with_policy(&self.context, policy, &destination.host, destination.port)
+                .await
+                .map_err(|error| match error {
+                    RemoteConnectError::Rejected => PoolError::Rejected,
+                    RemoteConnectError::BudgetExhausted => PoolError::Busy,
+                    RemoteConnectError::Failed(message) => PoolError::Upstream(message),
+                })?;
         let tunnel_epoch = matches!(&remote, RoutedTcpStream::Tunnel(_))
             .then(|| self.context.health.borrow().reconnect_count());
         let (sender, connection) = hyper::client::conn::http1::Builder::new()
@@ -720,6 +752,7 @@ impl SessionPool {
         Ok((
             PoolEntry {
                 authority: destination.authority,
+                routing_revision,
                 tunnel_epoch,
                 last_used: Instant::now(),
                 sender,
@@ -730,25 +763,37 @@ impl SessionPool {
     }
 
     async fn release(&self, mut entry: PoolEntry) {
-        if entry.sender.is_closed() {
+        if entry.sender.is_closed()
+            || !self
+                .context
+                .geo_policy
+                .routing_is_current(entry.routing_revision)
+        {
             return;
         }
         entry.last_used = Instant::now();
         let mut idle = self.idle.lock().await;
-        prune_idle(&mut idle);
+        prune_idle(&mut idle, &self.context.geo_policy);
         let same_authority = idle
             .iter()
             .filter(|candidate| candidate.authority.eq_ignore_ascii_case(&entry.authority))
             .count();
         if same_authority < MAX_IDLE_PER_AUTHORITY {
-            idle.push(entry);
+            // Hold the revision guard through insertion: an update cannot
+            // publish between checking an old request and returning it to idle.
+            let _ = self
+                .context
+                .geo_policy
+                .with_current_routing(entry.routing_revision, || idle.push(entry));
         }
     }
 }
 
-fn prune_idle(idle: &mut Vec<PoolEntry>) {
+fn prune_idle(idle: &mut Vec<PoolEntry>, policy: &GeoDirectPolicy) {
     idle.retain(|entry| {
-        !entry.sender.is_closed() && entry.last_used.elapsed() < UPSTREAM_IDLE_TIMEOUT
+        policy.routing_is_current(entry.routing_revision)
+            && !entry.sender.is_closed()
+            && entry.last_used.elapsed() < UPSTREAM_IDLE_TIMEOUT
     });
 }
 
@@ -909,19 +954,28 @@ async fn connect_remote(
     host: &str,
     port: u16,
 ) -> Result<RoutedTcpStream, RemoteConnectError> {
-    connect_remote_inner(context, host, port).await
+    let policy = context.geo_policy.freeze_routing();
+    connect_remote_with_policy(context, &policy, host, port).await
 }
 
-async fn connect_remote_inner(
+async fn connect_remote_with_policy(
     context: &HttpContext,
+    policy: &GeoDirectPolicy,
     host: &str,
     port: u16,
 ) -> Result<RoutedTcpStream, RemoteConnectError> {
+    // DNS response filtering must use the same immutable routing revision as
+    // route selection and the pool entry, even if resolution waits for recovery.
+    let resolver = context
+        .resolver
+        .clone()
+        .with_routing(Arc::new(policy.clone()));
+    let resolver = &resolver;
     connect_routed(
-        &context.geo_policy,
+        policy,
         context.protector.as_ref(),
         Arc::clone(&context.counters),
-        (GeoTarget::from_host(host), port, Some(&context.resolver)),
+        (GeoTarget::from_host(host), port, Some(resolver)),
         (
             |reason| RemoteConnectError::Failed(reason.to_owned()),
             || RemoteConnectError::Rejected,
@@ -952,8 +1006,7 @@ async fn connect_remote_inner(
                         let resolution = if let Some(addresses) = resolved {
                             CandidateResolution::from_addresses(addresses)
                         } else {
-                            context
-                                .resolver
+                            resolver
                                 .resolve_candidates(host, deadline)
                                 .map_err(|error| resolution_failure(error.to_string()))?
                         };
@@ -1425,6 +1478,228 @@ mod tests {
 
         drop(pool);
         http_server.abort();
+    }
+
+    fn publish_pool_route(
+        policy: &GeoDirectPolicy,
+        target: &str,
+        action: usque_core::RoutingAction,
+    ) {
+        let profile = Profile {
+            allow_lan: false,
+            routing: usque_core::RoutingSettings {
+                rules: vec![usque_core::RoutingRule {
+                    id: uuid::Uuid::new_v4(),
+                    kind: if target.parse::<IpAddr>().is_ok() {
+                        usque_core::RoutingMatch::Cidr
+                    } else {
+                        usque_core::RoutingMatch::Domain
+                    },
+                    target: target.into(),
+                    action,
+                }],
+                ads_enabled: false,
+            },
+            ..Default::default()
+        };
+        let prepared = policy.prepare_routing_update(&profile).unwrap();
+        policy.publish_routing_update(prepared).unwrap();
+    }
+
+    fn pool_origin(
+        listener: ts_netstack_smoltcp::netsock::TcpListener,
+    ) -> (tokio_util::task::AbortOnDropHandle<()>, Arc<AtomicUsize>) {
+        let accepts = Arc::new(AtomicUsize::new(0));
+        let count = accepts.clone();
+        let task = tokio::spawn(async move {
+            let mut connections = tokio::task::JoinSet::new();
+            loop {
+                // A stack Accept RPC can already own its socket while its
+                // response is queued. Selecting a completed old connection
+                // here would drop that reply and strand the new HTTP client.
+                let stream = listener.accept().await.unwrap();
+                count.fetch_add(1, Ordering::SeqCst);
+                connections.spawn(async move {
+                    hyper::server::conn::http1::Builder::new()
+                        .keep_alive(true)
+                        .serve_connection(
+                            TokioIo::new(stream),
+                            service_fn(|_request| async {
+                                Ok::<_, Infallible>(Response::new(Full::new(Bytes::from_static(
+                                    b"ok",
+                                ))))
+                            }),
+                        )
+                        .await
+                        .unwrap();
+                });
+                while let Some(result) = connections.try_join_next() {
+                    result.unwrap();
+                }
+            }
+        });
+        (tokio_util::task::AbortOnDropHandle::new(task), accepts)
+    }
+
+    fn pool_request(uri: &str) -> Request<ProxyBody> {
+        Request::builder()
+            .method(Method::GET)
+            .uri(uri)
+            .header(HOST, "10.0.0.2:8080")
+            .body(empty_body())
+            .unwrap()
+    }
+
+    async fn pool_get(pool: &SessionPool) -> Result<Bytes, PoolError> {
+        let response = tokio::time::timeout(
+            Duration::from_secs(3),
+            pool.send("10.0.0.2:8080", pool_request("/"), false),
+        )
+        .await
+        .map_err(|_| PoolError::Upstream("test upstream response headers timed out".into()))??;
+        tokio::time::timeout(Duration::from_secs(3), response.into_body().collect())
+            .await
+            .map_err(|_| PoolError::Upstream("test upstream response body timed out".into()))?
+            .map(|body| body.to_bytes())
+            .map_err(|error| PoolError::Upstream(error.to_string()))
+    }
+
+    #[tokio::test]
+    async fn hot_rule_updates_redial_http_pool_entries_and_preserve_same_revision_reuse() {
+        let mut fixture = StackedProxy::new().await;
+        let protector = Arc::new(crate::geo_direct::LanProbeProtector::default());
+        Arc::get_mut(&mut fixture.context).unwrap().protector = protector.clone();
+        let _cancel = fixture.context.cancellation.clone().drop_guard();
+        let (_origin, accepts) = pool_origin(fixture.origin);
+        let pool = SessionPool::new(fixture.context.clone());
+        assert_eq!(pool_get(&pool).await.unwrap(), "ok");
+
+        publish_pool_route(
+            &fixture.context.geo_policy,
+            "10.0.0.2",
+            usque_core::RoutingAction::Direct,
+        );
+        assert_eq!(pool_get(&pool).await.unwrap(), "ok");
+        // This probe rejects socket protection before any physical connect.
+        // Its one attempt proves the new request evaluated Direct instead of
+        // reusing the old tunneled keepalive connection.
+        assert_eq!(protector.attempts.lock().unwrap().len(), 1);
+        assert_eq!(pool_get(&pool).await.unwrap(), "ok");
+        assert_eq!(accepts.load(Ordering::SeqCst), 2);
+        assert_eq!(fixture.context.performance.hits.load(Ordering::Relaxed), 1);
+
+        publish_pool_route(
+            &fixture.context.geo_policy,
+            "10.0.0.2",
+            usque_core::RoutingAction::Proxy,
+        );
+        assert_eq!(pool_get(&pool).await.unwrap(), "ok");
+        assert_eq!(protector.attempts.lock().unwrap().len(), 1);
+        assert_eq!(accepts.load(Ordering::SeqCst), 3);
+        assert_eq!(pool.idle.lock().await.len(), 1);
+        publish_pool_route(
+            &fixture.context.geo_policy,
+            "10.0.0.2",
+            usque_core::RoutingAction::Reject,
+        );
+        assert!(matches!(pool_get(&pool).await, Err(PoolError::Rejected)));
+        assert_eq!(accepts.load(Ordering::SeqCst), 3);
+    }
+
+    #[tokio::test]
+    async fn waiting_http_request_keeps_its_routing_snapshot_but_cannot_return_old_connection_to_idle()
+     {
+        let fixture = StackedProxy::new().await;
+        let _cancel = fixture.context.cancellation.clone().drop_guard();
+        let (_origin, accepts) = pool_origin(fixture.origin);
+        let pool = SessionPool::new(fixture.context.clone());
+        let locked = pool.idle.lock().await;
+        let mut request = Box::pin(pool_get(&pool));
+        // Poll the real request until pool admission awaits this held mutex.
+        tokio::select! {
+            biased;
+            result = &mut request => panic!("request bypassed pool admission: {result:?}"),
+            () = tokio::task::yield_now() => {}
+        }
+        publish_pool_route(
+            &fixture.context.geo_policy,
+            "10.0.0.2",
+            usque_core::RoutingAction::Reject,
+        );
+        drop(locked);
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(3), request)
+                .await
+                .unwrap()
+                .unwrap(),
+            "ok"
+        );
+        assert_eq!(accepts.load(Ordering::SeqCst), 1);
+        assert!(pool.idle.lock().await.is_empty());
+        assert_eq!(pool.permits.available_permits(), MAX_SESSION_CONNECTIONS);
+        assert!(matches!(pool_get(&pool).await, Err(PoolError::Rejected)));
+        assert_eq!(accepts.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn rule_publication_while_release_waits_for_idle_lock_cannot_reinsert_an_old_entry() {
+        let fixture = StackedProxy::new().await;
+        let _cancel = fixture.context.cancellation.clone().drop_guard();
+        let (_origin, _accepts) = pool_origin(fixture.origin);
+        let pool = SessionPool::new(fixture.context.clone());
+        let (entry, reused) = pool.acquire("10.0.0.2:8080", false).await.unwrap();
+        assert!(!reused);
+        let locked = pool.idle.lock().await;
+        let mut release = Box::pin(pool.release(entry));
+        tokio::select! {
+            biased;
+            () = &mut release => panic!("release bypassed idle lock"),
+            () = tokio::task::yield_now() => {}
+        }
+        publish_pool_route(
+            &fixture.context.geo_policy,
+            "10.0.0.2",
+            usque_core::RoutingAction::Reject,
+        );
+        drop(locked);
+        release.await;
+        assert!(pool.idle.lock().await.is_empty());
+        assert_eq!(pool.permits.available_permits(), MAX_SESSION_CONNECTIONS);
+    }
+
+    #[tokio::test]
+    async fn hot_reject_returns_403_on_an_existing_downstream_http_keepalive_session() {
+        let fixture = StackedProxy::new().await;
+        let _cancel = fixture.context.cancellation.clone().drop_guard();
+        let (_origin, accepts) = pool_origin(fixture.origin);
+        let frontend = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = frontend.local_addr().unwrap();
+        let _frontend = tokio_util::task::AbortOnDropHandle::new(tokio::spawn(run_listener(
+            frontend,
+            fixture.context.clone(),
+        )));
+        let client = TcpStream::connect(address).await.unwrap();
+        let (mut sender, connection) =
+            hyper::client::conn::http1::handshake::<_, ProxyBody>(TokioIo::new(client))
+                .await
+                .unwrap();
+        let _connection = tokio_util::task::AbortOnDropHandle::new(tokio::spawn(connection));
+        for (action, expected) in [
+            (usque_core::RoutingAction::Proxy, StatusCode::OK),
+            (usque_core::RoutingAction::Reject, StatusCode::FORBIDDEN),
+        ] {
+            publish_pool_route(&fixture.context.geo_policy, "10.0.0.2", action);
+            let response = tokio::time::timeout(
+                Duration::from_secs(3),
+                sender.send_request(pool_request("http://10.0.0.2:8080/")),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+            assert_eq!(response.status(), expected);
+            response.into_body().collect().await.unwrap();
+        }
+        assert_eq!(accepts.load(Ordering::SeqCst), 1);
     }
 
     #[tokio::test]

@@ -105,6 +105,7 @@ struct HintState {
 #[derive(Debug)]
 struct HintTable {
     generation: Option<u64>,
+    routing_revision: u64,
     hints: HashMap<IpAddr, HintState>,
     next_prune: Instant,
 }
@@ -113,6 +114,7 @@ impl Default for HintTable {
     fn default() -> Self {
         Self {
             generation: None,
+            routing_revision: 1,
             hints: HashMap::new(),
             next_prune: Instant::now() + HINT_PRUNE_INTERVAL,
         }
@@ -120,8 +122,9 @@ impl Default for HintTable {
 }
 
 /// Bounded, non-persistent DNS-to-IP route hints shared by Split DNS and TUN
-/// routing. A conflicting direct/tunnel observation deliberately falls back to
-/// GeoIP rather than guessing which hostname an IP flow belongs to.
+/// routing. Explicit domain decisions and address rules take precedence over
+/// conflicting learned observations, which otherwise conservatively use the
+/// tunnel rather than guessing which hostname an IP flow belongs to.
 #[derive(Debug, Default)]
 pub(crate) struct DnsRouteCache {
     inner: Mutex<HintTable>,
@@ -134,34 +137,51 @@ impl DnsRouteCache {
         generation: Option<u64>,
         policy: &GeoDirectPolicy,
     ) -> GeoRoute {
+        let policy = policy.freeze_routing();
+        policy
+            .with_current_routing(policy.routing_revision(), || {
+                self.route_ip_current(ip, generation, &policy)
+            })
+            // A captured flow may outlive its revision. Keep its explicit
+            // decision, but never rewind the shared hint table to that revision.
+            .unwrap_or_else(|| policy.route_ip(ip))
+    }
+
+    fn route_ip_current(
+        &self,
+        ip: IpAddr,
+        generation: Option<u64>,
+        policy: &GeoDirectPolicy,
+    ) -> GeoRoute {
         let now = Instant::now();
         let mut table = self
             .inner
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        sync_generation(&mut table, generation, now);
+        if !sync_generation(&mut table, generation, policy.routing_revision(), now) {
+            return policy.route_ip(ip);
+        }
         prune_hints_if_needed(&mut table, now, false);
         if policy.rejects_ip(ip) {
             return GeoRoute::Reject;
         }
-        if let Some(hint) = table.hints.get(&ip)
-            && (hint.explicit_proxy_until.is_some_and(|until| until > now)
-                || hint.direct_until.is_some_and(|until| until > now)
-                    && hint.tunnel_until.is_some_and(|until| until > now))
-        {
+        let hint = table.hints.get(&ip);
+        if hint.is_some_and(|hint| hint.explicit_proxy_until.is_some_and(|until| until > now)) {
             return GeoRoute::Tunnel;
         }
-        if table
-            .hints
-            .get(&ip)
-            .is_some_and(|hint| hint.explicit_direct_until.is_some_and(|until| until > now))
-        {
+        if hint.is_some_and(|hint| hint.explicit_direct_until.is_some_and(|until| until > now)) {
             return GeoRoute::Direct;
         }
         if let Some(route) = policy.custom_ip(ip) {
             return route;
         }
-        let dns_direct = table.hints.get(&ip).is_some_and(|hint| {
+        if hint.is_some_and(|hint| {
+            hint.direct_until.is_some_and(|until| until > now)
+                && hint.tunnel_until.is_some_and(|until| until > now)
+        }) {
+            return GeoRoute::Tunnel;
+        }
+        let dns_direct = hint.is_some_and(|hint| {
             hint.direct_until.is_some_and(|until| until > now)
                 && !hint.tunnel_until.is_some_and(|until| until > now)
         });
@@ -179,8 +199,11 @@ impl DnsRouteCache {
         route: QueryRoute,
         generation: Option<u64>,
         policy: &GeoDirectPolicy,
-    ) {
-        self.observe(response, query, route, generation);
+    ) -> bool {
+        let policy = policy.freeze_routing();
+        let Ok(records) = response_hints(response, query) else {
+            return false;
+        };
         let direct = query
             .questions
             .iter()
@@ -189,30 +212,15 @@ impl DnsRouteCache {
             .questions
             .iter()
             .any(|question| policy.custom_host(&question.name) == Some(GeoRoute::Tunnel));
-        if !direct && !proxy {
-            return;
-        }
-        let mut table = self.inner.lock().unwrap_or_else(|e| e.into_inner());
-        if table.generation != generation {
-            return;
-        }
-        let now = Instant::now();
-        for (ip, ttl) in response_hints(response, query).unwrap_or_default() {
-            if ttl == 0 {
-                continue;
-            }
-            let until = Some(now + Duration::from_secs(u64::from(ttl)).min(MAX_HINT_TTL));
-            if let Some(hint) = table.hints.get_mut(&ip) {
-                if proxy {
-                    hint.explicit_proxy_until = hint.explicit_proxy_until.max(until);
-                }
-                if direct {
-                    hint.explicit_direct_until = hint.explicit_direct_until.max(until);
-                }
-            }
-        }
+        let revision = policy.routing_revision();
+        policy
+            .with_current_routing(revision, || {
+                self.observe_records(records, route, generation, revision, (direct, proxy))
+            })
+            .unwrap_or(false)
     }
 
+    #[cfg(test)]
     fn observe(
         &self,
         response: &[u8],
@@ -223,12 +231,25 @@ impl DnsRouteCache {
         let Ok(records) = response_hints(response, query) else {
             return;
         };
+        self.observe_records(records, route, generation, 1, (false, false));
+    }
+
+    fn observe_records(
+        &self,
+        records: Vec<(IpAddr, u32)>,
+        route: QueryRoute,
+        generation: Option<u64>,
+        revision: u64,
+        (direct, proxy): (bool, bool),
+    ) -> bool {
         let now = Instant::now();
         let mut table = self
             .inner
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        sync_generation(&mut table, generation, now);
+        if !sync_generation(&mut table, generation, revision, now) {
+            return false;
+        }
         let force_prune = table.hints.len() >= MAX_HINTS;
         prune_hints_if_needed(&mut table, now, force_prune);
         for (ip, ttl) in records {
@@ -257,17 +278,37 @@ impl DnsRouteCache {
                 QueryRoute::Direct => hint.direct_until = hint.direct_until.max(Some(until)),
                 QueryRoute::Tunnel => hint.tunnel_until = hint.tunnel_until.max(Some(until)),
             }
+            if proxy {
+                hint.explicit_proxy_until = hint.explicit_proxy_until.max(Some(until));
+            }
+            if direct {
+                hint.explicit_direct_until = hint.explicit_direct_until.max(Some(until));
+            }
             hint.last_seen = now;
         }
+        true
     }
 }
 
-fn sync_generation(table: &mut HintTable, generation: Option<u64>, now: Instant) {
-    if table.generation != generation {
+fn sync_generation(
+    table: &mut HintTable,
+    generation: Option<u64>,
+    routing_revision: u64,
+    now: Instant,
+) -> bool {
+    if routing_revision < table.routing_revision
+        || matches!((table.generation, generation), (Some(previous), Some(next)) if next < previous)
+        || (table.generation.is_some() && generation.is_none())
+    {
+        return false;
+    }
+    if table.generation != generation || table.routing_revision != routing_revision {
         table.generation = generation;
+        table.routing_revision = routing_revision;
         table.hints.clear();
         table.next_prune = now + HINT_PRUNE_INTERVAL;
     }
+    true
 }
 
 fn prune_hints_if_needed(table: &mut HintTable, now: Instant, force: bool) {
@@ -346,11 +387,24 @@ impl SplitDnsResolver {
     }
 
     pub(crate) fn routing_refusal(&self, query: &[u8]) -> Option<Vec<u8>> {
-        routing_dns_refused(query, &self.policy)
+        routing_dns_refused(query, &self.policy.freeze_routing())
     }
 
-    pub(crate) fn filter_routing_response(&self, query: &[u8], response: Vec<u8>) -> Vec<u8> {
-        filter_routing_dns_response(query, response, &self.policy)
+    pub(crate) fn routing_revision(&self) -> u64 {
+        self.policy.routing_revision()
+    }
+
+    pub(crate) fn filter_routing_response_for_revision(
+        &self,
+        query: &[u8],
+        response: Vec<u8>,
+        revision: u64,
+    ) -> Vec<u8> {
+        let policy = self.policy.freeze_routing();
+        if policy.routing_revision() != revision {
+            return error_response(query, RCODE_SERVFAIL);
+        }
+        filter_routing_dns_response(query, response, &policy)
     }
 
     pub(crate) async fn handle_l4(&self, query: &[u8], udp: bool) -> Vec<u8> {
@@ -366,6 +420,7 @@ impl SplitDnsResolver {
     }
 
     async fn handle(&self, query_bytes: &[u8], transport: QueryTransport) -> Vec<u8> {
+        let policy = self.policy.freeze_routing();
         let network_generation = self.protector.network_generation();
         let query = match parse_query(query_bytes) {
             Ok(query) => query,
@@ -374,11 +429,11 @@ impl SplitDnsResolver {
         if query
             .questions
             .iter()
-            .any(|question| self.policy.route_host(&question.name) == GeoRoute::Reject)
+            .any(|question| policy.route_host(&question.name) == GeoRoute::Reject)
         {
             return error_response(query_bytes, RCODE_REFUSED);
         }
-        let route = match classify_query(&query, &self.policy) {
+        let route = match classify_query(&query, &policy) {
             Ok(route) => route,
             Err(()) => return error_response(query_bytes, RCODE_SERVFAIL),
         };
@@ -427,16 +482,22 @@ impl SplitDnsResolver {
         };
         match response {
             Ok(mut response) => {
-                if self.protector.network_generation() != network_generation {
+                let network_changed = self.protector.network_generation() != network_generation;
+                if network_changed || !policy.routing_is_current(policy.routing_revision()) {
                     if route == QueryRoute::Direct {
-                        self.quality
-                            .record_direct_dns_failure(DirectDnsReasonCode::NetworkChanged, false);
+                        self.quality.record_direct_dns_failure(
+                            if network_changed {
+                                DirectDnsReasonCode::NetworkChanged
+                            } else {
+                                DirectDnsReasonCode::QueryFailed
+                            },
+                            false,
+                        );
                     }
                     complete_queue_entry(&mut direct_queue_entry);
                     return error_response(query_bytes, RCODE_SERVFAIL);
                 }
-                let addresses = match response_hints_filtered(&response, &query, Some(&self.policy))
-                {
+                let addresses = match response_hints_filtered(&response, &query, Some(&policy)) {
                     Ok(addresses) => addresses,
                     Err(error) => {
                         return error_response(
@@ -456,7 +517,7 @@ impl SplitDnsResolver {
                             self.protector.as_ref(),
                             SocketAddr::new(*ip, 0),
                         ) && query.questions.iter().all(|question| {
-                            self.policy.resolved_route(&question.name, *ip) == GeoRoute::Direct
+                            policy.resolved_route(&question.name, *ip) == GeoRoute::Direct
                         })
                     })
                 {
@@ -465,13 +526,13 @@ impl SplitDnsResolver {
                     // route, a local address or PROXY exception can be usable.
                     response = error_response(query_bytes, 0);
                 }
-                self.hints.observe_policy(
-                    &response,
-                    &query,
-                    route,
-                    network_generation,
-                    &self.policy,
-                );
+                if !self
+                    .hints
+                    .observe_policy(&response, &query, route, network_generation, &policy)
+                {
+                    complete_queue_entry(&mut direct_queue_entry);
+                    return error_response(query_bytes, RCODE_SERVFAIL);
+                }
                 if system_metrics {
                     self.quality.record_direct_dns_success(started.elapsed());
                 }
@@ -971,6 +1032,7 @@ async fn run_udp_server(
                 break;
             };
             let generation = resolver.protector.network_generation();
+            let routing_revision = resolver.routing_revision();
             let permit = if query.len() <= MAX_UDP_MESSAGE {
                 resolver.service_tasks.clone().try_acquire_owned().ok()
             } else {
@@ -991,6 +1053,7 @@ async fn run_udp_server(
                         response: error_response(&query, code),
                         query: query.to_vec(),
                         generation,
+                        routing_revision,
                         _permit: None,
                     })
                     .await
@@ -1010,7 +1073,7 @@ async fn run_udp_server(
                     _ = async {
                         let response = resolver.handle(&query, QueryTransport::Udp).await;
                         let _ = responses.send(DnsUdpReply { client, response, query: query.to_vec(),
-                            generation, _permit: Some(permit) }).await;
+                            generation, routing_revision, _permit: Some(permit) }).await;
                     } => {},
                 }
             });
@@ -1023,6 +1086,12 @@ async fn run_udp_server(
                 response.response,
                 response.generation,
                 resolver.protector.network_generation(),
+            );
+            let body = reply_for_routing_revision(
+                &response.query,
+                body,
+                &resolver.policy,
+                response.routing_revision,
             );
             if socket.send_to(response.client, &body).await.is_err() {
                 break;
@@ -1038,6 +1107,7 @@ struct DnsUdpReply {
     query: Vec<u8>,
     response: Vec<u8>,
     generation: Option<u64>,
+    routing_revision: u64,
     _permit: Option<tokio::sync::OwnedSemaphorePermit>,
 }
 
@@ -1048,6 +1118,19 @@ fn reply_for_generation(
     current: Option<u64>,
 ) -> Vec<u8> {
     if expected == current {
+        response
+    } else {
+        error_response(query, RCODE_SERVFAIL)
+    }
+}
+
+fn reply_for_routing_revision(
+    query: &[u8],
+    response: Vec<u8>,
+    policy: &GeoDirectPolicy,
+    revision: u64,
+) -> Vec<u8> {
+    if policy.routing_is_current(revision) {
         response
     } else {
         error_response(query, RCODE_SERVFAIL)
@@ -1093,6 +1176,7 @@ async fn run_tcp_server(
                     return;
                 }
                 let generation = resolver.protector.network_generation();
+                let routing_revision = resolver.routing_revision();
                 let response = tokio::select! {
                     _ = child.cancelled() => return,
                     response = resolver.handle(&query, QueryTransport::Tcp) => response,
@@ -1102,6 +1186,12 @@ async fn run_tcp_server(
                     response,
                     generation,
                     resolver.protector.network_generation(),
+                );
+                let response = reply_for_routing_revision(
+                    &query,
+                    response,
+                    &resolver.policy,
+                    routing_revision,
                 );
                 let Ok(response_len) = u16::try_from(response.len()) else {
                     return;
@@ -1345,6 +1435,8 @@ pub(crate) async fn resolve_direct_routed(
     port: u16,
     policy: &GeoDirectPolicy,
 ) -> Result<Vec<SocketAddr>, String> {
+    let frozen = policy.freeze_routing();
+    let policy = &frozen;
     let encrypted = protector.direct_dns_resolver();
     if encrypted.is_none() && protector.physical_dns_servers().is_empty() {
         return direct_candidates(
@@ -1493,8 +1585,9 @@ pub(crate) fn check_routing_dns_response(
     response: &[u8],
     policy: &GeoDirectPolicy,
 ) -> Result<(), String> {
+    let frozen = policy.freeze_routing();
     let parsed = parse_query(query)?;
-    response_hints_filtered(response, &parsed, Some(policy)).map(|_| ())
+    response_hints_filtered(response, &parsed, Some(&frozen)).map(|_| ())
 }
 
 pub(crate) fn filter_routing_dns_response(
@@ -1519,11 +1612,16 @@ pub(crate) fn filter_routing_dns_response(
 /// survive for four seconds; unmatched/late responses never bypass inspection.
 #[derive(Default)]
 pub(crate) struct RoutingDnsQueries {
-    pending: VecDeque<(Instant, SocketAddr, ParsedQuery, Vec<u8>)>,
+    pending: VecDeque<(Instant, SocketAddr, ParsedQuery, Vec<u8>, u64)>,
 }
 
 impl RoutingDnsQueries {
-    pub(crate) fn record(&mut self, server: SocketAddr, query: &[u8]) -> bool {
+    pub(crate) fn record(
+        &mut self,
+        server: SocketAddr,
+        query: &[u8],
+        policy: &GeoDirectPolicy,
+    ) -> bool {
         self.prune();
         if query.len() > MAX_UDP_MESSAGE {
             return false;
@@ -1531,7 +1629,7 @@ impl RoutingDnsQueries {
         let Ok(parsed) = parse_query(query) else {
             return false;
         };
-        self.pending.retain(|(_, endpoint, existing, _)| {
+        self.pending.retain(|(_, endpoint, existing, _, _)| {
             *endpoint != server
                 || existing.id != parsed.id
                 || existing.questions != parsed.questions
@@ -1539,8 +1637,13 @@ impl RoutingDnsQueries {
         if self.pending.len() >= 4 {
             return false;
         }
-        self.pending
-            .push_back((Instant::now(), server, parsed, query.to_vec()));
+        self.pending.push_back((
+            Instant::now(),
+            server,
+            parsed,
+            query.to_vec(),
+            policy.routing_revision(),
+        ));
         true
     }
 
@@ -1551,20 +1654,27 @@ impl RoutingDnsQueries {
         policy: &GeoDirectPolicy,
     ) -> Option<Vec<u8>> {
         self.prune();
-        let index = self.pending.iter().position(|(_, endpoint, parsed, _)| {
-            *endpoint == server && validate_response(parsed, response).is_ok()
-        })?;
-        let (_, _, _, query) = self.pending.remove(index)?;
+        let index = self
+            .pending
+            .iter()
+            .position(|(_, endpoint, parsed, _, _)| {
+                *endpoint == server && validate_response(parsed, response).is_ok()
+            })?;
+        let (_, _, _, query, revision) = self.pending.remove(index)?;
+        let policy = policy.freeze_routing();
+        if !policy.routing_is_current(revision) || policy.routing_revision() != revision {
+            return Some(error_response(&query, RCODE_SERVFAIL));
+        }
         Some(filter_routing_dns_response(
             &query,
             response.to_vec(),
-            policy,
+            &policy,
         ))
     }
 
     fn prune(&mut self) {
         self.pending
-            .retain(|(created, _, _, _)| created.elapsed() < DNS_TIMEOUT);
+            .retain(|(created, _, _, _, _)| created.elapsed() < DNS_TIMEOUT);
     }
 }
 
@@ -2713,6 +2823,275 @@ pub(crate) mod tests {
         response
     }
 
+    fn routing_hint_cases() -> [(IpAddr, &'static str); 3] {
+        [
+            ("198.51.100.7".parse().unwrap(), "198.51.100.0/24"),
+            ("2001:db8::7".parse().unwrap(), "2001:db8::/64"),
+            ("::ffff:198.51.100.7".parse().unwrap(), "198.51.100.0/24"),
+        ]
+    }
+
+    fn observe_routing_hint(
+        cache: &DnsRouteCache,
+        host: &str,
+        ip: IpAddr,
+        route: QueryRoute,
+        ttl: u32,
+        policy: &GeoDirectPolicy,
+    ) {
+        let mut request = query(9, host);
+        let response = match ip {
+            IpAddr::V4(ip) => a_response(&request, ttl, ip.octets()),
+            IpAddr::V6(ip) => {
+                let end = request.len();
+                request[end - 4..end - 2].copy_from_slice(&28_u16.to_be_bytes());
+                let mut response = error_response(&request, 0);
+                response[6..8].copy_from_slice(&1_u16.to_be_bytes());
+                response.extend_from_slice(&[0xc0, 0x0c, 0, 28, 0, 1]);
+                response.extend_from_slice(&ttl.to_be_bytes());
+                response.extend_from_slice(&16_u16.to_be_bytes());
+                response.extend_from_slice(&ip.octets());
+                response
+            }
+        };
+        cache.observe_policy(
+            &response,
+            &parse_query(&request).unwrap(),
+            route,
+            Some(1),
+            policy,
+        );
+    }
+
+    #[test]
+    fn routing_publication_expires_hints_and_old_observers_cannot_rewind_them() {
+        use usque_core::RoutingAction::{Direct, Proxy};
+        let policy = crate::geo_direct::routing_test_policy(&[("hot.test", Direct)]);
+        let old = policy.freeze_routing();
+        let cache = DnsRouteCache::default();
+        let ip: IpAddr = "198.51.100.7".parse().unwrap();
+        let request = query(55, "hot.test");
+        let parsed = parse_query(&request).unwrap();
+        let answer = a_response(&request, 3600, [198, 51, 100, 7]);
+        assert!(cache.observe_policy(&answer, &parsed, QueryRoute::Direct, Some(1), &old));
+        assert_eq!(cache.route_ip(ip, Some(1), &policy), GeoRoute::Direct);
+        let next = crate::geo_direct::routing_test_profile(&[("hot.test", Proxy)]);
+        policy
+            .publish_routing_update(policy.prepare_routing_update(&next).unwrap())
+            .unwrap();
+        assert_eq!(cache.route_ip(ip, Some(1), &policy), GeoRoute::Tunnel);
+        assert!(!cache.observe_policy(&answer, &parsed, QueryRoute::Direct, Some(1), &old));
+        {
+            let table = cache.inner.lock().unwrap();
+            assert_eq!(table.routing_revision, policy.routing_revision());
+            assert!(table.hints.is_empty());
+        }
+        assert!(cache.observe_policy(&answer, &parsed, QueryRoute::Tunnel, Some(2), &policy));
+        assert!(!cache.observe_policy(&answer, &parsed, QueryRoute::Direct, Some(1), &policy));
+        assert_eq!(cache.inner.lock().unwrap().generation, Some(2));
+        assert_eq!(cache.route_ip(ip, Some(2), &policy), GeoRoute::Tunnel);
+    }
+
+    #[test]
+    fn queued_and_raw_dns_replies_are_retired_with_their_routing_revision() {
+        use usque_core::RoutingAction::{Direct, Reject};
+        let policy = crate::geo_direct::routing_test_policy(&[("hot.test", Direct)]);
+        let request = query(56, "hot.test");
+        let answer = a_response(&request, 60, [198, 51, 100, 7]);
+        let revision = policy.routing_revision();
+        let mut raw = RoutingDnsQueries::default();
+        let server = "192.0.2.53:53".parse().unwrap();
+        assert!(raw.record(server, &request, &policy));
+        let next = crate::geo_direct::routing_test_profile(&[("hot.test", Reject)]);
+        policy
+            .publish_routing_update(policy.prepare_routing_update(&next).unwrap())
+            .unwrap();
+        for rejected in [
+            reply_for_routing_revision(&request, answer.clone(), &policy, revision),
+            raw.filter(server, &answer, &policy).unwrap(),
+        ] {
+            assert_eq!(read_u16(&rejected, 2).unwrap() & 15, RCODE_SERVFAIL);
+            assert_eq!(read_u16(&rejected, 6).unwrap(), 0);
+        }
+        assert!(raw.filter(server, &answer, &policy).is_none());
+    }
+
+    #[test]
+    fn unchanged_rule_transaction_keeps_dns_revision_and_hints() {
+        use usque_core::RoutingAction::Direct;
+        let mut profile = crate::geo_direct::routing_test_profile(&[("hot.test", Direct)]);
+        let policy = GeoDirectPolicy::disabled()
+            .with_custom_rules(&profile)
+            .unwrap();
+        let revision = policy.routing_revision();
+        let request = query(59, "hot.test");
+        let answer = a_response(&request, 60, [198, 51, 100, 7]);
+        let cache = DnsRouteCache::default();
+        assert!(cache.observe_policy(
+            &answer,
+            &parse_query(&request).unwrap(),
+            QueryRoute::Direct,
+            Some(1),
+            &policy
+        ));
+        profile.routing.ads_enabled = !profile.routing.ads_enabled;
+        profile.disable_quic = !profile.disable_quic;
+        policy
+            .publish_routing_update(policy.prepare_routing_update(&profile).unwrap())
+            .unwrap();
+        assert_eq!(policy.routing_revision(), revision);
+        assert_eq!(
+            cache.route_ip("198.51.100.7".parse().unwrap(), Some(1), &policy),
+            GeoRoute::Direct
+        );
+        assert_eq!(cache.inner.lock().unwrap().hints.len(), 1);
+        assert_eq!(
+            reply_for_routing_revision(&request, answer.clone(), &policy, revision),
+            answer
+        );
+    }
+
+    #[test]
+    fn custom_cidr_rules_precede_conflicting_learned_hints() {
+        use usque_core::RoutingAction::{Direct, Proxy, Reject};
+
+        for (ip, cidr) in routing_hint_cases() {
+            for (action, expected) in [
+                (Direct, GeoRoute::Direct),
+                (Proxy, GeoRoute::Tunnel),
+                (Reject, GeoRoute::Reject),
+            ] {
+                let policy = crate::geo_direct::routing_test_policy(&[(cidr, action)]);
+                let cache = DnsRouteCache::default();
+                for (host, route) in [
+                    ("direct-observation.test", QueryRoute::Direct),
+                    ("tunnel-observation.test", QueryRoute::Tunnel),
+                ] {
+                    observe_routing_hint(&cache, host, ip, route, 60, &policy);
+                }
+                assert_eq!(cache.route_ip(ip, Some(1), &policy), expected, "{ip}");
+            }
+        }
+    }
+
+    #[test]
+    fn explicit_direct_hint_precedes_ordinary_tunnel_hint() {
+        use usque_core::RoutingAction::{Direct, Proxy};
+
+        for (ip, cidr) in routing_hint_cases() {
+            let policy =
+                crate::geo_direct::routing_test_policy(&[("direct.test", Direct), (cidr, Proxy)]);
+            let cache = DnsRouteCache::default();
+            observe_routing_hint(&cache, "direct.test", ip, QueryRoute::Direct, 60, &policy);
+            observe_routing_hint(&cache, "other.test", ip, QueryRoute::Tunnel, 60, &policy);
+            assert_eq!(
+                cache.route_ip(ip, Some(1), &policy),
+                GeoRoute::Direct,
+                "{ip}"
+            );
+        }
+    }
+
+    #[test]
+    fn explicit_proxy_hint_precedes_direct_hint_and_cidr() {
+        use usque_core::RoutingAction::{Direct, Proxy, Reject};
+
+        for (ip, cidr) in routing_hint_cases() {
+            let policy = crate::geo_direct::routing_test_policy(&[
+                ("direct.test", Direct),
+                ("proxy.test", Proxy),
+                (cidr, Direct),
+            ]);
+            let cache = DnsRouteCache::default();
+            observe_routing_hint(&cache, "direct.test", ip, QueryRoute::Direct, 60, &policy);
+            observe_routing_hint(&cache, "proxy.test", ip, QueryRoute::Tunnel, 60, &policy);
+            assert_eq!(
+                cache.route_ip(ip, Some(1), &policy),
+                GeoRoute::Tunnel,
+                "{ip}"
+            );
+            let rejecting = crate::geo_direct::routing_test_policy(&[(cidr, Reject)]);
+            assert_eq!(
+                cache.route_ip(ip, Some(1), &rejecting),
+                GeoRoute::Reject,
+                "{ip}"
+            );
+        }
+    }
+
+    #[test]
+    fn most_specific_ip_rule_retains_rejection_precedence_over_hints() {
+        use usque_core::RoutingAction::{Direct, Reject};
+
+        for (ip, cidr) in routing_hint_cases() {
+            let host = ip.to_canonical().to_string();
+            for (broad, narrow, expected) in [
+                (Reject, Direct, GeoRoute::Direct),
+                (Direct, Reject, GeoRoute::Reject),
+            ] {
+                let policy =
+                    crate::geo_direct::routing_test_policy(&[(cidr, broad), (&host, narrow)]);
+                let cache = DnsRouteCache::default();
+                observe_routing_hint(&cache, "first.test", ip, QueryRoute::Direct, 60, &policy);
+                observe_routing_hint(&cache, "second.test", ip, QueryRoute::Tunnel, 60, &policy);
+                assert_eq!(cache.route_ip(ip, Some(1), &policy), expected, "{ip}");
+            }
+        }
+    }
+
+    #[test]
+    fn explicit_direct_hint_lifetime_survives_ordinary_hint_pruning() {
+        use usque_core::RoutingAction::{Direct, Proxy};
+
+        for (ip, cidr) in routing_hint_cases() {
+            let policy =
+                crate::geo_direct::routing_test_policy(&[("direct.test", Direct), (cidr, Proxy)]);
+            let cache = DnsRouteCache::default();
+            for ttl in [3600, 1] {
+                observe_routing_hint(&cache, "direct.test", ip, QueryRoute::Direct, ttl, &policy);
+            }
+            {
+                let mut table = cache.inner.lock().unwrap();
+                let future = Instant::now() + Duration::from_secs(30);
+                table.hints.get_mut(&ip).unwrap().direct_until = Some(Instant::now());
+                prune_hints(&mut table, future);
+                assert!(table.hints[&ip].explicit_direct_until.unwrap() > future);
+            }
+            assert_eq!(
+                cache.route_ip(ip, Some(1), &policy),
+                GeoRoute::Direct,
+                "{ip}"
+            );
+        }
+    }
+
+    #[test]
+    fn explicit_direct_hint_expiry_and_generation_remove_override() {
+        use usque_core::RoutingAction::{Direct, Proxy};
+
+        for (ip, cidr) in routing_hint_cases() {
+            let policy =
+                crate::geo_direct::routing_test_policy(&[("direct.test", Direct), (cidr, Proxy)]);
+            let cache = DnsRouteCache::default();
+            observe_routing_hint(&cache, "direct.test", ip, QueryRoute::Direct, 60, &policy);
+            observe_routing_hint(&cache, "other.test", ip, QueryRoute::Tunnel, 60, &policy);
+            assert_eq!(cache.route_ip(ip, Some(1), &policy), GeoRoute::Direct);
+            cache
+                .inner
+                .lock()
+                .unwrap()
+                .hints
+                .get_mut(&ip)
+                .unwrap()
+                .explicit_direct_until = Some(Instant::now() - Duration::from_secs(1));
+            assert_eq!(cache.route_ip(ip, Some(1), &policy), GeoRoute::Tunnel);
+            observe_routing_hint(&cache, "direct.test", ip, QueryRoute::Direct, 60, &policy);
+            assert_eq!(cache.route_ip(ip, Some(1), &policy), GeoRoute::Direct);
+            assert_eq!(cache.route_ip(ip, Some(2), &policy), GeoRoute::Tunnel);
+            assert!(cache.inner.lock().unwrap().hints.is_empty());
+        }
+    }
+
     #[tokio::test]
     async fn reject_only_dns_refuses_before_upstream_or_admission() {
         let policy = crate::geo_direct::routing_test_policy(&[(
@@ -2839,22 +3218,22 @@ pub(crate) mod tests {
         let other = "192.0.2.54:53".parse().unwrap();
         let mut pending = RoutingDnsQueries::default();
         assert!(pending.filter(server, &response, &policy).is_none());
-        assert!(pending.record(server, &request));
+        assert!(pending.record(server, &request, &policy));
         assert_eq!(
             pending.filter(server, &response, &policy).unwrap()[3] & 15,
             RCODE_REFUSED as u8
         );
         assert!(pending.filter(server, &response, &policy).is_none());
         for id in 0..4 {
-            assert!(pending.record(server, &query(id, "allowed.test")));
+            assert!(pending.record(server, &query(id, "allowed.test"), &policy));
         }
-        assert!(!pending.record(server, &query(5, "allowed.test")));
-        for (created, _, _, _) in &mut pending.pending {
+        assert!(!pending.record(server, &query(5, "allowed.test"), &policy));
+        for (created, _, _, _, _) in &mut pending.pending {
             *created -= DNS_TIMEOUT;
         }
-        assert!(pending.record(server, &request));
+        assert!(pending.record(server, &request, &policy));
         assert_eq!(pending.pending.len(), 1);
-        assert!(pending.record(other, &request));
+        assert!(pending.record(other, &request, &policy));
         let failure = error_response(&request, RCODE_SERVFAIL);
         assert!(pending.filter(server, &failure, &policy).is_some());
         assert!(pending.filter(other, &response, &policy).is_some());
@@ -2983,21 +3362,17 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn conflicting_dns_hint_falls_back_to_geoip() {
+    fn conflicting_learned_dns_hints_conservatively_use_tunnel() {
         let request = query(9, "www.example.cn");
         let parsed = parse_query(&request).unwrap();
-        let response = a_response(&request, 60, [198, 51, 100, 7]);
+        let ip = "203.0.113.9".parse().unwrap();
+        assert_eq!(policy().route_ip(ip), GeoRoute::Direct);
+        let response = a_response(&request, 60, [203, 0, 113, 9]);
         let cache = DnsRouteCache::default();
         cache.observe(&response, &parsed, QueryRoute::Direct, Some(1));
-        assert_eq!(
-            cache.route_ip("198.51.100.7".parse().unwrap(), Some(1), &policy()),
-            GeoRoute::Direct
-        );
+        assert_eq!(cache.route_ip(ip, Some(1), &policy()), GeoRoute::Direct);
         cache.observe(&response, &parsed, QueryRoute::Tunnel, Some(1));
-        assert_eq!(
-            cache.route_ip("198.51.100.7".parse().unwrap(), Some(1), &policy()),
-            GeoRoute::Tunnel
-        );
+        assert_eq!(cache.route_ip(ip, Some(1), &policy()), GeoRoute::Tunnel);
     }
 
     #[test]
@@ -3037,6 +3412,7 @@ pub(crate) mod tests {
         let cache = DnsRouteCache {
             inner: Mutex::new(HintTable {
                 generation: Some(1),
+                routing_revision: 1,
                 hints: HashMap::from([(
                     ip,
                     HintState {
@@ -3068,6 +3444,7 @@ pub(crate) mod tests {
         };
         let mut table = HintTable {
             generation: Some(1),
+            routing_revision: 1,
             hints: HashMap::from([(ip, expired)]),
             next_prune: now,
         };
@@ -3104,6 +3481,118 @@ pub(crate) mod tests {
         fn endpoint_family_available(&self, endpoint: SocketAddr) -> Option<bool> {
             self.family_mask
                 .map(|mask| mask & if endpoint.is_ipv4() { 1 } else { 2 } != 0)
+        }
+    }
+
+    #[tokio::test]
+    async fn direct_dns_discards_old_udp_and_tcp_answers_after_rule_publication() {
+        use usque_core::RoutingAction::{Direct, Reject};
+        for transport in [QueryTransport::Udp, QueryTransport::Tcp] {
+            let udp = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+            let tcp = tokio::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
+                .await
+                .unwrap();
+            let server_address = match transport {
+                QueryTransport::Udp => udp.local_addr().unwrap(),
+                QueryTransport::Tcp => tcp.local_addr().unwrap(),
+            };
+            let (started, query_started) = tokio::sync::oneshot::channel();
+            let (release, wait_release) = tokio::sync::oneshot::channel();
+            let server = tokio_util::task::AbortOnDropHandle::new(tokio::spawn(async move {
+                let mut started = Some(started);
+                let mut wait_release = Some(wait_release);
+                for _ in 0..2 {
+                    let (wire, peer, stream) = match transport {
+                        QueryTransport::Udp => {
+                            let mut wire = [0; 512];
+                            let (length, peer) = udp.recv_from(&mut wire).await.unwrap();
+                            (wire[..length].to_vec(), Some(peer), None)
+                        }
+                        QueryTransport::Tcp => {
+                            let (mut stream, _) = tcp.accept().await.unwrap();
+                            let mut wire = vec![0; usize::from(stream.read_u16().await.unwrap())];
+                            stream.read_exact(&mut wire).await.unwrap();
+                            (wire, None, Some(stream))
+                        }
+                    };
+                    if let Some(started) = started.take() {
+                        started.send(()).unwrap();
+                        wait_release.take().unwrap().await.unwrap();
+                    }
+                    let answer = a_response(&wire, 60, [198, 51, 100, 7]);
+                    if let Some(mut stream) = stream {
+                        stream
+                            .write_u16(u16::try_from(answer.len()).unwrap())
+                            .await
+                            .unwrap();
+                        stream.write_all(&answer).await.unwrap();
+                    } else {
+                        udp.send_to(&answer, peer.unwrap()).await.unwrap();
+                    }
+                }
+            }));
+            let policy = Arc::new(crate::geo_direct::routing_test_policy(&[(
+                "hot.test", Direct,
+            )]));
+            let resolver = SplitDnsResolver {
+                tunnel_channel: None,
+                stream_dns: None,
+                assigned_ipv4: "172.16.0.2".parse().unwrap(),
+                assigned_ipv6: "2001:db8::2".parse().unwrap(),
+                tunnel_servers: Vec::new(),
+                final_exit: false,
+                final_tcp: None,
+                final_doh: None,
+                policy: policy.clone(),
+                protector: Arc::new(LocalDnsProtector {
+                    server: server_address,
+                    generation: Arc::new(AtomicU64::new(1)),
+                    family_mask: None,
+                }),
+                hints: Arc::default(),
+                permits: Arc::new(Semaphore::new(MAX_IN_FLIGHT)),
+                service_tasks: Arc::new(Semaphore::new(MAX_IN_FLIGHT)),
+                quality: Default::default(),
+                direct_queue: None,
+            };
+            let pending_resolver = resolver.clone();
+            let pending = tokio_util::task::AbortOnDropHandle::new(tokio::spawn(async move {
+                pending_resolver
+                    .handle(&query(57, "hot.test"), transport)
+                    .await
+            }));
+            timeout(Duration::from_secs(2), query_started)
+                .await
+                .unwrap()
+                .unwrap();
+            let next = crate::geo_direct::routing_test_profile(&[("hot.test", Reject)]);
+            policy
+                .publish_routing_update(policy.prepare_routing_update(&next).unwrap())
+                .unwrap();
+            release.send(()).unwrap();
+            let rejected = timeout(Duration::from_secs(2), pending)
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(read_u16(&rejected, 2).unwrap() & 15, RCODE_SERVFAIL);
+            assert!(resolver.hints.inner.lock().unwrap().hints.is_empty());
+            let next = crate::geo_direct::routing_test_profile(&[("hot.test", Direct)]);
+            policy
+                .publish_routing_update(policy.prepare_routing_update(&next).unwrap())
+                .unwrap();
+            let response = resolver.handle(&query(58, "hot.test"), transport).await;
+            assert_eq!(read_u16(&response, 2).unwrap() & 15, 0);
+            assert_eq!(read_u16(&response, 6).unwrap(), 1);
+            assert_eq!(
+                resolver
+                    .hints
+                    .route_ip("198.51.100.7".parse().unwrap(), Some(1), &policy),
+                GeoRoute::Direct
+            );
+            timeout(Duration::from_secs(2), server)
+                .await
+                .unwrap()
+                .unwrap();
         }
     }
 

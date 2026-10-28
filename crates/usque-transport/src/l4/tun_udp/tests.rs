@@ -391,9 +391,12 @@ impl Fixture {
             .unwrap();
     }
     async fn udp(&mut self) {
+        self.udp_from(42001).await;
+    }
+    async fn udp_from(&mut self, source_port: u16) {
         self.io
             .send_owned_packet(packet(
-                "192.0.2.44:42001".parse().unwrap(),
+                SocketAddr::new("192.0.2.44".parse().unwrap(), source_port),
                 self.remote,
                 b"payload",
             ))
@@ -436,17 +439,67 @@ async fn domain_dns_hint_routes_tun_udp_direct_without_opening_final_association
 }
 
 #[tokio::test]
-async fn conflicting_domain_hint_returns_existing_udp_worker_to_final_exit() {
+async fn conflicting_domain_hint_only_changes_new_udp_flows() {
     let mut fixture = Fixture::new(true, 60).await;
     fixture.dns("direct.test").await;
     fixture.udp().await;
     fixture.dns("tunnel.test").await;
     fixture.udp().await;
-    assert_eq!(fixture.direct_packets.load(Ordering::SeqCst), 1);
+    assert_eq!(fixture.direct_packets.load(Ordering::SeqCst), 2);
+    assert!(fixture.associations.sent.lock().unwrap().is_empty());
+    fixture.udp_from(42002).await;
     assert_eq!(
         *fixture.associations.sent.lock().unwrap(),
         vec![TcpTarget::address(fixture.remote)]
     );
+    fixture.shutdown().await;
+}
+
+#[tokio::test]
+async fn routing_revisions_preserve_admitted_udp_paths_and_apply_to_new_targets() {
+    let mut fixture = Fixture::new(true, 60).await;
+    fixture.udp().await;
+    let mut profile = Profile::default();
+    profile.routing.rules.push(usque_core::RoutingRule {
+        id: uuid::Uuid::new_v4(),
+        kind: usque_core::RoutingMatch::Cidr,
+        target: "127.0.0.1/32".into(),
+        action: usque_core::RoutingAction::Direct,
+    });
+    let policy = fixture.services.geo_policy.clone();
+    policy
+        .publish_routing_update(policy.prepare_routing_update(&profile).unwrap())
+        .unwrap();
+    fixture.udp().await;
+    assert_eq!(fixture.direct_packets.load(Ordering::SeqCst), 0);
+    fixture.udp_from(42002).await;
+    assert_eq!(fixture.direct_packets.load(Ordering::SeqCst), 1);
+    profile.routing.rules[0].action = usque_core::RoutingAction::Reject;
+    policy
+        .publish_routing_update(policy.prepare_routing_update(&profile).unwrap())
+        .unwrap();
+    fixture.udp_from(42002).await;
+    fixture.udp().await;
+    assert_eq!(fixture.direct_packets.load(Ordering::SeqCst), 2);
+    assert_eq!(fixture.associations.sent.lock().unwrap().len(), 3);
+    fixture
+        .io
+        .send_owned_packet(packet(
+            "192.0.2.44:42003".parse().unwrap(),
+            fixture.remote,
+            b"rejected",
+        ))
+        .await
+        .unwrap();
+    let rejection = timeout(Duration::from_secs(2), fixture.io.receive_packet())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        rejection[9], 1,
+        "a new rejected IPv4 flow must receive ICMP"
+    );
+    assert_eq!(fixture.protector.direct_attempts.load(Ordering::SeqCst), 1);
     fixture.shutdown().await;
 }
 

@@ -8,9 +8,25 @@ the action for the entry or pasted batch — **Direct** (DIRECT), **Block**
 (REJECT) or **Through Usque** (PROXY) — then **Apply changes**. The list shows
 each target with its action and no numbering, because order does not affect
 matching.
-Settings are shared across accounts. Changes follow the usual reconnect and
-pending-settings flow; check the apply result, because a saved change may only
-take effect after reconnecting.
+Settings are shared across accounts. During a stable connection, custom-rule
+edits apply to new flows without reconnecting. Check the apply result: a saved
+change can remain pending when disconnected, busy or recovering, or when the
+current platform cannot safely prepare DIRECT resources. Country, LAN, DNS and
+other transport changes retain their reconnect requirements. Combining a rule
+edit with a TUN output change also requires reconnecting.
+
+An established TCP connection or CONNECT stream keeps its selected path until
+it closes. HTTP forwarding chooses the current rule revision for each new
+request and does not reuse an idle upstream connection from an older revision.
+UDP keeps each association target's selected path until its idle expiry or a
+physical-network change. Adding REJECT does not retrospectively terminate those
+existing flows. Reconnect explicitly to retire them immediately.
+
+DNS route hints are scoped to both the physical network and the rule revision.
+An outstanding lookup from a retired revision returns SERVFAIL and cannot
+publish hints for the replacement. Applications may still retain their own DNS
+answers. Preparation and publication validate resources and network generation;
+failure preserves the previous live rules and reports that application failed.
 
 **Advanced network settings → Routing & protection → Allow local network** applies to every output:
 VPN/TUN, HTTP forwarding and CONNECT (including Windows system proxy), and
@@ -151,8 +167,11 @@ the checked address. It does not fall
 back to physical DNS or submit an unchecked hostname when resolution fails.
 
 DNS route hints remain bounded by TTL, capacity and network generation.
-Conflicting domain observations sharing an IP conservatively use PROXY; explicit
-IP rejection still applies. Rejecting a name does not blacklist a shared CDN IP.
+Explicit IP rejection applies first, followed by live explicit domain decisions
+(PROXY wins if explicit domain decisions share an IP), then custom address rules.
+Conflicting learned observations otherwise conservatively use PROXY; they do not
+override an explicit DIRECT domain decision or a custom address rule. Rejecting
+a name does not blacklist a shared CDN IP.
 Applications using their own encrypted DNS can hide names from Usque; address
 rules still apply to traffic entering its engine. LAN/system exclusions,
 Android excluded applications and tunnel control traffic retain their existing
@@ -165,6 +184,19 @@ DIRECT supports the existing TCP/UDP direct path; ICMP and other protocols retai
 the selected tunnel's capabilities. Older clients cannot overwrite new routing
 through legacy fields or unversioned whole-profile writes. Non-routing edits
 continue through field-scoped settings updates.
+
+TUN DIRECT targets that cannot receive a direct-egress lease (multicast,
+unspecified addresses or destination port zero) use the existing tunnel fallback
+without repeatedly requesting an invalid lease. This does not implement LAN
+multicast forwarding. Existing imported rules remain loadable; a broad DIRECT
+CIDR containing both unicast and multicast addresses still supports its unicast
+targets. Agent validation remains authoritative for every requested lease.
+
+The default log reports DIRECT fallback reasons and gateway return-queue drops
+using fixed codes and numeric counts, with repeated messages limited per reason
+to one every 15 seconds while events continue. It does not log destination
+addresses or rule contents. Desktop diagnostic exports include the corresponding
+gateway-lifetime counters; see [network-quality metrics](network-quality-metrics.md).
 
 Explicit configuration export includes these settings. Logs and diagnostic
 exports do not gain target lists, DNS names or packet contents. Rule validation
@@ -179,7 +211,16 @@ native VPN cleanup and external leak behavior need the isolated environments in
 打开 **设置 → 分流设置 → 自定义分流规则**，添加单条规则，或按指定动作批量粘贴。
 每行填写域名、IP 或 CIDR，然后点击 **应用修改**。动作 **直连**（DIRECT）不经过隧道，
 **拦截**（REJECT）拒绝连接，**代理**（PROXY）使用当前隧道及链式出口。列表不编号，
-规则顺序不影响匹配；冲突的规则会在所在行显示原因。设置跨账号共享；查看应用结果，必要时重新连接。
+规则顺序不影响匹配；冲突的规则会在所在行显示原因。设置跨账号共享。连接稳定时，
+仅修改自定义规则会直接用于新流，无需重连；请查看应用结果，离线、忙碌、恢复中或无法安全
+准备直连资源时可能仅保存为待应用。国家、局域网、DNS 和其他传输设置仍遵循重连要求；
+规则与 TUN 开关同时修改也会重连。
+
+已有 TCP／CONNECT 连接保持原路径直到关闭；HTTP 转发的每个新请求读取当前规则版本，
+不会复用旧版本的空闲上游连接。UDP 关联的同一目标保持原路径，直到空闲过期或物理网络变化。
+新增 REJECT 不会追溯中断这些已有流；需要立即清退时可主动重新连接。
+DNS 路由提示同时绑定网络代次与规则版本，旧查询在版本切换后返回 SERVFAIL，不能写入新版本提示；
+应用自身的 DNS 缓存不受强制清除。准备和发布失败会保留旧的运行规则并报告应用失败。
 
 在 **分流设置 → 国家/地区** 下载国家数据，打开直连开关并点击 **应用修改**。
 启用需要有效 GeoIP，GeoSite 国家域名分类为可选；没有域名分类时，仍可按 IP 目标
@@ -221,7 +262,7 @@ Ads 误拦截可通过自定义域名 DIRECT／PROXY 放行。Ads 默认关闭�
 广告开关和规则更新无需重连，完整校验后用于当前连接的新请求；原生进程每秒观察一次规则文件替换，
 失败保留上次有效规则。页面根据运行时状态显示是否生效。已建立的流和应用缓存的 DNS 答案不会被强制
 中断或清空。Windows／Android 在连接建立时准备内部 DNS 通道，因此广告开关无需修改网卡或系统 DNS；
-上游解析及出口选择保持原策略。国家和自定义分流规则继续使用原来的应用流程。
+上游解析及出口选择保持原策略。自定义分流规则按上述版本机制用于新流；国家设置仍需重连。
 
 旧 CIDR 和域名会迁移为 DIRECT；CIDR 不再通过系统路由提前绕过引擎。
 直连支持 TCP/UDP，其他协议沿用隧道能力。应用自行使用加密 DNS、系统局域网绕过及

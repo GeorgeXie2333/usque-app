@@ -193,6 +193,13 @@ impl Resolver {
     }
 
     pub(crate) async fn resolve(&self, name: &str) -> Result<Vec<IpAddr>, TransportError> {
+        let frozen = self
+            .clone()
+            .with_routing(Arc::new(self.routing.freeze_routing()));
+        frozen.resolve_with_snapshot(name).await
+    }
+
+    async fn resolve_with_snapshot(&self, name: &str) -> Result<Vec<IpAddr>, TransportError> {
         if matches!(self.mode, ProxyDnsMode::Remote | ProxyDnsMode::EdgeResolved)
             && let Some(readiness) = &self.readiness
         {
@@ -254,6 +261,17 @@ impl Resolver {
         }
     }
 
+    pub(crate) async fn resolve_for_policy_snapshot(
+        &self,
+        name: &str,
+        policy: &crate::geo_direct::GeoDirectPolicy,
+    ) -> Result<Vec<IpAddr>, TransportError> {
+        self.clone()
+            .with_routing(Arc::new(policy.freeze_routing()))
+            .resolve_for_policy(name)
+            .await
+    }
+
     /// Control bootstrap never inherits a frontend's System/Local DNS mode.
     pub(crate) async fn resolve_remote(&self, name: &str) -> Result<Vec<IpAddr>, TransportError> {
         let mut remote = self.clone();
@@ -262,6 +280,16 @@ impl Resolver {
     }
 
     pub(crate) fn resolve_candidates(
+        &self,
+        name: &str,
+        deadline: Instant,
+    ) -> Result<CandidateResolution, TransportError> {
+        self.clone()
+            .with_routing(Arc::new(self.routing.freeze_routing()))
+            .resolve_candidates_snapshot(name, deadline)
+    }
+
+    fn resolve_candidates_snapshot(
         &self,
         name: &str,
         deadline: Instant,
@@ -939,6 +967,66 @@ fn deduplicate(addresses: &mut Vec<IpAddr>) {
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn lazy_dns_candidates_keep_the_policy_captured_before_publication() {
+        use ts_netstack_smoltcp::CreateSocket;
+        use ts_netstack_smoltcp::netcore::{Config, HasChannel, NetstackControl};
+        use usque_core::RoutingAction::{Proxy, Reject};
+        let (client, server) = ts_netstack_smoltcp::piped_pair(Config::default());
+        let channel = client.command_channel();
+        let server_channel = server.command_channel();
+        let client_task = tokio_util::task::AbortOnDropHandle::new(client.spawn_tokio());
+        let server_task = tokio_util::task::AbortOnDropHandle::new(server.spawn_tokio());
+        channel
+            .set_ips(["10.0.0.1".parse::<IpAddr>().unwrap()])
+            .await
+            .unwrap();
+        server_channel
+            .set_ips(["10.0.0.2".parse::<IpAddr>().unwrap()])
+            .await
+            .unwrap();
+        let socket = server_channel
+            .udp_bind("10.0.0.2:53".parse().unwrap())
+            .await
+            .unwrap();
+        let answering = tokio_util::task::AbortOnDropHandle::new(tokio::spawn(async move {
+            while let Ok((peer, query)) = socket.recv_from_bytes().await {
+                let response = crate::split_dns::test_cname_response(&query, &[]);
+                socket.send_to(peer, &response).await.unwrap();
+            }
+        }));
+        let policy = Arc::new(crate::geo_direct::routing_test_policy(&[(
+            "hot.test", Proxy,
+        )]));
+        let resolver = Resolver::new(
+            channel,
+            "10.0.0.1".parse().unwrap(),
+            Ipv6Addr::UNSPECIFIED,
+            vec!["10.0.0.2".parse().unwrap()],
+            ProxyDnsMode::Remote,
+            Arc::new(NoopSocketProtector),
+        )
+        .with_routing(policy.clone());
+        let mut old_candidates = resolver
+            .resolve_candidates("hot.test", Instant::now() + DNS_TIMEOUT)
+            .unwrap();
+        let next = crate::geo_direct::routing_test_profile(&[("hot.test", Reject)]);
+        policy
+            .publish_routing_update(policy.prepare_routing_update(&next).unwrap())
+            .unwrap();
+        let mut addresses = Vec::new();
+        while let Some(result) = old_candidates.next().await {
+            addresses.extend(result.unwrap());
+        }
+        assert_eq!(addresses, ["203.0.113.7".parse::<IpAddr>().unwrap()]);
+        assert!(
+            resolver
+                .resolve_candidates("hot.test", Instant::now() + DNS_TIMEOUT)
+                .is_err()
+        );
+        drop((answering, client_task, server_task));
+    }
+
     #[tokio::test]
     async fn routing_is_checked_after_server_selection_and_before_candidate_limits() {
         use ts_netstack_smoltcp::CreateSocket;

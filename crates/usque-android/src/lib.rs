@@ -70,6 +70,7 @@ pub const RECONFIGURE_OK: i32 = 0;
 pub const RECONFIGURE_NEED_COLD: i32 = 1;
 pub const RECONFIGURE_NEED_ATTACH: i32 = 2;
 pub const RECONFIGURE_NOT_RUNNING: i32 = -10;
+pub const RECONFIGURE_REJECTED: i32 = -11;
 
 mod chain_exit;
 mod connection_timeline;
@@ -77,6 +78,8 @@ mod diagnostic_probe;
 #[cfg(any(test, target_os = "android"))]
 mod exit_probe_task;
 mod proton_vpn;
+#[cfg(any(test, target_os = "android"))]
+mod runtime_routing;
 #[cfg(feature = "wireguard")]
 mod warp_wireguard;
 

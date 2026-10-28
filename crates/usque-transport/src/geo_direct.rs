@@ -13,6 +13,8 @@ use tokio::net::{TcpSocket, TcpStream, UdpSocket};
 use tokio::time::timeout;
 use usque_geo::{CountryCode, GeoClassifier, GeoError};
 
+use crate::live_routing::{LiveRouting, RoutingSnapshot};
+pub use crate::live_routing::{PreparedRoutingUpdate, RoutingUpdateError};
 use crate::netstack::TrafficCounters;
 use crate::socket::{DirectEgressLease, DirectProtocol, SocketProtector, socket_handle};
 
@@ -74,7 +76,7 @@ impl GeoDirectClassifier for GeoClassifier {
     }
 }
 
-/// Immutable GEO and explicit bypass policy for proxy and platform traffic.
+/// Immutable GEO/bypass configuration with session-shared routing revisions.
 ///
 /// Hostnames match custom suffixes or GeoSite; numerical addresses match custom
 /// networks or GeoIP. Explicit rules work without a GEO catalog. Unknown targets
@@ -83,13 +85,13 @@ impl GeoDirectClassifier for GeoClassifier {
 #[derive(Clone)]
 pub struct GeoDirectPolicy {
     classifier: Option<Arc<dyn GeoDirectClassifier>>,
-    countries: Vec<CountryCode>,
+    countries: Arc<[CountryCode]>,
     allow_lan: bool,
-    networks: Vec<usque_core::config::IpNet>,
-    domains: Vec<String>,
-    routing: usque_core::RoutingSettings,
-    routing_networks: Vec<(usque_core::config::IpNet, usque_core::RoutingAction)>,
-    routing_domains: Vec<(String, usque_core::RoutingAction)>,
+    networks: Arc<[usque_core::config::IpNet]>,
+    domains: Arc<[String]>,
+    routing: Arc<LiveRouting>,
+    frozen_routing: Option<Arc<RoutingSnapshot>>,
+    ads_enabled: bool,
     ads: Arc<crate::live_ads::LiveAds>,
 }
 
@@ -104,13 +106,13 @@ impl GeoDirectPolicy {
     pub fn disabled() -> Self {
         Self {
             classifier: None,
-            countries: Vec::new(),
+            countries: Arc::default(),
             allow_lan: false,
-            networks: Vec::new(),
-            domains: Vec::new(),
+            networks: Arc::default(),
+            domains: Arc::default(),
             routing: Default::default(),
-            routing_networks: Vec::new(),
-            routing_domains: Vec::new(),
+            frozen_routing: None,
+            ads_enabled: false,
             ads: Arc::default(),
         }
     }
@@ -152,11 +154,11 @@ impl GeoDirectPolicy {
             classifier: Some(classifier),
             countries: countries.into_iter().collect(),
             allow_lan: false,
-            networks: Vec::new(),
-            domains: Vec::new(),
+            networks: Arc::default(),
+            domains: Arc::default(),
             routing: Default::default(),
-            routing_networks: Vec::new(),
-            routing_domains: Vec::new(),
+            frozen_routing: None,
+            ads_enabled: false,
             ads: Arc::default(),
         }
     }
@@ -167,33 +169,83 @@ impl GeoDirectPolicy {
         profile: &usque_core::Profile,
     ) -> Result<Self, usque_core::ConfigError> {
         self.allow_lan = profile.allow_lan;
-        self.domains = usque_core::config::normalize_bypass_domains(&profile.bypass_domains)?;
-        self.networks = profile.split_exclusions.clone();
-        self.routing = profile.routing.normalized()?;
-        self.routing_networks.clear();
-        self.routing_domains.clear();
-        for rule in &self.routing.rules {
-            match rule.kind {
-                usque_core::RoutingMatch::Cidr => self.routing_networks.push((
-                    rule.target
-                        .parse()
-                        .map_err(|_| usque_core::ConfigError::InvalidRoutingRule(rule.id))?,
-                    rule.action,
-                )),
-                usque_core::RoutingMatch::Domain => self
-                    .routing_domains
-                    .push((rule.target.clone(), rule.action)),
-            }
-        }
-        self.routing_networks
-            .sort_by_key(|(net, _)| std::cmp::Reverse(net.prefix_len()));
-        self.routing_domains
-            .sort_by_key(|(domain, _)| std::cmp::Reverse(domain.len()));
+        self.domains =
+            usque_core::config::normalize_bypass_domains(&profile.bypass_domains)?.into();
+        self.networks = profile.split_exclusions.clone().into();
+        // A builder creates an independent policy even when called on a clone
+        // of an active runtime. Only explicit prepare/publish changes readers.
+        self.routing = Arc::new(LiveRouting::new(RoutingSnapshot::new(&profile.routing, 1)?));
+        self.frozen_routing = None;
+        self.ads_enabled = profile.routing.ads_enabled;
         Ok(self)
     }
 
+    /// Capture one complete rule revision for a new flow or DNS request.
+    pub fn freeze_routing(&self) -> Self {
+        let mut frozen = self.clone();
+        frozen.frozen_routing = Some(self.routing_snapshot());
+        frozen
+    }
+
+    fn routing_snapshot(&self) -> Arc<RoutingSnapshot> {
+        self.frozen_routing
+            .clone()
+            .unwrap_or_else(|| self.routing.snapshot())
+    }
+
+    pub fn routing_revision(&self) -> u64 {
+        self.routing_snapshot().revision
+    }
+
+    /// Unlike routing_revision, this always checks the owning runtime's head.
+    pub fn routing_is_current(&self, revision: u64) -> bool {
+        self.with_current_routing(revision, || ()).is_some()
+    }
+
+    pub(crate) fn with_current_routing<T>(
+        &self,
+        revision: u64,
+        operation: impl FnOnce() -> T,
+    ) -> Option<T> {
+        self.routing.with_current(revision, operation)
+    }
+
+    pub fn prepare_routing_update(
+        &self,
+        profile: &usque_core::Profile,
+    ) -> Result<PreparedRoutingUpdate, usque_core::ConfigError> {
+        let current = self.routing.snapshot();
+        let base_revision = current.revision;
+        let next = Arc::new(RoutingSnapshot::new(
+            &profile.routing,
+            base_revision.checked_add(1).unwrap_or(base_revision),
+        )?);
+        let changes_rules = next.settings.rules != current.settings.rules;
+        let next = if changes_rules { next } else { current };
+        let mut candidate = self.clone();
+        candidate.frozen_routing = Some(next.clone());
+        Ok(PreparedRoutingUpdate {
+            owner: Arc::clone(&self.routing),
+            base_revision,
+            next,
+            changes_rules,
+            direct_routes: candidate.has_direct_routes(),
+            direct_dns: candidate.needs_direct_dns(),
+        })
+    }
+
+    pub fn publish_routing_update(
+        &self,
+        prepared: PreparedRoutingUpdate,
+    ) -> Result<(), RoutingUpdateError> {
+        if !Arc::ptr_eq(&self.routing, &prepared.owner) {
+            return Err(RoutingUpdateError::OwnerChanged);
+        }
+        self.routing.publish(prepared.base_revision, prepared.next)
+    }
+
     pub fn with_ads(mut self, cache_dir: &Path) -> Self {
-        self.ads = crate::live_ads::LiveAds::watch(cache_dir, self.routing.ads_enabled);
+        self.ads = crate::live_ads::LiveAds::watch(cache_dir, self.ads_enabled);
         self
     }
 
@@ -216,21 +268,24 @@ impl GeoDirectPolicy {
     }
 
     pub fn needs_direct_dns(&self) -> bool {
-        !self.countries.is_empty() || !self.domains.is_empty() || self.routing.has_direct_domains()
+        !self.countries.is_empty()
+            || !self.domains.is_empty()
+            || self.routing_snapshot().settings.has_direct_domains()
     }
     pub fn has_direct_routes(&self) -> bool {
         self.allow_lan
             || !self.countries.is_empty()
             || !self.networks.is_empty()
             || !self.domains.is_empty()
-            || self.routing.has_direct_rules()
+            || self.routing_snapshot().settings.has_direct_rules()
     }
     pub(crate) fn has_ip_rules(&self) -> bool {
-        self.allow_lan || !self.routing_networks.is_empty()
+        self.allow_lan || !self.routing_snapshot().networks.is_empty()
     }
     pub(crate) fn custom_host(&self, host: &str) -> Option<GeoRoute> {
         let host = usque_core::config::canonical_bypass_domain(host)?;
-        self.routing_domains
+        self.routing_snapshot()
+            .domains
             .iter()
             .find(|(domain, _)| {
                 host == *domain
@@ -242,7 +297,8 @@ impl GeoDirectPolicy {
     }
     pub(crate) fn custom_ip(&self, ip: IpAddr) -> Option<GeoRoute> {
         let ip = ip.to_canonical();
-        self.routing_networks
+        self.routing_snapshot()
+            .networks
             .iter()
             .find(|(net, _)| net.contains(&ip))
             .map(|(_, action)| (*action).into())
@@ -251,17 +307,21 @@ impl GeoDirectPolicy {
         self.custom_ip(ip) == Some(GeoRoute::Reject)
     }
     pub(crate) fn resolved_route(&self, host: &str, ip: IpAddr) -> GeoRoute {
-        if self.rejects_ip(ip) {
+        if self.frozen_routing.is_none() {
+            return self.freeze_routing().resolved_route(host, ip);
+        }
+        let policy = self;
+        if policy.rejects_ip(ip) {
             return GeoRoute::Reject;
         }
-        if let Some(route) = self.custom_host(host) {
+        if let Some(route) = policy.custom_host(host) {
             return route;
         }
-        if let Some(route) = self.custom_ip(ip) {
+        if let Some(route) = policy.custom_ip(ip) {
             return route;
         }
-        let route = self.route_host(host);
-        if route != GeoRoute::Reject && self.is_lan_direct(ip) {
+        let route = policy.route_host(host);
+        if route != GeoRoute::Reject && policy.is_lan_direct(ip) {
             GeoRoute::Direct
         } else {
             route
@@ -279,9 +339,9 @@ impl GeoDirectPolicy {
             || (self.classifier.is_some() && !self.countries.is_empty())
             || !self.networks.is_empty()
             || !self.domains.is_empty()
-            || !self.routing.rules.is_empty()
+            || !self.routing_snapshot().settings.rules.is_empty()
             || self.supports_live_ads()
-            || self.routing.ads_enabled
+            || self.ads_enabled
     }
 
     /// Selects a route for a hostname using custom suffixes and GeoSite.
@@ -514,6 +574,8 @@ where
     F: FnOnce(Option<Vec<IpAddr>>) -> Fut,
     Fut: Future<Output = Result<T, E>>,
 {
+    let frozen = policy.freeze_routing();
+    let policy = &frozen;
     if target.route(policy) == GeoRoute::Reject {
         return Ok(DirectFallback::Rejected);
     }
@@ -562,6 +624,8 @@ pub(crate) async fn resolve_routing_host(
     host: &str,
     port: u16,
 ) -> Result<(Vec<IpAddr>, bool), String> {
+    let frozen = policy.freeze_routing();
+    let policy = &frozen;
     let direct = policy.route_host(host) == GeoRoute::Direct;
     if direct {
         match crate::split_dns::resolve_direct_routed(protector, host, port, policy).await {
@@ -582,7 +646,7 @@ pub(crate) async fn resolve_routing_host(
         }
     }
     resolver
-        .resolve_for_policy(host)
+        .resolve_for_policy_snapshot(host, policy)
         .await
         .map(|addresses| (addresses, direct))
         .map_err(|error| error.to_string())
@@ -600,6 +664,8 @@ where
     F: FnOnce(Option<Vec<IpAddr>>) -> Fut,
     Fut: Future<Output = Result<TunnelTcpStream, E>>,
 {
+    let frozen = policy.freeze_routing();
+    let policy = &frozen;
     let (target, port, resolver) = destination;
     let (direct_failure, rejected) = failures;
     if target.route(policy) == GeoRoute::Reject {
@@ -878,7 +944,16 @@ impl SocketProtector for LanProbeProtector {
 pub(crate) fn routing_test_policy(
     entries: &[(&str, usque_core::RoutingAction)],
 ) -> GeoDirectPolicy {
-    let profile = usque_core::Profile {
+    GeoDirectPolicy::disabled()
+        .with_custom_rules(&routing_test_profile(entries))
+        .unwrap()
+}
+
+#[cfg(test)]
+pub(crate) fn routing_test_profile(
+    entries: &[(&str, usque_core::RoutingAction)],
+) -> usque_core::Profile {
+    usque_core::Profile {
         allow_lan: false,
         routing: usque_core::RoutingSettings {
             rules: entries
@@ -897,10 +972,7 @@ pub(crate) fn routing_test_policy(
             ads_enabled: false,
         },
         ..Default::default()
-    };
-    GeoDirectPolicy::disabled()
-        .with_custom_rules(&profile)
-        .unwrap()
+    }
 }
 
 #[cfg(test)]
@@ -916,6 +988,138 @@ mod tests {
         connect_with_geo_fallback,
     };
     use crate::socket::{SocketHandle, SocketProtector};
+
+    #[test]
+    fn hot_routing_publication_updates_readers_and_preserves_captured_flows() {
+        use usque_core::RoutingAction::{Direct, Proxy, Reject};
+        let policy = super::routing_test_policy(&[
+            ("hot.test", Direct),
+            ("192.0.2.0/24", Proxy),
+            ("2001:db8::/64", Direct),
+        ]);
+        let observer = policy.clone();
+        let captured = policy.freeze_routing();
+        let revision = policy.routing_revision();
+        let candidate = super::routing_test_profile(&[
+            ("hot.test", Reject),
+            ("192.0.2.0/24", Direct),
+            ("2001:db8::/64", Reject),
+        ]);
+        let prepared = policy.prepare_routing_update(&candidate).unwrap();
+        assert!(prepared.has_direct_routes());
+        assert!(!prepared.needs_direct_dns());
+        assert_eq!(observer.route_host("hot.test"), GeoRoute::Direct);
+        policy.publish_routing_update(prepared).unwrap();
+        assert_eq!(observer.routing_revision(), revision + 1);
+        assert_eq!(observer.route_host("hot.test"), GeoRoute::Reject);
+        assert_eq!(captured.route_host("hot.test"), GeoRoute::Direct);
+        assert_eq!(captured.routing_revision(), revision);
+        assert!(!captured.routing_is_current(revision));
+        for ip in ["192.0.2.7", "::ffff:192.0.2.7"] {
+            assert_eq!(observer.route_ip(ip.parse().unwrap()), GeoRoute::Direct);
+            assert_eq!(captured.route_ip(ip.parse().unwrap()), GeoRoute::Tunnel);
+        }
+        assert_eq!(
+            observer.route_ip("2001:db8::7".parse().unwrap()),
+            GeoRoute::Reject
+        );
+        assert_eq!(
+            captured.route_ip("2001:db8::7".parse().unwrap()),
+            GeoRoute::Direct
+        );
+        let removed = super::routing_test_profile(&[]);
+        observer
+            .publish_routing_update(observer.prepare_routing_update(&removed).unwrap())
+            .unwrap();
+        assert!(!policy.has_direct_routes());
+        assert_eq!(policy.route_host("hot.test"), GeoRoute::Tunnel);
+    }
+
+    #[test]
+    fn hot_routing_rejects_stale_foreign_and_invalid_updates_without_mutation() {
+        use usque_core::RoutingAction::{Direct, Reject};
+        let policy = super::routing_test_policy(&[("hot.test", Direct)]);
+        let profile = super::routing_test_profile(&[("hot.test", Reject)]);
+        let stale = policy.prepare_routing_update(&profile).unwrap();
+        let first = policy.prepare_routing_update(&profile).unwrap();
+        let foreign = super::routing_test_policy(&[("hot.test", Direct)]);
+        assert_eq!(
+            foreign.publish_routing_update(first),
+            Err(super::RoutingUpdateError::OwnerChanged)
+        );
+        assert_eq!(foreign.route_host("hot.test"), GeoRoute::Direct);
+        let independent = policy.clone().with_custom_rules(&profile).unwrap();
+        assert_eq!(independent.route_host("hot.test"), GeoRoute::Reject);
+        assert_eq!(policy.route_host("hot.test"), GeoRoute::Direct);
+        policy
+            .publish_routing_update(policy.prepare_routing_update(&profile).unwrap())
+            .unwrap();
+        assert_eq!(
+            policy.publish_routing_update(stale),
+            Err(super::RoutingUpdateError::RevisionChanged)
+        );
+        let revision = policy.routing_revision();
+        let mut invalid = profile;
+        invalid.routing.rules[0].target = "https://invalid.test".into();
+        assert!(policy.prepare_routing_update(&invalid).is_err());
+        assert_eq!(policy.routing_revision(), revision);
+        assert_eq!(policy.route_host("hot.test"), GeoRoute::Reject);
+    }
+
+    #[test]
+    fn prepared_direct_requirements_include_retained_cold_routes() {
+        let profile = usque_core::Profile {
+            allow_lan: true,
+            bypass_domains: vec!["retained.test".into()],
+            split_exclusions: vec!["192.0.2.0/24".parse().unwrap()],
+            ..Default::default()
+        };
+        let policy = GeoDirectPolicy::disabled()
+            .with_custom_rules(&profile)
+            .unwrap();
+        let prepared = policy
+            .prepare_routing_update(&super::routing_test_profile(&[]))
+            .unwrap();
+        assert!(prepared.has_direct_routes());
+        assert!(prepared.needs_direct_dns());
+        policy.publish_routing_update(prepared).unwrap();
+        assert_eq!(policy.route_host("retained.test"), GeoRoute::Direct);
+        assert_eq!(
+            policy.route_ip("192.0.2.7".parse().unwrap()),
+            GeoRoute::Direct
+        );
+        assert_eq!(
+            policy.route_ip("10.1.2.3".parse().unwrap()),
+            GeoRoute::Direct
+        );
+        assert_eq!(
+            policy.route_ip("127.0.0.1".parse().unwrap()),
+            GeoRoute::Tunnel
+        );
+    }
+
+    #[test]
+    fn exhausted_rule_revision_still_distinguishes_changes_from_noop_transactions() {
+        let mut policy = GeoDirectPolicy::disabled();
+        policy.routing = Arc::new(super::LiveRouting::new(
+            super::RoutingSnapshot::new(&usque_core::RoutingSettings::default(), u64::MAX).unwrap(),
+        ));
+        let prepared = policy
+            .prepare_routing_update(&super::routing_test_profile(&[]))
+            .unwrap();
+        assert!(!prepared.changes_rules());
+        policy.publish_routing_update(prepared).unwrap();
+        let next =
+            super::routing_test_profile(&[("blocked.test", usque_core::RoutingAction::Reject)]);
+        let prepared = policy.prepare_routing_update(&next).unwrap();
+        assert!(prepared.changes_rules());
+        assert_eq!(
+            policy.publish_routing_update(prepared),
+            Err(super::RoutingUpdateError::RevisionExhausted)
+        );
+        assert_eq!(policy.routing_revision(), u64::MAX);
+        assert_eq!(policy.route_host("blocked.test"), GeoRoute::Tunnel);
+    }
 
     struct FakeClassifier {
         host_hit: bool,
