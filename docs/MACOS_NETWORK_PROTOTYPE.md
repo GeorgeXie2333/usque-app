@@ -100,6 +100,12 @@ separate results. No result here establishes leak prevention on the host.
 
 Development host: Apple Silicon (`arm64`), macOS 27.0, Xcode 27.1. Deployment
 target: macOS 13.0. Validation date: 2026-10-29.
+Full-workspace code candidate: `14b17a8c5e6617134a084353e4120c5e25699357`.
+Test-only diagnostic suppression: `0789dafacd912bc5049addf8708d333092eb3754`,
+followed by a successful rerun of the five Engine provider tests. The subsequent
+validation-record commit changes documentation only.
+The [machine-readable record](MACOS_NETWORK_VALIDATION.json) separates these
+checks from hardware and real-network acceptance.
 
 - Rust lifecycle, credential RPC, actual shared-runtime refusal boundary and
   immutable policy tests: 15 passed.
@@ -109,6 +115,11 @@ target: macOS 13.0. Validation date: 2026-10-29.
   durable-write failure are covered.
 - Native isolated contracts: 3 groups passed (lifecycle fencing; bounded
   framing; control-plane parsing).
+- Full macOS workspace regression: 1,910 passed, 3 ignored, no failures.
+- `cargo fmt --all --check`, strict workspace Clippy and the complete
+  `tool/check_source.ps1` checks passed (Rust, Dart/Flutter analysis, Kotlin,
+  Python, PowerShell and protobuf). Loopback permission was required for
+  Gradle's local lock service.
 - arm64 and x86_64 Rust static libraries and five native executables per app
   cross-built locally; architecture, Mach-O minimum OS and development signatures
   checked. Intel binaries were not run on Intel hardware.
@@ -123,6 +134,17 @@ re-run. Initial linking also exposed cached C/C++ objects built for macOS 27;
 the architecture-specific runtime build now fixes their target to 13 and treats
 native linker warnings as errors. Sandbox loopback denial is environmental;
 the actual loopback runs used permission to bind local sockets only.
+The full regression also found an IPC error-code compatibility change and two
+Darwin-specific test fixture assumptions. The original error code was restored;
+fixtures now use real IPv4/IPv6 loopback addresses and a sufficiently sized test
+UDP socket, without changing interface aliases or host network settings. Engine
+unit tests use an in-memory vault on macOS. Provider contract tests also suppress
+the ordinary exit-location diagnostic, so its hostname resolution cannot escape
+the isolated loopback boundary.
+
+Repository policy passed on the tracked-source archive. Running the validator
+directly over this development checkout also scans ignored local SDK docs and
+reports their missing links; those SDK files are not part of the candidate.
 
 No extensions were installed/activated. No system VPN, external tunnel, DNS
 leak, physical-egress crash test, sleep/network transition or Intel/macOS 13
