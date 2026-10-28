@@ -34,10 +34,10 @@ pub enum ChainCredentials {
         configuration: Zeroizing<String>,
     },
     Imported {
-        server: ServerSummary,
+        server: Box<ServerSummary>,
         summary: ChainProfileSummary,
         secrets: ImportSecrets,
-        proton: Option<ProtonCredentials>,
+        proton: Option<Box<ProtonCredentials>>,
         proton_server_id: Option<String>,
     },
 }
@@ -137,19 +137,19 @@ impl ChainCredentials {
         match (&prepared.custom, &prepared.summary) {
             (Some(_), Some(summary)) => {
                 let proton = match (&prepared.proton, &prepared.proton_persistence) {
-                    (Some(value), Some(persistence)) => Some(ProtonCredentials {
+                    (Some(value), Some(persistence)) => Some(Box::new(ProtonCredentials {
                         record: persistence.load().map_err(|_| "proton_vault_unavailable")?,
                         certificate_chain: value.certificate_chain.clone(),
                         private_key_pkcs8: value.private_key_pkcs8.clone(),
                         server_name: value.server_name.clone(),
                         expires_at: value.expires_at,
                         label: value.label.clone(),
-                    }),
+                    })),
                     (None, None) => None,
                     _ => return Err("incomplete_proton_handoff".into()),
                 };
                 Ok(Self::Imported {
-                    server: server.clone(),
+                    server: Box::new(server.clone()),
                     summary: *summary.clone(),
                     secrets: *prepared.credentials.clone(),
                     proton,
@@ -216,7 +216,7 @@ impl ChainCredentials {
                 } else if proton.is_some() {
                     return Err("unexpected_proton_credentials".into());
                 }
-                Ok((server.clone(), prepared))
+                Ok((server.as_ref().clone(), prepared))
             }
         }
     }

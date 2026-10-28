@@ -7,10 +7,11 @@ use crate::{
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+#[cfg(unix)]
+use std::io::Read;
 use std::{
     fmt,
     fs::File,
-    io::Read,
     sync::{Arc, Mutex},
 };
 use usque_core::{
@@ -38,7 +39,7 @@ pub enum BrokerRequest {
         session: SessionKey,
         profile_id: Uuid,
         initial: Record,
-        record: Record,
+        record: Box<Record>,
     },
     ProtonLock {
         session: SessionKey,
@@ -266,7 +267,7 @@ impl LeasePersistence for RpcProtonPersistence {
                 session: self.session.clone(),
                 profile_id: self.profile_id,
                 initial,
-                record: record.clone(),
+                record: Box::new(record.clone()),
             },
         )
         .map_err(import_error)?;

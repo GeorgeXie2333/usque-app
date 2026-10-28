@@ -2380,9 +2380,7 @@ impl ControlService {
         if profile.frontends.tunnel
             && !macos_runtime::provider_permitted(self.macos_provider.read().await.as_ref())
         {
-            return Err(ControlServiceError::FeatureUnavailable(
-                "macOS VPN awaits signed Network Extension acceptance",
-            ));
+            return Err(ControlServiceError::OperatingModeUnavailable(profile.mode));
         }
         #[cfg(not(target_os = "macos"))]
         if profile.frontends.tunnel && !cfg!(any(windows, target_os = "linux")) {
@@ -2667,13 +2665,15 @@ impl ControlService {
                 let identity = usque_core::parse_manual_warp_secret(portable)
                     .map_err(|_| ControlServiceError::InvalidStoredIdentity)?;
                 match macos_runtime::MacVpnRuntime::start(
-                    Arc::clone(&*self.macos_provider.read().await),
-                    Arc::clone(&self.vault),
+                    macos_runtime::ProviderStart {
+                        provider: Arc::clone(&*self.macos_provider.read().await),
+                        vault: Arc::clone(&self.vault),
+                        cache_dir: self.cache_dir.clone(),
+                        session: self.reserve_macos_start().await?,
+                        detaching: Arc::clone(&self.macos_detaching),
+                    },
                     &profile,
                     &identity,
-                    self.cache_dir.clone(),
-                    self.reserve_macos_start().await?,
-                    Arc::clone(&self.macos_detaching),
                     selected_gate,
                     &startup_cancel,
                 )
@@ -5321,9 +5321,14 @@ fn platform_vault() -> Arc<dyn SecretVault> {
     {
         Arc::new(usque_platform::WindowsCredentialVault)
     }
-    #[cfg(target_os = "macos")]
+    #[cfg(all(target_os = "macos", not(test)))]
     {
         Arc::new(usque_platform::MacOsKeychainVault)
+    }
+    #[cfg(all(target_os = "macos", test))]
+    {
+        // Unit/integration fixtures must never read or modify the user's vault.
+        Arc::new(tests::MemoryVault::default())
     }
     #[cfg(all(target_os = "linux", not(test)))]
     {

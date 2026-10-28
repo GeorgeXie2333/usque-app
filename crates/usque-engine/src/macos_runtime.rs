@@ -327,6 +327,13 @@ pub(crate) struct MacVpnRuntime {
     gate: GateStatus,
     detaching: Arc<std::sync::atomic::AtomicBool>,
 }
+pub(crate) struct ProviderStart {
+    pub provider: Arc<dyn ProviderControl>,
+    pub vault: Arc<dyn SecretVault>,
+    pub cache_dir: PathBuf,
+    pub session: SessionKey,
+    pub detaching: Arc<std::sync::atomic::AtomicBool>,
+}
 
 fn requested_path(profile: &Profile) -> RuntimePath {
     RuntimePath {
@@ -348,18 +355,19 @@ fn requested_path(profile: &Profile) -> RuntimePath {
     }
 }
 fn snapshot_health(snapshot: &Snapshot, requested: RuntimePath) -> RuntimeHealth {
-    if snapshot.phase == Phase::Connected && snapshot.protection_active {
-        if let Some(path) = &snapshot.selected_path {
-            return RuntimeHealth::Connected {
-                path: RuntimePath {
-                    transport: path.transport,
-                    endpoint_family: path.endpoint_family,
-                    ipv4_available: path.ipv4_available,
-                    ipv6_available: path.ipv6_available,
-                },
-                reconnect_count: 0,
-            };
-        }
+    if snapshot.phase == Phase::Connected
+        && snapshot.protection_active
+        && let Some(path) = &snapshot.selected_path
+    {
+        return RuntimeHealth::Connected {
+            path: RuntimePath {
+                transport: path.transport,
+                endpoint_family: path.endpoint_family,
+                ipv4_available: path.ipv4_available,
+                ipv6_available: path.ipv6_available,
+            },
+            reconnect_count: 0,
+        };
     }
     if matches!(
         snapshot.phase,
@@ -456,23 +464,24 @@ async fn stop_confirmed(
 }
 impl MacVpnRuntime {
     pub(crate) async fn start(
-        provider: Arc<dyn ProviderControl>,
-        vault: Arc<dyn SecretVault>,
+        context: ProviderStart,
         profile: &Profile,
         identity: &WarpIdentity,
-        cache_dir: PathBuf,
-        session: SessionKey,
-        detaching: Arc<std::sync::atomic::AtomicBool>,
         selected: Option<(
             usque_core::vpngate::ServerSummary,
             usque_core::vpngate::PreparedProfile,
         )>,
         cancellation: &CancellationToken,
     ) -> Result<Self, ControlServiceError> {
+        let ProviderStart {
+            provider,
+            vault,
+            cache_dir,
+            session,
+            detaching,
+        } = context;
         if !provider_permitted(provider.as_ref()) {
-            return Err(ControlServiceError::FeatureUnavailable(
-                "macOS VPN awaits signed Network Extension acceptance",
-            ));
+            return Err(ControlServiceError::OperatingModeUnavailable(profile.mode));
         }
         let broker = Arc::new(EngineCredentialBroker {
             current: Arc::new(StdMutex::new(Some(session.clone()))),
@@ -842,9 +851,7 @@ impl ControlService {
         }
         let provider = Arc::clone(&*self.macos_provider.read().await);
         if !provider_permitted(provider.as_ref()) {
-            return Err(ControlServiceError::FeatureUnavailable(
-                "macOS VPN awaits signed Network Extension acceptance",
-            ));
+            return Err(ControlServiceError::OperatingModeUnavailable(profile.mode));
         }
         let session = self.reserve_macos_start().await?;
         let broker: Arc<dyn CredentialBroker> =
@@ -937,11 +944,11 @@ impl ControlService {
         self.clear_network_quality_source().await;
         let _mutation = self.mutation_lock.lock().await;
         let mut active = self.data_plane.lock().await;
-        if let Some(active) = active.as_mut() {
-            if let crate::ActiveRuntime::MacVpn(runtime) = &mut active.runtime {
-                runtime.detach().await;
-                return Ok(());
-            }
+        if let Some(active) = active.as_mut()
+            && let crate::ActiveRuntime::MacVpn(runtime) = &mut active.runtime
+        {
+            runtime.detach().await;
+            return Ok(());
         }
         drop(active);
         self.disconnect_locked().await?;

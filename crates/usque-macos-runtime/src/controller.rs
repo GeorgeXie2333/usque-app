@@ -260,11 +260,11 @@ async fn start(
     backend: &mut dyn SessionBackend,
     shared: &Shared,
     key: &SessionKey,
-    configuration: SessionConfiguration,
-    credentials: SessionCredentials,
+    handoff: (SessionConfiguration, SessionCredentials),
     cancellation: CancellationToken,
     replacement: bool,
 ) -> Result<(), String> {
+    let (configuration, credentials) = handoff;
     protect(backend, shared, key).await?;
     if replacement {
         backend.disconnect().await?;
@@ -310,8 +310,8 @@ async fn run(
                 let key = envelope.session;
                 let result = match envelope.command {
                     Command::Protect => protect(backend.as_mut(), &shared, &key).await,
-                    Command::Start { configuration, credentials } => start(backend.as_mut(), &shared, &key, configuration, credentials, cancellation, false).await,
-                    Command::Replace { configuration, credentials } => start(backend.as_mut(), &shared, &key, configuration, credentials, cancellation, true).await,
+                    Command::Start { configuration, credentials } => start(backend.as_mut(), &shared, &key, (configuration, credentials), cancellation, false).await,
+                    Command::Replace { configuration, credentials } => start(backend.as_mut(), &shared, &key, (configuration, credentials), cancellation, true).await,
                     Command::Stop => {
                         update(&shared, |s| { s.phase = Phase::Stopping; s.selected_path = None; });
                         let result = async {

@@ -157,9 +157,11 @@ async fn pin_update_is_committed_only_after_matching_durable_ack() {
 
 #[test]
 fn shared_rule_evaluator_keeps_domain_decisions_distinct_and_core_precedence() {
-    let mut profile = Profile::default();
-    profile.allow_lan = true;
-    profile.bypass_domains = vec!["example.com".into()];
+    let mut profile = Profile {
+        allow_lan: true,
+        bypass_domains: vec!["example.com".into()],
+        ..Default::default()
+    };
     profile.routing.rules = vec![
         RoutingRule {
             id: Uuid::new_v4(),
@@ -230,11 +232,13 @@ fn shared_rule_evaluator_keeps_domain_decisions_distinct_and_core_precedence() {
 
 #[test]
 fn packet_tunnel_profile_never_copies_native_flow_filter_or_listener_policy() {
-    let mut profile = Profile::default();
-    profile.allow_lan = true;
-    profile.disable_quic = true;
-    profile.geo_direct_countries = vec!["CN".into()];
-    profile.bypass_domains = vec!["direct.test".into()];
+    let mut profile = Profile {
+        allow_lan: true,
+        disable_quic: true,
+        geo_direct_countries: vec!["CN".into()],
+        bypass_domains: vec!["direct.test".into()],
+        ..Default::default()
+    };
     profile.routing.ads_enabled = true;
     profile.routing.rules.push(RoutingRule {
         id: Uuid::new_v4(),
@@ -282,10 +286,12 @@ async fn production_backend_reaches_actual_data_plane_socket_boundary_and_fails_
     });
     let (mut backend, _packets) =
         DataPlaneBackend::new(adapter.clone(), Arc::new(UnavailableCredentialBroker));
-    let mut profile = Profile::default();
-    profile.allow_lan = false;
-    profile.transport = TransportPolicy::Http2;
-    profile.ip_policy = IpPolicy::Ipv4Only;
+    let mut profile = Profile {
+        allow_lan: false,
+        transport: TransportPolicy::Http2,
+        ip_policy: IpPolicy::Ipv4Only,
+        ..Default::default()
+    };
     profile.endpoint.selection = EndpointSelection::Custom;
     let cache = tempfile::tempdir().unwrap();
     let configuration = SessionConfiguration::snapshot(profile, cache.path().into()).unwrap();
@@ -328,9 +334,11 @@ async fn production_backend_reaches_actual_data_plane_socket_boundary_and_fails_
 #[test]
 fn rule_artifact_changes_require_an_explicit_new_snapshot() {
     let cache = tempfile::tempdir().unwrap();
-    let mut profile = Profile::default();
-    profile.allow_lan = false;
-    profile.geo_direct_countries = vec!["CN".into()];
+    let profile = Profile {
+        allow_lan: false,
+        geo_direct_countries: vec!["CN".into()],
+        ..Default::default()
+    };
     std::fs::create_dir_all(cache.path().join("geo/geoip")).unwrap();
     std::fs::create_dir_all(cache.path().join("geo/geosite")).unwrap();
     std::fs::write(
