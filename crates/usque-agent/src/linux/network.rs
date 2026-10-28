@@ -22,6 +22,7 @@ use super::journal::Resources;
 
 const RTM_NEWLINK: u16 = 16;
 const RTM_DELLINK: u16 = 17;
+const RTM_GETLINK: u16 = 18;
 const RTM_NEWADDR: u16 = 20;
 const RTM_DELADDR: u16 = 21;
 const RTM_NEWROUTE: u16 = 24;
@@ -166,7 +167,7 @@ pub fn lookup_physical_route(resources: &Resources, query: &RouteQuery) -> io::R
 fn lookup_physical_route_inner(resources: &Resources, query: &RouteQuery) -> io::Result<u32> {
     let records = request(RTM_GETROUTE, 0, route_query(query))?;
     let index = selected_route(resources, query, &records)?;
-    let links = request(18, 0, link_message(index, 0, 0))?; // RTM_GETLINK
+    let links = request(RTM_GETLINK, 0, link_message(index, 0, 0))?;
     let [link] = links.as_slice() else {
         return Err(conflict("physical interface is unavailable"));
     };
@@ -1001,10 +1002,7 @@ fn request(kind: u16, flags: u16, payload: Vec<u8>) -> io::Result<Vec<Vec<u8>>> 
     {
         return Err(io::Error::last_os_error());
     }
-    let mut results = Vec::new();
-    let mut total = 0_usize;
-    loop {
-        let mut buffer = vec![0_u8; 64 * 1024];
+    read_responses(kind, flags, sequence, |buffer| {
         let mut address_length = mem::size_of_val(&address) as libc::socklen_t;
         // SAFETY: buffer/address point to writable storage of declared sizes.
         let received = unsafe {
@@ -1020,14 +1018,35 @@ fn request(kind: u16, flags: u16, payload: Vec<u8>) -> io::Result<Vec<Vec<u8>>> 
         if received < 0 {
             return Err(io::Error::last_os_error());
         }
-        if received as usize > buffer.len() || received == 0 || address.nl_pid != 0 {
-            return Err(conflict("invalid netlink sender or length"));
+        if address.nl_pid != 0 {
+            return Err(conflict("invalid netlink sender"));
         }
-        total += received as usize;
+        Ok(received as usize)
+    })
+}
+
+fn read_responses(
+    kind: u16,
+    flags: u16,
+    sequence: u32,
+    mut receive: impl FnMut(&mut [u8]) -> io::Result<usize>,
+) -> io::Result<Vec<Vec<u8>>> {
+    // The high flag bits are request-type-specific: GET ROOT/MATCH overlap
+    // NEW REPLACE/EXCL. Only a complete GET dump waits past a successful ACK.
+    let is_dump = matches!(kind, RTM_GETLINK | RTM_GETROUTE | RTM_GETRULE) && flags & DUMP == DUMP;
+    let mut results = Vec::new();
+    let mut total = 0_usize;
+    loop {
+        let mut buffer = vec![0_u8; 64 * 1024];
+        let received = receive(&mut buffer)?;
+        if received > buffer.len() || received == 0 {
+            return Err(conflict("invalid netlink response length"));
+        }
+        total += received;
         if total > 1024 * 1024 {
             return Err(conflict("netlink response exceeds limit"));
         }
-        let mut remaining = &buffer[..received as usize];
+        let mut remaining = &buffer[..received];
         while remaining.len() >= 16 {
             let length = native_u32(&remaining[..4])? as usize;
             if length < 16 || length > remaining.len() || native_u32(&remaining[8..12])? != sequence
@@ -1050,7 +1069,7 @@ fn request(kind: u16, flags: u16, payload: Vec<u8>) -> io::Result<Vec<Vec<u8>>> 
                 if error != 0 {
                     return Err(io::Error::from_raw_os_error(-error));
                 }
-                if flags & DUMP == 0 {
+                if !is_dump {
                     return Ok(results);
                 }
             } else if response_kind == 3 {
@@ -1093,6 +1112,140 @@ fn conflict(message: &'static str) -> io::Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const REPLY_SEQUENCE: u32 = 42;
+
+    fn reply(kind: u16, flags: u16, payload: &[u8]) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&((payload.len() + 16) as u32).to_ne_bytes());
+        bytes.extend_from_slice(&kind.to_ne_bytes());
+        bytes.extend_from_slice(&flags.to_ne_bytes());
+        bytes.extend_from_slice(&REPLY_SEQUENCE.to_ne_bytes());
+        bytes.extend_from_slice(&0_u32.to_ne_bytes());
+        bytes.extend_from_slice(payload);
+        bytes.resize(bytes.len().next_multiple_of(4), 0);
+        bytes
+    }
+
+    fn acknowledgment(error: i32) -> Vec<u8> {
+        // nlmsgerr contains the result followed by the original request header.
+        let mut payload = error.to_ne_bytes().to_vec();
+        payload.extend_from_slice(&[0; 16]);
+        reply(2, 0, &payload)
+    }
+
+    fn read_fixture(kind: u16, flags: u16, datagrams: Vec<Vec<u8>>) -> io::Result<Vec<Vec<u8>>> {
+        let mut datagrams = datagrams.into_iter();
+        let result = read_responses(kind, flags, REPLY_SEQUENCE, |buffer| {
+            let bytes = datagrams
+                .next()
+                .expect("unexpected receive after terminal reply");
+            buffer[..bytes.len()].copy_from_slice(&bytes);
+            Ok(bytes.len())
+        });
+        assert!(
+            datagrams.next().is_none(),
+            "returned before consuming the terminal reply"
+        );
+        result
+    }
+
+    #[test]
+    fn netlink_exclusive_creation_finishes_on_success_ack_without_another_receive() {
+        for kind in [RTM_NEWADDR, RTM_NEWROUTE, RTM_NEWRULE] {
+            let records = read_fixture(kind, CREATE_EXCLUSIVE, vec![acknowledgment(0)]).unwrap();
+            assert!(records.is_empty());
+        }
+    }
+
+    #[test]
+    fn netlink_mutation_modifiers_are_not_get_dump_flags() {
+        // ROOT/MATCH are REPLACE/EXCL on NEW requests. The request type matters
+        // even when all dump bits happen to be present.
+        for flags in [0x100, 0x200, 0x300, 0x500, 0x700] {
+            assert!(
+                read_fixture(RTM_NEWROUTE, flags, vec![acknowledgment(0)])
+                    .unwrap()
+                    .is_empty()
+            );
+        }
+    }
+
+    #[test]
+    fn netlink_single_lookup_retains_data_until_ack() {
+        let data = vec![1, 2, 3, 4];
+        for kind in [RTM_GETLINK, RTM_GETROUTE, RTM_GETRULE] {
+            for together in [false, true] {
+                let mut datagrams = vec![reply(kind - 2, 0, &data), acknowledgment(0)];
+                if together {
+                    datagrams = vec![datagrams.concat()];
+                }
+                assert_eq!(
+                    read_fixture(kind, 0, datagrams).unwrap(),
+                    vec![data.clone()]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn netlink_dump_ack_is_not_completion_and_records_continue_until_done() {
+        for kind in [RTM_GETLINK, RTM_GETROUTE, RTM_GETRULE] {
+            let records = read_fixture(
+                kind,
+                DUMP,
+                vec![
+                    reply(kind - 2, 2, &[1, 2, 3, 4]),
+                    acknowledgment(0),
+                    reply(kind - 2, 2, &[5, 6, 7, 8]),
+                    reply(3, 2, &0_i32.to_ne_bytes()),
+                ],
+            )
+            .unwrap();
+            assert_eq!(records, vec![vec![1, 2, 3, 4], vec![5, 6, 7, 8]]);
+        }
+    }
+
+    #[test]
+    fn netlink_error_ack_preserves_kernel_errno_for_mutation_and_dump() {
+        for (kind, flags) in [(RTM_NEWADDR, CREATE_EXCLUSIVE), (RTM_GETROUTE, DUMP)] {
+            let error = read_fixture(kind, flags, vec![acknowledgment(-libc::EEXIST)]).unwrap_err();
+            assert_eq!(error.raw_os_error(), Some(libc::EEXIST));
+        }
+    }
+
+    #[test]
+    fn netlink_interrupted_dump_and_malformed_replies_remain_errors() {
+        let mut wrong_sequence = acknowledgment(0);
+        wrong_sequence[8..12].copy_from_slice(&(REPLY_SEQUENCE + 1).to_ne_bytes());
+        for bytes in [
+            reply(3, 0x10, &0_i32.to_ne_bytes()),
+            reply(2, 0, &[0, 0, 0]),
+            wrong_sequence,
+            vec![0; 15],
+        ] {
+            let error = read_fixture(RTM_GETROUTE, DUMP, vec![bytes]).unwrap_err();
+            assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        }
+    }
+
+    #[test]
+    fn netlink_dump_receive_failure_never_returns_partial_records() {
+        let bytes = reply(RTM_NEWROUTE, 2, &[1, 2, 3, 4]);
+        let mut calls = 0;
+        let error = read_responses(RTM_GETROUTE, DUMP, REPLY_SEQUENCE, |buffer| {
+            calls += 1;
+            if calls == 1 {
+                buffer[..bytes.len()].copy_from_slice(&bytes);
+                Ok(bytes.len())
+            } else {
+                Err(io::Error::from_raw_os_error(libc::EAGAIN))
+            }
+        })
+        .unwrap_err();
+        assert_eq!(error.raw_os_error(), Some(libc::EAGAIN));
+        assert_eq!(calls, 2);
+    }
 
     fn lookup_context() -> RouteQuery {
         RouteQuery {

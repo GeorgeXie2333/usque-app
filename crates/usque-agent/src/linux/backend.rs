@@ -1139,7 +1139,7 @@ pub fn inspect_platform(
                 active_resolver()?;
                 let index = network::verify_interface(resources)?
                     .ok_or_else(|| unavailable("DNS interface missing"))?;
-                let path = format!("/org/freedesktop/resolve1/link/_{index}");
+                let path = resolved_link_path(index)?;
                 Ok(
                     property(&path, "org.freedesktop.resolve1.Link", "DNS")? == expected_dns(plan)
                         && property(&path, "org.freedesktop.resolve1.Link", "Domains")?
@@ -1162,6 +1162,7 @@ fn configure_dns(resources: &Resources, plan: &ValidatedTunnelPlan) -> io::Resul
     active_resolver()?;
     let index =
         network::verify_interface(resources)?.ok_or_else(|| unavailable("DNS TUN is absent"))?;
+    let path = resolved_link_path(index)?;
     let mut args = vec![index.to_string(), plan.dns_servers.len().to_string()];
     for server in &plan.dns_servers {
         let (family, bytes) = match server {
@@ -1178,7 +1179,6 @@ fn configure_dns(resources: &Resources, plan: &ValidatedTunnelPlan) -> io::Resul
         "ia(sb)",
         vec![index.to_string(), "1".into(), ".".into(), "true".into()],
     )?;
-    let path = format!("/org/freedesktop/resolve1/link/_{index}");
     if property(&path, "org.freedesktop.resolve1.Link", "DNS")? != expected_dns(plan)
         || property(&path, "org.freedesktop.resolve1.Link", "Domains")? != json!([[".", true]])
     {
@@ -1194,7 +1194,7 @@ fn restore_dns(resources: &Resources, plan: &ValidatedTunnelPlan) -> io::Result<
     let Some(index) = network::verify_interface(resources)? else {
         return Ok(());
     };
-    let path = format!("/org/freedesktop/resolve1/link/_{index}");
+    let path = resolved_link_path(index)?;
     // Restore only fields still holding our value. All settings were empty on
     // this newly created TUN; never reset another interface or global DNS.
     if property(&path, "org.freedesktop.resolve1.Link", "DNS")? == expected_dns(plan) {
@@ -1220,6 +1220,63 @@ fn expected_dns(plan: &ValidatedTunnelPlan) -> Value {
             })
             .collect(),
     )
+}
+
+fn resolved_link_path(index: u32) -> io::Result<String> {
+    resolved_link_path_with(index, |args| {
+        serde_json::from_slice(&command::run(BUSCTL, args, None)?)
+            .map_err(|_| unavailable("invalid resolved Link response"))
+    })
+}
+
+fn resolved_link_path_with(
+    index: u32,
+    mut query: impl FnMut(&[String]) -> io::Result<Value>,
+) -> io::Result<String> {
+    if index == 0 || index > i32::MAX as u32 {
+        return Err(unavailable("invalid resolved Link index"));
+    }
+    // GetLink owns the object-path encoding. Resolve it afresh for application,
+    // inspection and cleanup instead of formatting or caching an interface ID.
+    let mut args = [
+        "--system",
+        "--json=short",
+        "--timeout=5",
+        "call",
+        RESOLVE_SERVICE,
+        RESOLVE_PATH,
+        RESOLVE_MANAGER,
+        "GetLink",
+        "i",
+    ]
+    .map(str::to_owned)
+    .to_vec();
+    args.push(index.to_string());
+    let response = query(&args)?;
+    if response.get("type").and_then(Value::as_str) != Some("o") {
+        return Err(unavailable("invalid resolved Link response type"));
+    }
+    let path = response
+        .get("data")
+        .and_then(Value::as_array)
+        .filter(|values| values.len() == 1)
+        .and_then(|values| values[0].as_str())
+        .ok_or_else(|| unavailable("invalid resolved Link response"))?;
+    let valid = path
+        .strip_prefix("/org/freedesktop/resolve1/link/")
+        .is_some_and(|suffix| {
+            !suffix.is_empty()
+                && suffix.len() <= 128
+                && suffix
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+        });
+    if !valid {
+        return Err(unavailable(
+            "resolved Link object is outside its expected scope",
+        ));
+    }
+    Ok(path.to_owned())
 }
 
 fn property(path: &str, interface: &str, name: &str) -> io::Result<Value> {
@@ -1267,6 +1324,90 @@ fn unavailable(message: &'static str) -> io::Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn resolved_link_path_uses_the_managers_returned_object_path() {
+        for (index, suffix) in [(3, "_33"), (12, "_31_32"), (45, "opaque_link")] {
+            let expected = format!("/org/freedesktop/resolve1/link/{suffix}");
+            let mut calls = 0;
+            let path = resolved_link_path_with(index, |args| {
+                calls += 1;
+                assert_eq!(
+                    &args[..9],
+                    [
+                        "--system",
+                        "--json=short",
+                        "--timeout=5",
+                        "call",
+                        RESOLVE_SERVICE,
+                        RESOLVE_PATH,
+                        RESOLVE_MANAGER,
+                        "GetLink",
+                        "i",
+                    ]
+                );
+                assert_eq!(args.len(), 10);
+                assert_eq!(args[9], index.to_string());
+                Ok(json!({"type": "o", "data": [expected]}))
+            })
+            .unwrap();
+            assert_eq!(path, expected);
+            assert_eq!(calls, 1);
+        }
+    }
+
+    #[test]
+    fn resolved_link_path_rejects_invalid_index_before_bus_access() {
+        for index in [0, i32::MAX as u32 + 1, u32::MAX] {
+            assert!(
+                resolved_link_path_with(index, |_| panic!("invalid index reached D-Bus")).is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn resolved_link_path_rejects_malformed_or_out_of_scope_replies() {
+        let valid = "/org/freedesktop/resolve1/link/_33";
+        for response in [
+            Value::Null,
+            json!({"type": "s", "data": [valid]}),
+            json!({"type": "o", "data": valid}),
+            json!({"type": "o", "data": []}),
+            json!({"type": "o", "data": [valid, valid]}),
+            json!({"type": "o", "data": [3]}),
+            json!({"type": "o", "data": ["/org/freedesktop/resolve1"]}),
+            json!({"type": "o", "data": ["/org/freedesktop/resolve1/link/"]}),
+            json!({"type": "o", "data": ["/org/freedesktop/resolve1/link/_33/other"]}),
+            json!({"type": "o", "data": ["/org/freedesktop/resolve1/link/../_33"]}),
+            json!({"type": "o", "data": ["/org/freedesktop/resolve1/link/not-valid"]}),
+            json!({"type": "o", "data": [format!("/org/freedesktop/resolve1/link/{}", "x".repeat(129))]}),
+        ] {
+            assert!(resolved_link_path_with(3, |_| Ok(response.clone())).is_err());
+        }
+    }
+
+    #[test]
+    fn resolved_link_path_preserves_lookup_failure_without_guessing_a_fallback() {
+        let mut calls = 0;
+        let error = resolved_link_path_with(3, |_| {
+            calls += 1;
+            Err(linux_failure::with_detail(
+                LinuxFailureDetail {
+                    reason: FailureReason::CommandRejected as i32,
+                    adapter: usque_ipc::agent_v1::LinuxCommandAdapter::Busctl as i32,
+                    exit_code: Some(1),
+                    ..Default::default()
+                },
+                io::Error::other("private stderr /private"),
+            ))
+        })
+        .unwrap_err();
+        let detail = linux_failure::detail(&error).unwrap();
+        assert_eq!(calls, 1);
+        assert_eq!(detail.exit_code, Some(1));
+        assert_eq!(detail.reason, FailureReason::CommandRejected as i32);
+        assert!(!serde_json::to_string(&detail).unwrap().contains("private"));
+    }
 
     #[test]
     fn dns_fallback_is_lazy_and_preserves_both_rejections() {
