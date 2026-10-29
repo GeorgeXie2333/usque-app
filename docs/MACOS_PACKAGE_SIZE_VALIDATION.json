@@ -1,0 +1,452 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-30",
+  "packaging_source_commit": "12636756a527267e029f34173c9e3e035ddaacfc",
+  "packaging_source_tree": "0d182d6bfee114efd862dfa0118722fbe52f5b11",
+  "reused_application_source": "00e243f54cfe8cc6cf4665e9d30172344606c4e8",
+  "baseline_release_tag": "macos-dev-v0.3.3-3289e10d",
+  "release_tag": "macos-dev-v0.3.3-compact-12636756",
+  "kind": "repackage_existing_GUI_engine_CEF_and_rebuild_native_network_components",
+  "changes": [
+    "linker_dead_strip_in_native_network_components",
+    "strip_debug_and_local_symbols_preserve_global_exports",
+    "retain_exact_en_zh_CN_zh_TW_CEF_locales",
+    "LZMA_ULMO_DMG"
+  ],
+  "checks": {
+    "packaging_fixtures_passed": 17,
+    "cef_browser_free_harness_passed": 22,
+    "native_contract_groups_passed": 7,
+    "native_typecheck": [
+      "arm64",
+      "x86_64"
+    ],
+    "source_archive_repository_policy": "passed",
+    "application_or_cef_execution": "not_run",
+    "host_network_changes": false,
+    "system_extension_activation": "not_run",
+    "Intel_native_execution": "not_run",
+    "macos_13_hardware": "not_run",
+    "CEF_official_challenge_and_shutdown_failure": "remain_unverified_or_unresolved",
+    "image_format_inspection": "ULMO confirmed by hdiutil imageinfo for both architectures"
+  },
+  "publication": {
+    "url": "https://github.com/JustinL330/usque-app/releases/tag/macos-dev-v0.3.3-compact-12636756",
+    "prerelease": true,
+    "tag_target_commit": "12636756a527267e029f34173c9e3e035ddaacfc",
+    "published_at": "2026-10-29T17:22:55Z",
+    "all_eight_asset_sizes_and_sha256_match_local": true,
+    "assets": [
+      {
+        "name": "usque-v0.3.3-macos-arm64.dmg",
+        "size": 125767519,
+        "digest": "sha256:7ed984597567d538431320879503269ff7d763633aefc50950fe0d02ae692f86"
+      },
+      {
+        "name": "usque-v0.3.3-macos-arm64.dmg.sha256",
+        "size": 95,
+        "digest": "sha256:76c87658867cca33883d86a955aec5f9343fce71e3d27ce6f1a99924a13ffd64"
+      },
+      {
+        "name": "usque-v0.3.3-macos-arm64.dmg.spdx.json",
+        "size": 206646,
+        "digest": "sha256:46d07fcc77032251e3ec57aaae064684a1b6350f741ef8dde762f3e73ceb807c"
+      },
+      {
+        "name": "usque-v0.3.3-macos-arm64.manifest.json",
+        "size": 90880,
+        "digest": "sha256:8bb59694816484a1ca2c6f5289a86c418d1a87ade60e0d8a398d02bf224158db"
+      },
+      {
+        "name": "usque-v0.3.3-macos-x86_64.dmg",
+        "size": 147135475,
+        "digest": "sha256:65abfe884a47727a956b9fab64087764d317f27ed89e64e842210cffe1e612ac"
+      },
+      {
+        "name": "usque-v0.3.3-macos-x86_64.dmg.sha256",
+        "size": 96,
+        "digest": "sha256:aa14d337e54b7b19ac400e0bde2b16ff490688dc3a5c2dd4b2ee7506579bae23"
+      },
+      {
+        "name": "usque-v0.3.3-macos-x86_64.dmg.spdx.json",
+        "size": 206648,
+        "digest": "sha256:36afda6569fd0a6d2fcdb49cf41efab02fe20e04432943f2069b2ce4d509f481"
+      },
+      {
+        "name": "usque-v0.3.3-macos-x86_64.manifest.json",
+        "size": 90923,
+        "digest": "sha256:c4976de2732102b23190328a5cdbdcd39f6d208aec108b71d4ae2c7a405e1647"
+      }
+    ]
+  },
+  "architectures": {
+    "arm64": {
+      "before": {
+        "dmg_bytes": 235657163,
+        "payload_bytes": 515676174,
+        "file_count": 581
+      },
+      "after": {
+        "dmg_bytes": 125767519,
+        "payload_bytes": 366028790,
+        "file_count": 364
+      },
+      "dmg_reduction_percent": 46.63,
+      "artifact": {
+        "name": "usque-v0.3.3-macos-arm64.dmg",
+        "size": 125767519,
+        "sha256": "7ed984597567d538431320879503269ff7d763633aefc50950fe0d02ae692f86"
+      },
+      "macho_count": 20,
+      "all_matching_architecture": true,
+      "codesign_integrity": "passed",
+      "image_integrity": "passed",
+      "image_format": "ULMO",
+      "non_network_binary_sections_unchanged": [
+        "Contents/Frameworks/App.framework/Versions/A/App",
+        "Contents/Frameworks/FlutterMacOS.framework/Versions/A/FlutterMacOS",
+        "Contents/Helpers/UsqueProtonVerification.app/Contents/Frameworks/Chromium Embedded Framework.framework/Chromium Embedded Framework",
+        "Contents/Helpers/UsqueProtonVerification.app/Contents/Frameworks/Chromium Embedded Framework.framework/Libraries/libcef_sandbox.dylib",
+        "Contents/Helpers/UsqueProtonVerification.app/Contents/Frameworks/Chromium Embedded Framework.framework/Libraries/libvk_swiftshader.dylib",
+        "Contents/Helpers/UsqueProtonVerification.app/Contents/Frameworks/Chromium Embedded Framework.framework/Libraries/libvulkan.dylib",
+        "Contents/Helpers/UsqueProtonVerification.app/Contents/Frameworks/UsqueProtonVerification Helper (Alerts).app/Contents/MacOS/UsqueProtonVerification Helper (Alerts)",
+        "Contents/Helpers/UsqueProtonVerification.app/Contents/Frameworks/UsqueProtonVerification Helper (GPU).app/Contents/MacOS/UsqueProtonVerification Helper (GPU)",
+        "Contents/Helpers/UsqueProtonVerification.app/Contents/Frameworks/UsqueProtonVerification Helper (Plugin).app/Contents/MacOS/UsqueProtonVerification Helper (Plugin)",
+        "Contents/Helpers/UsqueProtonVerification.app/Contents/Frameworks/UsqueProtonVerification Helper (Renderer).app/Contents/MacOS/UsqueProtonVerification Helper (Renderer)",
+        "Contents/Helpers/UsqueProtonVerification.app/Contents/Frameworks/UsqueProtonVerification Helper.app/Contents/MacOS/UsqueProtonVerification Helper",
+        "Contents/Helpers/UsqueProtonVerification.app/Contents/MacOS/UsqueProtonVerification",
+        "Contents/Helpers/usque-maintenance",
+        "Contents/MacOS/Usque",
+        "Contents/MacOS/usque-engine"
+      ],
+      "network_linking": {
+        "architecture": "arm64",
+        "programs": [
+          {
+            "program": "usque-macos-control",
+            "baseline_bytes": 23011648,
+            "dead_strip_bytes": 463424,
+            "removed_bytes": 22548224,
+            "provider_classes": [],
+            "provider_metadata_retained": true,
+            "required_rust_ffi_retained": [],
+            "architecture": "arm64",
+            "usque_ffi_exports": [
+              "_usque_macos_policy_free",
+              "_usque_native_free",
+              "_usque_native_self_identity",
+              "_usque_native_xpc_close",
+              "_usque_native_xpc_open",
+              "_usque_native_xpc_request",
+              "_usque_native_xpc_set_callback"
+            ]
+          },
+          {
+            "program": "UsqueContentFilter",
+            "baseline_bytes": 22986224,
+            "dead_strip_bytes": 456976,
+            "removed_bytes": 22529248,
+            "provider_classes": [
+              "FlowMetadataProvider",
+              "ContentFilterProvider"
+            ],
+            "provider_metadata_retained": true,
+            "required_rust_ffi_retained": [],
+            "architecture": "arm64",
+            "usque_ffi_exports": [
+              "_usque_macos_policy_free",
+              "_usque_native_audit_identity",
+              "_usque_native_free",
+              "_usque_native_self_identity",
+              "_usque_native_xpc_close",
+              "_usque_native_xpc_listen",
+              "_usque_native_xpc_open",
+              "_usque_native_xpc_request"
+            ]
+          },
+          {
+            "program": "UsqueDNSProxy",
+            "baseline_bytes": 23002592,
+            "dead_strip_bytes": 2839072,
+            "removed_bytes": 20163520,
+            "provider_classes": [
+              "DNSProxyProvider"
+            ],
+            "provider_metadata_retained": true,
+            "required_rust_ffi_retained": [
+              "_usque_macos_policy_free",
+              "_usque_macos_policy_new_json",
+              "_usque_macos_policy_route_flow"
+            ],
+            "architecture": "arm64",
+            "usque_ffi_exports": [
+              "_usque_macos_policy_free",
+              "_usque_macos_policy_new_json",
+              "_usque_macos_policy_route_flow",
+              "_usque_native_bind_probe_socket",
+              "_usque_native_free",
+              "_usque_native_self_identity",
+              "_usque_native_xpc_close",
+              "_usque_native_xpc_listen",
+              "_usque_native_xpc_open",
+              "_usque_native_xpc_request"
+            ]
+          },
+          {
+            "program": "UsquePacketTunnel",
+            "baseline_bytes": 22968576,
+            "dead_strip_bytes": 14548064,
+            "removed_bytes": 8420512,
+            "provider_classes": [
+              "PacketTunnelProvider"
+            ],
+            "provider_metadata_retained": true,
+            "required_rust_ffi_retained": [
+              "_usque_macos_buffer_free",
+              "_usque_macos_runtime_command",
+              "_usque_macos_runtime_create_with_broker",
+              "_usque_macos_runtime_destroy",
+              "_usque_macos_runtime_receive_packet",
+              "_usque_macos_runtime_send_packet",
+              "_usque_macos_runtime_snapshot"
+            ],
+            "architecture": "arm64",
+            "usque_ffi_exports": [
+              "_usque_macos_buffer_free",
+              "_usque_macos_policy_free",
+              "_usque_macos_runtime_command",
+              "_usque_macos_runtime_create_with_broker",
+              "_usque_macos_runtime_destroy",
+              "_usque_macos_runtime_receive_packet",
+              "_usque_macos_runtime_send_packet",
+              "_usque_macos_runtime_snapshot",
+              "_usque_native_bind_probe_socket",
+              "_usque_native_free",
+              "_usque_native_self_identity",
+              "_usque_native_xpc_callback",
+              "_usque_native_xpc_close",
+              "_usque_native_xpc_listen",
+              "_usque_native_xpc_open",
+              "_usque_native_xpc_request"
+            ]
+          },
+          {
+            "program": "UsqueTransparentProxy",
+            "baseline_bytes": 22979488,
+            "dead_strip_bytes": 2814976,
+            "removed_bytes": 20164512,
+            "provider_classes": [
+              "TransparentProxyProvider"
+            ],
+            "provider_metadata_retained": true,
+            "required_rust_ffi_retained": [
+              "_usque_macos_policy_free",
+              "_usque_macos_policy_new_json",
+              "_usque_macos_policy_route_flow"
+            ],
+            "architecture": "arm64",
+            "usque_ffi_exports": [
+              "_usque_macos_policy_free",
+              "_usque_macos_policy_new_json",
+              "_usque_macos_policy_route_flow",
+              "_usque_native_bind_probe_socket",
+              "_usque_native_free",
+              "_usque_native_self_identity",
+              "_usque_native_xpc_close",
+              "_usque_native_xpc_listen",
+              "_usque_native_xpc_open",
+              "_usque_native_xpc_request"
+            ]
+          }
+        ],
+        "baseline_bytes": 114948528,
+        "dead_strip_bytes": 21122512,
+        "validation": "no provider/control process launched; static metadata/exports/architecture/signature validation only"
+      }
+    },
+    "x86_64": {
+      "before": {
+        "dmg_bytes": 258917929,
+        "payload_bytes": 548603664,
+        "file_count": 581
+      },
+      "after": {
+        "dmg_bytes": 147135475,
+        "payload_bytes": 387881448,
+        "file_count": 364
+      },
+      "dmg_reduction_percent": 43.17,
+      "artifact": {
+        "name": "usque-v0.3.3-macos-x86_64.dmg",
+        "size": 147135475,
+        "sha256": "65abfe884a47727a956b9fab64087764d317f27ed89e64e842210cffe1e612ac"
+      },
+      "macho_count": 20,
+      "all_matching_architecture": true,
+      "codesign_integrity": "passed",
+      "image_integrity": "passed",
+      "image_format": "ULMO",
+      "non_network_binary_sections_unchanged": [
+        "Contents/Frameworks/App.framework/Versions/A/App",
+        "Contents/Frameworks/FlutterMacOS.framework/Versions/A/FlutterMacOS",
+        "Contents/Helpers/UsqueProtonVerification.app/Contents/Frameworks/Chromium Embedded Framework.framework/Chromium Embedded Framework",
+        "Contents/Helpers/UsqueProtonVerification.app/Contents/Frameworks/Chromium Embedded Framework.framework/Libraries/libcef_sandbox.dylib",
+        "Contents/Helpers/UsqueProtonVerification.app/Contents/Frameworks/Chromium Embedded Framework.framework/Libraries/libvk_swiftshader.dylib",
+        "Contents/Helpers/UsqueProtonVerification.app/Contents/Frameworks/Chromium Embedded Framework.framework/Libraries/libvulkan.dylib",
+        "Contents/Helpers/UsqueProtonVerification.app/Contents/Frameworks/UsqueProtonVerification Helper (Alerts).app/Contents/MacOS/UsqueProtonVerification Helper (Alerts)",
+        "Contents/Helpers/UsqueProtonVerification.app/Contents/Frameworks/UsqueProtonVerification Helper (GPU).app/Contents/MacOS/UsqueProtonVerification Helper (GPU)",
+        "Contents/Helpers/UsqueProtonVerification.app/Contents/Frameworks/UsqueProtonVerification Helper (Plugin).app/Contents/MacOS/UsqueProtonVerification Helper (Plugin)",
+        "Contents/Helpers/UsqueProtonVerification.app/Contents/Frameworks/UsqueProtonVerification Helper (Renderer).app/Contents/MacOS/UsqueProtonVerification Helper (Renderer)",
+        "Contents/Helpers/UsqueProtonVerification.app/Contents/Frameworks/UsqueProtonVerification Helper.app/Contents/MacOS/UsqueProtonVerification Helper",
+        "Contents/Helpers/UsqueProtonVerification.app/Contents/MacOS/UsqueProtonVerification",
+        "Contents/Helpers/usque-maintenance",
+        "Contents/MacOS/Usque",
+        "Contents/MacOS/usque-engine"
+      ],
+      "network_linking": {
+        "architecture": "x86_64",
+        "programs": [
+          {
+            "program": "usque-macos-control",
+            "baseline_bytes": 25833280,
+            "dead_strip_bytes": 639024,
+            "removed_bytes": 25194256,
+            "provider_classes": [],
+            "provider_metadata_retained": true,
+            "required_rust_ffi_retained": [],
+            "architecture": "x86_64",
+            "usque_ffi_exports": [
+              "_usque_macos_policy_free",
+              "_usque_native_free",
+              "_usque_native_self_identity",
+              "_usque_native_xpc_close",
+              "_usque_native_xpc_open",
+              "_usque_native_xpc_request",
+              "_usque_native_xpc_set_callback"
+            ]
+          },
+          {
+            "program": "UsqueContentFilter",
+            "baseline_bytes": 25810112,
+            "dead_strip_bytes": 630560,
+            "removed_bytes": 25179552,
+            "provider_classes": [
+              "FlowMetadataProvider",
+              "ContentFilterProvider"
+            ],
+            "provider_metadata_retained": true,
+            "required_rust_ffi_retained": [],
+            "architecture": "x86_64",
+            "usque_ffi_exports": [
+              "_usque_macos_policy_free",
+              "_usque_native_audit_identity",
+              "_usque_native_free",
+              "_usque_native_self_identity",
+              "_usque_native_xpc_close",
+              "_usque_native_xpc_listen",
+              "_usque_native_xpc_open",
+              "_usque_native_xpc_request"
+            ]
+          },
+          {
+            "program": "UsqueDNSProxy",
+            "baseline_bytes": 25830720,
+            "dead_strip_bytes": 3312400,
+            "removed_bytes": 22518320,
+            "provider_classes": [
+              "DNSProxyProvider"
+            ],
+            "provider_metadata_retained": true,
+            "required_rust_ffi_retained": [
+              "_usque_macos_policy_free",
+              "_usque_macos_policy_new_json",
+              "_usque_macos_policy_route_flow"
+            ],
+            "architecture": "x86_64",
+            "usque_ffi_exports": [
+              "_usque_macos_policy_free",
+              "_usque_macos_policy_new_json",
+              "_usque_macos_policy_route_flow",
+              "_usque_native_bind_probe_socket",
+              "_usque_native_free",
+              "_usque_native_self_identity",
+              "_usque_native_xpc_close",
+              "_usque_native_xpc_listen",
+              "_usque_native_xpc_open",
+              "_usque_native_xpc_request"
+            ]
+          },
+          {
+            "program": "UsquePacketTunnel",
+            "baseline_bytes": 25787632,
+            "dead_strip_bytes": 16412064,
+            "removed_bytes": 9375568,
+            "provider_classes": [
+              "PacketTunnelProvider"
+            ],
+            "provider_metadata_retained": true,
+            "required_rust_ffi_retained": [
+              "_usque_macos_buffer_free",
+              "_usque_macos_runtime_command",
+              "_usque_macos_runtime_create_with_broker",
+              "_usque_macos_runtime_destroy",
+              "_usque_macos_runtime_receive_packet",
+              "_usque_macos_runtime_send_packet",
+              "_usque_macos_runtime_snapshot"
+            ],
+            "architecture": "x86_64",
+            "usque_ffi_exports": [
+              "_usque_macos_buffer_free",
+              "_usque_macos_policy_free",
+              "_usque_macos_runtime_command",
+              "_usque_macos_runtime_create_with_broker",
+              "_usque_macos_runtime_destroy",
+              "_usque_macos_runtime_receive_packet",
+              "_usque_macos_runtime_send_packet",
+              "_usque_macos_runtime_snapshot",
+              "_usque_native_bind_probe_socket",
+              "_usque_native_free",
+              "_usque_native_self_identity",
+              "_usque_native_xpc_callback",
+              "_usque_native_xpc_close",
+              "_usque_native_xpc_listen",
+              "_usque_native_xpc_open",
+              "_usque_native_xpc_request"
+            ]
+          },
+          {
+            "program": "UsqueTransparentProxy",
+            "baseline_bytes": 25806800,
+            "dead_strip_bytes": 3287456,
+            "removed_bytes": 22519344,
+            "provider_classes": [
+              "TransparentProxyProvider"
+            ],
+            "provider_metadata_retained": true,
+            "required_rust_ffi_retained": [
+              "_usque_macos_policy_free",
+              "_usque_macos_policy_new_json",
+              "_usque_macos_policy_route_flow"
+            ],
+            "architecture": "x86_64",
+            "usque_ffi_exports": [
+              "_usque_macos_policy_free",
+              "_usque_macos_policy_new_json",
+              "_usque_macos_policy_route_flow",
+              "_usque_native_bind_probe_socket",
+              "_usque_native_free",
+              "_usque_native_self_identity",
+              "_usque_native_xpc_close",
+              "_usque_native_xpc_listen",
+              "_usque_native_xpc_open",
+              "_usque_native_xpc_request"
+            ]
+          }
+        ],
+        "baseline_bytes": 129068544,
+        "dead_strip_bytes": 24281504,
+        "validation": "no provider/control process launched; static metadata/exports/architecture/signature validation only"
+      }
+    }
+  }
+}

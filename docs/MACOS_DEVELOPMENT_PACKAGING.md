@@ -14,23 +14,26 @@ the Network Extensions.
 
 ## Published development preview
 
-The fork's [dev pre-release](https://github.com/JustinL330/usque-app/releases/tag/macos-dev-v0.3.3-3289e10d)
+The fork's [dev pre-release](https://github.com/JustinL330/usque-app/releases/tag/macos-dev-v0.3.3-compact-12636756)
 provides macOS 13+ disk images, SHA-256 files, development manifests and SPDX file
-inventories. Its pinned release tag `macos-dev-v0.3.3-3289e10d` points to dev commit
-`3289e10d3dd88c9d4b6431bd0c98c677df6500fd`; the application source candidate is
-`00e243f54cfe8cc6cf4665e9d30172344606c4e8`. Later download-link documentation
+inventories. Its pinned release tag `macos-dev-v0.3.3-compact-12636756` points to dev commit
+`12636756a527267e029f34173c9e3e035ddaacfc`; the reused GUI, Engine and CEF source candidate is
+`00e243f54cfe8cc6cf4665e9d30172344606c4e8`. Native network programs were rebuilt with the updated linker configuration. Later download-link documentation
 changes do not change those binaries.
 
 | Architecture | Development DMG | SHA-256 |
 | --- | --- | --- |
-| Apple Silicon | [arm64](https://github.com/JustinL330/usque-app/releases/download/macos-dev-v0.3.3-3289e10d/usque-v0.3.3-macos-arm64.dmg) | `c55c2de4a7e0964d2f163b26efce825d6475ef800a2e5d34a73defe07c964e6d` |
-| Intel | [x86_64](https://github.com/JustinL330/usque-app/releases/download/macos-dev-v0.3.3-3289e10d/usque-v0.3.3-macos-x86_64.dmg) | `03f47e9f1ac306d6e52e8b0313d68477440ab8d846b97194129b92d4b6c931c5` |
+| Apple Silicon | [arm64](https://github.com/JustinL330/usque-app/releases/download/macos-dev-v0.3.3-compact-12636756/usque-v0.3.3-macos-arm64.dmg) | `7ed984597567d538431320879503269ff7d763633aefc50950fe0d02ae692f86` |
+| Intel | [x86_64](https://github.com/JustinL330/usque-app/releases/download/macos-dev-v0.3.3-compact-12636756/usque-v0.3.3-macos-x86_64.dmg) | `65abfe884a47727a956b9fab64087764d317f27ed89e64e842210cffe1e612ac` |
 
 These are unofficial, ad-hoc signed, unnotarized development packages. System
 VPN activation and production automatic installation remain disabled. Read the
 [QA checklist and retained issues](MACOS_QA_CHECKLIST.md) before testing; a
 successful cross build does not establish Intel runtime acceptance. Installers
 are release attachments, not files committed to the dev source tree.
+
+Measured download reductions are 46.63% (arm64) and 43.17% (Intel). See the
+[package size explanation and evidence](MACOS_PACKAGE_SIZE.md).
 
 ## Build one architecture
 

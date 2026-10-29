@@ -155,10 +155,12 @@ Android 的“分应用代理”对所有账号生效。关闭时，所有应用
 ### macOS 开发版测试与已知问题
 
 macOS 13+ **非官方 dev 预发布包**：
-[Apple Silicon（arm64）](https://github.com/JustinL330/usque-app/releases/download/macos-dev-v0.3.3-3289e10d/usque-v0.3.3-macos-arm64.dmg)／
-[Intel（x86_64）](https://github.com/JustinL330/usque-app/releases/download/macos-dev-v0.3.3-3289e10d/usque-v0.3.3-macos-x86_64.dmg)。
+[Apple Silicon（arm64）](https://github.com/JustinL330/usque-app/releases/download/macos-dev-v0.3.3-compact-12636756/usque-v0.3.3-macos-arm64.dmg)／
+[Intel（x86_64）](https://github.com/JustinL330/usque-app/releases/download/macos-dev-v0.3.3-compact-12636756/usque-v0.3.3-macos-x86_64.dmg)。
 安装包仅作临时签名，尚未公证，不是正式版本，系统 VPN 保持关闭。测试前请阅读
-[发布说明、校验值和清单](https://github.com/JustinL330/usque-app/releases/tag/macos-dev-v0.3.3-3289e10d)。
+[发布说明、校验值和清单](https://github.com/JustinL330/usque-app/releases/tag/macos-dev-v0.3.3-compact-12636756)。
+精简包下载量减少约 47%／43%，保留繁体中文、原有界面语言、CEF 验证元件和 sandbox。
+体积原因与验证结果见[macOS 安装包体积说明](docs/MACOS_PACKAGE_SIZE.md)。
 
 [macOS 测试清单](docs/MACOS_QA_CHECKLIST.md)分别记录隔离测试与真机验收。以下项目仍未完成：
 
