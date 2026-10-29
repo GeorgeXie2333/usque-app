@@ -87,6 +87,9 @@ impl ControlService {
     ) -> Result<v1::NetworkSettingsState, ControlServiceError> {
         let _submission = self.settings_submission.lock().await;
         let intent = self.settings_intent.load(Ordering::SeqCst);
+        if self.scenario_applying.load(Ordering::SeqCst) {
+            return Err(ControlServiceError::ScenarioUnavailable("SCENARIO_BUSY"));
+        }
         // Saving never joins the long lifecycle queue. Only a confirmed,
         // session-scoped system-proxy switch can reserve a bounded follow-up.
         let lifecycle = Arc::clone(&self.mutation_lock).try_lock_owned().ok();
@@ -633,7 +636,7 @@ impl ControlService {
         self.settings_tx.send_replace(state.sequence);
     }
 
-    async fn execute_settings_plan(
+    pub(crate) async fn execute_settings_plan(
         &self,
         target: &Profile,
         previous: &Profile,
@@ -641,11 +644,7 @@ impl ControlService {
         intent: u64,
     ) -> Result<(), ControlServiceError> {
         #[cfg(all(target_os = "linux", not(test)))]
-        let class = if class == ReconfigureClass::HotTunnelAttach {
-            ReconfigureClass::ColdReconnect
-        } else {
-            class
-        };
+        let class = usque_core::reconfigure::platform_class(class);
         let prepared = if matches!(
             class,
             ReconfigureClass::HotTrafficPolicy
@@ -720,7 +719,7 @@ impl ControlService {
         Ok(())
     }
 
-    async fn finish_settings_error(
+    pub(crate) async fn finish_settings_error(
         &self,
         operation_id: uuid::Uuid,
         code: &str,

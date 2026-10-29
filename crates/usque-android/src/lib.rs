@@ -129,6 +129,7 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeCap
     with_jni_env(&mut environment, |environment| {
         let json = serde_json::json!({
             "network_settings_application": engine_ready(),
+            "connection_scenarios": engine_ready(),
             "account_metadata_mutations": engine_ready(),
             "shared_proxy_auth_application": engine_ready(),
             "l4_tcp": engine_ready(),
@@ -877,6 +878,7 @@ fn native_apply_profile_command(
 }
 
 mod network_settings;
+mod scenarios;
 mod vpngate;
 
 #[unsafe(no_mangle)]
@@ -981,6 +983,37 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeVpn
             Ok(value) => environment
                 .new_string(value)
                 .map_or(std::ptr::null_mut(), |v| v.into_raw()),
+            Err(error) => {
+                throw_io_error(environment, &error);
+                std::ptr::null_mut()
+            }
+        }
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeScenarioCommand<
+    'local,
+>(
+    mut environment: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    config_path: JString<'local>,
+    request_json: JString<'local>,
+) -> jstring {
+    with_jni_env(&mut environment, |environment| {
+        let result = (|| {
+            let path = config_path
+                .try_to_string(environment)
+                .map_err(|_| "SCENARIO_INVALID_REQUEST")?;
+            let request = request_json
+                .try_to_string(environment)
+                .map_err(|_| "SCENARIO_INVALID_REQUEST")?;
+            scenarios::command(&path, &request)
+        })();
+        match result {
+            Ok(value) => environment
+                .new_string(value)
+                .map_or(std::ptr::null_mut(), |value| value.into_raw()),
             Err(error) => {
                 throw_io_error(environment, &error);
                 std::ptr::null_mut()
@@ -2009,13 +2042,7 @@ fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String
         }
         store.save(&config).map_err(|error| error.to_string())?;
         if config.network.vpn_gate.selection != previous_gate.selection {
-            let mut retained: Vec<_> = config
-                .network
-                .vpn_gate
-                .selection
-                .clone()
-                .into_iter()
-                .collect();
+            let mut retained = usque_core::scenarios::retained_vpn_gate_selections(&config);
             if let Some(server) = engine_snapshot()
                 .vpn_gate
                 .and_then(|gate| gate.current_server)
@@ -5008,6 +5035,81 @@ mod tests {
             cleared["active_profile_id"],
             serde_json::json!("8c30b771-9ebd-457a-b67b-bbc74a1ddba6")
         );
+    }
+
+    #[test]
+    fn ordinary_settings_cleanup_retains_inactive_scene_and_restore_objects() {
+        use usque_core::scenarios::{
+            ConnectionScenario, ScenarioSettings, ScenarioSnapshot, ScenarioSwitchRecord,
+        };
+        use usque_core::vpngate::Selection;
+
+        let directory = tempfile::tempdir().unwrap();
+        let config_path = directory.path().join("profiles-v2.json");
+        let profile: serde_json::Value = serde_json::from_str(&valid_profile_json()).unwrap();
+        apply_profile_command(
+            config_path.to_str().unwrap(),
+            &serde_json::json!({"command": "upsert_profile", "profile": profile}).to_string(),
+        )
+        .unwrap();
+        let store = ConfigStore::new(&config_path);
+        let mut config = store.load().unwrap();
+        let account_id = config.active_profile_id.unwrap();
+        let target_settings = ScenarioSettings::from_network(&config.network);
+        let selection = |digit: &str| Selection {
+            server_id: format!("v1:{}", digit.repeat(64)),
+            config_sha256: digit.repeat(64),
+        };
+        config.network.vpn_gate.selection = Some(selection("a"));
+        let mut scene_settings = target_settings.clone();
+        scene_settings.vpn_gate.selection = Some(selection("b"));
+        config.scenarios.push(ConnectionScenario {
+            id: uuid::Uuid::new_v4(),
+            name: "Inactive saved scene".into(),
+            revision: uuid::Uuid::new_v4(),
+            bound_account_id: None,
+            settings: scene_settings,
+        });
+        let mut restore_settings = target_settings.clone();
+        restore_settings.vpn_gate.selection = Some(selection("c"));
+        config.last_scenario_switch = Some(Box::new(ScenarioSwitchRecord {
+            operation_id: uuid::Uuid::new_v4(),
+            source: ScenarioSnapshot {
+                account_id,
+                settings: restore_settings,
+                selection: None,
+            },
+            target: ScenarioSnapshot {
+                account_id,
+                settings: target_settings,
+                selection: None,
+            },
+            acknowledged: true,
+            restored: false,
+        }));
+        store.save(&config).unwrap();
+
+        // GC only needs object names; inert contents avoid certificates or VPN work.
+        let objects = directory.path().join("vpngate/objects");
+        std::fs::create_dir_all(&objects).unwrap();
+        for digit in ["a", "b", "c", "d"] {
+            std::fs::write(objects.join(format!("{}.json", digit.repeat(64))), b"{}").unwrap();
+        }
+        apply_profile_command(
+            config_path.to_str().unwrap(),
+            &serde_json::json!({"command": "reconfigure_active_profile", "profile": profile})
+                .to_string(),
+        )
+        .unwrap();
+        let saved = store.load().unwrap();
+        assert!(saved.network.vpn_gate.selection.is_none());
+        assert!(usque_core::scenarios::can_restore(&saved));
+        for digit in ["b", "c"] {
+            assert!(objects.join(format!("{}.json", digit.repeat(64))).is_file());
+        }
+        for digit in ["a", "d"] {
+            assert!(!objects.join(format!("{}.json", digit.repeat(64))).exists());
+        }
     }
 
     #[test]

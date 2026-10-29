@@ -6,9 +6,9 @@ import 'package:usque/core/usque_theme.dart';
 const _fallbackFonts = <String, Map<String, String>>{
   'Noto Sans CJK SC': {
     'NotoSansCJKsc-Regular.subset.otf':
-        'f2b9c78cd1566f7334921aca5bf07e1c5c84b1774544ce281f5f14f8d99857c9',
+        '30f1fabb5cb1bed7fc62baae289fa7c49b9e6ad6d5b52f1627e9ef017fdb35d8',
     'NotoSansCJKsc-Bold.subset.otf':
-        'e3d1607ee156f090d9ea826a7788aca1b04ee3f333bb6e6491d3e60390a0291a',
+        '69777c80beb6c898c3af40cf1a4b6031282a249758ca0bb287fc7545201c142f',
   },
   'Noto Naskh Arabic': {
     'NotoNaskhArabic-Regular.ttf':

@@ -69,6 +69,7 @@ class UsqueVpnService : VpnService() {
         const val MSG_LOG_SNAPSHOT = 20
         const val MSG_TILE_SNAPSHOT = 21
         const val MSG_PROTON_VPN = 22
+        const val MSG_SCENARIOS = 23
 
         private const val NATIVE_STATUS_INTERVAL_MILLIS = 1_000L
         private const val PHYSICAL_NETWORK_WAIT_MILLIS = 8_000L
@@ -213,6 +214,11 @@ class UsqueVpnService : VpnService() {
         Messenger(
             Handler(Looper.getMainLooper()) { message ->
                 when (message.what) {
+                    MSG_SCENARIOS -> {
+                        networkSettingsRequest(Message.obtain(message))
+                        true
+                    }
+
                     MSG_SAVE_SETTINGS, MSG_GET_SETTINGS -> {
                         networkSettingsRequest(Message.obtain(message))
                         true
@@ -808,6 +814,14 @@ class UsqueVpnService : VpnService() {
     }
 
     private fun reconfigureSelectedAccount(request: Message) {
+        if (settingsApplication.busy || runtimeReconfigureInFlight || settingsUncertain) {
+            replyControlError(request, "NETWORK_SETTINGS_BUSY", "A settings application is in progress.")
+            return
+        }
+        if (!nativeRuntimeActive.get() && activeProfileJson.get() == null && tunnel.get() == null) {
+            replyWithSnapshot(request)
+            return
+        }
         val token =
             accountHandoff.request(
                 appliedProfile = establishedTunProtection.profileFor(tunnel.get()),
@@ -815,16 +829,20 @@ class UsqueVpnService : VpnService() {
                 mode = activeMode.get(),
                 runtimeProfile = activeProfileJson.get(),
                 phase = snapshotState.phase,
+                requireProxyChain = false,
             )
-        if (token == null) {
-            // Ordinary account selection still only changes the saved account.
-            replyWithSnapshot(request)
+        if (token == null && tunnel.get() != null) {
+            replyControlError(
+                request,
+                "ACCOUNT_HANDOFF_UNCONFIRMED",
+                "The current VPN protection could not be confirmed.",
+            )
             return
         }
         // Retire the old completion *before* waiting for the catalog. In
         // particular, a proxy-only B must not close the inherited interface
         // while a newer account C is already waiting for its durable read.
-        if (!accountHandoff.begin(token)) {
+        if (token != null && !accountHandoff.begin(token)) {
             replyWithSnapshot(request)
             return
         }
@@ -852,7 +870,7 @@ class UsqueVpnService : VpnService() {
                     )
                 }.getOrNull()
             mainHandler.post {
-                if (!isCurrent(generation) || !accountHandoff.owns(token)) {
+                if (!isCurrent(generation) || (token != null && !accountHandoff.owns(token))) {
                     replyWithSnapshot(request)
                     return@post
                 }
@@ -2359,13 +2377,42 @@ class UsqueVpnService : VpnService() {
         val available =
             !destroyed && !settingsApplication.busy && !settingsUncertain && !runtimeReconfigureInFlight &&
                 nativeRuntimeActive.get() && phase in setOf("connected", "degraded")
-        val saving = request.what == MSG_SAVE_SETTINGS
+        val scenario = request.what == MSG_SCENARIOS
+        val scenarioAction =
+            if (scenario) {
+                runCatching { ScenarioFields.action(request.data.getString("settings_request").orEmpty()) }.getOrNull()
+            } else {
+                null
+            }
+        if (scenario && scenarioAction == null) {
+            replySettings(request, null, "SCENARIO_INVALID")
+            return
+        }
+        val activatingScenario = scenarioAction?.let(ScenarioFields::activates) == true
+        if (activatingScenario &&
+            (
+                settingsApplication.busy || settingsUncertain || runtimeReconfigureInFlight ||
+                    phase !in setOf("disconnected", "idle", "error", "connected", "degraded")
+            )
+        ) {
+            replySettings(request, null, "SCENARIO_BUSY")
+            return
+        }
+        val saving = request.what == MSG_SAVE_SETTINGS || activatingScenario
         val token = if (saving && available) settingsApplication.begin(generation) else null
+        val vpnAuthorized = !activatingScenario || VpnService.prepare(this) == null
         settingsExecutor.execute {
             val outcome =
                 runCatching {
                     val command =
-                        if (saving) {
+                        if (scenario) {
+                            JSONObject()
+                                .put("request", JSONObject(request.data.getString("settings_request").orEmpty()))
+                                .put("phase", phase)
+                                .put("available", available)
+                                .put("session_id", generation.toString())
+                                .put("vpn_authorized", vpnAuthorized)
+                        } else if (saving) {
                             JSONObject(request.data.getString("settings_request").orEmpty()).apply {
                                 put("command", "save")
                                 put("phase", phase)
@@ -2375,7 +2422,33 @@ class UsqueVpnService : VpnService() {
                         } else {
                             JSONObject().put("command", "get")
                         }
-                    JSONObject(requireNotNull(NativeEngine.networkSettings(settingsPath, command.toString())))
+                    JSONObject(
+                        requireNotNull(
+                            if (scenario) {
+                                if (activatingScenario) {
+                                    val preflight =
+                                        JSONObject(command.toString())
+                                            .put(
+                                                "request",
+                                                ScenarioFields.previewRequest(command.getJSONObject("request")),
+                                            )
+                                    val prepared =
+                                        JSONObject(
+                                            requireNotNull(
+                                                NativeEngine.scenarioCommand(settingsPath, preflight.toString()),
+                                            ),
+                                        )
+                                    command.put("identity_account_id", validateScenarioIdentity(prepared))
+                                }
+                                NativeEngine.scenarioCommand(settingsPath, command.toString())
+                            } else {
+                                NativeEngine.networkSettings(settingsPath, command.toString())
+                            },
+                        ),
+                    ).also { source ->
+                        if (source.optJSONObject("preview_target") != null) validateScenarioIdentity(source)
+                        source.remove("preview_target")
+                    }
                 }
             mainHandler.post {
                 val source = outcome.getOrNull()
@@ -2384,15 +2457,21 @@ class UsqueVpnService : VpnService() {
                     replySettings(
                         request,
                         null,
-                        RoutingSettingsError.nativeFailure(outcome.exceptionOrNull()?.message),
+                        if (scenario) {
+                            ScenarioFields.failure(outcome.exceptionOrNull()?.message)
+                        } else {
+                            RoutingSettingsError.nativeFailure(outcome.exceptionOrNull()?.message)
+                        },
                     )
                     return@post
                 }
                 val target = source.optJSONObject("target")?.toString()
                 source.remove("target")
+                val settings = if (scenario) source.optJSONObject("network_settings")?.toString() else source.toString()
+                source.remove("network_settings")
                 val json = source.toString()
                 if (isCurrent(generation) && (token == null || settingsApplication.owns(token, generation))) {
-                    publishSettings(json)
+                    if (settings != null) publishSettings(settings)
                 }
                 // Session cancellation retires application ownership, not the
                 // durable acknowledgement owed to this save's caller.
@@ -2403,8 +2482,35 @@ class UsqueVpnService : VpnService() {
                     observeNetworkSettings()
                     return@post
                 }
-                val operation = source.getString("operation_id")
+                val operation =
+                    if (scenario) {
+                        JSONObject(request.data.getString("settings_request").orEmpty()).getString("operation_id")
+                    } else {
+                        source.getString("operation_id")
+                    }
                 if (!settingsApplication.committed(token, generation, operation)) return@post
+                if (scenario) {
+                    accountHandoff
+                        .request(
+                            appliedProfile = establishedTunProtection.profileFor(tunnel.get()),
+                            tunnelOwned = tunnel.get()?.fileDescriptor?.valid() == true,
+                            mode = activeMode.get(),
+                            runtimeProfile = activeProfileJson.get(),
+                            phase = snapshotState.phase,
+                            requireProxyChain = false,
+                        )?.let(accountHandoff::begin)
+                }
+                if (scenario &&
+                    JSONObject(target).optString("id") !=
+                    activeProfileJson.get()?.let { JSONObject(it).optString("id") }
+                ) {
+                    // Identity changes require a fresh native owner. Keep the
+                    // established capture until its replacement is confirmed.
+                    beginConnection(target, newSession = false, settingsToken = token)
+                    settingsApplication.runtimeReplied(token, connectionGeneration.get())
+                    observeNetworkSettings()
+                    return@post
+                }
                 val reply =
                     Messenger(
                         Handler(Looper.getMainLooper()) { replyMessage ->
@@ -2451,6 +2557,13 @@ class UsqueVpnService : VpnService() {
             }
         }
     }
+
+    private fun validateScenarioIdentity(source: JSONObject): String =
+        ScenarioFields.validateIdentity(
+            source,
+            loadSecret = { id, profile -> loadWarpSecret(id, profile, readOnly = true) },
+            inspect = { inspectAssignment(it) },
+        )
 
     // The synchronous commit result is part of the recovery confirmation.
     @SuppressLint("ApplySharedPref", "UseKtx")

@@ -7,6 +7,7 @@ import '../../core/connection_presentation.dart';
 import '../../core/usque_motion.dart';
 import '../../core/usque_theme.dart';
 import '../../models/app_models.dart';
+import '../../models/scenarios.dart';
 import '../../state/app_controller.dart';
 import '../common.dart';
 import '../connection_ring.dart';
@@ -189,7 +190,11 @@ class HomeConnectionHero extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
       children: [
-        _AccountEyebrow(name: view.profileName, strings: strings),
+        _AccountEyebrow(
+          name: view.profileName,
+          strings: strings,
+          onOpen: () => controller.openProfiles(ProfilesTab.accounts),
+        ),
         const SizedBox(height: UsqueSpace.xs),
         headline,
         const SizedBox(height: UsqueSpace.s),
@@ -329,7 +334,13 @@ class _StatusHeadline extends StatelessWidget {
 
 /// The active account above the status, named for assistive technology.
 class _AccountEyebrow extends StatelessWidget {
-  const _AccountEyebrow({required this.name, required this.strings});
+  const _AccountEyebrow({
+    required this.name,
+    required this.strings,
+    required this.onOpen,
+  });
+
+  final VoidCallback onOpen;
 
   final String name;
   final AppStrings strings;
@@ -342,24 +353,28 @@ class _AccountEyebrow extends StatelessWidget {
       message: '${strings.get('active_profile')}: $name',
       child: Semantics(
         label: '${strings.get('active_profile')}: $name',
+        button: true,
         excludeSemantics: true,
-        child: Row(
-          key: const ValueKey('home-active-account'),
-          children: [
-            Icon(LucideIcons.circleUserRound, size: 16, color: muted),
-            const SizedBox(width: UsqueSpace.xs - 2),
-            Flexible(
-              child: Text(
-                name,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: muted,
-                  fontWeight: FontWeight.w600,
+        child: InkWell(
+          onTap: onOpen,
+          child: Row(
+            key: const ValueKey('home-active-account'),
+            children: [
+              Icon(LucideIcons.circleUserRound, size: 16, color: muted),
+              const SizedBox(width: UsqueSpace.xs - 2),
+              Flexible(
+                child: Text(
+                  name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: muted,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

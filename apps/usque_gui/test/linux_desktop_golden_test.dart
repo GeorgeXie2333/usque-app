@@ -31,7 +31,9 @@ import 'package:usque/widgets/window_titlebar.dart';
 
 import 'app_test.dart' show FakeEngineClient;
 import 'quality_test_support.dart' show qualityFixture;
+import 'scenarios_test.dart' show SceneEngine;
 import 'support/linux_golden_support.dart';
+import 'ui_workflow_test.dart' show pumpWorkflow, workflowHost;
 
 const _capabilities = EngineCapabilities(
   vpn: true,
@@ -1176,6 +1178,73 @@ void main() {
             // An active session polls the engine until it is no longer
             // observed; stop it before the test checks for pending timers.
             app.diagnostics.setObservationVisible(false);
+          },
+          variant: const TargetPlatformVariant({TargetPlatform.linux}),
+          tags: const ['golden', 'linux-golden'],
+        );
+      }
+    },
+    skip: supportedHost ? false : 'Linux amd64 rasterization baseline only.',
+  );
+  group(
+    'Linux Profiles scenes',
+    () {
+      setUpAll(loadLinuxGoldenFonts);
+      for (final fixture in [
+        (
+          name: 'profiles_scenes_desktop_en_light',
+          size: const Size(1280, 900),
+          locale: LocalePreference.english,
+          scale: 1.0,
+          editor: false,
+        ),
+        (
+          name: 'profiles_scenes_narrow_zh_light',
+          size: const Size(390, 844),
+          locale: LocalePreference.simplifiedChinese,
+          scale: 1.0,
+          editor: false,
+        ),
+        (
+          name: 'profiles_scenes_rtl_large',
+          size: const Size(1280, 1000),
+          locale: LocalePreference.persian,
+          scale: 2.0,
+          editor: false,
+        ),
+        (
+          name: 'profiles_scene_editor_zh_light',
+          size: const Size(390, 844),
+          locale: LocalePreference.simplifiedChinese,
+          scale: 1.0,
+          editor: true,
+        ),
+      ]) {
+        testWidgets(
+          fixture.name,
+          (tester) async {
+            final engine = SceneEngine()..selected = 'scene-a';
+            final app = await pumpWorkflow(
+              tester,
+              engine,
+              section: AppSection.profiles,
+              size: fixture.size,
+            );
+            app.localePreference = fixture.locale;
+            app.engineCapabilities = await engine.getCapabilities();
+            await app.scenarios.refresh();
+            await tester.pumpWidget(workflowHost(app, scale: fixture.scale));
+            await tester.pumpAndSettle();
+            if (fixture.editor) {
+              await tester.tap(find.byKey(const ValueKey('scenario-create')));
+              await tester.pumpAndSettle();
+            }
+            expect(tester.takeException(), isNull);
+            expect(find.byType(ErrorWidget), findsNothing);
+            await expectLater(
+              find.byType(MaterialApp),
+              matchesGoldenFile('goldens/linux/${fixture.name}.png'),
+            );
           },
           variant: const TargetPlatformVariant({TargetPlatform.linux}),
           tags: const ['golden', 'linux-golden'],

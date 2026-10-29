@@ -17,6 +17,7 @@ import 'package:usque/core/l10n/network_quality.dart';
 import 'package:usque/core/l10n/network_settings.dart';
 import 'package:usque/core/l10n/onboarding.dart';
 import 'package:usque/core/l10n/proton.dart';
+import 'package:usque/core/l10n/scenarios.dart';
 import 'package:usque/core/l10n/tls_fingerprint.dart';
 import 'package:usque/core/l10n/ui_workflow.dart';
 import 'package:usque/core/l10n/update_check.dart';
@@ -39,6 +40,7 @@ const _tables = {
   'network settings': kNetworkSettingsCatalogs,
   'onboarding': kOnboardingCatalogs,
   'Proton': kProtonCatalogs,
+  'scenarios': kScenarioCatalogs,
   'TLS fingerprint': kTlsFingerprintCatalogs,
   'workflow': kUiWorkflowCatalogs,
   'update': kUpdateCheckCatalogs,

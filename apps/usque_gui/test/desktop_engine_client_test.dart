@@ -83,6 +83,66 @@ const List<int> _goldenProfileBytes = <int>[
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  test('scenario command uses its own request and response boundary', () async {
+    Uint8List? request;
+    final client = DesktopEngineClient.forTest(
+      transport: DesktopEngineTransport.forTest(
+        requestIdFactory: () => 'scene-request',
+        exchange: (frame) async {
+          request = frame;
+          final result = ControlPayloadWriter()
+            ..string(1, '{"scenarios":[],"operation_id":"scene-operation"}');
+          return const ControlCodec().frame(
+            (ControlPayloadWriter()
+                  ..string(1, 'scene-request')
+                  ..message(29, result.takeBytes()))
+                .takeBytes(),
+          );
+        },
+      ),
+    );
+    addTearDown(client.dispose);
+    final response = await client.scenarioCommand({'action': 'list'});
+    expect(response['scenarios'], isEmpty);
+    expect(response['operation_id'], 'scene-operation');
+    expect(request, containsAllInOrder([0xaa, 0x03]));
+  });
+  test(
+    'missing scenario response stays unknown and is never replayed',
+    () async {
+      var requests = 0;
+      final client = DesktopEngineClient.forTest(
+        transport: DesktopEngineTransport.forTest(
+          requestIdFactory: () => 'scene-request',
+          exchange: (_) async {
+            requests++;
+            return const ControlCodec().frame(
+              (ControlPayloadWriter()..string(1, 'scene-request')).takeBytes(),
+            );
+          },
+        ),
+      );
+      addTearDown(client.dispose);
+      await expectLater(
+        client.scenarioCommand({'action': 'activate'}),
+        throwsA(
+          isA<EngineException>().having(
+            (e) => e.code,
+            'code',
+            'SCENARIO_RESULT_UNKNOWN',
+          ),
+        ),
+      );
+      expect(requests, 1);
+      expect(const EngineCapabilities().connectionScenarios, isFalse);
+      expect(
+        EngineCapabilities.fromMap({
+          'connection_scenarios': true,
+        }).connectionScenarios,
+        isTrue,
+      );
+    },
+  );
   test('startup requests only non-secret profile metadata', () async {
     Uint8List? request;
     final client = DesktopEngineClient.forTest(

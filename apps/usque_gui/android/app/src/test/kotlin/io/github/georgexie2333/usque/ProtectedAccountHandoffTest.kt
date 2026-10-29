@@ -23,6 +23,31 @@ class ProtectedAccountHandoffTest {
             .toString()
 
     @Test
+    fun scenarioAndExplicitAccountSwitchRetainOrdinaryWarpCapture() {
+        for (source in listOf("http_proxy", "wireguard_custom", "openvpn_custom", "vpn_gate")) {
+            val handoff = ProtectedAccountHandoff()
+            val applied = profile(source = source, enabled = false)
+            val token = handoff.request(applied, true, "vpn", requireProxyChain = false)
+            assertNotNull(token)
+            assertTrue(handoff.begin(token!!))
+            assertTrue(handoff.retainAfterFailure(false))
+            handoff.disconnect()
+            assertFalse(handoff.retained)
+        }
+        assertNull(ProtectedAccountHandoff().request(null, true, "vpn", requireProxyChain = false))
+        assertNull(ProtectedAccountHandoff().request(profile(), false, "vpn", requireProxyChain = false))
+        assertNull(
+            ProtectedAccountHandoff().request(
+                profile(),
+                true,
+                "vpn",
+                runtimeProfile = "{\"id\":\"other\"}",
+                requireProxyChain = false,
+            ),
+        )
+    }
+
+    @Test
     fun liveAdmissionRequiresEstablishedProxyVpnAndOwnedInterfaceRegardlessOfKillSwitch() {
         for (source in listOf("http_proxy", "socks5_proxy", "wireguard_custom", "openvpn_custom", "vpn_gate")) {
             for (killSwitch in listOf(false, true)) {

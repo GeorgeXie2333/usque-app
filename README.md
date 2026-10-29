@@ -68,7 +68,7 @@ Pre-1.0 Windows/Android packages use fixed, project-controlled self-signed certi
 
 See [Installation and removal](docs/INSTALLATION.md) for upgrades, uninstall, recovery, and Android developer-verification details, and [Code signing](docs/CODE_SIGNING.md) for official identities. Updates require confirmation before downloading and use the platform installer; there is no unattended installation.
 
-Upgrading from v0.3.1 migrates configuration from schema 24 to 26, which v0.3.1 and older clients cannot read. Review [configuration compatibility](docs/INSTALLATION.md#configuration-compatibility-when-upgrading) and any required pre-upgrade backup before upgrading; reinstalling an older package does not reverse the migration.
+Upgrading from v0.3.1 migrates configuration from schema 24 to 27, which v0.3.1 and older clients cannot read. Review [configuration compatibility](docs/INSTALLATION.md#configuration-compatibility-when-upgrading) and any required pre-upgrade backup before upgrading; reinstalling an older package does not reverse the migration.
 
 ## First connection
 
@@ -90,6 +90,11 @@ Each account stores its own credentials; only one account connects at a time.
 Network settings are shared by all accounts.
 
 ## Features
+
+- [Local connection scenes](docs/SCENARIOS.md) in **Profiles → Scenes**, beside
+  **Accounts**. Save common network settings, optionally bind an account, review
+  changes before use, and restore the latest switch. Saving a template does not
+  change the running connection; saved and applied states remain distinct.
 
 - Optional [chain proxy](docs/CHAIN_PROXY.md): open **Proxy → Chain proxy** for
   **OpenVPN**, **WireGuard**, [**WARP via WireGuard**](docs/WARP_WIREGUARD.md),

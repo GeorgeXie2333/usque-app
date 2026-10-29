@@ -128,6 +128,7 @@ impl ControlService {
             let result = tokio::task::spawn_blocking(move || {
                 let _transaction = store.lock_exclusive()?;
                 let latest = store.load_or_default()?;
+                retained.extend(usque_core::scenarios::retained_chain_profiles(&latest));
                 if let Some(id) = latest
                     .network
                     .chain_exit

@@ -464,16 +464,8 @@ impl ControlService {
         if action == NodeAction::RemoveFavorite {
             self.gate_directory.cancel_node_for(&request.server_id);
             let store = CatalogueStore::new(&self.cache_dir);
-            let mut retained: Vec<_> = self
-                .config
-                .read()
-                .await
-                .network
-                .vpn_gate
-                .selection
-                .clone()
-                .into_iter()
-                .collect();
+            let mut retained =
+                usque_core::scenarios::retained_vpn_gate_selections(&*self.config.read().await);
             if let Some(active) = self.data_plane.lock().await.as_ref()
                 && let Some(selection) = &active.profile.vpn_gate.selection
             {

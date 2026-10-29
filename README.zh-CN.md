@@ -68,7 +68,7 @@ Linux 提供通用 x86-64 与 ARM64 的 AppImage/deb/rpm，请在安装前验证
 
 升级、卸载、恢复及 Android 开发者验证说明见[安装指南](docs/INSTALLATION.md)，官方签名身份见[代码签名策略](docs/CODE_SIGNING.md)。更新下载需要用户确认，安装通过平台安装程序完成，不会未经确认自动安装。
 
-从 v0.3.1 升级会将配置从 schema 24 迁移至 26，v0.3.1 及更早客户端无法读取。升级前请查看[配置兼容性](docs/INSTALLATION.md#configuration-compatibility-when-upgrading)并安排所需备份；重新安装旧版不会逆转迁移。
+从 v0.3.1 升级会将配置从 schema 24 迁移至 27，v0.3.1 及更早客户端无法读取。升级前请查看[配置兼容性](docs/INSTALLATION.md#configuration-compatibility-when-upgrading)并安排所需备份；重新安装旧版不会逆转迁移。
 
 ## 首次连接
 
@@ -88,6 +88,10 @@ VPN、SOCKS5 和 HTTP 默认开启，Windows 系统代理默认关闭。它们�
 每个账号单独保存凭据，一次只能使用一个账号连接；网络设置由所有账号共享。
 
 ## 主要功能
+
+- **配置 → 场景** 与 **账号** 共用页面，可保存[本机网络场景](docs/SCENARIOS.md)、
+  可选绑定账号、预览后使用并恢复最近一次切换。保存模板不改变当前连接，
+  页面明确区分已保存和已应用。
 
 - 可选的[链式代理](docs/CHAIN_PROXY.md)：在“代理 → 链式代理”依次选择 **OpenVPN**、
   **WireGuard**、[**WARP via WireGuard**](docs/WARP_WIREGUARD.md)、[**Proton VPN**](docs/PROTON_VPN.md)、**VPN Gate**、**HTTP** 或 **SOCKS5**。

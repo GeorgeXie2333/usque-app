@@ -2157,6 +2157,7 @@ class EngineCapabilities {
     this.chainProtonVpn = false,
     this.protonAccountWarpFallback = false,
     this.protonServerSwitching = false,
+    this.connectionScenarios = false,
     this.chainHttpProxy = false,
     this.chainSocks5Proxy = false,
     this.chainProxyEncryptedDns = false,
@@ -2198,6 +2199,7 @@ class EngineCapabilities {
     chainProtonVpn: map['chain_proton_vpn'] == true,
     protonAccountWarpFallback: map['proton_account_warp_fallback'] == true,
     protonServerSwitching: map['proton_server_switching'] == true,
+    connectionScenarios: map['connection_scenarios'] == true,
     chainHttpProxy: map['chain_http_proxy'] == true,
     chainSocks5Proxy: map['chain_socks5_proxy'] == true,
     chainProxyEncryptedDns: map['chain_proxy_encrypted_dns'] == true,
@@ -2248,6 +2250,7 @@ class EngineCapabilities {
   final bool automaticEndpoints;
   final bool endpointPresets;
   final bool continuousConnection;
+  final bool connectionScenarios;
   final bool zeroTrustEndpointEditing;
   final bool networkQuality;
   final bool vpnGateTcp;
@@ -2292,6 +2295,7 @@ class EngineCapabilities {
           chainProtonVpn == other.chainProtonVpn &&
           protonAccountWarpFallback == other.protonAccountWarpFallback &&
           protonServerSwitching == other.protonServerSwitching &&
+          connectionScenarios == other.connectionScenarios &&
           chainHttpProxy == other.chainHttpProxy &&
           chainSocks5Proxy == other.chainSocks5Proxy &&
           chainProxyEncryptedDns == other.chainProxyEncryptedDns &&
@@ -2324,6 +2328,7 @@ class EngineCapabilities {
 
   @override
   int get hashCode => Object.hash(
+    connectionScenarios,
     networkSettingsApplication,
     applicationQuicBlocking,
     accountMetadataMutations,

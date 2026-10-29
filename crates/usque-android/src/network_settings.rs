@@ -16,6 +16,62 @@ use crate::{AndroidProfile, android_profile_to_core, android_profile_value};
 
 static STATE: OnceLock<Mutex<NetworkSettingsState>> = OnceLock::new();
 
+#[cfg(test)]
+pub(crate) static TEST_STATE: Mutex<()> = Mutex::new(());
+
+pub(crate) fn scenario_snapshot() -> Result<NetworkSettingsState, String> {
+    STATE
+        .get_or_init(|| Mutex::new(NetworkSettingsState::default()))
+        .lock()
+        .map(|state| state.clone())
+        .map_err(|_| "SCENARIO_UNCONFIRMED".into())
+}
+
+pub(crate) fn record_scenario_commit(
+    config: &usque_core::AppConfig,
+    operation_id: Uuid,
+    apply_status: ApplyStatus,
+) -> Result<NetworkSettingsState, String> {
+    let mut state = STATE
+        .get_or_init(|| Mutex::new(NetworkSettingsState::default()))
+        .lock()
+        .map_err(|_| "SCENARIO_UNCONFIRMED")?;
+    state.operation_id = Some(operation_id);
+    state.persisted = Some(true);
+    state.record_persisted_operation(operation_id);
+    state.stored_profile = config.active_profile();
+    state.shared_network_profile = Some(
+        config
+            .network
+            .hydrate(&usque_core::Account::default_account()),
+    );
+    state.apply_status = apply_status;
+    state.error_code = None;
+    state.advance();
+    Ok(state.clone())
+}
+
+pub(crate) fn encode_scenario_state(state: &NetworkSettingsState) -> Result<Value, String> {
+    serde_json::from_str(&encode(state, None)?).map_err(|_| "SCENARIO_UNCONFIRMED".into())
+}
+
+pub(crate) fn record_scenario_uncertain(
+    config: &usque_core::AppConfig,
+    operation_id: Uuid,
+) -> Result<(), String> {
+    let mut state = STATE
+        .get_or_init(|| Mutex::new(NetworkSettingsState::default()))
+        .lock()
+        .map_err(|_| "SCENARIO_UNCONFIRMED")?;
+    state.operation_id = Some(operation_id);
+    state.persisted = None;
+    state.stored_profile = config.active_profile();
+    state.apply_status = ApplyStatus::Unknown;
+    state.error_code = Some("SCENARIO_COMMIT_UNCONFIRMED".into());
+    state.advance();
+    Ok(())
+}
+
 #[derive(Default, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 enum RuntimeFailureOutcome {
@@ -323,7 +379,6 @@ mod tests {
 
     // The JNI adapter owns one process-wide state even when fixtures use
     // separate stores. Keep each command sequence under one test reservation.
-    static TEST_STATE: Mutex<()> = Mutex::new(());
 
     #[test]
     fn issue_138_confirmed_rejection_retains_runtime_and_allows_an_explicit_retry() {

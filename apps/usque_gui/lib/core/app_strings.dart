@@ -13,6 +13,7 @@ import 'l10n/network_quality.dart';
 import 'l10n/network_settings.dart';
 import 'l10n/onboarding.dart';
 import 'l10n/proton.dart';
+import 'l10n/scenarios.dart';
 import 'l10n/tls_fingerprint.dart';
 import 'l10n/ui_workflow.dart';
 import 'l10n/update_check.dart';
@@ -58,6 +59,8 @@ class AppStrings {
   }
 
   String _raw(String key) {
+    final scenes = kScenarioCatalogs[catalogId] ?? kScenarioEn;
+    if (scenes.containsKey(key)) return scenes[key]!;
     final presets =
         kEndpointPresetCatalogs[catalogId] ?? kEndpointPresetCatalogs['en']!;
     if (presets.containsKey(key)) return presets[key]!;
@@ -118,7 +121,8 @@ class AppStrings {
 
   @visibleForTesting
   static bool get debugCatalogsAreComplete {
-    if (!_featureTablesComplete(
+    if (!_featureTablesComplete(kScenarioCatalogs, kScenarioEn) ||
+        !_featureTablesComplete(
           kEndpointPresetCatalogs,
           kEndpointPresetCatalogs['en']!,
         ) ||
@@ -262,7 +266,8 @@ class AppStrings {
 
   @visibleForTesting
   static bool get debugPlaceholdersArePreserved {
-    if (!_placeholdersPreserved(kEnCatalog, kCatalogs.values) ||
+    if (!_placeholdersPreserved(kScenarioEn, kScenarioCatalogs.values) ||
+        !_placeholdersPreserved(kEnCatalog, kCatalogs.values) ||
         !_placeholdersPreserved(
           kDiagnosticsCatalogs['en']!,
           kDiagnosticsCatalogs.values,

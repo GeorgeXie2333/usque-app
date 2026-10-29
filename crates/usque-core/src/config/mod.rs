@@ -37,7 +37,7 @@ pub use routing::{
 };
 pub use tls_fingerprint::TlsFingerprint;
 
-pub const CURRENT_SCHEMA_VERSION: u32 = 26;
+pub const CURRENT_SCHEMA_VERSION: u32 = 27;
 /// Vault namespace for device-wide proxy-listener secrets. Never a profile id.
 pub const SHARED_NETWORK_SECRET_ID: Uuid =
     Uuid::from_u128(0x9f1c_6b20_5a7e_4d3a_9c11_00c0_ffee_0001);
@@ -78,6 +78,12 @@ pub struct AppConfig {
     /// the endpoint IPv4/IPv6 pair with registered or explicitly overridden addresses.
     #[serde(default)]
     pub network: SharedNetworkSettings,
+    #[serde(default)]
+    pub scenarios: Vec<crate::scenarios::ConnectionScenario>,
+    #[serde(default)]
+    pub scenario_selection: Option<Box<crate::scenarios::ScenarioSelection>>,
+    #[serde(default)]
+    pub last_scenario_switch: Option<Box<crate::scenarios::ScenarioSwitchRecord>>,
     pub profiles: Vec<Account>,
     pub preferences: AppPreferences,
     /// Non-secret provider boundary used to classify a profile even if its
@@ -110,6 +116,9 @@ impl Default for AppConfig {
             schema_version: CURRENT_SCHEMA_VERSION,
             active_profile_id: Some(account.id),
             network: SharedNetworkSettings::default(),
+            scenarios: Vec::new(),
+            scenario_selection: None,
+            last_scenario_switch: None,
             profiles: vec![account],
             preferences: AppPreferences::default(),
             identity_bindings: BTreeMap::new(),
@@ -283,6 +292,7 @@ impl AppConfig {
             return Err(ConfigError::NoProfiles);
         }
         self.network.direct_dns.validate()?;
+        crate::scenarios::validate_config(self).map_err(|_| ConfigError::InvalidScenarios)?;
         self.network.warp_dns.validate()?;
         if self.profiles.len() > MAX_PROFILES {
             return Err(ConfigError::TooManyProfiles(self.profiles.len()));
@@ -1505,6 +1515,8 @@ fn valid_dns_name(value: &str) -> bool {
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum ConfigError {
+    #[error("connection scenarios are invalid")]
+    InvalidScenarios,
     #[error("endpoint presets require custom endpoint selection")]
     EndpointPresetRequiresCustom,
     #[error("endpoint presets require IPv6 only or prefer IPv6")]

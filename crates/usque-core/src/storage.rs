@@ -355,6 +355,9 @@ impl AppConfig {
             schema_version: CURRENT_SCHEMA_VERSION,
             active_profile_id: legacy.active_profile_id,
             network,
+            scenarios: Vec::new(),
+            scenario_selection: None,
+            last_scenario_switch: None,
             profiles: legacy
                 .profiles
                 .into_iter()
@@ -551,6 +554,12 @@ fn migrate_app_config(config: &mut AppConfig) {
     if config.schema_version < 26 {
         config.network.endpoint.preset_region = None;
         config.schema_version = 26;
+    }
+    if config.schema_version < 27 {
+        config.scenarios.clear();
+        config.scenario_selection = None;
+        config.last_scenario_switch = None;
+        config.schema_version = 27;
     }
 }
 
