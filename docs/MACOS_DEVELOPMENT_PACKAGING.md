@@ -16,7 +16,7 @@ the Network Extensions.
 
 The fork's [dev pre-release](https://github.com/JustinL330/usque-app/releases/tag/macos-dev-v0.3.3-3289e10d)
 provides macOS 13+ disk images, SHA-256 files, development manifests and SPDX file
-inventories. Its immutable tag `macos-dev-v0.3.3-3289e10d` points to dev commit
+inventories. Its pinned release tag `macos-dev-v0.3.3-3289e10d` points to dev commit
 `3289e10d3dd88c9d4b6431bd0c98c677df6500fd`; the application source candidate is
 `00e243f54cfe8cc6cf4665e9d30172344606c4e8`. Later download-link documentation
 changes do not change those binaries.
