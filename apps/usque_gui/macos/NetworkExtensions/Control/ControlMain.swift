@@ -21,6 +21,9 @@ import Foundation
                             guard object?["version"] as? Int == 1, let id = object?["operation_id"] as? String, UUID(uuidString:id) != nil else { throw NativeFailure.invalidEnvelope }
                             switch type {
                             case "status": reply = encodeJSON(["operation_id":id,"native":manager.status()])
+                            case "prepare_protection":
+                                guard let key = sessionObject(native["session"]) else { throw NativeFailure.invalidEnvelope }
+                                reply = encodeJSON(["operation_id":id,"native":try manager.prepareProtection(key)])
                             case "activate": try manager.activate(); reply = encodeJSON(["operation_id":id,"native":["accepted":true]])
                             case "flow_intent":
                                 try ProviderIdentity.gate()

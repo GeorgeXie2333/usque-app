@@ -42,7 +42,7 @@ final class GuardStore {
                 case "renew":
                     guard [ProviderRole.packet,.transparent,.dns].map(\.identifier).contains(peer),
                           let key = sessionObject(object["session"]), key == state.key,
-                          key.network_generation == PhysicalNetwork.shared.snapshot()["generation"] as? UInt64 else { throw NativeFailure.staleSession }
+                          PhysicalNetwork.shared.current().permits(generation:key.network_generation) else { throw NativeFailure.staleSession }
                     prune()
                     for index in leases.indices where leases[index]["owner"] as? String == owner {
                         leases[index]["expires"] = Date().addingTimeInterval(30)
@@ -62,32 +62,34 @@ final class GuardStore {
                 case "lease":
                     guard [ProviderRole.packet, .transparent, .dns].map(\.identifier).contains(peer),
                           let key = sessionObject(object["session"]), key == state.key,
-                          key.network_generation == PhysicalNetwork.shared.snapshot()["generation"] as? UInt64,
+                          PhysicalNetwork.shared.current().permits(generation:key.network_generation),
                           let local = object["local_ip"] as? String, Self.numericIP(local),
                           let port = object["local_port"] as? Int, (1...65535).contains(port),
                           let remote = object["remote_ip"] as? String, Self.numericIP(remote),
                           let remotePort = object["remote_port"] as? Int, (1...65535).contains(remotePort),
                           let proto = object["protocol"] as? Int, [6,17].contains(proto),
                           let interface = object["interface_index"] as? Int,
-                          (PhysicalNetwork.shared.snapshot()["interfaces"] as? [[String: Any]])?.contains(where: { $0["index"] as? Int == interface }) == true
+                          PhysicalNetwork.shared.current().permits(generation:key.network_generation,interface:interface)
                     else { throw NativeFailure.staleSession }
                     prune(); guard leases.count < 1024 else { throw NativeFailure.providerUnavailable }
                     var lease = object; lease["owner"] = owner; lease["expires"] = Date().addingTimeInterval(30)
                     leases.append(lease); return encodeJSON(["accepted":true,"physical_egress_verified":false])
                 case "commit_tunnel":
                     guard peer == ProviderRole.packet.identifier,
-                          sessionObject(object["session"]) == state.key,
+                          let key = sessionObject(object["session"]), key == state.key,
+                          PhysicalNetwork.shared.current().permits(generation:key.network_generation),
                           let name = object["interface"] as? String, name.range(of: "^utun[0-9]+$", options: .regularExpression) != nil else { throw NativeFailure.staleSession }
                     tunnel = name; return encodeJSON(["accepted":true])
                 case "arm":
                     guard [ProviderRole.packet, .dns, .transparent].map(\.identifier).contains(peer) || isController else { throw NativeFailure.permissionDenied }
                     block(); return encodeJSON(["accepted":true])
                 case "allow":
-                    guard peer == ProviderRole.packet.identifier, sessionObject(object["session"]) == state.key, tunnel != nil else { throw NativeFailure.staleSession }
+                    guard peer == ProviderRole.packet.identifier, let key = sessionObject(object["session"]), key == state.key,
+                          PhysicalNetwork.shared.current().permits(generation:key.network_generation), tunnel != nil else { throw NativeFailure.staleSession }
                     state.transition("connected", key: state.key); return encodeJSON(["accepted":true])
                 case "flow_intent":
                     guard isController, let key = sessionObject(object["session"]), key == state.key,
-                          key.network_generation == PhysicalNetwork.shared.snapshot()["generation"] as? UInt64,
+                          PhysicalNetwork.shared.current().permits(generation:key.network_generation),
                           Self.validTuple(object) else { throw NativeFailure.invalidEnvelope }
                     if let hostname = object["hostname"], !(hostname is NSNull) {
                         guard let hostname = hostname as? String, !hostname.isEmpty, hostname.utf8.count <= 253 else { throw NativeFailure.invalidEnvelope }
@@ -108,19 +110,19 @@ final class GuardStore {
             }
             guard isController else { throw NativeFailure.permissionDenied }
             let request = try ControlEnvelope(data)
-            guard try state.validate(request) else { return state.reply(request, duplicate: true) }
-            switch request.type {
-            case "protect", "start", "replace":
-                block(); state.transition("protected", key: request.session)
-            case "stop":
-                // Only an explicit, fenced controller Stop removes protection.
-                leases.removeAll(); intents.removeAll(); tunnel = nil; armed = false
-                state.transition("stopped", key: request.session, protection: false)
-            case "snapshot": break
-            case "cancel": block("cancelled")
-            default: throw NativeFailure.invalidEnvelope
+            return try state.transact(request) {
+                switch request.type {
+                case "protect", "start", "replace":
+                    block(); state.transition("protected", key: request.session)
+                case "stop":
+                    // Only an explicit, fenced controller Stop removes protection.
+                    leases.removeAll(); intents.removeAll(); tunnel = nil; armed = false
+                    state.transition("stopped", key: request.session, protection: false)
+                case "snapshot": break
+                case "cancel": block("cancelled")
+                default: throw NativeFailure.invalidEnvelope
+                }
             }
-            return state.reply(request)
         } catch { return failureReply(data, error) }
     }
     func record(_ flow: NEFilterSocketFlow) {
@@ -136,12 +138,20 @@ final class GuardStore {
         lock.lock(); defer { lock.unlock() }
         if !armed || direction == .inbound { return true }
         let name = String(cString: nw_interface_get_name(interface))
-        if name == "lo0" || name == tunnel { return true }
+        if name == "lo0" { return true }
         let data = Data(bytes: bytes, count: count)
         if GuardPacket.isRequiredControlPlane(data) { return true }
+        // A path update publishes its new generation before its asynchronous
+        // didChange callback can take this lock. Re-check at packet time so an
+        // old lease/tunnel is already denied in that callback gap.
+        let path = PhysicalNetwork.shared.current()
+        guard let key = state.key, path.permits(generation:key.network_generation) else { return false }
+        if name == tunnel { return true }
+        guard path.permits(generation:key.network_generation,interface:Int(nw_interface_get_index(interface))) else { return false }
         guard let packet = Self.packetTuple(data) else { return false }
         prune()
         return leases.contains {
+            sessionObject($0["session"]) == key &&
             ($0["interface_index"] as? Int) == Int(nw_interface_get_index(interface)) &&
             ($0["local_ip"] as? String) == packet.local &&
             ($0["local_port"] as? Int) == packet.port && ($0["remote_ip"] as? String) == packet.remote &&

@@ -20,6 +20,7 @@ struct Evidence {
     maximum: AtomicUsize,
     hold_start: AtomicBool,
     failed: AtomicBool,
+    fail_release: AtomicBool,
 }
 impl Evidence {
     fn event(&self, value: &'static str) {
@@ -101,7 +102,11 @@ impl SessionBackend for TestBackend {
     }
     async fn release_protection(&mut self, _: &SessionKey) -> Result<(), String> {
         self.evidence.event("release");
-        Ok(())
+        if self.evidence.fail_release.load(Ordering::Acquire) {
+            Err("release_failed".into())
+        } else {
+            Ok(())
+        }
     }
 }
 fn setup(capacity: usize) -> (Controller, Arc<Evidence>, SessionKey) {
@@ -351,4 +356,167 @@ async fn protect_barrier_can_precede_engine_mode_switch() {
         .submit(envelope(&key, start_command(false)))
         .unwrap();
     wait_phase(&controller, Phase::Connected).await;
+}
+
+#[tokio::test]
+async fn saturated_replay_journal_keeps_snapshot_and_terminal_stop_available() {
+    let (controller, evidence, key) = setup(1);
+    evidence.hold_start.store(true, Ordering::Release);
+    let start = envelope(&key, start_command(false));
+    controller.submit(start.clone()).unwrap();
+    wait_phase(&controller, Phase::Starting).await;
+    // Fill the bounded journal without yielding to the cancelled startup.
+    for _ in 1..4096 {
+        controller
+            .submit(envelope(
+                &key,
+                Command::Cancel {
+                    operation_id: start.operation_id,
+                },
+            ))
+            .unwrap();
+    }
+    assert_eq!(
+        controller.submit(envelope(&key, Command::Protect)),
+        Err(ControlError::ReplayWindowFull)
+    );
+    controller
+        .submit(envelope(&key, Command::Snapshot))
+        .unwrap();
+    evidence.fail_release.store(true, Ordering::Release);
+    let stop = envelope(&key, Command::Stop);
+    controller.submit(stop.clone()).unwrap();
+    // Additional Stop UUIDs coalesce instead of consuming another safety slot.
+    for _ in 0..4096 {
+        controller.submit(envelope(&key, Command::Stop)).unwrap();
+    }
+    let failed = wait_phase(&controller, Phase::Failed).await;
+    assert!(failed.protection_active);
+    assert_eq!(failed.error_code.as_deref(), Some("release_failed"));
+    evidence.fail_release.store(false, Ordering::Release);
+    controller.submit(envelope(&key, Command::Stop)).unwrap();
+    assert_eq!(
+        controller.submit(stop.clone()).unwrap().acceptance,
+        Acceptance::Duplicate
+    );
+    wait_phase(&controller, Phase::Stopped).await;
+    let event_count = evidence.events.lock().unwrap().len();
+    for _ in 0..4096 {
+        controller.submit(envelope(&key, Command::Stop)).unwrap();
+        controller
+            .submit(envelope(&key, Command::Snapshot))
+            .unwrap();
+    }
+    let mut mismatch = stop;
+    mismatch.command = Command::Protect;
+    assert_eq!(
+        controller.submit(mismatch),
+        Err(ControlError::ReplayMismatch)
+    );
+    tokio::time::sleep(std::time::Duration::from_millis(75)).await;
+    assert_eq!(evidence.events.lock().unwrap().len(), event_count);
+}
+
+#[tokio::test]
+async fn priority_stop_discards_queued_replacement_without_reopening_protection() {
+    let (controller, evidence, key) = setup(1);
+    evidence.hold_start.store(true, Ordering::Release);
+    controller
+        .submit(envelope(&key, start_command(false)))
+        .unwrap();
+    wait_phase(&controller, Phase::Starting).await;
+    let mut replacement = key.clone();
+    replacement.config_revision += 1;
+    controller
+        .submit(envelope(&replacement, start_command(true)))
+        .unwrap();
+    // The ordinary queue is full, but Stop still cancels both accepted starts.
+    controller
+        .submit(envelope(&replacement, Command::Stop))
+        .unwrap();
+    assert_eq!(
+        controller.submit(envelope(&replacement, start_command(true))),
+        Err(ControlError::StaleSession)
+    );
+    let stopped = wait_phase(&controller, Phase::Stopped).await;
+    assert_eq!(stopped.session.as_ref(), Some(&replacement));
+    tokio::time::sleep(std::time::Duration::from_millis(75)).await;
+    assert_eq!(controller.snapshot().phase, Phase::Stopped);
+    assert_eq!(
+        evidence
+            .events
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|event| **event == "protect")
+            .count(),
+        1
+    );
+    assert_eq!(evidence.live.load(Ordering::Acquire), 0);
+    assert_eq!(evidence.events.lock().unwrap().last(), Some(&"release"));
+}
+
+#[tokio::test]
+async fn stopped_session_uuid_cannot_be_reused_after_a_later_session() {
+    let (controller, _, key) = setup(2);
+    controller.submit(envelope(&key, Command::Protect)).unwrap();
+    wait_phase(&controller, Phase::Protected).await;
+    controller.submit(envelope(&key, Command::Stop)).unwrap();
+    wait_phase(&controller, Phase::Stopped).await;
+    for command in [Command::Protect, start_command(false)] {
+        assert_eq!(
+            controller.submit(envelope(&key, command)),
+            Err(ControlError::StaleSession)
+        );
+    }
+    let mut next = key.clone();
+    next.session_id = Uuid::new_v4();
+    controller
+        .submit(envelope(&next, start_command(false)))
+        .unwrap();
+    wait_phase(&controller, Phase::Connected).await;
+    controller.submit(envelope(&next, Command::Stop)).unwrap();
+    wait_phase(&controller, Phase::Stopped).await;
+    let mut retired = key;
+    retired.config_revision += 1;
+    retired.network_generation += 1;
+    assert_eq!(
+        controller.submit(envelope(&retired, start_command(false))),
+        Err(ControlError::StaleSession)
+    );
+}
+
+#[tokio::test]
+async fn stop_before_start_runs_does_not_rearm_and_allows_a_fresh_session() {
+    let (controller, evidence, key) = setup(1);
+    controller
+        .submit(envelope(&key, start_command(false)))
+        .unwrap();
+    controller.submit(envelope(&key, Command::Stop)).unwrap();
+    // The initial default snapshot is also Stopped, without a session. Await
+    // the acknowledged Stop rather than mistaking that initial state for it.
+    tokio::time::timeout(std::time::Duration::from_secs(3), async {
+        while controller.snapshot().session.as_ref() != Some(&key) {
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let stopped = wait_phase(&controller, Phase::Stopped).await;
+    assert_eq!(stopped.session.as_ref(), Some(&key));
+    assert_eq!(
+        *evidence.events.lock().unwrap(),
+        ["block", "disconnect", "clear_dns_routes", "release"]
+    );
+    let mut fresh = key;
+    fresh.session_id = Uuid::new_v4();
+    controller
+        .submit(envelope(&fresh, start_command(false)))
+        .unwrap();
+    wait_phase(&controller, Phase::Connected).await;
+    assert_eq!(
+        controller.submit(envelope(&fresh, start_command(false))),
+        Err(ControlError::StaleSession)
+    );
+    assert_eq!(evidence.maximum.load(Ordering::Acquire), 1);
 }

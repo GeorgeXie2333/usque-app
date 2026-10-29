@@ -47,6 +47,12 @@ pub trait ProviderControl: Send + Sync {
     async fn network_generation(&self) -> Result<u64, String> {
         Err("physical_network_unavailable".into())
     }
+    /// Establish protection for a recoverable session before observing the
+    /// filter-owned network fence. Generation zero is a preflight identity,
+    /// never an authorization to forward data.
+    async fn prepare_protection(&self, _session: &SessionKey) -> Result<u64, String> {
+        self.network_generation().await
+    }
     async fn authorize_flow(
         &self,
         _session: &SessionKey,
@@ -392,6 +398,13 @@ async fn exchange(
     session: &SessionKey,
     command: Command,
 ) -> Result<Snapshot, ControlServiceError> {
+    // Explicit Stop performs bounded, ordered teardown of several providers.
+    // Allow its native 60-second operation deadline plus pipe/manager overhead.
+    let timeout = std::time::Duration::from_secs(if matches!(command, Command::Stop) {
+        90
+    } else {
+        10
+    });
     let request = Envelope {
         version: PROTOCOL_VERSION,
         operation_id: Uuid::new_v4(),
@@ -399,13 +412,10 @@ async fn exchange(
         command,
     };
     let operation_id = request.operation_id;
-    let reply = tokio::time::timeout(
-        std::time::Duration::from_secs(10),
-        provider.exchange(request, broker),
-    )
-    .await
-    .map_err(|_| error("timeout"))?
-    .map_err(error)?;
+    let reply = tokio::time::timeout(timeout, provider.exchange(request, broker))
+        .await
+        .map_err(|_| error("timeout"))?
+        .map_err(error)?;
     if reply.operation_id != operation_id
         || reply
             .snapshot
@@ -683,6 +693,14 @@ impl MacVpnRuntime {
         *self.snapshot.lock().map_err(|_| error("snapshot_failed"))? = protective;
         self.quiesce_final();
         self.polling.take();
+        let generation = self
+            .provider
+            .prepare_protection(&self.session)
+            .await
+            .map_err(error)?;
+        if generation == 0 {
+            return Err(error("physical_network_unavailable"));
+        }
         let next = SessionKey {
             session_id: self.session.session_id,
             config_revision: self
@@ -690,7 +708,7 @@ impl MacVpnRuntime {
                 .config_revision
                 .checked_add(1)
                 .ok_or_else(|| error("revision_exhausted"))?,
-            network_generation: self.provider.network_generation().await.map_err(error)?,
+            network_generation: generation,
         };
         let mut credentials = SessionCredentials::from_identity(identity).map_err(error)?;
         credentials.chain = selected
@@ -800,21 +818,32 @@ impl ControlService {
         Ok(())
     }
     pub(crate) async fn reserve_macos_start(&self) -> Result<SessionKey, ControlServiceError> {
-        if let Some(session) = self.macos_reserved.lock().await.as_ref() {
-            return Ok(session.clone());
-        }
-        let session = SessionKey {
-            session_id: Uuid::new_v4(),
-            config_revision: 1,
-            network_generation: self
-                .macos_provider
-                .read()
-                .await
-                .network_generation()
-                .await
-                .map_err(error)?,
+        let mut session = {
+            let mut reserved = self.macos_reserved.lock().await;
+            let session = reserved.get_or_insert_with(|| SessionKey {
+                session_id: Uuid::new_v4(),
+                config_revision: 1,
+                network_generation: 0,
+            });
+            if session.network_generation > 0 {
+                return Ok(session.clone());
+            }
+            session.clone()
         };
-        *self.macos_reserved.lock().await = Some(session.clone());
+        // Store the identity before the first native mutation. Cancellation or
+        // a failed reply leaves this zero-generation reservation available to
+        // explicit Stop, and retry prepares exactly the same session again.
+        let provider = Arc::clone(&*self.macos_provider.read().await);
+        let generation = provider.prepare_protection(&session).await.map_err(error)?;
+        if generation == 0 {
+            return Err(error("physical_network_unavailable"));
+        }
+        let mut reserved = self.macos_reserved.lock().await;
+        if reserved.as_ref() != Some(&session) {
+            return Err(error("macos_provider_stale_reply"));
+        }
+        session.network_generation = generation;
+        *reserved = Some(session.clone());
         Ok(session)
     }
     pub(crate) async fn stop_reserved_macos(&self) -> Result<(), ControlServiceError> {

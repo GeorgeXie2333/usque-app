@@ -485,3 +485,179 @@ async fn stale_provider_reply_cannot_ack_a_new_operation() {
         .is_err()
     );
 }
+
+type PreflightRequest = (
+    SessionKey,
+    tokio::sync::oneshot::Sender<Result<u64, String>>,
+);
+struct PreflightControl {
+    requests: tokio::sync::mpsc::UnboundedSender<PreflightRequest>,
+    stops: StdMutex<Vec<SessionKey>>,
+}
+async fn next_preflight(
+    requests: &mut tokio::sync::mpsc::UnboundedReceiver<PreflightRequest>,
+) -> PreflightRequest {
+    tokio::time::timeout(std::time::Duration::from_secs(3), requests.recv())
+        .await
+        .expect("preflight request is bounded")
+        .expect("preflight adapter remains available")
+}
+#[async_trait]
+impl ProviderControl for PreflightControl {
+    async fn prepare_protection(&self, session: &SessionKey) -> Result<u64, String> {
+        let (send, receive) = tokio::sync::oneshot::channel();
+        self.requests
+            .send((session.clone(), send))
+            .map_err(|_| "isolated_preflight_closed")?;
+        receive.await.map_err(|_| "isolated_preflight_closed")?
+    }
+    async fn exchange(
+        &self,
+        request: Envelope,
+        _: Arc<dyn CredentialBroker>,
+    ) -> Result<Reply, String> {
+        assert!(matches!(request.command, Command::Stop));
+        self.stops.lock().unwrap().push(request.session.clone());
+        Ok(Reply {
+            operation_id: request.operation_id,
+            acceptance: usque_macos_runtime::protocol::Acceptance::Accepted,
+            snapshot: Snapshot {
+                session: Some(request.session),
+                ..Default::default()
+            },
+        })
+    }
+}
+
+#[tokio::test]
+async fn cancelled_preflight_keeps_recoverable_identity_and_retry_reuses_it() {
+    let (_directory, service, _, _, _) = service().await;
+    let service = Arc::new(service);
+    let (requests, mut preflights) = tokio::sync::mpsc::unbounded_channel();
+    let provider = Arc::new(PreflightControl {
+        requests,
+        stops: StdMutex::new(Vec::new()),
+    });
+    service
+        .set_macos_provider_control(provider.clone())
+        .await
+        .unwrap();
+    let first = tokio::spawn({
+        let service = service.clone();
+        async move { service.reserve_macos_start().await }
+    });
+    let (pending, abandoned_reply) = next_preflight(&mut preflights).await;
+    assert_eq!(pending.network_generation, 0);
+    assert_eq!(service.macos_reserved.lock().await.as_ref(), Some(&pending));
+    first.abort();
+    assert!(first.await.unwrap_err().is_cancelled());
+    drop(abandoned_reply);
+    assert_eq!(service.macos_reserved.lock().await.as_ref(), Some(&pending));
+
+    let retry = tokio::spawn({
+        let service = service.clone();
+        async move { service.reserve_macos_start().await }
+    });
+    let (retried, reply) = next_preflight(&mut preflights).await;
+    assert_eq!(retried, pending);
+    reply.send(Ok(9)).unwrap();
+    let prepared = retry.await.unwrap().unwrap();
+    assert_eq!(prepared.session_id, pending.session_id);
+    assert_eq!(prepared.config_revision, pending.config_revision);
+    assert_eq!(prepared.network_generation, 9);
+    assert_eq!(service.reserve_macos_start().await.unwrap(), prepared);
+    assert!(preflights.try_recv().is_err());
+    service.stop_reserved_macos().await.unwrap();
+    assert_eq!(*provider.stops.lock().unwrap(), vec![prepared]);
+    assert!(service.macos_reserved.lock().await.is_none());
+}
+
+#[tokio::test]
+async fn rejected_preflight_can_be_explicitly_stopped_without_a_packet_runtime() {
+    let (_directory, service, _, _, _) = service().await;
+    let service = Arc::new(service);
+    let (requests, mut preflights) = tokio::sync::mpsc::unbounded_channel();
+    let provider = Arc::new(PreflightControl {
+        requests,
+        stops: StdMutex::new(Vec::new()),
+    });
+    service
+        .set_macos_provider_control(provider.clone())
+        .await
+        .unwrap();
+    let start = tokio::spawn({
+        let service = service.clone();
+        async move { service.reserve_macos_start().await }
+    });
+    let (pending, reply) = next_preflight(&mut preflights).await;
+    reply.send(Err("awaiting_approval".into())).unwrap();
+    assert!(matches!(
+        start.await.unwrap(),
+        Err(ControlServiceError::PlatformVpn(code)) if code == "awaiting_approval"
+    ));
+    assert_eq!(service.macos_reserved.lock().await.as_ref(), Some(&pending));
+    service.stop_reserved_macos().await.unwrap();
+    assert_eq!(*provider.stops.lock().unwrap(), vec![pending]);
+    assert!(service.macos_reserved.lock().await.is_none());
+}
+
+struct DelayedControl(std::time::Duration);
+#[async_trait]
+impl ProviderControl for DelayedControl {
+    async fn exchange(
+        &self,
+        request: Envelope,
+        _: Arc<dyn CredentialBroker>,
+    ) -> Result<Reply, String> {
+        tokio::time::sleep(self.0).await;
+        Ok(Reply {
+            operation_id: request.operation_id,
+            acceptance: usque_macos_runtime::protocol::Acceptance::Accepted,
+            snapshot: Snapshot {
+                session: Some(request.session),
+                ..Default::default()
+            },
+        })
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn stop_allows_ordered_native_teardown_and_still_has_a_deadline() {
+    let key = SessionKey {
+        session_id: Uuid::new_v4(),
+        config_revision: 1,
+        network_generation: 7,
+    };
+    let broker: Arc<dyn CredentialBroker> =
+        Arc::new(usque_macos_runtime::credentials::UnavailableCredentialBroker);
+    assert!(
+        exchange(
+            &DelayedControl(std::time::Duration::from_secs(61)),
+            broker.clone(),
+            &key,
+            Command::Stop,
+        )
+        .await
+        .is_ok()
+    );
+    assert!(
+        exchange(
+            &DelayedControl(std::time::Duration::from_secs(91)),
+            broker.clone(),
+            &key,
+            Command::Stop,
+        )
+        .await
+        .is_err()
+    );
+    assert!(
+        exchange(
+            &DelayedControl(std::time::Duration::from_secs(11)),
+            broker,
+            &key,
+            Command::Snapshot,
+        )
+        .await
+        .is_err()
+    );
+}

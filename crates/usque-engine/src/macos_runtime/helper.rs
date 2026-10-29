@@ -101,6 +101,9 @@ impl BundledProviderControl {
             return Err("macos_control_stale_reply".into());
         }
         *slot = Some(process);
+        if let Some(code) = control_reply_error(&response) {
+            return Err(code);
+        }
         Ok(response)
     }
 }
@@ -131,17 +134,8 @@ impl ProviderControl for BundledProviderControl {
                 {
                     return Err("macos_provider_stale_reply".into());
                 }
-                if let Some(code) = response.get("error_code").and_then(Value::as_str) {
-                    let code = match code {
-                        "extension_version_mismatch"
-                        | "permission_denied"
-                        | "awaiting_approval"
-                        | "activation_requires_reboot"
-                        | "signature_required"
-                        | "production_evidence_required" => code,
-                        _ => "macos_control_operation_rejected",
-                    };
-                    return Err(code.into());
+                if let Some(code) = control_reply_error(&response) {
+                    return Err(code);
                 }
                 let reply: Reply =
                     serde_json::from_value(response).map_err(|_| "macos_control_invalid_reply")?;
@@ -164,13 +158,55 @@ impl ProviderControl for BundledProviderControl {
     }
     async fn network_generation(&self) -> Result<u64, String> {
         let reply = self.native(json!({"type":"status"})).await?;
-        reply
-            .pointer("/native/physical_network/generation")
-            .and_then(Value::as_u64)
-            .filter(|value| *value > 0)
-            .ok_or_else(|| "physical_network_unavailable".into())
+        authoritative_generation(&reply)
+    }
+    async fn prepare_protection(&self, session: &SessionKey) -> Result<u64, String> {
+        // Every native mutation carries an identity Engine has already kept for
+        // recovery. A failed/cancelled preflight must remain explicitly stoppable.
+        let reply = self
+            .native(json!({"type":"prepare_protection","session":session}))
+            .await?;
+        authoritative_generation(&reply)
     }
 }
+
+fn control_reply_error(reply: &Value) -> Option<String> {
+    reply.get("error_code").and_then(Value::as_str).map(|code| {
+        match code {
+            "extension_version_mismatch"
+            | "permission_denied"
+            | "awaiting_approval"
+            | "activation_requires_reboot"
+            | "signature_required"
+            | "production_evidence_required" => code,
+            _ => "macos_control_operation_rejected",
+        }
+        .into()
+    })
+}
+
+fn authoritative_generation(reply: &Value) -> Result<u64, String> {
+    if let Some(code) = control_reply_error(reply) {
+        return Err(code);
+    }
+    if reply
+        .pointer("/native/physical_generation_authority")
+        .and_then(Value::as_str)
+        != Some("filter")
+        || reply
+            .pointer("/native/physical_network/satisfied")
+            .and_then(Value::as_bool)
+            != Some(true)
+    {
+        return Err("physical_network_unavailable".into());
+    }
+    reply
+        .pointer("/native/physical_network/generation")
+        .and_then(Value::as_u64)
+        .filter(|value| *value > 0)
+        .ok_or_else(|| "physical_network_unavailable".into())
+}
+
 impl HelperProcess {
     async fn write<T: serde::Serialize>(&mut self, value: &T) -> Result<(), String> {
         let bytes =
@@ -317,5 +353,51 @@ impl usque_transport::SystemFlowAuthorizer for FlowAuthorizer {
             .clone()
             .ok_or("flow_session_unavailable")?;
         self.provider.authorize_flow(&session, intent).await
+    }
+}
+
+#[cfg(test)]
+mod generation_tests {
+    use super::*;
+
+    #[test]
+    fn preflight_rejection_preserves_only_actionable_stable_codes() {
+        for code in [
+            "extension_version_mismatch",
+            "permission_denied",
+            "awaiting_approval",
+            "activation_requires_reboot",
+            "signature_required",
+            "production_evidence_required",
+        ] {
+            let reply = json!({"acceptance":"rejected","error_code":code});
+            assert_eq!(control_reply_error(&reply), Some(code.into()));
+            assert_eq!(authoritative_generation(&reply), Err(code.into()));
+        }
+        let unknown = json!({"acceptance":"rejected","error_code":"arbitrary native message"});
+        assert_eq!(
+            authoritative_generation(&unknown),
+            Err("macos_control_operation_rejected".into())
+        );
+    }
+
+    #[test]
+    fn only_satisfied_filter_observation_can_fence_a_session() {
+        let valid = json!({"native":{"physical_generation_authority":"filter",
+            "physical_network":{"generation":7,"satisfied":true}}});
+        assert_eq!(authoritative_generation(&valid), Ok(7));
+        for invalid in [
+            json!({}),
+            json!({"native":{"physical_network":{"generation":7,"satisfied":true}}}),
+            json!({"native":{"physical_generation_authority":"uninitialized","physical_network":{"generation":7,"satisfied":true}}}),
+            json!({"native":{"physical_generation_authority":"filter","physical_network":{"generation":7,"satisfied":false}}}),
+            json!({"native":{"physical_generation_authority":"filter","physical_network":{"generation":0,"satisfied":true}}}),
+            json!({"native":{"physical_generation_authority":"filter","physical_network":{"generation":-1,"satisfied":true}}}),
+        ] {
+            assert_eq!(
+                authoritative_generation(&invalid),
+                Err("physical_network_unavailable".into())
+            );
+        }
     }
 }

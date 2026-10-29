@@ -20,7 +20,10 @@ enum NativeFailure: String, Error {
 }
 
 func encodeJSON(_ value: Any) -> Data {
-    (try? JSONSerialization.data(withJSONObject: value, options: [.sortedKeys])) ?? Data("{}".utf8)
+    // Invalid top-level values raise an Objective-C exception, which Swift's
+    // try? cannot catch. Keep malformed frames on the ordinary rejection path.
+    guard JSONSerialization.isValidJSONObject(value) else { return Data("{}".utf8) }
+    return (try? JSONSerialization.data(withJSONObject: value, options: [.sortedKeys])) ?? Data("{}".utf8)
 }
 
 struct SessionKey: Codable, Equatable {
@@ -108,6 +111,7 @@ final class NativeState {
     private var error: String? = NativeFailure.missingCredentials.rawValue
     private var operations: [UUID: Data] = [:]
     private var order: [UUID] = []
+    private var retiredSessions: Set<UUID> = []
     func validate(_ request: ControlEnvelope) throws -> Bool {
         lock.lock(); defer { lock.unlock() }
         if let existing = operations[request.operation] {
@@ -115,14 +119,38 @@ final class NativeState {
             return false
         }
         if let next = request.session, let current = key {
-            guard next.session_id == current.session_id || phase == "stopped" else { throw NativeFailure.staleSession }
-            guard next.network_generation >= current.network_generation,
-                  next.config_revision >= current.config_revision else { throw NativeFailure.staleSession }
+            if next.session_id != current.session_id {
+                guard phase == "stopped", !["stop","cancel","snapshot"].contains(request.type),
+                      !retiredSessions.contains(next.session_id) else { throw NativeFailure.staleSession }
+                // Revision and bootstrap generation belong to a session. A new
+                // UUID starts at revision one/generation zero after explicit Stop.
+                guard retiredSessions.count < 256 else { throw NativeFailure.providerUnavailable }
+                retiredSessions.insert(current.session_id)
+            } else {
+                guard phase != "stopped" || ["stop","snapshot"].contains(request.type) else { throw NativeFailure.staleSession }
+                guard next.network_generation >= current.network_generation,
+                      next.config_revision >= current.config_revision else { throw NativeFailure.staleSession }
+            }
             if ["stop", "cancel"].contains(request.type), next != current { throw NativeFailure.staleSession }
         }
         operations[request.operation] = request.digest; order.append(request.operation)
         if order.count > 256 { operations.removeValue(forKey: order.removeFirst()) }
         return true
+    }
+    /// Synchronous providers acknowledge a duplicate only after the original
+    /// configuration work succeeds. Keep validation, work and reply serialized;
+    /// failed work remains retryable without reverting protective transitions.
+    func transact(_ request:ControlEnvelope,body:() throws -> Void) throws -> Data {
+        lock.lock(); defer { lock.unlock() }
+        guard try validate(request) else { return reply(request,duplicate:true) }
+        do {
+            try body()
+            return reply(request)
+        } catch {
+            operations.removeValue(forKey:request.operation)
+            order.removeAll { $0 == request.operation }
+            throw error
+        }
     }
     func transition(_ phase: String, key: SessionKey? = nil, protection: Bool = true, error: String? = nil) {
         lock.lock(); defer { lock.unlock() }
@@ -133,6 +161,14 @@ final class NativeState {
         lock.lock(); defer { lock.unlock() }
         return ["phase": phase, "session": key?.object ?? NSNull(), "protection_active": protection,
                 "production_capable": false, "error_code": error ?? NSNull()]
+    }
+    func flowSession() -> SessionKey? {
+        lock.lock(); defer { lock.unlock() }
+        return ["starting","connected"].contains(phase) ? key : nil
+    }
+    var explicitlyStopped: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return phase == "stopped" && key != nil
     }
     func reply(_ request: ControlEnvelope, duplicate: Bool = false) -> Data {
         encodeJSON(["operation_id": request.operation.uuidString.lowercased(),
@@ -146,4 +182,38 @@ func failureReply(_ data: Data, _ error: Error) -> Data {
     return encodeJSON(["operation_id": input?["operation_id"] ?? NSNull(), "acceptance": "rejected",
                        "error_code": (error as? NativeFailure)?.rawValue ?? "native_operation_failed",
                        "error_domain":osError.domain,"native_error_code":osError.code])
+}
+
+/// Rust Release ends the packet runtime, while the independent filter remains
+/// armed until the controller confirms all data providers have stopped. Every
+/// packet-provider reply must describe that remaining protection truthfully.
+func packetRuntimeReply(_ data: Data) throws -> Data {
+    guard var object = try JSONSerialization.jsonObject(with:data) as? [String:Any],
+          var snapshot = object["snapshot"] as? [String:Any] else { throw NativeFailure.invalidEnvelope }
+    snapshot["protection_active"] = true
+    snapshot["production_capable"] = false
+    object["snapshot"] = snapshot
+    return encodeJSON(object)
+}
+
+/// Recovery may advance the bootstrap fence, but a stale/foreign Stop cannot
+/// tear down providers belonging to a newer session before the guard rejects it.
+func validateStopRecovery(_ target:SessionKey, snapshot:[String:Any]) throws {
+    _ = try recoveryStopTarget(target,snapshot:snapshot)
+}
+
+/// A partially configured role can still own the preceding revision, or no
+/// session at all. Cleanup targets that actual fence, never a newer or foreign
+/// runtime. The independent guard remains armed throughout this recovery.
+func recoveryStopTarget(_ target:SessionKey, snapshot:[String:Any]) throws -> SessionKey? {
+    guard let object = snapshot["session"] else { throw NativeFailure.invalidEnvelope }
+    if object is NSNull { return nil }
+    guard let object = object as? [String:Any],
+          let current = try? JSONDecoder().decode(SessionKey.self,from:encodeJSON(object)),
+          current.config_revision > 0,
+          current.session_id != UUID(uuidString:"00000000-0000-0000-0000-000000000000") else { throw NativeFailure.invalidEnvelope }
+    guard target.session_id == current.session_id,
+          target.config_revision >= current.config_revision,
+          target.network_generation >= current.network_generation else { throw NativeFailure.staleSession }
+    return current
 }

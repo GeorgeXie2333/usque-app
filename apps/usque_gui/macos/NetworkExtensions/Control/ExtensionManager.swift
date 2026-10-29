@@ -29,6 +29,7 @@ final class ExtensionManager {
     private var transparent: NETransparentProxyManager?
     private let dns = NEDNSProxyManager.shared()
     private let filter = NEFilterManager.shared()
+    private var operationDeadline: Date?
     func status() -> [String:Any] {
         var roles: [String:Any] = [:]
         for role in ProviderRole.allCases {
@@ -72,7 +73,7 @@ final class ExtensionManager {
     private func wait(_ invoke: (@escaping (Error?)->Void)->Void) throws {
         let semaphore = DispatchSemaphore(value:0); let box = ManagerResult()
         invoke { error in box.error = error; semaphore.signal() }
-        guard semaphore.wait(timeout:.now()+15) == .success else { throw NativeFailure.providerUnavailable }
+        guard semaphore.wait(timeout:.now() + remaining(15)) == .success else { throw NativeFailure.providerUnavailable }
         if let error = box.error { throw error }
     }
     private func loadManagers() throws {
@@ -81,13 +82,13 @@ final class ExtensionManager {
             self.packet = managers?.first { ($0.protocolConfiguration as? NETunnelProviderProtocol)?.providerBundleIdentifier == ProviderRole.packet.identifier }
             box.error = error; completion.signal()
         }
-        guard completion.wait(timeout:.now()+15) == .success else { throw NativeFailure.providerUnavailable }
+        guard completion.wait(timeout:.now() + remaining(15)) == .success else { throw NativeFailure.providerUnavailable }
         if let error = box.error { throw error }
         NETransparentProxyManager.loadAllFromPreferences { managers,error in
             self.transparent = managers?.first { ($0.protocolConfiguration as? NETunnelProviderProtocol)?.providerBundleIdentifier == ProviderRole.transparent.identifier }
             box.error = error; completion.signal()
         }
-        guard completion.wait(timeout:.now()+15) == .success else { throw NativeFailure.providerUnavailable }
+        guard completion.wait(timeout:.now() + remaining(15)) == .success else { throw NativeFailure.providerUnavailable }
         if let error = box.error { throw error }
         try wait { dns.loadFromPreferences(completionHandler:$0) }
         try wait { filter.loadFromPreferences(completionHandler:$0) }
@@ -103,7 +104,7 @@ final class ExtensionManager {
         }
     }
     private func ready(_ role:ProviderRole) throws {
-        let deadline = Date().addingTimeInterval(15)
+        let deadline = Date().addingTimeInterval(remaining(15))
         while Date() < deadline {
             if (try? ProviderServices.shared.client(role).native("snapshot")) != nil { return }
             // XPC provider initialization is asynchronous, not an authorization
@@ -112,7 +113,7 @@ final class ExtensionManager {
         }
         throw NativeFailure.providerUnavailable
     }
-    func protect(_ envelope:ControlEnvelope) throws -> Data {
+    func prepareProtection(_ key:SessionKey) throws -> [String:Any] {
         try ensureInstalled()
         let configuration = NEFilterProviderConfiguration()
         configuration.filterPackets = true; configuration.filterSockets = true
@@ -122,6 +123,19 @@ final class ExtensionManager {
         filter.providerConfiguration = configuration; filter.localizedDescription = "Usque Network Prototype Protection"
         filter.grade = .firewall; filter.isEnabled = true
         try wait { filter.saveToPreferences(completionHandler:$0) }; try ready(.filter)
+        let protect = try ControlEnvelope(encodeJSON(["version":1,"operation_id":UUID().uuidString,
+            "session":key.object,"command":["type":"protect"]]))
+        try accepted(ProviderServices.shared.filter.request(protect.redacted()))
+        // The filter is the sole generation authority. Never substitute this
+        // helper's independently started NWPathMonitor counter at bootstrap.
+        guard let physical = try ProviderServices.shared.filter.native("snapshot")["physical_network"] as? [String:Any],
+              physical["satisfied"] as? Bool == true,
+              let generation = physical["generation"] as? UInt64, generation > 0 else { throw NativeFailure.providerUnavailable }
+        return ["physical_network":physical,"physical_generation_authority":"filter"]
+    }
+    func protect(_ envelope:ControlEnvelope) throws -> Data {
+        guard let key = envelope.session else { throw NativeFailure.invalidEnvelope }
+        _ = try prepareProtection(key)
         return try ProviderServices.shared.filter.request(envelope.redacted())
     }
     func start(_ envelope:ControlEnvelope, original:Data) throws -> Data {
@@ -159,32 +173,90 @@ final class ExtensionManager {
         return try ProviderServices.shared.packet.request(original)
     }
     func stop(_ envelope:ControlEnvelope, original:Data) throws -> Data {
+        // Engine allows 90 seconds for Stop; native teardown has a total 60s
+        // budget and can be retried from persisted manager/provider state.
+        operationDeadline = Date().addingTimeInterval(60)
+        defer { operationDeadline = nil }
         try ProviderIdentity.gate(); try loadManagers()
-        let result = try ProviderServices.shared.packet.request(original); try accepted(result)
-        let deadline = Date().addingTimeInterval(20)
-        var stopped = false
-        while Date() < deadline {
-            var snapshot = envelope.object, command = envelope.command
-            command["type"] = "snapshot"; snapshot["command"] = command; snapshot["operation_id"] = UUID().uuidString
-            let reply = try ProviderServices.shared.packet.request(encodeJSON(snapshot))
-            let object = try JSONSerialization.jsonObject(with:reply) as? [String:Any]
-            if (object?["snapshot"] as? [String:Any])?["phase"] as? String == "stopped" { stopped = true; break }
-            Thread.sleep(forTimeInterval:0.1)
+        guard let key = envelope.session else { throw NativeFailure.invalidEnvelope }
+        if filter.isEnabled {
+            guard let snapshot = try ProviderServices.shared.filter.native("snapshot")["snapshot"] as? [String:Any] else { throw NativeFailure.providerUnavailable }
+            try validateStopRecovery(key, snapshot:snapshot)
+            if let current = sessionObject(snapshot["session"]), current != key {
+                // Bootstrap may have acknowledged generation zero just before
+                // the Engine stored the filter's confirmed physical generation.
+                let protect = try ControlEnvelope(encodeJSON(["version":1,"operation_id":UUID().uuidString,
+                    "session":key.object,"command":["type":"protect"]]))
+                try accepted(ProviderServices.shared.filter.request(protect.redacted()))
+            }
         }
-        guard stopped else { throw NativeFailure.providerUnavailable }
+        if let packet, ![.disconnected,.invalid].contains(packet.connection.status) {
+            // NE can be connected before Rust accepts Start, and a failed
+            // Replace can leave Rust at the preceding revision. Read its real
+            // runtime fence rather than the admission reply's rewritten key.
+            guard let snapshot = try ProviderServices.shared.packet.native("runtime_snapshot")["snapshot"] as? [String:Any] else { throw NativeFailure.providerUnavailable }
+            if let target = try recoveryStopTarget(key,snapshot:snapshot) {
+                let stop = try recoveryEnvelope(envelope,session:target)
+                try accepted(ProviderServices.shared.packet.request(encodeJSON(stop.object)))
+                let deadline = Date().addingTimeInterval(remaining(20))
+                var stopped = false
+                while Date() < deadline {
+                    guard let current = try ProviderServices.shared.packet.native("runtime_snapshot")["snapshot"] as? [String:Any] else { throw NativeFailure.providerUnavailable }
+                    guard try recoveryStopTarget(key,snapshot:current) == target else { throw NativeFailure.staleSession }
+                    if current["phase"] as? String == "stopped" { stopped = true; break }
+                    Thread.sleep(forTimeInterval:0.1)
+                }
+                guard stopped else { throw NativeFailure.providerUnavailable }
+            }
+        }
         packet?.connection.stopVPNTunnel()
+        if let packet { try waitForDisconnect(packet.connection) }
         if let packet { packet.isEnabled = false; try wait { packet.saveToPreferences(completionHandler:$0) } }
-        try accepted(ProviderServices.shared.transparent.request(envelope.redacted()))
+        if let transparent, ![.disconnected,.invalid].contains(transparent.connection.status) {
+            try stopRole(.transparent,envelope:envelope)
+        }
         transparent?.connection.stopVPNTunnel()
+        if let transparent { try waitForDisconnect(transparent.connection) }
         if let transparent { transparent.isEnabled = false; try wait { transparent.saveToPreferences(completionHandler:$0) } }
-        try accepted(ProviderServices.shared.dns.request(envelope.redacted()))
-        dns.isEnabled = false; try wait { dns.saveToPreferences(completionHandler:$0) }
+        if dns.isEnabled {
+            try stopRole(.dns,envelope:envelope)
+            dns.isEnabled = false; try wait { dns.saveToPreferences(completionHandler:$0) }
+        }
         // Guard is the final shutdown step, after the three data providers.
-        try accepted(ProviderServices.shared.filter.request(envelope.redacted()))
-        filter.isEnabled = false; try wait { filter.saveToPreferences(completionHandler:$0) }
+        if filter.isEnabled {
+            try accepted(ProviderServices.shared.filter.request(envelope.redacted()))
+            filter.isEnabled = false; try wait { filter.saveToPreferences(completionHandler:$0) }
+        }
         return encodeJSON(["operation_id":envelope.operation.uuidString.lowercased(),"acceptance":"accepted",
                            "snapshot":["phase":"stopped","session":envelope.session?.object ?? [:],
                                        "protection_active":false,"production_capable":false,"error_code":NSNull(),"selected_path":NSNull()]])
+    }
+    private func recoveryEnvelope(_ envelope:ControlEnvelope,session:SessionKey) throws -> ControlEnvelope {
+        if session == envelope.session { return envelope }
+        var object = envelope.object
+        object["session"] = session.object; object["operation_id"] = UUID().uuidString
+        return try ControlEnvelope(encodeJSON(object))
+    }
+    private func stopRole(_ role:ProviderRole,envelope:ControlEnvelope) throws {
+        guard let key = envelope.session,
+              let snapshot = try ProviderServices.shared.client(role).native("snapshot")["snapshot"] as? [String:Any] else { throw NativeFailure.providerUnavailable }
+        let target = try recoveryStopTarget(key,snapshot:snapshot)
+        // A newly started DNS/flow provider has no native session yet. Its
+        // explicit Stop still records the fence before manager removal.
+        let stop = try recoveryEnvelope(envelope,session:target ?? key)
+        try accepted(ProviderServices.shared.client(role).request(stop.redacted()))
+    }
+    private func waitForDisconnect(_ connection:NEVPNConnection) throws {
+        let deadline = Date().addingTimeInterval(remaining(15))
+        while Date() < deadline {
+            if [.disconnected,.invalid].contains(connection.status) { return }
+            Thread.sleep(forTimeInterval:0.1)
+        }
+        // A timed-out provider must leave the independent guard installed.
+        throw NativeFailure.providerUnavailable
+    }
+    private func remaining(_ maximum:TimeInterval) -> TimeInterval {
+        min(maximum,max(0,operationDeadline?.timeIntervalSinceNow ?? maximum))
     }
     private func accepted(_ data:Data) throws {
         let object = try JSONSerialization.jsonObject(with:data) as? [String:Any]

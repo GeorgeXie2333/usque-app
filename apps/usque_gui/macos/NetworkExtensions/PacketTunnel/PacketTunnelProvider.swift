@@ -53,13 +53,22 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             if let object = try JSONSerialization.jsonObject(with:data) as? [String:Any], object["native_action"] as? String == "snapshot" {
                 return encodeJSON(["accepted":true,"snapshot":state.snapshot()])
             }
+            if let object = try JSONSerialization.jsonObject(with:data) as? [String:Any], object["native_action"] as? String == "runtime_snapshot" {
+                guard object["version"] as? Int == 1 else { throw NativeFailure.unsupportedVersion }
+                var output = UsqueBuffer(data:nil,len:0)
+                let code = usque_macos_runtime_snapshot(runtime,&output)
+                defer { usque_macos_buffer_free(output) }
+                guard code == 0, let bytes = output.data,
+                      let snapshot = try JSONSerialization.jsonObject(with:Data(bytes:bytes,count:output.len)) as? [String:Any] else { throw NativeFailure.providerUnavailable }
+                return try packetRuntimeReply(encodeJSON(["accepted":true,"snapshot":snapshot]))
+            }
             let envelope = try ControlEnvelope(data)
             var output = UsqueBuffer(data: nil, len: 0)
             let code = data.withUnsafeBytes { usque_macos_runtime_command(runtime, $0.bindMemory(to: UInt8.self).baseAddress, data.count, &output) }
             defer { usque_macos_buffer_free(output) }
             guard code == 0, let bytes = output.data else { throw NativeFailure.invalidEnvelope }
             if envelope.type == "start" || envelope.type == "replace" { state.transition("starting", key: envelope.session) }
-            return Data(bytes: bytes, count: output.len)
+            return try packetRuntimeReply(Data(bytes: bytes, count: output.len))
         } catch { return failureReply(data, error) }
     }
     private func platform(_ data: Data) -> Int32 {

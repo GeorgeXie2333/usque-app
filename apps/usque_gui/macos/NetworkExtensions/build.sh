@@ -34,7 +34,7 @@ export MACOSX_DEPLOYMENT_TARGET=13.0
 flags=(-swift-version 5 -sdk "$sdk" -target "$arch-apple-macos13.0" -module-cache-path "$module_cache" -import-objc-header "$extension_root/include/usque_native.h" -parse-as-library)
 prefix=io.github.georgexie2333.usque
 if ((signed_poc)); then flags+=(-D SIGNED_POC); prefix+=.poc; fi
-common=("$extension_root/Shared/Protocol.swift" "$extension_root/Shared/PhysicalNetwork.swift" "$extension_root/Shared/Identity.swift" "$extension_root/Shared/ControlChannel.swift" "$extension_root/Shared/Policy.swift")
+common=("$extension_root/Shared/Protocol.swift" "$extension_root/Shared/PhysicalPathState.swift" "$extension_root/Shared/PhysicalNetwork.swift" "$extension_root/Shared/Identity.swift" "$extension_root/Shared/ControlChannel.swift" "$extension_root/Shared/Policy.swift")
 frameworks=(-framework Foundation -framework Security -framework Network -framework NetworkExtension -framework SystemExtensions)
 link_checks=(-Xlinker -fatal_warnings)
 if ((typecheck)); then

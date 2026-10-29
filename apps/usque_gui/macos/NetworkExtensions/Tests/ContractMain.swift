@@ -12,8 +12,10 @@ import Foundation
         let state = NativeState()
         assert(state.snapshot()["protection_active"] as? Bool == true)
         assert(state.snapshot()["error_code"] as? String == "missing_credentials")
+        assert(state.flowSession() == nil && !state.explicitlyStopped)
         let command = try envelope(key)
         let first = try state.validate(command); assert(first); state.transition("starting",key:key)
+        assert(state.flowSession() == key && !state.explicitlyStopped)
         let duplicate = try state.validate(command); assert(!duplicate)
         expectFailure { _ = try state.validate(envelope(key,type:"stop",operation:command.operation)) }
         let old = SessionKey(session_id:key.session_id,config_revision:1,network_generation:6)
@@ -21,7 +23,83 @@ import Foundation
         expectFailure { _ = try ControlEnvelope(encodeJSON(["version":99,"operation_id":UUID().uuidString,"session":key.object,"command":["type":"start"]])) }
         expectFailure { _ = try envelope(SessionKey(session_id:key.session_id,config_revision:0,network_generation:7)) }
         expectFailure { _ = try envelope(key,operation:UUID(uuidString:"00000000-0000-0000-0000-000000000000")!) }
+        expectFailure { _ = try ControlEnvelope(encodeJSON(["version":1,"operation_id":UUID().uuidString,"session":"invalid","command":["type":"start"]])) }
+        state.transition("stopped",key:key)
+        assert(state.flowSession() == nil && state.explicitlyStopped)
+        for type in ["protect","start","replace","cancel"] {
+            expectFailure { _ = try state.validate(envelope(key,type:type)) }
+        }
+        let fresh = SessionKey(session_id:UUID(),config_revision:1,network_generation:0)
+        _ = try state.validate(envelope(fresh,type:"protect")); state.transition("protected",key:fresh)
+        state.transition("stopped",key:fresh)
+        expectFailure { _ = try state.validate(envelope(key,type:"protect")) }
         print("Native lifecycle fencing: passed")
+
+        let transactional = NativeState(), configuration = try envelope(key)
+        var configurations = 0
+        expectFailure {
+            _ = try transactional.transact(configuration) {
+                configurations += 1
+                transactional.transition("protected",key:key,error:"policy_failed")
+                throw NativeFailure.providerUnavailable
+            }
+        }
+        assert(transactional.snapshot()["protection_active"] as? Bool == true)
+        assert(transactional.snapshot()["error_code"] as? String == "policy_failed")
+        let retried = try transactional.transact(configuration) {
+            configurations += 1; transactional.transition("starting",key:key)
+        }
+        let replayed = try transactional.transact(configuration) { configurations += 1 }
+        let retriedObject = try JSONSerialization.jsonObject(with:retried) as! [String:Any]
+        let replayedObject = try JSONSerialization.jsonObject(with:replayed) as! [String:Any]
+        assert(retriedObject["acceptance"] as? String == "accepted")
+        assert(replayedObject["acceptance"] as? String == "duplicate")
+        assert(configurations == 2)
+        expectFailure {
+            _ = try transactional.transact(envelope(key,type:"stop",operation:configuration.operation)) {
+                configurations += 1
+            }
+        }
+        assert(configurations == 2)
+        print("Failed native configuration retries before duplicate acceptance: passed")
+
+        // A stopped Rust runtime has not yet disabled the independent filter.
+        let stopped = try packetRuntimeReply(encodeJSON(["operation_id":command.operation.uuidString,
+            "acceptance":"accepted","snapshot":["phase":"stopped","protection_active":false,
+            "production_capable":false,"session":key.object]]))
+        let stoppedObject = try JSONSerialization.jsonObject(with:stopped) as! [String:Any]
+        let stoppedSnapshot = stoppedObject["snapshot"] as! [String:Any]
+        assert(stoppedSnapshot["phase"] as? String == "stopped")
+        assert(stoppedSnapshot["protection_active"] as? Bool == true)
+        assert(stoppedObject["operation_id"] as? String == command.operation.uuidString)
+        expectFailure { _ = try packetRuntimeReply(encodeJSON(["acceptance":"accepted"])) }
+        try validateStopRecovery(key,snapshot:["session":NSNull()])
+        try validateStopRecovery(key,snapshot:["session":key.object])
+        try validateStopRecovery(key,snapshot:["session":SessionKey(session_id:key.session_id,
+            config_revision:1,network_generation:0).object])
+        expectFailure { try validateStopRecovery(old,snapshot:["session":key.object]) }
+        expectFailure { try validateStopRecovery(SessionKey(session_id:UUID(),config_revision:2,
+            network_generation:8),snapshot:["session":key.object]) }
+        expectFailure { try validateStopRecovery(key,snapshot:["session":["session_id":"invalid"]]) }
+        print("Packet runtime stop retains independent protection: passed")
+
+        // NE may have started a process before it accepts the Engine's Start,
+        // or one role may still own the previous revision after partial Replace.
+        let noHead = try recoveryStopTarget(key,snapshot:["session":NSNull(),"phase":"stopped"])
+        assert(noHead == nil)
+        let exact = try recoveryStopTarget(key,snapshot:["session":key.object])
+        assert(exact == key)
+        let next = SessionKey(session_id:key.session_id,config_revision:2,network_generation:8)
+        let preceding = try recoveryStopTarget(next,snapshot:["session":key.object])
+        assert(preceding == key)
+        expectFailure { _ = try recoveryStopTarget(key,snapshot:["session":next.object]) }
+        expectFailure { _ = try recoveryStopTarget(key,snapshot:["session":SessionKey(session_id:UUID(),config_revision:1,network_generation:0).object]) }
+        expectFailure { _ = try recoveryStopTarget(key,snapshot:[:]) }
+        expectFailure { _ = try recoveryStopTarget(key,snapshot:["session":key.session_id.uuidString]) }
+        expectFailure { _ = try recoveryStopTarget(key,snapshot:["session":SessionKey(session_id:key.session_id,config_revision:0,network_generation:0).object]) }
+        print("Partial provider stop recovery fencing: passed")
+
+        runPhysicalNetworkContracts()
 
         let pipe = Pipe(), payload = Data("{\"contract\":true}".utf8)
         try FrameIO.write(payload,to:pipe.fileHandleForWriting); try pipe.fileHandleForWriting.close()

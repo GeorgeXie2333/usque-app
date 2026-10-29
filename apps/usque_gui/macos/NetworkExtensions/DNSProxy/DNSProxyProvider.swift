@@ -26,22 +26,25 @@ final class DNSProxyProvider: NEDNSProxyProvider {
             guard [ProviderIdentity.control,ProviderIdentity.prefix,"io.github.georgexie2333.usque.engine"].contains(peer) else { throw NativeFailure.permissionDenied }
             if let object = try JSONSerialization.jsonObject(with:data) as? [String:Any],object["native_action"] as? String == "snapshot" { return encodeJSON(["accepted":true,"snapshot":state.snapshot()]) }
             let envelope = try ControlEnvelope(data)
-            guard try state.validate(envelope) else { return state.reply(envelope,duplicate:true) }
-            switch envelope.type {
-            case "start","replace":
-                guard let configuration = envelope.command["configuration"] as? [String:Any],let profile = configuration["profile"] as? [String:Any] else { throw NativeFailure.invalidEnvelope }
-                closeAll(); try policy.replace(configuration); lock.lock(); self.profile = profile; lock.unlock()
-                state.transition("starting",key:envelope.session)
-            case "protect","cancel": closeAll(); state.transition("protected",key:envelope.session)
-            case "stop": closeAll(); state.transition("stopped",key:envelope.session)
-            case "snapshot": break
-            default: throw NativeFailure.invalidEnvelope
+            return try state.transact(envelope) {
+                switch envelope.type {
+                case "start","replace":
+                    guard let configuration = envelope.command["configuration"] as? [String:Any],let profile = configuration["profile"] as? [String:Any] else { throw NativeFailure.invalidEnvelope }
+                    closeAll(); try policy.replace(configuration); lock.lock(); self.profile = profile; lock.unlock()
+                    state.transition("starting",key:envelope.session)
+                case "protect","cancel": closeAll(); state.transition("protected",key:envelope.session)
+                case "stop": state.transition("stopped",key:envelope.session); closeAll()
+                case "snapshot": break
+                default: throw NativeFailure.invalidEnvelope
+                }
             }
-            return state.reply(envelope)
         } catch { return failureReply(data,error) }
     }
     override func handleNewFlow(_ flow:NEAppProxyFlow)->Bool {
-        guard let key = state.key else { return false }
+        guard let key = state.flowSession() else {
+            flow.closeReadWithError(NativeFailure.notConnected); flow.closeWriteWithError(NativeFailure.notConnected)
+            return true
+        }
         let id = UUID(); lock.lock()
         guard relays.count < 128 else { lock.unlock(); return false }
         let profile = self.profile
@@ -55,7 +58,9 @@ final class DNSProxyProvider: NEDNSProxyProvider {
         relays.forEach { $0.close() }
     }
     override func stopProxy(with reason:NEProviderStopReason,completionHandler:@escaping ()->Void) {
-        closeAll(); _ = try? ProviderServices.shared.filter.native("arm"); completionHandler()
+        closeAll()
+        if !state.explicitlyStopped { _ = try? ProviderServices.shared.filter.native("arm") }
+        completionHandler()
     }
 }
 

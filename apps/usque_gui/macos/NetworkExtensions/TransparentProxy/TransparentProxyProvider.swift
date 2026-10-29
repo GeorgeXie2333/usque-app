@@ -30,17 +30,17 @@ final class TransparentProxyProvider: NETransparentProxyProvider {
                 return encodeJSON(["accepted":true,"snapshot":state.snapshot()])
             }
             let request = try ControlEnvelope(data)
-            guard try state.validate(request) else { return state.reply(request,duplicate:true) }
-            switch request.type {
-            case "start","replace":
-                guard let configuration = request.command["configuration"] as? [String:Any] else { throw NativeFailure.invalidEnvelope }
-                closeAll(); try policy.replace(configuration); state.transition("starting",key:request.session)
-            case "protect","cancel": closeAll(); state.transition("protected",key:request.session)
-            case "stop": closeAll(); state.transition("stopped",key:request.session)
-            case "snapshot": break
-            default: throw NativeFailure.invalidEnvelope
+            return try state.transact(request) {
+                switch request.type {
+                case "start","replace":
+                    guard let configuration = request.command["configuration"] as? [String:Any] else { throw NativeFailure.invalidEnvelope }
+                    closeAll(); try policy.replace(configuration); state.transition("starting",key:request.session)
+                case "protect","cancel": closeAll(); state.transition("protected",key:request.session)
+                case "stop": state.transition("stopped",key:request.session); closeAll()
+                case "snapshot": break
+                default: throw NativeFailure.invalidEnvelope
+                }
             }
-            return state.reply(request)
         } catch { return failureReply(data,error) }
     }
     override func handleNewFlow(_ flow: NEAppProxyFlow) -> Bool {
@@ -60,6 +60,7 @@ final class TransparentProxyProvider: NETransparentProxyProvider {
         return route(flow,remote:remote,proto:17)
     }
     private func route(_ flow: NEAppProxyFlow, remote: NWHostEndpoint, proto: Int) -> Bool {
+        guard let key = state.flowSession() else { return reject(flow) }
         var hostname = flow.remoteHostname
         if flow.metaData.sourceAppSigningIdentifier == "io.github.georgexie2333.usque.engine" {
             // Resolving a hostname before opening BSD sockets erases that intent.
@@ -73,7 +74,7 @@ final class TransparentProxyProvider: NETransparentProxyProvider {
         case .proxy: return false // System networking enters the one Packet Tunnel.
         case .reject: return reject(flow)
         case .direct:
-            guard ProviderIdentity.signedPrototype, let key = state.key else { return reject(flow) }
+            guard ProviderIdentity.signedPrototype else { return reject(flow) }
             let id = UUID()
             lock.lock(); let full = relays.count >= 128; lock.unlock()
             guard !full else { return reject(flow) }
@@ -94,7 +95,9 @@ final class TransparentProxyProvider: NETransparentProxyProvider {
         current.forEach { $0.close() }
     }
     override func stopProxy(with reason: NEProviderStopReason, completionHandler: @escaping () -> Void) {
-        closeAll(); _ = try? ProviderServices.shared.filter.native("arm"); completionHandler()
+        closeAll()
+        if !state.explicitlyStopped { _ = try? ProviderServices.shared.filter.native("arm") }
+        completionHandler()
     }
 }
 
