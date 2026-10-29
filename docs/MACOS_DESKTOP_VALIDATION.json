@@ -1,0 +1,138 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-29",
+  "source_candidate": "d1d0e6f77ae620d14509cc11419028d9c71cbbfe",
+  "shared_tested_source": "2f9dd642e1bf68ee546d5d3c17c154cc8b50381e",
+  "shared_source_unchanged_in_follow_up": [
+    "crates",
+    "apps/usque_gui/lib",
+    "apps/usque_gui/test"
+  ],
+  "host": {
+    "architecture": "arm64",
+    "macos": "27.0",
+    "xcode": "27.1"
+  },
+  "main_rollback": {
+    "commit": "0759ff02a09a73ef604eb2d083d11c1d894738f8",
+    "tree_matches": "1d44597ddb6dee7fca6700c0442e0d3856eea31b"
+  },
+  "development_branch": "codex/macos-parity-dev",
+  "pull_request": "https://github.com/JustinL330/usque-app/pull/3",
+  "pull_request_base": "dev",
+  "isolated_checks": {
+    "rust_workspace": {
+      "passed": 1940,
+      "ignored": 3,
+      "failed": 0,
+      "command": "cargo test --workspace --all-targets --locked --offline"
+    },
+    "flutter_non_golden": {
+      "passed": 1296,
+      "skipped": 1,
+      "failed": 0,
+      "command": "flutter test --no-pub --exclude-tags golden --reporter expanded"
+    },
+    "python_tools": {
+      "cases": 323,
+      "skipped": 21,
+      "failed": 0,
+      "command": "python3 -m unittest discover -s tool -p 'test_*.py'"
+    },
+    "native_network_contracts": {
+      "passed_groups": 7
+    },
+    "native_desktop_contracts": {
+      "passed_groups": 7
+    },
+    "maintenance_contracts": {
+      "passed_groups": 9
+    },
+    "package_fixtures": {
+      "passed": 11,
+      "included_in_python_cases": true
+    },
+    "source_gate": {
+      "status": "passed",
+      "command": "pwsh -NoProfile -File tool/check_source.ps1",
+      "follow_up_python_ruff": "passed"
+    },
+    "cef_browser_free_contracts": {
+      "passed": 5,
+      "command": "python3 tool/test_macos_proton_verification.py --app build/macos-proton-verification/arm64/UsqueProtonVerification.app"
+    },
+    "cef_focused_renderer_after_popup_fix": {
+      "status": "passed_in_separate_popup_fix_check",
+      "exit": 0,
+      "child_mock_keychain_policy_observed": [
+        "gpu-process",
+        "renderer",
+        "utility"
+      ],
+      "repeated_acceptance": "not_run"
+    },
+    "cef_full_browser_proxy_smoke": {
+      "status": "failed",
+      "error": "Authentication proxy failure did not end cleanly",
+      "official_challenge": "not_run"
+    }
+  },
+  "artifacts": [
+    {
+      "architecture": "arm64",
+      "name": "usque-v0.3.3-macos-arm64.dmg",
+      "size": 235561885,
+      "sha256": "1464ac6945576d475a620648835d045c275628eeebbdd73de5f0f95fe1765b34",
+      "mach_o_count": 20,
+      "bundle_file_count": 581,
+      "minimum_macos": "13.0",
+      "dmg_integrity": "passed",
+      "ad_hoc_signature_integrity": "passed",
+      "notarized": false,
+      "native_device_execution": "not_run",
+      "cef_component_sha256": "b716ec62430c805cb059b7b6bb30777695023fe199e7d5de8c616b7d59c55e8a",
+      "manifest_sha256": "976b3f6c0862a21ae4bb3ad10257c1d3b2513016b6c8a6565ed7d1bc4052334e"
+    },
+    {
+      "architecture": "x86_64",
+      "name": "usque-v0.3.3-macos-x86_64.dmg",
+      "size": 258894331,
+      "sha256": "946e920f13083fff118a6f0ce572cd895fbd09f60d2567255d7ace8f9fe7af6b",
+      "mach_o_count": 20,
+      "bundle_file_count": 581,
+      "minimum_macos": "13.0",
+      "dmg_integrity": "passed",
+      "ad_hoc_signature_integrity": "passed",
+      "notarized": false,
+      "native_device_execution": "not_run",
+      "cef_component_sha256": "daf28d7397cd3c23ab20564ffb83756fdf0cb79b953c55bbe5ce6876f17ea7b3",
+      "manifest_sha256": "f6d4c20895e00ae547861a894021726d07d2a48224df8997f6fdee0a3833350c"
+    }
+  ],
+  "host_state_limits": {
+    "network_extensions_installed_or_activated": false,
+    "host_routes_dns_or_system_proxy_changed": false,
+    "application_installed_or_upgraded": false,
+    "engine_test_vault": "in_memory",
+    "cef_storage_note": "Earlier CEF tests triggered Keychain prompts. The one-shot in-memory component now uses mock storage; no default Keychain reset was performed. No further browser launches were run by this packaging pass."
+  },
+  "production_capable": false,
+  "automatic_installation_enabled": false,
+  "maintenance_trust_configured": false,
+  "full_feature_version": false,
+  "not_run": [
+    "signed_provider_activation",
+    "signed_xpc_real_credentials",
+    "same_ip_domain_split_physical_capture",
+    "ipv4_ipv6_dns_egress_and_crash_protection",
+    "sleep_network_change_reconnect_capture",
+    "native_system_proxy_permission_and_recovery",
+    "official_proton_challenge",
+    "signed_cef_launch",
+    "actual_upgrade_and_rollback",
+    "extension_upgrade_approval_restart",
+    "managed_uninstall",
+    "macos_13_hardware",
+    "intel_native_execution"
+  ]
+}
