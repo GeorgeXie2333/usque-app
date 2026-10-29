@@ -95,6 +95,24 @@ See the [development packaging guide](MACOS_DEVELOPMENT_PACKAGING.md),
 [maintenance foundation](../tool/macos-maintenance/README.md) for reproducible
 commands and the corresponding boundaries.
 
+## Background follow-up
+
+The [background validation record](MACOS_BACKGROUND_VALIDATION.json) binds the
+follow-up source tree and fresh development DMGs separately from the earlier
+candidate. It records 8 network-observation fixtures, 20 CEF harness tests,
+12 package fixtures, 13 maintenance contract groups and the 7 desktop/7 network
+native groups. Python regression completed in two reviewed, noninteractive
+partitions: 344 cases, 21 skipped, no failures. Source checks passed; the package
+fixtures and Ruff passed again after correcting the pinned SDK's architecture-specific
+V8 data filename. The earlier full Rust/Flutter suites were not repeated.
+
+GUI, Engine, CEF and maintenance were compiled for both architectures; unchanged
+Network Extension components were reused. Both fresh images passed their 20
+Mach-O checks, required CEF data/helper checks and ad-hoc/image integrity checks.
+Nothing was installed or launched as an application. The current CEF executable
+contracts and actual proxy/renderer smoke were not run, so the historical
+authentication and teardown failures remain unresolved acceptance items.
+
 ## Remaining acceptance
 
 Before exposing the VPN capability, signed providers must simultaneously prove

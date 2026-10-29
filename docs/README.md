@@ -46,6 +46,7 @@ Continuous connection behavior and control compatibility: [English / 简体中�
 | [macOS network prototype](MACOS_NETWORK_PROTOTYPE.md) | Sole VPN owner, isolated contracts, dual-architecture developer builds and pending signed routing acceptance / 单会话 VPN 原型、隔离测试、双架构开发构建与待签名实机验收 |
 | [macOS parity matrix](MACOS_WINDOWS_PARITY.md) | Windows comparison, desktop and proxy implementation, and explicit unsigned/hardware limits / Windows 功能对照、桌面与代理进展及验收限制 |
 | [macOS development packages](MACOS_DEVELOPMENT_PACKAGING.md) | Separate arm64/Intel DMGs, bundled CEF/maintenance tools and disabled production installation / 双架构开发 DMG 与内嵌组件 |
+| [macOS background validation](MACOS_BACKGROUND_VALIDATION.json) | No-window follow-up evidence, fresh dual-architecture development images and deferred interactive acceptance / 无窗口验证记录与待完成的交互验收 |
 | [Routing validation record](ROUTING_VALIDATION.md) | Workstation commands, results and unavailable isolated checks / 分流功能开发机验证与未运行的隔离检查 |
 | [GUI development](../apps/usque_gui/README.md) | Editing workflows and native UI conventions / 界面交互与布局约定 |
 | [Linux and WSL development](LINUX_DEVELOPMENT.md) | Native tools, debug UI preview, hot reload and checks / Linux 工具、模拟界面预览、热重载与检查 |
