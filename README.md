@@ -183,6 +183,13 @@ features. iOS, store distribution and a public CLI are outside this release's sc
 
 ### macOS development testing and known issues
 
+Download the **unofficial dev pre-release** for macOS 13+:
+[Apple Silicon (arm64)](https://github.com/JustinL330/usque-app/releases/download/macos-dev-v0.3.3-3289e10d/usque-v0.3.3-macos-arm64.dmg)
+or [Intel (x86_64)](https://github.com/JustinL330/usque-app/releases/download/macos-dev-v0.3.3-3289e10d/usque-v0.3.3-macos-x86_64.dmg).
+These ad-hoc signed packages are not notarized or production releases. Read the
+[release notes, checksums and manifests](https://github.com/JustinL330/usque-app/releases/tag/macos-dev-v0.3.3-3289e10d)
+before testing; system VPN activation remains disabled.
+
 The [macOS test checklist](docs/MACOS_QA_CHECKLIST.md) separates isolated tests
 from actual device acceptance. The following items remain open:
 

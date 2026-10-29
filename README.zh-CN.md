@@ -154,6 +154,12 @@ Android 的“分应用代理”对所有账号生效。关闭时，所有应用
 
 ### macOS 开发版测试与已知问题
 
+macOS 13+ **非官方 dev 预发布包**：
+[Apple Silicon（arm64）](https://github.com/JustinL330/usque-app/releases/download/macos-dev-v0.3.3-3289e10d/usque-v0.3.3-macos-arm64.dmg)／
+[Intel（x86_64）](https://github.com/JustinL330/usque-app/releases/download/macos-dev-v0.3.3-3289e10d/usque-v0.3.3-macos-x86_64.dmg)。
+安装包仅作临时签名，尚未公证，不是正式版本，系统 VPN 保持关闭。测试前请阅读
+[发布说明、校验值和清单](https://github.com/JustinL330/usque-app/releases/tag/macos-dev-v0.3.3-3289e10d)。
+
 [macOS 测试清单](docs/MACOS_QA_CHECKLIST.md)分别记录隔离测试与真机验收。以下项目仍未完成：
 
 - **系统 VPN／虚拟网卡：** 开发包保持关闭，签名后的路由、DNS 和断网保护尚未通过真机验收。仅代理模式不提供系统级断网保护。

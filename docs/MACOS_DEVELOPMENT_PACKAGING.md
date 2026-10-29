@@ -12,6 +12,26 @@ The generated app and manifest explicitly disable production automatic
 installation. These ad-hoc disk images are not notarized and cannot activate
 the Network Extensions.
 
+## Published development preview
+
+The fork's [dev pre-release](https://github.com/JustinL330/usque-app/releases/tag/macos-dev-v0.3.3-3289e10d)
+provides macOS 13+ disk images, SHA-256 files, development manifests and SPDX file
+inventories. Its immutable tag `macos-dev-v0.3.3-3289e10d` points to dev commit
+`3289e10d3dd88c9d4b6431bd0c98c677df6500fd`; the application source candidate is
+`00e243f54cfe8cc6cf4665e9d30172344606c4e8`. Later download-link documentation
+changes do not change those binaries.
+
+| Architecture | Development DMG | SHA-256 |
+| --- | --- | --- |
+| Apple Silicon | [arm64](https://github.com/JustinL330/usque-app/releases/download/macos-dev-v0.3.3-3289e10d/usque-v0.3.3-macos-arm64.dmg) | `c55c2de4a7e0964d2f163b26efce825d6475ef800a2e5d34a73defe07c964e6d` |
+| Intel | [x86_64](https://github.com/JustinL330/usque-app/releases/download/macos-dev-v0.3.3-3289e10d/usque-v0.3.3-macos-x86_64.dmg) | `03f47e9f1ac306d6e52e8b0313d68477440ab8d846b97194129b92d4b6c931c5` |
+
+These are unofficial, ad-hoc signed, unnotarized development packages. System
+VPN activation and production automatic installation remain disabled. Read the
+[QA checklist and retained issues](MACOS_QA_CHECKLIST.md) before testing; a
+successful cross build does not establish Intel runtime acceptance. Installers
+are release attachments, not files committed to the dev source tree.
+
 ## Build one architecture
 
 On a macOS host with the repository's pinned Flutter/Rust dependencies and both
