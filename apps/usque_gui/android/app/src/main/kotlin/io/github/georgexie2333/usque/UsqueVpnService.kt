@@ -165,6 +165,11 @@ class UsqueVpnService : VpnService() {
 
     private val nativeStopLogContexts = ConcurrentHashMap<Long, ServiceLogContext>()
     private val snapshotState = ServiceSnapshotState()
+    private val snapshotPublisher =
+        ServiceSnapshotPublisher(
+            observeSettings = ::observeNetworkSettings,
+            publishSnapshot = ::publishSnapshot,
+        )
     private val diagnosticProbes by lazy {
         ServiceDiagnosticProbes(
             this,
@@ -2575,7 +2580,7 @@ class UsqueVpnService : VpnService() {
                 }
             }
         }
-        observeNetworkSettings()
+        val publishObservedSnapshot = snapshotPublisher.observeNativeSnapshot()
         merge.cacheWrite?.let { write ->
             statusExecutor.execute {
                 try {
@@ -2642,7 +2647,7 @@ class UsqueVpnService : VpnService() {
             updateNotification()
             notifyTileStateChanged()
         }
-        broadcastSnapshot()
+        publishObservedSnapshot()
     }
 
     private fun postPhase(
@@ -2824,7 +2829,10 @@ class UsqueVpnService : VpnService() {
     }
 
     private fun broadcastSnapshot() {
-        observeNetworkSettings()
+        snapshotPublisher.broadcast()
+    }
+
+    private fun publishSnapshot() {
         if (eventClients.isEmpty()) return
         val snapshot = snapshotState.takeBroadcastBundle(platformFlags()) ?: return
         eventClients.forEach { client -> sendEvent(client, snapshot) }
