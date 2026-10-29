@@ -53,5 +53,47 @@
   "test_boundary_regression": {
     "passed": 5,
     "failed": 0
+  },
+  "main_merge": {
+    "commit": "39f31f2d7e49526b7e29b756cdfef27930b16441",
+    "pull_request": "https://github.com/JustinL330/usque-app/pull/1"
+  },
+  "control_recovery_followup": {
+    "code_commit": "8c4191499dd8d76df111377f819ce2688a6e682a",
+    "workspace_tests": {
+      "passed": 1919,
+      "failed": 0,
+      "ignored": 3
+    },
+    "prototype_rust_tests": {
+      "runtime": 19,
+      "engine": 10,
+      "system_proxy": 5,
+      "total": 34
+    },
+    "native_contract_groups": {
+      "passed": 7
+    },
+    "format": "passed",
+    "workspace_clippy_strict": "passed",
+    "aggregate_source_checks": "passed",
+    "repository_policy_tracked_archive": "passed",
+    "development_builds": {
+      "arm64": "development_build_verified",
+      "x86_64": "development_build_verified"
+    },
+    "arm64_helper_status_and_unsigned_preflight_rejection": "passed",
+    "production_capable": false,
+    "full_feature_version": false,
+    "signed_system_manager_teardown": "not_run",
+    "signed_network_acceptance": "not_run",
+    "pending": [
+      "filter_authority_restart_incarnation_fence",
+      "same_address_gateway_or_ssid_change_detection",
+      "unavailable_dns_peer_recovery_confirmation",
+      "signed_activation_and_xpc_positive_path",
+      "kernel_routing_and_physical_egress_fault_capture",
+      "macos_13_and_intel_hardware"
+    ]
   }
 }

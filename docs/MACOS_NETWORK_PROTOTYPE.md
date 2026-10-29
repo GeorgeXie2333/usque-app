@@ -151,6 +151,60 @@ leak, physical-egress crash test, sleep/network transition or Intel/macOS 13
 hardware test has run. Numeric Custom endpoint bootstrap is a prototype limit;
 authenticated physical endpoint discovery is still required for automatic mode.
 
+### Control and recovery follow-up
+
+The prototype was squash-merged into `main` by
+[PR #1](https://github.com/JustinL330/usque-app/pull/1), commit
+`39f31f2d7e49526b7e29b756cdfef27930b16441`. The following implementation and
+isolated checks use code candidate `8c4191499dd8d76df111377f819ce2688a6e682a`.
+They supplement the historical record above.
+
+- Snapshot remains available when the 4,096-entry Rust mutation journal is
+  full. A separate bounded Stop lane cancels pending work and retains one
+  retryable terminal operation; queued starts cannot reopen a stopped session.
+  Retired session UUIDs cannot start again. The journal fails closed instead
+  of evicting accepted mutation identities; Stop and observations still work.
+- Engine reserves a session before protected preflight, including generation
+  zero while initialization is incomplete. A failed or cancelled preflight
+  retains this identity for Stop or retry. Only a satisfied observation from
+  the independent filter supplies the forwarding generation; helper-local
+  counters never substitute for it. Permission/version failures keep stable
+  error codes.
+- Native teardown handles protection-only startup and roles still holding an
+  older revision of the same session. It refuses newer or foreign sessions,
+  waits for packet/transparent manager disconnection, and removes filtering
+  last. Its 60-second budget fits inside the Engine's 90-second Stop deadline.
+  A stopped packet runtime continues reporting independent protection until
+  coordinator cleanup completes. Stopped DNS/flow providers reject new flows.
+- Synchronous native configuration and operation acknowledgement are serialized.
+  Failed work can actually retry with the same operation UUID; successful
+  duplicates do not reapply the configuration.
+- Physical observations normalize interface/address order and track used
+  physical interfaces and their numeric IPv4/IPv6 addresses. Aggregate VPN IP
+  capability flags do not change the physical fence. Missing usable observations
+  deny permits. Guard commands and outgoing packet decisions check the current
+  generation, including the interval before the change callback clears leases.
+
+Validation on the same arm64 development host:
+
+- Full Rust workspace: **1,919 passed, 3 ignored, 0 failed**. The prototype's
+  Rust coverage is now 34 tests (19 runtime, 10 Engine, 5 OS-socket frontends).
+- Native isolated contracts: **7 groups passed**, including configuration
+  retry, partial-stop fencing and deterministic network observations.
+- Format, strict workspace Clippy and aggregate source checks passed.
+- Both architecture-specific Rust libraries and development apps rebuilt;
+  each app has five matching Mach-O executables targeting macOS 13, with
+  ad-hoc signatures verified. The arm64 helper's framed status and unsigned
+  preflight rejection passed. Intel execution remains untested.
+
+These native lifecycle results are contract/build evidence, not tests of real
+system-manager teardown. A missing DNS/control peer still leaves protection
+in place rather than declaring recovery complete. Filter-authority restart
+incarnation fencing and same-address gateway/SSID changes need further work;
+address observations alone do not identify every physical-network transition.
+Signed activation, XPC acceptance, kernel routing and physical packet captures
+remain `not_run`. Production capability remains disabled.
+
 ## Required signed experiment
 
 The prototype has a separate signed experiment entry point. Production remains
