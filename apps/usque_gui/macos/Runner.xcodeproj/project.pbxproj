@@ -21,6 +21,7 @@
 /* End PBXAggregateTarget section */
 
 /* Begin PBXBuildFile section */
+		8DDC1A800000000000000009 /* NativeLocalization.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8DDC1A80000000000000000A /* NativeLocalization.swift */; };
 		8DDC1A800000000000000005 /* ProtonVerificationContract.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8DDC1A800000000000000007 /* ProtonVerificationContract.swift */; };
 		8DDC1A800000000000000006 /* ProtonVerificationLauncher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8DDC1A800000000000000008 /* ProtonVerificationLauncher.swift */; };
 		8DDC1A800000000000000001 /* DesktopIntegration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8DDC1A800000000000000003 /* DesktopIntegration.swift */; };
@@ -65,6 +66,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		8DDC1A80000000000000000A /* NativeLocalization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeLocalization.swift; sourceTree = "<group>"; };
 		8DDC1A800000000000000007 /* ProtonVerificationContract.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProtonVerificationContract.swift; sourceTree = "<group>"; };
 		8DDC1A800000000000000008 /* ProtonVerificationLauncher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProtonVerificationLauncher.swift; sourceTree = "<group>"; };
 		8DDC1A800000000000000003 /* DesktopIntegration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesktopIntegration.swift; sourceTree = "<group>"; };
@@ -174,6 +176,7 @@
 		33FAB671232836740065AC1E /* Runner */ = {
 			isa = PBXGroup;
 			children = (
+				8DDC1A80000000000000000A /* NativeLocalization.swift */,
 				8DDC1A800000000000000007 /* ProtonVerificationContract.swift */,
 				8DDC1A800000000000000008 /* ProtonVerificationLauncher.swift */,
 				8DDC1A800000000000000003 /* DesktopIntegration.swift */,
@@ -277,6 +280,8 @@
 			knownRegions = (
 				en,
 				Base,
+				"zh-Hans",
+				"zh-Hant",
 			);
 			mainGroup = 33CC10E42044A3C60003C045;
 			packageReferences = (
@@ -366,6 +371,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				8DDC1A800000000000000009 /* NativeLocalization.swift in Sources */,
 				8DDC1A800000000000000005 /* ProtonVerificationContract.swift in Sources */,
 				8DDC1A800000000000000006 /* ProtonVerificationLauncher.swift in Sources */,
 				8DDC1A800000000000000001 /* DesktopIntegration.swift in Sources */,

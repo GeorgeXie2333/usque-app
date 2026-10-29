@@ -54,6 +54,14 @@ sandbox failure terminates the child. The browser always sets
 - stdin: one 4-byte big-endian length followed by at most 65,536 bytes of the
   existing sensitive JSON handoff. No secrets are passed in arguments,
   environment variables, logs or handoff files.
+- The parent passes only a nonsecret UI label in `USQUE_UI_CATALOG`: `en`,
+  `zh_CN`, `zh_HK` or `zh_TW`. Parsing is exact and reads at most six bytes;
+  absent, unknown or overlong labels fall back to English. Simplified Chinese
+  uses the title `Proton 验证` and CEF locale `zh-CN`; both Traditional Chinese
+  variants use `Proton 驗證` and the pinned framework's supported `zh-TW`
+  locale. English uses `Proton verification` and `en-US`. The bundled framework
+  retains its locale resources. This label does not change the sensitive
+  handoff schema, launch arguments, proxy, challenge validation or sandbox.
 - stdout: one bounded frame containing `status: success`, `cancelled` or
   `error`. Success contains the original validated message as a JSON string;
   errors contain a `PROTON_VERIFICATION_*` code. The parent additionally waits

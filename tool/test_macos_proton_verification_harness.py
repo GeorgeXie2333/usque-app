@@ -276,6 +276,63 @@ class ProxyFixtureTests(unittest.TestCase):
 
 @unittest.skipUnless(POSIX and CXX, "pure launch-guard test requires a POSIX C++ compiler")
 class NativeLaunchGuardTests(unittest.TestCase):
+    def test_native_ui_catalog_is_bounded_and_uses_only_whitelisted_labels(self):
+        header = ROOT / "apps/usque_gui/macos/ProtonVerification/ui_localization.h"
+        with tempfile.TemporaryDirectory(prefix="usque-cef-ui-") as directory:
+            source = Path(directory) / "ui.cc"
+            executable = Path(directory) / "ui"
+            source.write_text(
+                f"#include {json.dumps(str(header))}\n"
+                + textwrap.dedent(
+                    """
+                    #include <cassert>
+                    #include <string>
+                    using namespace usque::proton::macos;
+                    void english(const char* label) {
+                      const auto ui = UiForCatalog(label);
+                      assert(std::string_view(ui.window_title) == "Proton verification");
+                      assert(std::string_view(ui.cef_locale) == "en-US");
+                    }
+                    int main() {
+                      english(nullptr);
+                      for (const auto label : {"en", "", "fr", "zh", "zh-Hant", "zh-HK",
+                           "ZH_TW", "zh_TW ", " zh_TW", "zh_TW\\n", "en_US"}) english(label);
+                      const char unterminated[] = {'z', 'h', '_', 'T', 'W', 'x'};
+                      english(unterminated);
+                      const std::string oversized = "zh_TW" + std::string(100000, 'x');
+                      english(oversized.c_str());
+                      const auto simplified = UiForCatalog("zh_CN");
+                      assert(std::string_view(simplified.window_title) == "Proton 验证");
+                      assert(std::string_view(simplified.cef_locale) == "zh-CN");
+                      for (const auto label : {"zh_HK", "zh_TW"}) {
+                        const auto ui = UiForCatalog(label);
+                        assert(std::string_view(ui.window_title) == "Proton 驗證");
+                        assert(std::string_view(ui.cef_locale) == "zh-TW");
+                      }
+                    }
+                    """
+                ),
+                encoding="utf-8",
+            )
+            subprocess.run(  # noqa: S603 - existing compiler and controlled localization fixture only.
+                [
+                    CXX,
+                    "-std=c++17",
+                    "-Wall",
+                    "-Wextra",
+                    "-Werror",
+                    str(source),
+                    "-o",
+                    str(executable),
+                ],
+                check=True,
+                capture_output=True,
+                timeout=30,
+            )
+            subprocess.run(  # noqa: S603 - pure label parser; no Cocoa, CEF or app launch.
+                [str(executable)], check=True, capture_output=True, timeout=5
+            )
+
     def test_native_opt_in_parser_without_loading_cocoa_or_cef(self):
         header = ROOT / "apps/usque_gui/macos/ProtonVerification/launch_options.h"
         with tempfile.TemporaryDirectory(prefix="usque-cef-guard-") as directory:

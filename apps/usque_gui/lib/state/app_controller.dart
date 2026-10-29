@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
+import 'dart:ui' show Locale;
 
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -429,7 +430,18 @@ class AppController extends ChangeNotifier {
   Map<String, ProfileIdentityStatus> profileIdentityStatuses =
       <String, ProfileIdentityStatus>{};
 
-  AppStrings get strings => AppStrings(localePreference);
+  Locale? _systemLocale;
+  AppStrings get strings =>
+      AppStrings(localePreference, systemLocale: _systemLocale);
+
+  /// Keep system language changes in memory. The user's language preference
+  /// stays "system", and desktop integrations receive the same catalog as UI.
+  void noteSystemLocale(Locale locale) {
+    if (_disposed || _systemLocale == locale) return;
+    final previousCatalog = strings.catalogId;
+    _systemLocale = locale;
+    if (strings.catalogId != previousCatalog) _notifyListeners();
+  }
 
   double? get updateProgress => updateTotalBytes <= 0
       ? null

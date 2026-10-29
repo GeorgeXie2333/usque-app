@@ -2,7 +2,8 @@
 
 Choose a guide by task. Technical documents are mainly in English; the product
 overview is available in [English](../README.md),
-[简体中文](../README.zh-CN.md), [日本語](../README.ja.md),
+[简体中文](../README.zh-CN.md), [繁體中文](../README.zh-Hant.md),
+[日本語](../README.ja.md),
 [한국어](../README.ko.md), [Русский](../README.ru.md), and
 [فارسی](../README.fa.md).
 

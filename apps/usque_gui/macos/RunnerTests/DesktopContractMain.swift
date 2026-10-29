@@ -11,11 +11,68 @@ enum DesktopContractMain {
     try zeroTrustCallbacks()
     try protonFraming()
     try protonResults()
-    print("7 macOS desktop contract groups passed")
+    try nativeLanguageResolution()
+    try nativeLocalizedCopy()
+    try nativeMenuCoverage()
+    print("10 macOS desktop contract groups passed")
   }
 
   private static func require(_ condition: @autoclosure () -> Bool, _ description: String) throws {
     if !condition() { throw NSError(domain: "DesktopContract", code: 1, userInfo: [NSLocalizedDescriptionKey: description]) }
+  }
+
+  private static func nativeLanguageResolution() throws {
+    for input in ["zh_HK", "zh-Hant-HK", "zh-MO", "zh-Hans-HK", "zh-Hans-MO"] {
+      try require(NativeLocalization(catalogID: input).catalogID == "zh_HK", "Hong Kong/Macao native catalog mismatch")
+    }
+    for input in ["zh_TW", "zh-Hant", "zh-Hant-TW", "zh-Hans-TW"] {
+      try require(NativeLocalization(catalogID: input).catalogID == "zh_TW", "Traditional Chinese native catalog mismatch")
+    }
+    try require(NativeLocalization(preferredLanguages: ["zh-Hant-HK"]).catalogID == "zh_HK", "startup does not follow Traditional system language")
+    try require(NativeLocalization(catalogID: "zh_CN").catalogID == "zh_CN", "Simplified Chinese native catalog mismatch")
+    // Match AppStrings._catalogIdForSystemLocale: HK/MO, TW, Hant, then CN.
+    for (input, expected) in [("zh-Hans-CN", "zh_CN"), ("zh-Hant-CN", "zh_TW"),
+      ("zh-Hans-SG", "zh_CN"), ("zh", "zh_CN")] {
+      try require(NativeLocalization(preferredLanguages: [input]).catalogID == expected, "native startup differs from shared Flutter Chinese catalog policy")
+    }
+    for input in ["en", "fr", "invalid", String(repeating: "x", count: 129)] {
+      try require(NativeLocalization(catalogID: input).catalogID == "en", "unsupported native catalog is not safely defaulted")
+    }
+  }
+
+  private static func nativeLocalizedCopy() throws {
+    let traditional = NativeLocalization(catalogID: "zh_HK")
+    let taiwan = NativeLocalization(catalogID: "zh_TW")
+    let simplified = NativeLocalization(catalogID: "zh_CN")
+    let english = NativeLocalization(catalogID: "en")
+    for source in ["Import configurations", "Export diagnostics", "Export WARP credentials", "Save",
+      "A file picker is already open.", "Select at most 128 configuration files.",
+      "The verification challenge expired.", "Approve Usque in Login Items, then retry."] {
+      try require(traditional.text(source) != source && taiwan.text(source) == traditional.text(source), "native Traditional copy is missing")
+      try require(simplified.text(source) != source, "native Simplified copy regressed")
+      try require(english.text(source) == source, "English native fallback regressed")
+    }
+    let source = "About APP_NAME"
+    try require(traditional.menuTitle(source) == "關於 Usque", "native About menu did not translate")
+    try require(english.menuTitle(source) == "About Usque", "native menu cannot restore English from original title")
+    try require(traditional.text("Unknown external menu item") == "Unknown external menu item", "external menu items must remain intact")
+    let record = NativeMenuTitleRecord("Enter Full Screen")
+    let translated = record.title(current: "Enter Full Screen", localization: traditional)
+    try require(record.title(current: translated, localization: english) == "Enter Full Screen", "native language switching lost the source title")
+    try require(record.title(current: "Exit Full Screen", localization: traditional) == "離開全螢幕", "AppKit's updated command was replaced by a stale title")
+  }
+
+  private static func nativeMenuCoverage() throws {
+    guard CommandLine.arguments.count == 2 else {
+      throw NSError(domain: "DesktopContract", code: 2, userInfo: [NSLocalizedDescriptionKey: "pass the MainMenu.xib fixture path"])
+    }
+    let xml = try XMLDocument(contentsOf: URL(fileURLWithPath: CommandLine.arguments[1]))
+    let titles = try xml.nodes(forXPath: "//menu/@title | //menuItem/@title")
+    let traditional = NativeLocalization(catalogID: "zh_TW")
+    for attribute in titles {
+      guard let title = attribute.stringValue, !["APP_NAME", "Main Menu"].contains(title) else { continue }
+      try require(traditional.menuTitle(title) != title.replacingOccurrences(of: "APP_NAME", with: "Usque"), "native menu lacks Traditional translation: \(title)")
+    }
   }
 
   private static func trayCapabilities() throws {

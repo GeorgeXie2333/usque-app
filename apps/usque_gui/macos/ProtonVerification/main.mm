@@ -10,6 +10,7 @@
 
 #include "../../native/proton_verification.h"
 #include "launch_options.h"
+#include "ui_localization.h"
 #include "include/cef_app.h"
 #include "include/cef_application_mac.h"
 #include "include/cef_browser.h"
@@ -96,6 +97,7 @@ class Verification final : public CefClient, public CefLifeSpanHandler,
     public CefDisplayHandler, public CefPermissionHandler, public CefDownloadHandler {
  public:
   usque::proton::Handoff handoff;
+  usque::proton::macos::VerificationUi ui = usque::proton::macos::UiForCatalog(nullptr);
   bool smoke = false;
   Verification() {
     unsigned char random[16];
@@ -140,7 +142,7 @@ class Verification final : public CefClient, public CefLifeSpanHandler,
     CefWindowInfo info;
     info.bounds = CefRect(0, 0, 520, 720);
     info.hidden = smoke;
-    CefString(&info.window_name) = "Proton verification";
+    CefString(&info.window_name) = ui.window_title;
     info.runtime_style = CEF_RUNTIME_STYLE_ALLOY;
     CefBrowserSettings settings;
     settings.local_storage = STATE_DISABLED;
@@ -422,6 +424,7 @@ int main(int argc, char** argv) {
     }
     CefRefPtr<Verification> client = new Verification;
     client->smoke = smoke;
+    client->ui = usque::proton::macos::UiForCatalog(getenv("USQUE_UI_CATALOG"));
     if (!smoke) {
       uint32_t length = 0;
       if (!Exact(STDIN_FILENO, &length, 4, false) || (length = ntohl(length)) == 0 || length > 65536) {
@@ -450,6 +453,7 @@ int main(int argc, char** argv) {
     settings.log_severity = LOGSEVERITY_DISABLE;
     settings.command_line_args_disabled = true;
     settings.persist_session_cookies = false;
+    CefString(&settings.locale) = client->ui.cef_locale;
     CefString(&settings.cache_path) = "";
     // CEF requires a root for process metadata even when the request context
     // itself is in memory. Isolate it from every installed user browser and

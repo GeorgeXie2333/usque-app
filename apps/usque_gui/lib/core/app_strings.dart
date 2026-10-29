@@ -30,6 +30,14 @@ class AppStrings {
 
   final String catalogId;
 
+  /// Use the same resolved language for Flutter's built-in controls and our
+  /// catalogs. In particular, zh-Hant and zh-MO must not fall back to zh-CN.
+  Locale get locale {
+    if (catalogId == 'pt') return const Locale('pt', 'BR');
+    final parts = catalogId.split('_');
+    return Locale(parts.first, parts.length > 1 ? parts[1] : null);
+  }
+
   String get vpnGateUnsupported =>
       get('l4_unsupported').replaceAll('L4', 'VPN Gate');
 

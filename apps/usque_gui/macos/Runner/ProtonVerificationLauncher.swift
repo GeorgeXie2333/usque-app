@@ -7,6 +7,7 @@ import Security
 /// Challenge and authentication proxy secrets never enter arguments, logs,
 /// environment variables or temporary files.
 final class ProtonVerificationLauncher {
+  var localization = NativeLocalization()
   private static let helperIdentifier = "io.github.georgexie2333.usque.proton-verification"
   private final class Session {
     let identifier = UUID()
@@ -48,7 +49,10 @@ final class ProtonVerificationLauncher {
     let session = Session(result: result)
     session.process.executableURL = executable
     session.process.arguments = ["--stdio"]
-    session.process.environment = ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin"]
+    session.process.environment = [
+      "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+      "USQUE_UI_CATALOG": localization.catalogID,
+    ]
     session.process.standardInput = session.input
     session.process.standardOutput = session.output
     session.process.standardError = FileHandle.nullDevice
@@ -56,7 +60,7 @@ final class ProtonVerificationLauncher {
     let identifier = session.identifier
     let remaining = max(0, min(300, (binding.expiresAt - Date().timeIntervalSince1970 * 1000) / 1000))
     DispatchQueue.main.asyncAfter(deadline: .now() + remaining) { [weak self] in
-      self?.finish(identifier, value: FlutterError(code: "PROTON_VERIFICATION_EXPIRED", message: "The verification challenge expired.", details: nil))
+      self?.finish(identifier, value: FlutterError(code: "PROTON_VERIFICATION_EXPIRED", message: self?.localization.text("The verification challenge expired."), details: nil))
     }
     DispatchQueue.global(qos: .userInitiated).async { [weak self] in
       var input = Data()
@@ -95,7 +99,7 @@ final class ProtonVerificationLauncher {
           switch answer {
           case .success(let bytes): self?.finish(session.identifier, value: FlutterStandardTypedData(bytes: bytes))
           case .cancelled: self?.finish(session.identifier, value: nil)
-          case .failure(let code): self?.finish(session.identifier, value: FlutterError(code: code, message: "The official verification window could not complete the challenge.", details: nil))
+          case .failure(let code): self?.finish(session.identifier, value: FlutterError(code: code, message: self?.localization.text("The official verification window could not complete the challenge."), details: nil))
           }
         }
       } catch {
@@ -118,7 +122,7 @@ final class ProtonVerificationLauncher {
   }
 
   private func unavailable() -> FlutterError {
-    FlutterError(code: "PROTON_VERIFICATION_UNAVAILABLE", message: "The bundled official verification component is unavailable or could not be verified.", details: nil)
+    FlutterError(code: "PROTON_VERIFICATION_UNAVAILABLE", message: localization.text("The bundled official verification component is unavailable or could not be verified."), details: nil)
   }
 
   private func validatedHelper() throws -> (URL, SecRequirement) {

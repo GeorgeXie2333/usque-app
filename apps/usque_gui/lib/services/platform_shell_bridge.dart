@@ -120,6 +120,7 @@ class PlatformShellBridge {
     final showOutputs =
         _controller.initialized && _controller.networkSettings.supported;
     final state = <String, Object>{
+      'catalog_id': strings.catalogId,
       'phase': snapshot.phase.name,
       'status': status,
       'connected': connected,

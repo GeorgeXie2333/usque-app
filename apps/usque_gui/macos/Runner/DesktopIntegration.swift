@@ -13,6 +13,8 @@ final class DesktopIntegration: NSObject, NSWindowDelegate, UNUserNotificationCe
   private let defaults: UserDefaults
   private var statusItem: NSStatusItem?
   private var tray = DesktopTrayState()
+  private var localization = NativeLocalization()
+  private let menuSources = NSMapTable<AnyObject, NativeMenuTitleRecord>(keyOptions: .weakMemory, valueOptions: .strongMemory)
   private var quit = DesktopQuitState()
   private var zeroTrust = DesktopZeroTrustSession()
   private var authenticationSession: ASWebAuthenticationSession?
@@ -28,6 +30,14 @@ final class DesktopIntegration: NSObject, NSWindowDelegate, UNUserNotificationCe
     channel = FlutterMethodChannel(
       name: "io.github.georgexie2333.usque/engine", binaryMessenger: messenger)
     super.init()
+    protonVerification.localization = localization
+    tray.status = text(tray.status)
+    tray.open = text(tray.open)
+    tray.connect = text(tray.connect)
+    tray.disconnect = text(tray.disconnect)
+    tray.disconnectExit = text(tray.disconnectExit)
+    tray.settings = text(tray.settings)
+    tray.quitFailed = text(tray.quitFailed)
     defaults.register(defaults: [closePreference: true])
     window.isReleasedWhenClosed = false
     window.delegate = self
@@ -38,6 +48,7 @@ final class DesktopIntegration: NSObject, NSWindowDelegate, UNUserNotificationCe
       display: false)
     channel.setMethodCallHandler { [weak self] call, result in self?.handle(call, result: result) }
     installStatusItem()
+    localizeMainMenu()
     installSettingsMenu()
     UNUserNotificationCenter.current().delegate = self
     for name in [NSApplication.didHideNotification, NSApplication.didUnhideNotification] {
@@ -88,6 +99,7 @@ final class DesktopIntegration: NSObject, NSWindowDelegate, UNUserNotificationCe
       showWindow()
       let alert = NSAlert()
       alert.messageText = tray.quitFailed
+      alert.addButton(withTitle: text("OK"))
       if let window { alert.beginSheetModal(for:window) }
     }
   }
@@ -134,7 +146,7 @@ final class DesktopIntegration: NSObject, NSWindowDelegate, UNUserNotificationCe
         let bundle = Bundle.main.bundleURL.resolvingSymlinksInPath()
         let volume = try? bundle.resourceValues(forKeys: [.volumeIsReadOnlyKey])
         if bundle.path.hasPrefix("/Volumes/") || volume?.volumeIsReadOnly != false {
-          result(FlutterError(code:"MACOS_INSTALL_REQUIRED",message:"Drag Usque to Applications and open that copy before enabling login startup.",details:nil))
+          result(FlutterError(code:"MACOS_INSTALL_REQUIRED",message:text("Drag Usque to Applications and open that copy before enabling login startup."),details:nil))
           return
         }
       }
@@ -142,13 +154,18 @@ final class DesktopIntegration: NSObject, NSWindowDelegate, UNUserNotificationCe
         if enabled && SMAppService.mainApp.status != .enabled { try SMAppService.mainApp.register() }
         else if !enabled && SMAppService.mainApp.status != .notRegistered { try SMAppService.mainApp.unregister() }
         if enabled && SMAppService.mainApp.status == .requiresApproval {
-          result(FlutterError(code: "MACOS_LOGIN_APPROVAL_REQUIRED", message: "Approve Usque in Login Items, then retry.", details: nil))
+          result(FlutterError(code: "MACOS_LOGIN_APPROVAL_REQUIRED", message: text("Approve Usque in Login Items, then retry."), details: nil))
         } else { result(nil) }
       } catch {
-        result(FlutterError(code: "MACOS_LOGIN_ITEM_FAILED", message: "macOS could not change the login item. Retry in System Settings.", details: nil))
+        result(FlutterError(code: "MACOS_LOGIN_ITEM_FAILED", message: text("macOS could not change the login item. Retry in System Settings."), details: nil))
       }
     case "updateTrayState":
       guard let state = DesktopTrayState(arguments: call.arguments) else { invalid(result); return }
+      if let catalog = values?["catalog_id"] as? String {
+        localization = NativeLocalization(catalogID: catalog)
+        protonVerification.localization = localization
+        localizeMainMenu()
+      }
       tray = state
       updateStatusItem()
       installSettingsMenu()
@@ -156,16 +173,16 @@ final class DesktopIntegration: NSObject, NSWindowDelegate, UNUserNotificationCe
     case "showTrayNotification": showNotification(values, result: result)
     case "readChainConfigurations": readConfigurations(result)
     case "selectDiagnosticsDestination":
-      selectDestination(name: "usque-diagnostics.zip", type: .zip, result: result)
+      selectDestination(name: "usque-diagnostics.zip", title: "Export diagnostics", type: .zip, result: result)
     case "selectWarpSecretDestination":
-      selectDestination(name: "usque-warp-secret.json", type: .json, result: result)
+      selectDestination(name: "usque-warp-secret.json", title: "Export WARP credentials", type: .json, result: result)
     case "beginZeroTrustLogin":
       guard let team = values?["team_name"] as? String else { invalid(result); return }
       beginZeroTrustLogin(team, result: result)
     case "consumeZeroTrustCallback":
       let pending = zeroTrust.consume()
       if let code = pending.failure {
-        result(FlutterError(code: code, message: "Cloudflare login did not complete. Retry the login.", details: nil))
+        result(FlutterError(code: code, message: text("Cloudflare login did not complete. Retry the login."), details: nil))
       } else { result(pending.callback) }
     case "cancelZeroTrustLogin": cancelZeroTrustLogin(); result(nil)
     case "completeProtonHumanVerification":
@@ -178,7 +195,26 @@ final class DesktopIntegration: NSObject, NSWindowDelegate, UNUserNotificationCe
   }
 
   private func invalid(_ result: FlutterResult) {
-    result(FlutterError(code: "INVALID_ARGUMENT", message: "The desktop shell request is malformed.", details: nil))
+    result(FlutterError(code: "INVALID_ARGUMENT", message: text("The desktop shell request is malformed."), details: nil))
+  }
+
+  private func text(_ source: String) -> String { localization.text(source) }
+
+  private func localizeMainMenu() {
+    guard let main = NSApp.mainMenu else { return }
+    func translatedTitle(_ object: AnyObject, current: String) -> String {
+      let record = menuSources.object(forKey: object) ?? NativeMenuTitleRecord(current)
+      menuSources.setObject(record, forKey: object)
+      return record.title(current: current, localization: localization)
+    }
+    func update(_ menu: NSMenu) {
+      menu.title = translatedTitle(menu, current: menu.title)
+      for item in menu.items {
+        item.title = translatedTitle(item, current: item.title)
+        if let submenu = item.submenu { update(submenu) }
+      }
+    }
+    update(main)
   }
 
   private func cancelZeroTrustLogin() {
@@ -191,7 +227,7 @@ final class DesktopIntegration: NSObject, NSWindowDelegate, UNUserNotificationCe
 
   private func beginZeroTrustLogin(_ team: String, result: @escaping FlutterResult) {
     guard DesktopZeroTrustSession.normalizedTeam(team) != nil else {
-      result(FlutterError(code: "ZERO_TRUST_TEAM_INVALID", message: "Enter one Cloudflare Zero Trust team name.", details: nil)); return
+      result(FlutterError(code: "ZERO_TRUST_TEAM_INVALID", message: text("Enter one Cloudflare Zero Trust team name."), details: nil)); return
     }
     cancelZeroTrustLogin()
     guard let login = zeroTrust.begin(team) else { invalid(result); return }
@@ -219,7 +255,7 @@ final class DesktopIntegration: NSObject, NSWindowDelegate, UNUserNotificationCe
     authenticationSession = session
     guard session.start() else {
       cancelZeroTrustLogin()
-      result(FlutterError(code: "ZERO_TRUST_BROWSER_FAILED", message: "macOS could not start the authentication browser. Retry the login.", details: nil)); return
+      result(FlutterError(code: "ZERO_TRUST_BROWSER_FAILED", message: text("macOS could not start the authentication browser. Retry the login."), details: nil)); return
     }
     DispatchQueue.main.asyncAfter(deadline: .now() + 300) { [weak self] in
       guard let self, self.zeroTrust.attempt == login.identifier else { return }
@@ -342,11 +378,14 @@ final class DesktopIntegration: NSObject, NSWindowDelegate, UNUserNotificationCe
 
   private func readConfigurations(_ result: @escaping FlutterResult) {
     guard !dialogOpen, let window else {
-      result(FlutterError(code: "CHAIN_FILE_BUSY", message: "A file picker is already open.", details: nil)); return
+      result(FlutterError(code: "CHAIN_FILE_BUSY", message: text("A file picker is already open."), details: nil)); return
     }
     dialogOpen = true
     showWindow()
     let panel = NSOpenPanel()
+    panel.title = text("Import configurations")
+    panel.message = text("Select OpenVPN or WireGuard configuration files.")
+    panel.prompt = text("Import")
     panel.allowsMultipleSelection = true
     panel.canChooseDirectories = false
     panel.canChooseFiles = true
@@ -357,7 +396,7 @@ final class DesktopIntegration: NSObject, NSWindowDelegate, UNUserNotificationCe
       guard response == .OK else { result(nil); return }
       let urls = panel.urls
       guard urls.count <= DesktopConfigurationFiles.maximumCount else {
-        result(FlutterError(code: "CHAIN_FILE_COUNT_LIMIT", message: "Select at most 128 configuration files.", details: nil)); return
+        result(FlutterError(code: "CHAIN_FILE_COUNT_LIMIT", message: self?.text("Select at most 128 configuration files.") ?? "Select at most 128 configuration files.", details: nil)); return
       }
       DispatchQueue.global(qos: .userInitiated).async {
         let files: [[String: Any]] = urls.map { url in
@@ -370,13 +409,15 @@ final class DesktopIntegration: NSObject, NSWindowDelegate, UNUserNotificationCe
     }
   }
 
-  private func selectDestination(name: String, type: UTType, result: @escaping FlutterResult) {
+  private func selectDestination(name: String, title: String, type: UTType, result: @escaping FlutterResult) {
     guard !dialogOpen, let window else {
-      result(FlutterError(code: "DESTINATION_BUSY", message: "A file picker is already open.", details: nil)); return
+      result(FlutterError(code: "DESTINATION_BUSY", message: text("A file picker is already open."), details: nil)); return
     }
     dialogOpen = true
     showWindow()
     let panel = NSSavePanel()
+    panel.title = text(title)
+    panel.prompt = text("Save")
     panel.nameFieldStringValue = name
     panel.allowedContentTypes = [type]
     panel.canCreateDirectories = true
