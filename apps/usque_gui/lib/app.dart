@@ -56,7 +56,8 @@ class _UsqueBootstrapState extends State<UsqueBootstrap>
       widget.engine ?? createDefaultEngineClient(),
       updateDownloader: widget.updateDownloader,
     );
-    if (defaultTargetPlatform == TargetPlatform.windows) {
+    if (defaultTargetPlatform == TargetPlatform.windows ||
+        defaultTargetPlatform == TargetPlatform.macOS) {
       // The native visibility query also covers an initially hidden --background
       // launch, before Flutter has received any window lifecycle transition.
       controller.setUiVisible(false);
@@ -65,7 +66,8 @@ class _UsqueBootstrapState extends State<UsqueBootstrap>
     final lifecycle = WidgetsBinding.instance.lifecycleState;
     if (lifecycle != null) didChangeAppLifecycleState(lifecycle);
     shellBridge = PlatformShellBridge(controller);
-    if (defaultTargetPlatform == TargetPlatform.linux) {
+    if (defaultTargetPlatform == TargetPlatform.linux ||
+        defaultTargetPlatform == TargetPlatform.macOS) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         GuiStartupObservation.instance.mark(2);

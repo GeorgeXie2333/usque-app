@@ -3172,6 +3172,7 @@ dependencies = [
  "bytes",
  "chrono",
  "clap",
+ "core-foundation",
  "ipnet",
  "libc",
  "p256",

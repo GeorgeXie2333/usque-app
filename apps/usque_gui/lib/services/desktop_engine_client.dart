@@ -571,7 +571,9 @@ class DesktopEngineClient
 
   @override
   Future<String?> beginZeroTrustLogin(String teamName) async {
-    if (!(Platform.isWindows || Platform.isLinux)) return null;
+    if (!(Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
+      return null;
+    }
     return _transport.invokePlatformMethod<String>(
       'beginZeroTrustLogin',
       <String, Object>{'team_name': teamName},
@@ -580,13 +582,15 @@ class DesktopEngineClient
 
   @override
   Future<String?> consumeZeroTrustCallback() async {
-    if (!(Platform.isWindows || Platform.isLinux)) return null;
+    if (!(Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
+      return null;
+    }
     return _transport.invokePlatformMethod<String>('consumeZeroTrustCallback');
   }
 
   @override
   Future<void> cancelZeroTrustLogin() async {
-    if (!(Platform.isWindows || Platform.isLinux)) return;
+    if (!(Platform.isWindows || Platform.isLinux || Platform.isMacOS)) return;
     await _transport.invokePlatformMethod<void>('cancelZeroTrustLogin');
   }
 
@@ -1129,9 +1133,9 @@ class DesktopEngineClient
     if (_continuousConnection && (payloadField == 12 || payloadField == 14)) {
       return const Duration(seconds: 5);
     }
-    return Platform.isLinux
-        ? linuxRequestTimeoutForPayload(payloadField)
-        : requestTimeoutForPayload(payloadField);
+    if (Platform.isLinux) return linuxRequestTimeoutForPayload(payloadField);
+    if (Platform.isMacOS) return macRequestTimeoutForPayload(payloadField);
+    return requestTimeoutForPayload(payloadField);
   }
 
   void _checkConnectionIntent(int? expected) {
@@ -1162,6 +1166,14 @@ class DesktopEngineClient
 }
 
 /// Production request deadlines by control payload field number.
+@visibleForTesting
+Duration macRequestTimeoutForPayload(int payloadField) {
+  // Stop can use 90s for the native operation, 10s for confirmation polling,
+  // and one final 10s snapshot exchange. Retain a reporting margin as well.
+  if (payloadField == 13) return const Duration(seconds: 120);
+  return requestTimeoutForPayload(payloadField);
+}
+
 @visibleForTesting
 Duration linuxRequestTimeoutForPayload(int payloadField) {
   final base = requestTimeoutForPayload(payloadField);

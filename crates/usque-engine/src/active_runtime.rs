@@ -36,6 +36,10 @@ pub(crate) struct ActiveProxyRuntime {
     pub(crate) system_proxy: Option<crate::windows_agent::WindowsSystemProxyGuard>,
     #[cfg(target_os = "linux")]
     pub(crate) system_proxy: Option<crate::linux_system_proxy::LinuxSystemProxyGuard>,
+    #[cfg(target_os = "macos")]
+    pub(crate) system_proxy: Option<crate::macos_system_proxy::MacSystemProxyGuard>,
+    #[cfg(target_os = "macos")]
+    pub(crate) system_proxy_context: crate::macos_system_proxy::Context,
 }
 
 pub(crate) enum ActiveRuntime {
@@ -560,11 +564,11 @@ impl ActiveRuntime {
                 runtime.runtime.socks5_listeners(),
                 runtime.runtime.http_listeners(),
                 {
-                    #[cfg(any(windows, target_os = "linux"))]
+                    #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
                     {
                         runtime.system_proxy.is_some()
                     }
-                    #[cfg(not(any(windows, target_os = "linux")))]
+                    #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
                     {
                         false
                     }
@@ -648,8 +652,16 @@ impl ActiveRuntime {
                         .map_err(|error| ControlServiceError::PlatformVpn(error.to_string())),
                     None => Ok(()),
                 };
+                #[cfg(target_os = "macos")]
+                let system_proxy_result = match runtime.system_proxy.as_mut() {
+                    Some(proxy) => proxy
+                        .shutdown()
+                        .await
+                        .map_err(ControlServiceError::MacSystemProxy),
+                    None => Ok(()),
+                };
                 runtime.runtime.shutdown().await;
-                #[cfg(any(windows, target_os = "linux"))]
+                #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
                 system_proxy_result?;
                 Ok(())
             }
@@ -893,7 +905,7 @@ impl ActiveRuntime {
                                 )
                             })?;
                         let cipher =
-                            std::sync::Arc::new(crate::linux_chain::LinuxProfileCipher::new(
+                            std::sync::Arc::new(crate::desktop_chain::DesktopProfileCipher::new(
                                 std::sync::Arc::new(usque_platform::LinuxSecretServiceVault),
                             ));
                         runtime.system_proxy = Some(
@@ -906,7 +918,26 @@ impl ActiveRuntime {
                     }
                     Ok(())
                 }
-                #[cfg(not(any(windows, target_os = "linux")))]
+                #[cfg(target_os = "macos")]
+                {
+                    if let Some(proxy) = runtime.system_proxy.as_mut() {
+                        proxy.shutdown().await?;
+                    }
+                    runtime.system_proxy = None;
+                    if profile.frontends.http && profile.proxy.system_proxy {
+                        let listener = runtime
+                            .runtime
+                            .http_listeners()
+                            .iter()
+                            .copied()
+                            .find(|address| address.ip().is_loopback())
+                            .ok_or(crate::macos_system_proxy::Error::InvalidListener)?;
+                        runtime.system_proxy =
+                            Some(runtime.system_proxy_context.start(listener).await?);
+                    }
+                    Ok(())
+                }
+                #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
                 {
                     let _ = (runtime, profile);
                     Ok(())

@@ -46,6 +46,7 @@ windows-sys.workspace = true
 libc.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
+core-foundation.workspace = true
 usque-macos-runtime = { path = "../usque-macos-runtime" }
 tokio = { workspace = true, features = ["process"] }
 

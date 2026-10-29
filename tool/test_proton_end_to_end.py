@@ -406,7 +406,9 @@ class ProtonEndToEndTests(unittest.TestCase):
         from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
 
         with tempfile.TemporaryDirectory() as temporary:
-            path = Path(temporary) / "synthetic-proton.conf"
+            # macOS exposes its temporary directory through a /var alias. The
+            # exporter intentionally refuses every symlink ancestor.
+            path = Path(temporary).resolve() / "synthetic-proton.conf"
             result, report = self.run_guest(path)
             self.assertEqual(result.error, "none")
             self.assertEqual(result.phase, "complete")

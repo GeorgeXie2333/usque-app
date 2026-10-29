@@ -9,6 +9,7 @@ import 'l10n/diagnostics.dart';
 import 'l10n/endpoint_presets.dart';
 import 'l10n/l4.dart';
 import 'l10n/linux_desktop.dart';
+import 'l10n/macos_desktop.dart';
 import 'l10n/network_quality.dart';
 import 'l10n/network_settings.dart';
 import 'l10n/onboarding.dart';
@@ -58,6 +59,8 @@ class AppStrings {
   }
 
   String _raw(String key) {
+    final mac = kMacDesktopCatalogs[catalogId] ?? kMacDesktopEn;
+    if (mac.containsKey(key)) return mac[key]!;
     final presets =
         kEndpointPresetCatalogs[catalogId] ?? kEndpointPresetCatalogs['en']!;
     if (presets.containsKey(key)) return presets[key]!;

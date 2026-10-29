@@ -37,6 +37,12 @@ String _fontConfigMatch(String pattern) {
   return path;
 }
 
+String _macFontPath(List<String> candidates) => candidates.firstWhere(
+  (path) => File(path).existsSync(),
+  orElse: () =>
+      throw StateError('Required macOS fallback font is missing: $candidates'),
+);
+
 Future<void> _loadPlatformFallbackFonts() async {
   final fonts = switch (Platform.operatingSystem) {
     'windows' => <(String, String)>[
@@ -56,13 +62,30 @@ Future<void> _loadPlatformFallbackFonts() async {
       ('Noto Sans Thai', _fontConfigMatch('Noto Sans Thai:lang=th')),
     ],
     'macos' => <(String, String)>[
-      ('PingFang SC', '/System/Library/Fonts/PingFang.ttc'),
-      ('PingFang TC', '/System/Library/Fonts/PingFang.ttc'),
-      ('PingFang HK', '/System/Library/Fonts/PingFang.ttc'),
+      for (final family in ['PingFang SC', 'PingFang TC', 'PingFang HK'])
+        (
+          family,
+          _macFontPath([
+            '/System/Library/Fonts/PingFang.ttc',
+            '/System/Library/PrivateFrameworks/FontServices.framework/Resources/Reserved/PingFangUI.ttc',
+          ]),
+        ),
       ('Hiragino Sans', '/System/Library/Fonts/ヒラギノ角ゴシック W3.ttc'),
       ('Apple SD Gothic Neo', '/System/Library/Fonts/AppleSDGothicNeo.ttc'),
-      ('Geeza Pro', '/System/Library/Fonts/Supplemental/Geeza Pro.ttc'),
-      ('Thonburi', '/System/Library/Fonts/Thonburi.ttc'),
+      (
+        'Geeza Pro',
+        _macFontPath([
+          '/System/Library/Fonts/Supplemental/Geeza Pro.ttc',
+          '/System/Library/Fonts/GeezaPro.ttc',
+        ]),
+      ),
+      (
+        'Thonburi',
+        _macFontPath([
+          '/System/Library/Fonts/Thonburi.ttc',
+          '/System/Library/Fonts/Supplemental/Thonburi.ttc',
+        ]),
+      ),
     ],
     final platform => throw UnsupportedError(
       'Navigation fallback-font layout is not configured for $platform',

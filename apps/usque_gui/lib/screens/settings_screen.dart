@@ -49,7 +49,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final bool android = defaultTargetPlatform == TargetPlatform.android;
     final bool desktop =
         defaultTargetPlatform == TargetPlatform.windows ||
-        defaultTargetPlatform == TargetPlatform.linux;
+        defaultTargetPlatform == TargetPlatform.linux ||
+        defaultTargetPlatform == TargetPlatform.macOS;
     return PageFrame(
       title: strings.get('settings'),
       contentWidth: 880,

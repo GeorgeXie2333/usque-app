@@ -9,7 +9,7 @@ use zeroize::{Zeroize, Zeroizing};
 
 const READ_CHUNK_SIZE: usize = 16 * 1024;
 
-#[cfg(any(windows, target_os = "macos", test))]
+#[cfg(any(windows, test))]
 pub(crate) async fn handle_stream<Stream>(
     stream: Stream,
     service: Arc<ControlService>,

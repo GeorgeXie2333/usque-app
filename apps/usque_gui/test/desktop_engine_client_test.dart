@@ -1041,6 +1041,11 @@ void main() {
         expect(requestTimeoutForPayload(10), const Duration(seconds: 5));
         expect(requestTimeoutForPayload(41), const Duration(seconds: 5));
         expect(requestTimeoutForPayload(42), const Duration(seconds: 5));
+        expect(requestTimeoutForPayload(13), const Duration(seconds: 5));
+        expect(macRequestTimeoutForPayload(13), const Duration(seconds: 120));
+        expect(macRequestTimeoutForPayload(10), const Duration(seconds: 5));
+        expect(macRequestTimeoutForPayload(12), const Duration(seconds: 715));
+        expect(macRequestTimeoutForPayload(27), const Duration(seconds: 1415));
       },
     );
 

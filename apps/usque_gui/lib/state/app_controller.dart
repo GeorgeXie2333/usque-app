@@ -27,6 +27,12 @@ class _AdsRulesWork {
 }
 
 class AppController extends ChangeNotifier {
+  final settingsNavigationRequests = ValueNotifier<int>(0);
+
+  void requestSettingsNavigation() {
+    if (!_disposed) settingsNavigationRequests.value++;
+  }
+
   String? _lastProtonCompletedJob;
   Future<ProtonVpnResult> protonVpn(
     Map<String, Object?> command, {
@@ -1483,6 +1489,7 @@ class AppController extends ChangeNotifier {
         snapshot = await _engine.disconnect();
         _notifyListeners();
       } on Object {
+        if (defaultTargetPlatform == TargetPlatform.macOS) rethrow;
         // The native disconnect path is fail-fast; exit must not leave the UI
         // alive indefinitely if the cleanup acknowledgement is unavailable.
       }
@@ -3164,6 +3171,7 @@ class AppController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    settingsNavigationRequests.dispose();
     _adsTimer?.cancel();
     _zeroTrustCurrentOwner = null;
     _onboardingPollTimer?.cancel();

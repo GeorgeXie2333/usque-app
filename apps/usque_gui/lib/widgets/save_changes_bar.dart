@@ -81,7 +81,7 @@ class SaveChangesBar extends StatelessWidget {
             : idleHint ?? strings.get('changes_apply_hint'));
     final save = saving || (!dirty && error == null) ? null : onSave;
     return PageShortcut(
-      activator: const SingleActivator(LogicalKeyboardKey.keyS, control: true),
+      activator: primaryDesktopShortcut(LogicalKeyboardKey.keyS),
       onInvoke: save,
       child: _buildBar(context, theme, message, save),
     );

@@ -91,7 +91,7 @@ are documented alongside the providers under
 | Credential refresh persistence acknowledgement | Prototype | Broker contract tests | Pending signed XPC and live renewal |
 | Apple Silicon, current macOS | Development host | Local build/test only | Pending |
 | Intel native runtime and macOS 13 | Target support | No hardware claim | Pending |
-| Desktop integration, CEF, dual DMG, update/recovery | Later milestone | Not part of this prototype | Pending |
+| Desktop integration, CEF, dual DMG, update/recovery | Separate follow-up | See [parity matrix](MACOS_WINDOWS_PARITY.md) | Pending |
 
 Build success, isolated correctness and signed real-network correctness are
 separate results. No result here establishes leak prevention on the host.

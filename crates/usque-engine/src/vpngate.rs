@@ -576,7 +576,7 @@ impl ControlService {
         profile: &usque_core::Profile,
     ) -> Result<Option<(ServerSummary, PreparedProfile)>, ControlServiceError> {
         self.validate_chain_selection(profile)?;
-        #[cfg(any(windows, target_os = "linux"))]
+        #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
         if profile.custom_chain().is_some() {
             let mut selected = usque_core::chain_exit::prepare_selection(
                 &self.profile_dir,

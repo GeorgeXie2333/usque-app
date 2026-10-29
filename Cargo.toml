@@ -62,6 +62,7 @@ boring = "=4.22.0"
 bytes = "1.10.1"
 boringtun = { version = "=0.7.1", default-features = false }
 chrono = { version = "0.4.42", features = ["serde"] }
+core-foundation = "0.10.1"
 clap = { version = "4.5.48", features = ["derive"] }
 futures = "0.3.31"
 h2 = "0.4.16"

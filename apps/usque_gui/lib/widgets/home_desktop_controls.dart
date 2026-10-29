@@ -253,7 +253,8 @@ class _HomeDesktopControlsState extends State<HomeDesktopControls> {
       final failure = view.failure ?? _saveFailure;
       final desktop =
           defaultTargetPlatform == TargetPlatform.windows ||
-          defaultTargetPlatform == TargetPlatform.linux;
+          defaultTargetPlatform == TargetPlatform.linux ||
+          defaultTargetPlatform == TargetPlatform.macOS;
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         mainAxisSize: MainAxisSize.min,

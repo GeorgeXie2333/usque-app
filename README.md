@@ -172,8 +172,12 @@ Kill Switch while disconnected.
 
 [Zero Trust enrollment](docs/ZERO_TRUST_EXPERIMENTAL.md) is experimental. It uses
 an organization identity for the MASQUE Internet tunnel and does not provide full
-Cloudflare One™ Client compatibility. macOS source is retained but not built or
-released. iOS, store distribution and a public CLI are outside this release's scope.
+Cloudflare One™ Client compatibility. macOS has separate arm64 and x86_64
+[development DMG builds](docs/MACOS_DEVELOPMENT_PACKAGING.md), with desktop and
+proxy features under validation. The system VPN and production automatic
+installation remain disabled pending signed device acceptance. See the
+[macOS parity matrix](docs/MACOS_WINDOWS_PARITY.md) for implemented and pending
+features. iOS, store distribution and a public CLI are outside this release's scope.
 
 ## Default network settings
 
