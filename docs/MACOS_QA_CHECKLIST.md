@@ -50,6 +50,23 @@
 測試也覆蓋 800×600、640×480 與 200% 文字大小。畫面中的 VPN 開關差異反映目前
 Mac 開發包沒有系統 VPN 能力；主要頁面與資料設定語義沿用 Windows 的共用實作。
 
+## 本輪自動化結果
+
+[來源與開發包驗證記錄](MACOS_QA_VALIDATION.json)綁定程式碼提交、來源雜湊、
+日誌、畫面及兩份 DMG 的校驗值；較早的驗證記錄保留原樣。
+
+| 層級 | 結果 | 範圍 |
+| --- | --- | --- |
+| Flutter 非 golden 全套 | 1,320 通過，1 略過 | 包含本輪 17 個 Mac 介面／回調案例；使用 fake Engine |
+| Rust 相關回歸 | 48 通過 | 鏈式交接 10、模擬代理恢復 10、本機通道適配器 8、provider runtime 19、底層 WARP 恢復 1 |
+| 原生隔離契約 | 桌面 10 組、網路 7 組 | Foundation／暫存資料，沒有啟用擴展或原生視窗 |
+| Proton 適配器 | harness 22、DOM／Node 15、Swift 1 項含 6 組契約 | 沒有 CEF 或瀏覽器程序；這三組結果保存於工具執行輸出，未另存日誌 |
+| 封裝測試 | 12 通過 | 另檢查實際兩包各 20 個 Mach-O、581 個檔案及映像／臨時簽章完整性 |
+| 靜態與編譯 | 通過 | 格式、分析、嚴格 Clippy、雙架構 Runner 型別檢查；GUI、Engine、runtime、擴展及 CEF 雙架構編譯 |
+
+僅使用本機測試通道的 Engine 適配器測試，第一次受 sandbox 綁定限制而失敗；
+保留原始失敗記錄，經允許的限定重跑 8 項全過。這不代表任何外部 VPN 連線成功。
+
 相關原始碼與檢查：
 
 - [Mac 視窗與回調契約](../apps/usque_gui/macos/RunnerTests/DesktopContractMain.swift)
