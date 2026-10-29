@@ -135,6 +135,11 @@ async fn worker(
                 let Some((meta, packet)) = packet else { break; };
                 if generation != services.protector.network_generation() { break; }
                 let remote = SocketAddr::new(meta.destination, meta.destination_port);
+                if targets.get(&remote).is_some_and(|(_, used, _)| used.elapsed() >= idle) {
+                    targets.remove(&remote);
+                    direct.remove(&remote);
+                    pending_quotes.remove(&remote);
+                }
                 // A target owns its selected path until idle expiry. A new
                 // target in the same association observes the latest rules.
                 let routing = services.geo_policy.freeze_routing();

@@ -386,14 +386,23 @@ impl ControlService {
                     }
                     Err(error) => {
                         service.settings_applying.store(false, Ordering::SeqCst);
-                        let restored = plan.class == ReconfigureClass::ColdReconnect
-                            && service
+                        let restored =
+                            service
                                 .data_plane
                                 .lock()
                                 .await
                                 .as_ref()
                                 .is_some_and(|active| {
-                                    active.profile == previous
+                                    // Hot traffic-policy rejection leaves routing unchanged
+                                    // and restores QUIC before returning. Keep that confirmed
+                                    // profile only while its healthy session and intent remain.
+                                    let unchanged_hot_policy = plan.class
+                                        == ReconfigureClass::HotTrafficPolicy
+                                        && active.session_generation == generation
+                                        && service.settings_intent.load(Ordering::SeqCst) == intent;
+                                    (plan.class == ReconfigureClass::ColdReconnect
+                                        || unchanged_hot_policy)
+                                        && active.profile == previous
                                         && matches!(
                                             active.runtime.health(),
                                             usque_transport::RuntimeHealth::Connected { .. }
@@ -1674,6 +1683,177 @@ mod tests {
             );
             assert_eq!(runtime.disable_quic, profile.disable_quic);
             assert_eq!(runtime.reconnect_count, 3);
+        }
+    }
+
+    #[tokio::test]
+    async fn issue_138_rejected_hot_rule_save_keeps_confirmation_and_allows_later_hot_edits() {
+        for stage in ["prepare", "publish"] {
+            let (_directory, service) = service();
+            let profile = service.config_snapshot().await.active_profile().unwrap();
+            service
+                .install_test_session(profile.clone(), false, 3)
+                .await
+                .unwrap();
+            let before = service.test_harness_counts().await;
+            let generation = {
+                let mut active = service.data_plane.lock().await;
+                let active = active.as_mut().unwrap();
+                let crate::active_runtime::ActiveRuntime::Harness(runtime) = &mut active.runtime
+                else {
+                    panic!("harness")
+                };
+                runtime.fail_routing_prepare = stage == "prepare";
+                runtime.fail_routing_publish = stage == "publish";
+                active.session_generation
+            };
+            let mut next = profile.clone();
+            next.disable_quic = !profile.disable_quic;
+            next.routing.rules.push(usque_core::RoutingRule {
+                id: uuid::Uuid::new_v4(),
+                kind: usque_core::RoutingMatch::Domain,
+                target: "deferred.test".into(),
+                action: usque_core::RoutingAction::Reject,
+            });
+            let rejected = request(&next, &["routing", "disable_quic"]);
+            let operation_id = rejected.operation_id.clone();
+            let saved = service.save_network_settings(rejected).await.unwrap();
+            assert_eq!(saved.persisted, Some(true));
+            {
+                let _finished = service.mutation_lock.lock().await;
+                assert_eq!(
+                    service.status_snapshot().await.phase,
+                    ConnectionPhase::Connected
+                );
+                let state = service.network_settings_state().await;
+                assert_eq!(state.persisted, Some(true));
+                assert!(state.persisted_operation_ids.contains(&operation_id));
+                assert_eq!(state.apply_status, 5);
+                assert_eq!(state.error_code, "NETWORK_SETTINGS_APPLY_FAILED");
+                assert_eq!(state.applied_profile, Some(profile_to_proto(&profile)));
+                assert_eq!(state.session_id, generation.to_string());
+                assert!(state.deferred_fields.contains(&"routing".into()));
+                assert!(state.deferred_fields.contains(&"disable_quic".into()));
+                let stored = service.store.load().unwrap().active_profile().unwrap();
+                assert_eq!(stored.routing, next.routing);
+                assert_eq!(stored.disable_quic, next.disable_quic);
+                let mut active = service.data_plane.lock().await;
+                let active = active.as_mut().unwrap();
+                assert_eq!(active.profile, profile);
+                assert_eq!(active.session_generation, generation);
+                let crate::active_runtime::ActiveRuntime::Harness(runtime) = &mut active.runtime
+                else {
+                    panic!("harness")
+                };
+                assert_eq!(runtime.disable_quic, profile.disable_quic);
+                assert_eq!(
+                    runtime.routing_policy.route_host("deferred.test"),
+                    usque_transport::GeoRoute::Tunnel
+                );
+                runtime.fail_routing_prepare = false;
+                runtime.fail_routing_publish = false;
+            }
+
+            let saved = service
+                .save_network_settings(request(&next, &["disable_quic"]))
+                .await
+                .unwrap();
+            assert_eq!(saved.apply_status, 2);
+            {
+                let _finished = service.mutation_lock.lock().await;
+                let state = service.network_settings_state().await;
+                let mut applied = profile.clone();
+                applied.disable_quic = next.disable_quic;
+                assert_eq!(state.applied_profile, Some(profile_to_proto(&applied)));
+                assert_eq!(state.apply_status, 4);
+                assert_eq!(state.deferred_fields, ["routing"]);
+                assert!(state.error_code.is_empty());
+                assert!(state.persisted_operation_ids.contains(&operation_id));
+                assert_eq!(service.test_harness_counts().await, before);
+                let active = service.data_plane.lock().await;
+                let active = active.as_ref().unwrap();
+                assert_eq!(active.profile, applied);
+                assert_eq!(active.session_generation, generation);
+                let crate::active_runtime::ActiveRuntime::Harness(runtime) = &active.runtime else {
+                    panic!("harness")
+                };
+                assert_eq!(runtime.disable_quic, next.disable_quic);
+                assert_eq!(
+                    runtime.routing_policy.route_host("deferred.test"),
+                    usque_transport::GeoRoute::Tunnel
+                );
+                assert_eq!(service.store.load().unwrap().network.routing, next.routing);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn issue_138_rejected_hot_rule_save_does_not_confirm_changed_or_unhealthy_sessions() {
+        for change in ["intent", "generation", "profile", "health"] {
+            let (_directory, service) = service();
+            let profile = service.config_snapshot().await.active_profile().unwrap();
+            service
+                .install_test_session(profile.clone(), false, 0)
+                .await
+                .unwrap();
+            {
+                let mut active = service.data_plane.lock().await;
+                let crate::active_runtime::ActiveRuntime::Harness(runtime) =
+                    &mut active.as_mut().unwrap().runtime
+                else {
+                    panic!("harness")
+                };
+                runtime.fail_routing_prepare = true;
+            }
+            let mut next = profile.clone();
+            next.routing.rules.push(usque_core::RoutingRule {
+                id: uuid::Uuid::new_v4(),
+                kind: usque_core::RoutingMatch::Domain,
+                target: "rejected.test".into(),
+                action: usque_core::RoutingAction::Reject,
+            });
+            let saved = service
+                .save_network_settings(request(&next, &["routing"]))
+                .await
+                .unwrap();
+            assert_eq!(saved.apply_status, 2);
+            // Queue the executor's initial session check, then acquire the
+            // FIFO mutex behind it and ahead of routing preparation. This
+            // changes the captured evidence after the initial fence passed.
+            let active = service.data_plane.lock().await;
+            tokio::task::yield_now().await;
+            drop(active);
+            {
+                let mut active = service.data_plane.lock().await;
+                let active = active.as_mut().unwrap();
+                match change {
+                    "intent" => {
+                        service.settings_intent.fetch_add(1, Ordering::SeqCst);
+                    }
+                    "generation" => active.session_generation += 1,
+                    "profile" => active.profile.disable_quic = !profile.disable_quic,
+                    "health" => {
+                        let crate::active_runtime::ActiveRuntime::Harness(runtime) =
+                            &mut active.runtime
+                        else {
+                            panic!("harness")
+                        };
+                        runtime.gate_status.failure =
+                            Some(usque_core::vpngate::GateFailure::Transport);
+                    }
+                    _ => unreachable!(),
+                }
+            }
+            let _finished = service.mutation_lock.lock().await;
+            let state = service.network_settings_state().await;
+            assert_eq!(state.apply_status, 5, "{change}");
+            assert_eq!(
+                state.error_code, "NETWORK_SETTINGS_APPLY_FAILED",
+                "{change}"
+            );
+            assert!(state.applied_profile.is_none(), "{change}");
+            assert_eq!(state.persisted, Some(true), "{change}");
+            assert_eq!(service.store.load().unwrap().network.routing, next.routing);
         }
     }
 

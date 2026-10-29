@@ -14,6 +14,7 @@ internal class NetworkSettingsApplicationTracker {
         val generation: Long,
         val phase: Phase,
         val operationId: String? = null,
+        val rejectedProfile: String? = null,
     )
 
     private var nextToken = 0L
@@ -63,6 +64,17 @@ internal class NetworkSettingsApplicationTracker {
         return application.copy(phase = Phase.AWAITING_OBSERVATION).also { active = it }
     }
 
+    fun confirmRejection(
+        token: Long,
+        generation: Long,
+        profile: String,
+    ): Boolean {
+        val application = current(generation) ?: return false
+        if (application.token != token || application.phase != Phase.RECONFIGURING) return false
+        active = application.copy(rejectedProfile = profile)
+        return true
+    }
+
     fun allowsObservation(generation: Long): Boolean {
         val application = active ?: return true
         return application.generation == generation && application.phase == Phase.AWAITING_OBSERVATION
@@ -75,7 +87,7 @@ internal class NetworkSettingsApplicationTracker {
     ): Boolean {
         val application = current(previousGeneration) ?: return false
         if (application.token != token || application.phase != Phase.RECONFIGURING) return false
-        active = application.copy(generation = generation)
+        active = application.copy(generation = generation, rejectedProfile = null)
         return true
     }
 

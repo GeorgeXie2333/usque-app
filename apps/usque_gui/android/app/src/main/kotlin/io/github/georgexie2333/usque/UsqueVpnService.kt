@@ -947,6 +947,12 @@ class UsqueVpnService : VpnService() {
                 return@execute
             }
             val result = withProxyPassword(profileJson) { NativeEngine.reconfigure(profileJson, it) }
+            val rejectedSnapshot =
+                if (settingsToken != null && result == NativeEngine.RECONFIGURE_REJECTED) {
+                    runCatching { NativeEngine.snapshot()?.let(::JSONObject) }.getOrNull()
+                } else {
+                    null
+                }
             if (!isCurrent(generation)) {
                 mainHandler.post { replyWithSnapshot(request) }
                 return@execute
@@ -1009,6 +1015,19 @@ class UsqueVpnService : VpnService() {
                             } else {
                                 true
                             }
+                        if (settingsToken != null) {
+                            NetworkSettingsRuntimeFailure
+                                .retainedProfile(
+                                    nativeResult = result,
+                                    previousProfile = previousProfile,
+                                    confirmedProfile = confirmedSettingsProfile,
+                                    metadataRestored = restored,
+                                    recoveryRestored = recoveryRestored,
+                                    nativeActive = nativeRuntimeActive.get(),
+                                    tunnelOwned = tunnel.get()?.fileDescriptor?.valid() == true,
+                                    nativeSnapshot = rejectedSnapshot,
+                                )?.let { settingsApplication.confirmRejection(settingsToken, generation, it) }
+                        }
                         // This command did not replace the live session or its TUN.
                         // Keep saved desired settings separate from applied/recovery metadata.
                         if (restored) {
@@ -2393,20 +2412,18 @@ class UsqueVpnService : VpnService() {
                             if (!isCurrent(currentGeneration)) return@Handler true
                             val application =
                                 settingsApplication.runtimeReplied(token, currentGeneration) ?: return@Handler true
-                            if (replyMessage.data.getString("control_error_code") != null) {
+                            val errorCode = replyMessage.data.getString("control_error_code")
+                            if (errorCode != null) {
                                 val failedGeneration = application.generation
-                                settingsUncertain = true
+                                val failure = NetworkSettingsRuntimeFailure.fromReply(application, errorCode)
+                                settingsUncertain = failure.uncertain
                                 settingsApplication.finish(token, failedGeneration)
                                 settingsExecutor.execute {
                                     val json =
                                         runCatching {
                                             NativeEngine.networkSettings(
                                                 settingsPath,
-                                                JSONObject()
-                                                    .put("command", "failed")
-                                                    .put("operation_id", application.operationId)
-                                                    .put("session_id", failedGeneration.toString())
-                                                    .toString(),
+                                                failure.command(application).toString(),
                                             )
                                         }.getOrNull()
                                     mainHandler.post {
