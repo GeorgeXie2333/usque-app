@@ -449,6 +449,38 @@ async fn cached_vpn_gate_profile_prepares_and_handoffs_without_a_download() {
     assert_eq!(recovered.0.id, server.id);
     assert_eq!(recovered.1.content(), prepared.content());
     assert!(service.gate_fetch_task.lock().await.is_none());
+    for action in ["prepare", "favorite"] {
+        let reply = service
+            .handle(request(control_request::Payload::VpnGateNode(
+                v1::VpnGateNodeRequest {
+                    operation_id: Uuid::new_v4().to_string(),
+                    action: action.into(),
+                    server_id: server.id.clone(),
+                    config_sha256: server.config_sha256.clone(),
+                    ..Default::default()
+                },
+            )))
+            .await;
+        assert!(
+            reply.error.is_none(),
+            "cached {action} must not require a new WARP connection: {:?}",
+            reply.error
+        );
+        tokio::time::timeout(std::time::Duration::from_secs(3), async {
+            loop {
+                let progress = service.gate_directory.node_progress();
+                match progress.stage.as_str() {
+                    "complete" => return,
+                    "failed" => panic!("cached {action}: {:?}", progress.error),
+                    _ => tokio::time::sleep(std::time::Duration::from_millis(5)).await,
+                }
+            }
+        })
+        .await
+        .unwrap();
+        assert!(service.data_plane.lock().await.is_none());
+        assert!(service.macos_reserved.lock().await.is_none());
+    }
 }
 
 #[cfg(feature = "wireguard")]

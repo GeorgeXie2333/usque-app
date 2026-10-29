@@ -522,11 +522,34 @@ impl ControlService {
             .as_ref()
             .and_then(|active| active.runtime.internal_networks());
         #[cfg(target_os = "macos")]
-        require_catalogue_warp(
-            networks
-                .as_ref()
-                .map(|(network, warp)| (network.health_snapshot(), warp.health_snapshot())),
-        )?;
+        {
+            let cached_node = if let Some(request) = &node_request {
+                let store = CatalogueStore::new(&self.cache_dir);
+                let selection = request.selection();
+                tokio::task::spawn_blocking(move || {
+                    store.load_selection(&selection).is_ok()
+                        || store
+                            .load()
+                            .ok()
+                            .flatten()
+                            .is_some_and(|(catalogue, _, _)| catalogue.prepare(&selection).is_ok())
+                })
+                .await
+                .map_err(|_| error(DirectoryError::CacheIo))?
+            } else {
+                false
+            };
+            // Validated cached profiles can be prepared or favorited offline.
+            // If the cache changes before the job runs, allow_physical remains
+            // false below and the ordinary downloader fails closed.
+            if !cached_node {
+                require_catalogue_warp(
+                    networks
+                        .as_ref()
+                        .map(|(network, warp)| (network.health_snapshot(), warp.health_snapshot())),
+                )?;
+            }
+        }
         #[cfg(windows)]
         let allow_physical = networks.is_none()
             && crate::windows_agent::catalogue_physical_network_permitted().await;
