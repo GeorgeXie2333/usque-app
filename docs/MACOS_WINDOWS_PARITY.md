@@ -5,8 +5,14 @@ continues from clean `dev` at `948de61c`, with the earlier experimental backup
 retained for review. It is not yet a **macOS full-feature version**.
 
 `main` was restored with history-preserving revert `0759ff02`; its tracked tree
-matches `1d44597d`. macOS development continues on a separate branch. Do not
+matches `1d44597d`. At the owner's request, the preserved macOS development
+commits were fast-forwarded onto `dev`, and further development stays there. Do not
 merge this work into `main` before the owner requests it again.
+
+The owner is using this workstation. Current validation is background-only:
+no CEF/application/browser launches, WindowServer smoke tests, file dialogs,
+notifications or system authorization prompts. Compile-only checks and synthetic
+contract fixtures continue without changing host credentials or network settings.
 
 ## Feature comparison
 
@@ -17,6 +23,7 @@ hardware. None of the isolated results establishes physical-egress safety.
 | Windows capability | macOS implementation | Validation and remaining difference |
 | --- | --- | --- |
 | MASQUE proxy, HTTP/SOCKS TCP/UDP | Existing shared runtime, with ordinary-user Engine as proxy-only owner | Shared Rust regression; no new live-account/network acceptance |
+| Proxy-mode network changes | Read-only route, interface and selected DNS snapshots advance the network generation when source IPs stay the same | Constructed Core Foundation fixtures; actual sleep/network-switch acceptance remains pending |
 | Full-system VPN | Packet Tunnel is the sole runtime owner; Engine proxy sockets enter the same system data plane | Provider adapters and loopback contracts; production capability remains false |
 | Country/custom rules, DIRECT/REJECT/PROXY, advertising rules | Shared Rust immutable policy snapshots; separate flow, DNS and filter providers | Rule/epoch contracts; same-IP domain split and real `enforceRoutes` egress pending |
 | IPv4/IPv6 and encrypted DNS | Shared runtime and separate DNS provider; encrypted-upstream errors do not request plaintext fallback | IPv6 loopback and policy contracts; physical/tunnel DNS, leakage and LAN device acceptance pending |
@@ -34,15 +41,18 @@ hardware. None of the isolated results establishes physical-egress safety.
 | Zero Trust browser login | ASWebAuthenticationSession callback, strict organization/path/token validation, attempt fencing and cancellation | Isolated URL/lifecycle checks; actual identity-provider login pending |
 | Proton verification window | Dedicated CEF component on all macOS 13+ targets, official-origin allowlist, in-memory context, authenticated loopback proxy, sandbox required; Chromium storage does not access the user's Keychain | Five framing checks and a focused renderer exit pass; the complete proxy-failure smoke remains failed; official challenge and signed launcher pending |
 | Architecture-specific installation | Native arm64 and x86_64 DMG builders with drag-to-Applications layout, complete nested Mach-O/minimum-OS checks | Development image verification; Intel execution and macOS 13 hardware pending |
-| Update selection and recovery | Maintenance foundation verifies version, native hardware architecture, name, size, hash and signing; same-volume atomic swap with retained backup and hash-fenced recovery | Temporary injected-verifier tests including Intel-to-arm64 migration; production installation disabled because trust authority is unconfigured |
+| Update selection and recovery | Maintenance foundation verifies version, native hardware architecture, name, size, hash and signing; same-volume atomic swap, retained backup and durable, candidate-bound health receipts | Temporary injected-verifier tests including Intel-to-arm64 migration and confirmation retries across restarts; live health authentication is not integrated and production installation remains disabled |
 | Extension update and uninstall | Application transaction leaves extensions/user data separate; manual app removal preserves user data | Extension approval/restart orchestration and managed uninstall remain pending |
 | Signed production distribution | Development packages are explicitly ad-hoc and not notarized | Developer ID, notarization, Gatekeeper distribution and full two-architecture acceptance pending |
 
-## Current isolated checks
+## Earlier complete-suite checks
 
 Development host: Apple Silicon, current macOS, Xcode 27.1. Native deployment
 targets and all embedded Mach-O files must support macOS 13. Cross compilation
 does not establish Intel runtime compatibility.
+
+The following counts belong to the earlier desktop candidate, rather than a
+claim that every suite was repeated by a later background follow-up.
 
 - Full Rust workspace: 1,940 passed, 3 ignored, including 28 macOS Engine
   checks for grouped proxy ownership, active-apply recovery, pending-recovery
@@ -68,9 +78,10 @@ GPU and utility children. The complete smoke still fails its authentication-prox
 failure/exit check. This is partial evidence, not full verification acceptance;
 the unsigned release launcher continues to refuse real credential handoffs.
 
-The [candidate validation record](MACOS_DESKTOP_VALIDATION.json) binds build,
-artifact and incomplete device results separately. Development work is reviewed
-in [draft PR #3](https://github.com/JustinL330/usque-app/pull/3), targeting `dev`.
+The earlier [candidate validation record](MACOS_DESKTOP_VALIDATION.json) binds
+its build, artifacts and incomplete device results separately. That candidate's
+review is preserved in [PR #3](https://github.com/JustinL330/usque-app/pull/3),
+targeting `dev`; subsequent work continues directly on `dev`.
 - The earlier [network prototype record](MACOS_NETWORK_VALIDATION.json) preserves
   the first milestone's distinct code candidates and results.
 

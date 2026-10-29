@@ -21,11 +21,27 @@ Recovery refuses unknown bytes. Backups remain after a separate health
 acknowledgement. User configuration, credentials and system extension state are
 outside this transaction.
 
-Run `bash tool/test_macos_maintenance.sh` for nine isolated contract groups.
-These use temporary app fixtures and an injected verifier. They cover failed
+Health acknowledgement now uses a versioned, bounded report bound to the exact
+transaction UUID, candidate bundle digest, version and architecture. A health
+verifier must authenticate its evidence; the default verifier rejects every
+report because the live application health channel is not integrated. There is
+no caller-controlled `componentsHealthy` Boolean or production CLI confirmation
+shortcut. Evidence stays in memory; only its canonical report digest and replay
+identifier are persisted. The confirmed state and receipt share one atomic
+journal commit. An identical committed retry works after reopening the store,
+including after report expiry; changed, stale or unauthenticated reports cannot
+confirm a transaction. Rollback retains the receipt and both app versions.
+Journal schema 3 validates completed records before a later update can replace
+the active journal.
+
+Run `bash tool/test_macos_maintenance.sh` for thirteen isolated contract groups.
+These use temporary app fixtures and injected bundle and health verifiers. They cover failed
 verification, retained backups, rollback, unknown-byte preservation, Rosetta
 selection, journal/lock file restrictions, bounded subprocesses, and interruption
-between atomic replacement and journal acknowledgement. They do not establish
+between atomic replacement and journal acknowledgement, confirmation retries
+across store instances, rejected health evidence, invalid completed journals,
+and receipt preservation during rollback. Injected health evidence does not
+establish authenticated communication with the running app. These tests do not establish
 that Developer ID signing, notarization, real application upgrades, actual power
 loss recovery, or extension replacement has passed on hardware.
 

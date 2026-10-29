@@ -31,6 +31,8 @@ PROVIDERS = {
     "dns-proxy": "UsqueDNSProxy",
     "content-filter": "UsqueContentFilter",
 }
+VERIFICATION_NAME = "UsqueProtonVerification"
+VERIFICATION_HELPER_SUFFIXES = ("", " (Alerts)", " (GPU)", " (Plugin)", " (Renderer)")
 VERSION = re.compile(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-beta\.[1-9][0-9]*)?")
 MACHO_MAGICS = {b"\xcf\xfa\xed\xfe", b"\xfe\xed\xfa\xcf"}
 FAT_MAGICS = {
@@ -206,15 +208,55 @@ def required_files(app: Path) -> list[Path]:
             / "Contents/Library/SystemExtensions"
             / f"{IDENTIFIER}.{suffix}.systemextension/Contents/MacOS/{executable}"
         )
+    verification = app / "Contents/Helpers" / (VERIFICATION_NAME + ".app")
+    if verification.exists():
+        files.extend(
+            [
+                verification / "Contents/MacOS" / VERIFICATION_NAME,
+                verification
+                / "Contents/Frameworks/Chromium Embedded Framework.framework/Chromium Embedded Framework",
+            ]
+        )
+        for suffix in VERIFICATION_HELPER_SUFFIXES:
+            helper = VERIFICATION_NAME + " Helper" + suffix
+            files.append(
+                verification / "Contents/Frameworks" / (helper + ".app") / "Contents/MacOS" / helper
+            )
+    maintenance = app / "Contents/Helpers/usque-maintenance"
+    if maintenance.exists():
+        files.append(maintenance)
     return files
+
+
+def required_resources(app: Path, architecture: str) -> list[Path]:
+    verification = app / "Contents/Helpers" / (VERIFICATION_NAME + ".app")
+    if not verification.exists():
+        return []
+    resources = verification / "Contents/Frameworks/Chromium Embedded Framework.framework/Resources"
+    # The pinned macOS SDK uses a per-architecture snapshot filename; the SDK
+    # README also lists the generic filename used by its other platforms.
+    return [resources / name for name in ("icudtl.dat", f"v8_context_snapshot.{architecture}.bin")]
 
 
 def inspect_bundle(app: Path, architecture: str) -> list[dict]:
     if app.is_symlink() or app.suffix != ".app":
         raise ValueError("Expected an ordinary .app bundle")
     files = bundle_files(app)
-    if not all(path.is_file() for path in required_files(app)):
+    required = required_files(app)
+    if not all(path.is_file() for path in required):
         raise ValueError("macOS development bundle is incomplete")
+    executables = [
+        path
+        for path in required
+        if path.parent.name == "MacOS" or path.name in {"usque-maintenance", "usque-macos-control"}
+    ]
+    if any(path.stat().st_mode & 0o111 != 0o111 for path in executables):
+        raise ValueError("Required macOS program does not have executable permissions")
+    if any(
+        not path.is_file() or path.stat().st_size == 0
+        for path in required_resources(app, architecture)
+    ):
+        raise ValueError("Proton verification is missing required CEF data")
     with (app / "Contents/Info.plist").open("rb") as handle:
         info = plistlib.load(handle)
     if info.get("CFBundleIdentifier") != IDENTIFIER or info.get("LSMinimumSystemVersion") != "13.0":
@@ -222,14 +264,25 @@ def inspect_bundle(app: Path, architecture: str) -> list[dict]:
     if (
         info.get("UsqueProductionCapable") is not False
         or info.get("UsqueDevelopmentBuild") is not True
+        or info.get("UsqueAutomaticInstallationEnabled") is not False
+        or info.get("UsqueSignedPrototype") is not False
     ):
         raise ValueError("Development package must not advertise production installation")
+    verification = app / "Contents/Helpers" / (VERIFICATION_NAME + ".app")
+    if verification.exists():
+        with (verification / "Contents/Info.plist").open("rb") as handle:
+            identity = plistlib.load(handle)
+        if (
+            identity.get("CFBundleIdentifier") != IDENTIFIER + ".proton-verification"
+            or identity.get("CFBundleExecutable") != VERIFICATION_NAME
+            or identity.get("LSMinimumSystemVersion") != "13.0"
+            or identity.get("UsqueCEFSandboxRequired") is not True
+        ):
+            raise ValueError("Invalid or sandbox-disabled Proton verification component")
     if any(path.name in {"kernel_blob.bin", "usque_ui_preview"} for path in files):
         raise ValueError("Debug/preview content must not enter the development release bundle")
     machos = macho_files(app)
-    if not {path.resolve() for path in required_files(app)}.issubset(
-        {path.resolve() for path in machos}
-    ):
+    if not {path.resolve() for path in required}.issubset({path.resolve() for path in machos}):
         raise ValueError("Required macOS executables are not all Mach-O binaries")
     return [
         {"path": str(path.relative_to(app)), **inspect_macho(path, architecture)} for path in machos

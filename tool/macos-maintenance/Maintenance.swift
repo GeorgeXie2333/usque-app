@@ -12,6 +12,7 @@ enum MacMaintenanceError: String, Error {
   case invalidInstallation = "MACOS_UPDATE_INVALID_INSTALLATION"
   case applicationRunning = "MACOS_UPDATE_APPLICATION_RUNNING"
   case recoveryRequired = "MACOS_UPDATE_RECOVERY_REQUIRED"
+  case healthUnverified = "MACOS_UPDATE_HEALTH_UNVERIFIED"
   case systemFailure = "MACOS_UPDATE_SYSTEM_FAILURE"
 }
 
@@ -62,6 +63,67 @@ struct MacExpectedPackage: Codable {
 protocol MacBundleVerifier {
   func architecture(_ app: URL) throws -> String
   func verify(_ app: URL, version: String, architecture: String) throws
+}
+
+struct MacCandidateIdentity: Equatable {
+  let transactionID: UUID
+  let bundleIdentifier: String
+  let version: String
+  let architecture: String
+  let bundleDigest: String
+}
+
+/// Transport-independent health report. Evidence must be supplied by an
+/// authenticated application health channel, not a caller-controlled Boolean.
+/// Its opaque bytes are bounded and never persisted in the transaction journal.
+struct MacHealthAcknowledgement: Codable {
+  let schemaVersion: Int
+  let operationID: UUID
+  let candidate: Candidate
+  let issuedAt: Int64
+  let expiresAt: Int64
+  let evidence: Data
+
+  struct Candidate: Codable {
+    let transactionID: UUID
+    let bundleIdentifier: String
+    let version: String
+    let architecture: String
+    let bundleDigest: String
+
+    var identity: MacCandidateIdentity {
+      MacCandidateIdentity(transactionID: transactionID, bundleIdentifier: bundleIdentifier,
+        version: version, architecture: architecture, bundleDigest: bundleDigest)
+    }
+  }
+
+  func fingerprint() throws -> String {
+    guard schemaVersion == 1, candidate.bundleIdentifier == MacReleaseTrust.identifier,
+      ["arm64", "x86_64"].contains(candidate.architecture),
+      candidate.bundleDigest.count == 64,
+      candidate.bundleDigest.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }),
+      !evidence.isEmpty, evidence.count <= 16_384,
+      issuedAt >= 0, expiresAt > issuedAt, expiresAt - issuedAt <= 300_000
+    else { throw MacMaintenanceError.healthUnverified }
+    guard (try? MacReleaseVersion(candidate.version)) != nil else { throw MacMaintenanceError.healthUnverified }
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.sortedKeys]
+    let bytes = try encoder.encode(self)
+    guard bytes.count <= 32_768 else { throw MacMaintenanceError.healthUnverified }
+    return SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
+  }
+}
+
+protocol MacHealthVerifier {
+  func verify(_ acknowledgement: MacHealthAcknowledgement, candidate: MacCandidateIdentity) throws
+}
+
+/// No live application health channel has been integrated yet. Production
+/// callers therefore cannot confirm an update through this default adapter.
+struct UnavailableMacHealthVerifier: MacHealthVerifier {
+  func verify(_ acknowledgement: MacHealthAcknowledgement, candidate: MacCandidateIdentity) throws {
+    throw MacMaintenanceError.healthUnverified
+  }
 }
 
 struct NativeMacBundleVerifier: MacBundleVerifier {
@@ -186,7 +248,7 @@ struct MacBundleIdentity {
 /// this helper never removes either user data or system extension registrations.
 final class MacAppTransaction {
   struct Journal: Codable {
-    var schemaVersion = 2
+    var schemaVersion = 3
     let identifier: UUID
     let installedName: String
     let previousVersion: String
@@ -196,15 +258,28 @@ final class MacAppTransaction {
     let previousDigest: String
     let candidateDigest: String
     var stage: String
+    var healthReceipt: HealthReceipt?
   }
+  struct HealthReceipt: Codable {
+    let operationID: UUID
+    let acknowledgementDigest: String
+    let verifiedAt: Int64
+  }
+  enum HealthConfirmation { case confirmed, duplicate }
   private let root: URL
   private let verifier: MacBundleVerifier
+  private let healthVerifier: MacHealthVerifier
+  private let now: () -> Int64
   private let directory: URL
   private var lock: Int32 = -1
 
-  init(root: URL, verifier: MacBundleVerifier) throws {
+  init(root: URL, verifier: MacBundleVerifier,
+    healthVerifier: MacHealthVerifier = UnavailableMacHealthVerifier(),
+    now: @escaping () -> Int64 = { Int64(Date().timeIntervalSince1970 * 1000) }) throws {
     self.root = root.standardizedFileURL
     self.verifier = verifier
+    self.healthVerifier = healthVerifier
+    self.now = now
     guard self.root == self.root.resolvingSymlinksInPath() else { throw MacMaintenanceError.invalidInstallation }
     directory = self.root.appendingPathComponent(".usque-update", isDirectory: true)
     if !FileManager.default.fileExists(atPath: directory.path) {
@@ -231,12 +306,20 @@ final class MacAppTransaction {
   private var journalURL: URL { directory.appendingPathComponent("transaction.json") }
   private func backup(_ journal: Journal) -> URL { directory.appendingPathComponent("\(journal.identifier.uuidString).app") }
   private func installed(_ journal: Journal) throws -> URL {
-    guard journal.schemaVersion == 2, journal.installedName == "Usque.app",
+    guard journal.schemaVersion == 3, journal.installedName == "Usque.app",
       ["prepared", "awaiting_health", "confirmed", "rolled_back"].contains(journal.stage),
       ["arm64", "x86_64"].contains(journal.architecture),
       ["arm64", "x86_64"].contains(journal.previousArchitecture),
       [journal.previousDigest, journal.candidateDigest].allSatisfy({ $0.count == 64 && $0.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }) })
     else { throw MacMaintenanceError.recoveryRequired }
+    guard try MacReleaseVersion(journal.candidateVersion) > MacReleaseVersion(journal.previousVersion),
+      journal.candidateDigest != journal.previousDigest else { throw MacMaintenanceError.recoveryRequired }
+    if let receipt = journal.healthReceipt {
+      guard ["confirmed", "rolled_back"].contains(journal.stage), receipt.verifiedAt >= 0,
+        receipt.acknowledgementDigest.count == 64,
+        receipt.acknowledgementDigest.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) })
+      else { throw MacMaintenanceError.recoveryRequired }
+    } else if journal.stage == "confirmed" { throw MacMaintenanceError.recoveryRequired }
     return root.appendingPathComponent(journal.installedName)
   }
   private func write(_ journal: Journal) throws {
@@ -265,7 +348,9 @@ final class MacAppTransaction {
       metadata.st_mode & 0o777 == 0o600 else { throw MacMaintenanceError.recoveryRequired }
     do {
       let bytes = try boundedRegularFile(journalURL, maximum: 65_536, expectedOwner: geteuid(), privateMode: true)
-      return try JSONDecoder().decode(Journal.self, from: bytes)
+      let journal = try JSONDecoder().decode(Journal.self, from: bytes)
+      _ = try installed(journal)
+      return journal
     } catch { throw MacMaintenanceError.recoveryRequired }
   }
   private func swap(_ left: URL, _ right: URL) throws {
@@ -328,14 +413,45 @@ final class MacAppTransaction {
     return journal
   }
 
-  /// The caller must have independently verified the new GUI, Engine and
-  /// extension versions. Backups remain available after this acknowledgement.
-  func confirm(identifier: UUID, digest: String, componentsHealthy: Bool) throws {
-    guard var journal = try recover(), journal.identifier == identifier,
-      journal.stage == "awaiting_health", componentsHealthy,
-      journal.candidateDigest == digest else { throw MacMaintenanceError.recoveryRequired }
+  /// Commit verified health and its replay receipt in the same atomic journal
+  /// write. An identical retry survives process restarts and remains harmless
+  /// after report expiry. Every other acknowledgement requires fresh evidence.
+  @discardableResult
+  func confirm(_ acknowledgement: MacHealthAcknowledgement) throws -> HealthConfirmation {
+    let fingerprint = try acknowledgement.fingerprint()
+    guard var journal = try read() else { throw MacMaintenanceError.recoveryRequired }
+    let app = try installed(journal)
+    let candidate = MacCandidateIdentity(transactionID: journal.identifier,
+      bundleIdentifier: MacReleaseTrust.identifier, version: journal.candidateVersion,
+      architecture: journal.architecture, bundleDigest: journal.candidateDigest)
+    guard acknowledgement.candidate.identity == candidate,
+      try MacBundleIdentity.digest(app) == journal.candidateDigest,
+      try MacBundleIdentity.digest(backup(journal)) == journal.previousDigest else {
+      throw MacMaintenanceError.healthUnverified
+    }
+    if let receipt = journal.healthReceipt {
+      guard journal.stage == "confirmed", receipt.operationID == acknowledgement.operationID,
+        receipt.acknowledgementDigest == fingerprint else { throw MacMaintenanceError.healthUnverified }
+      return .duplicate
+    }
+    let instant = now()
+    guard ["prepared", "awaiting_health"].contains(journal.stage),
+      acknowledgement.issuedAt <= instant, acknowledgement.expiresAt > instant else {
+      throw MacMaintenanceError.healthUnverified
+    }
+    try verifier.verify(app, version: journal.candidateVersion, architecture: journal.architecture)
+    try healthVerifier.verify(acknowledgement, candidate: candidate)
+    let verifiedInstant = now()
+    guard acknowledgement.issuedAt <= verifiedInstant, acknowledgement.expiresAt > verifiedInstant,
+      try MacBundleIdentity.digest(app) == journal.candidateDigest,
+      try MacBundleIdentity.digest(backup(journal)) == journal.previousDigest else {
+      throw MacMaintenanceError.healthUnverified
+    }
     journal.stage = "confirmed"
+    journal.healthReceipt = HealthReceipt(operationID: acknowledgement.operationID,
+      acknowledgementDigest: fingerprint, verifiedAt: verifiedInstant)
     try write(journal)
+    return .confirmed
   }
 }
 

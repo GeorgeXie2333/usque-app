@@ -34,6 +34,8 @@ def macho(architecture="arm64", *, minimum=0x000D0000, subtype=None, target_plat
 def write(path: Path, data: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(data)
+    if data[:4] in macos_package.MACHO_MAGICS:
+        path.chmod(0o755)
 
 
 def flutter_fixture(app: Path, architecture="arm64") -> None:
@@ -67,17 +69,31 @@ def verification_fixture(app: Path, architecture="arm64") -> None:
     write(app / "Contents/MacOS/UsqueProtonVerification", macho(architecture))
     write(
         app / "Contents/Info.plist",
-        plistlib.dumps({"CFBundleIdentifier": macos_package.IDENTIFIER + ".proton-verification"}),
+        plistlib.dumps(
+            {
+                "CFBundleIdentifier": macos_package.IDENTIFIER + ".proton-verification",
+                "CFBundleExecutable": macos_package.VERIFICATION_NAME,
+                "LSMinimumSystemVersion": "13.0",
+                "UsqueCEFSandboxRequired": True,
+            }
+        ),
     )
     write(
         app
         / "Contents/Frameworks/Chromium Embedded Framework.framework/Chromium Embedded Framework",
         macho(architecture),
     )
-    write(
-        app / "Contents/Frameworks/UsqueProtonVerification Helper.app/Contents/MacOS/Helper",
-        macho(architecture),
-    )
+    for name in ("icudtl.dat", f"v8_context_snapshot.{architecture}.bin"):
+        write(
+            app / "Contents/Frameworks/Chromium Embedded Framework.framework/Resources" / name,
+            b"synthetic CEF data",
+        )
+    for suffix in macos_package.VERIFICATION_HELPER_SUFFIXES:
+        helper = macos_package.VERIFICATION_NAME + " Helper" + suffix
+        write(
+            app / "Contents/Frameworks" / (helper + ".app") / "Contents/MacOS" / helper,
+            macho(architecture),
+        )
 
 
 class MacOSPackageTests(unittest.TestCase):
@@ -205,10 +221,21 @@ class MacOSPackageTests(unittest.TestCase):
             self.assertEqual(len(document["files"]), len(manifest["files"]))
             info_path = output / "Usque.app/Contents/Info.plist"
             info = plistlib.loads(info_path.read_bytes())
-            info["UsqueProductionCapable"] = True
-            info_path.write_bytes(plistlib.dumps(info))
-            with self.assertRaises(ValueError):
-                macos_package.inspect_bundle(output / "Usque.app", "x86_64")
+            for key in (
+                "UsqueProductionCapable",
+                "UsqueAutomaticInstallationEnabled",
+                "UsqueSignedPrototype",
+            ):
+                for value in (True, 0, None):
+                    with self.subTest(key=key, value=value):
+                        invalid = dict(info)
+                        if value is None:
+                            invalid.pop(key)
+                        else:
+                            invalid[key] = value
+                        info_path.write_bytes(plistlib.dumps(invalid))
+                        with self.assertRaises(ValueError):
+                            macos_package.inspect_bundle(output / "Usque.app", "x86_64")
 
     def test_missing_or_non_executable_components_fail_verification(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -234,7 +261,7 @@ class MacOSPackageTests(unittest.TestCase):
                 prototype_fixture(prototype, architecture)
                 verification_fixture(verification, architecture)
                 engine.write_bytes(macho(architecture))
-                maintenance.write_bytes(macho(architecture))
+                write(maintenance, macho(architecture))
                 with patch.object(macos_package, "run", return_value=""):
                     manifest = macos_package.package(
                         source,
@@ -248,7 +275,7 @@ class MacOSPackageTests(unittest.TestCase):
                         verification=verification,
                         maintenance=maintenance,
                     )
-                self.assertEqual(len(manifest["mach_o"]), 13)
+                self.assertEqual(len(manifest["mach_o"]), 17)
                 self.assertEqual(
                     manifest["components"]["proton_cef_verification"],
                     "included_signed_launch_acceptance_pending",
@@ -260,7 +287,7 @@ class MacOSPackageTests(unittest.TestCase):
                 other = "arm64" if architecture == "x86_64" else "x86_64"
                 nested = (
                     verification
-                    / "Contents/Frameworks/UsqueProtonVerification Helper.app/Contents/MacOS/Helper"
+                    / "Contents/Frameworks/UsqueProtonVerification Helper.app/Contents/MacOS/UsqueProtonVerification Helper"
                 )
                 nested.write_bytes(macho(other))
                 with (
@@ -278,6 +305,80 @@ class MacOSPackageTests(unittest.TestCase):
                         verification=verification,
                         maintenance=maintenance,
                     )
+
+    def test_incomplete_or_sandbox_disabled_cef_cannot_pass_package_inspection(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source, prototype, engine = root / "GUI.app", root / "Prototype.app", root / "engine"
+            verification = root / "CEF.app"
+            maintenance = root / "maintenance"
+            flutter_fixture(source)
+            prototype_fixture(prototype)
+            verification_fixture(verification)
+            engine.write_bytes(macho())
+            write(maintenance, macho())
+            destination = root / "Usque.app"
+            with patch.object(macos_package, "run", return_value=""):
+                macos_package.assemble_app(
+                    source,
+                    engine,
+                    prototype,
+                    destination,
+                    "arm64",
+                    "0.3.3",
+                    "29",
+                    verification=verification,
+                    maintenance=maintenance,
+                )
+            cef = destination / "Contents/Helpers/UsqueProtonVerification.app"
+            for path in macos_package.required_files(destination):
+                if path.is_relative_to(cef):
+                    original = path.read_bytes()
+                    path.unlink()
+                    with self.subTest(missing=path.relative_to(cef)), self.assertRaises(ValueError):
+                        macos_package.inspect_bundle(destination, "arm64")
+                    path.write_bytes(original)
+                    path.chmod(0o755)
+            for path in macos_package.required_resources(destination, "arm64"):
+                original = path.read_bytes()
+                path.unlink()
+                with self.subTest(missing=path.name), self.assertRaises(ValueError):
+                    macos_package.inspect_bundle(destination, "arm64")
+                path.write_bytes(b"")
+                with self.subTest(empty=path.name), self.assertRaises(ValueError):
+                    macos_package.inspect_bundle(destination, "arm64")
+                path.write_bytes(original)
+            snapshot = macos_package.required_resources(destination, "arm64")[1]
+            wrong_architecture = snapshot.with_name("v8_context_snapshot.x86_64.bin")
+            snapshot.rename(wrong_architecture)
+            with self.assertRaises(ValueError):
+                macos_package.inspect_bundle(destination, "arm64")
+            wrong_architecture.rename(snapshot)
+            for path in macos_package.required_files(destination):
+                if path.parent.name == "MacOS" or path.name in {
+                    "usque-macos-control",
+                    "usque-maintenance",
+                }:
+                    for mode in (0o644, 0o744, 0o645):
+                        path.chmod(mode)
+                        with (
+                            self.subTest(non_executable=path.name, mode=mode),
+                            self.assertRaises(ValueError),
+                        ):
+                            macos_package.inspect_bundle(destination, "arm64")
+                    path.chmod(0o755)
+            info_path = cef / "Contents/Info.plist"
+            original = plistlib.loads(info_path.read_bytes())
+            for key, value in (
+                ("UsqueCEFSandboxRequired", False),
+                ("CFBundleIdentifier", "untrusted.component"),
+                ("CFBundleExecutable", "Other"),
+                ("LSMinimumSystemVersion", "14.0"),
+            ):
+                invalid = {**original, key: value}
+                info_path.write_bytes(plistlib.dumps(invalid))
+                with self.subTest(key=key), self.assertRaises(ValueError):
+                    macos_package.inspect_bundle(destination, "arm64")
 
     def test_cef_identity_and_maintenance_architecture_cannot_be_substituted(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

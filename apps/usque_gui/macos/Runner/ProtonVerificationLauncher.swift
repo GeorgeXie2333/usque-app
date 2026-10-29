@@ -47,7 +47,7 @@ final class ProtonVerificationLauncher {
     }
     let session = Session(result: result)
     session.process.executableURL = executable
-    session.process.arguments = []
+    session.process.arguments = ["--stdio"]
     session.process.environment = ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin"]
     session.process.standardInput = session.input
     session.process.standardOutput = session.output

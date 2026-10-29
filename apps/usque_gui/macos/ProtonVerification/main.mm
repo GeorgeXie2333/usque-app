@@ -9,6 +9,7 @@
 #include <unistd.h>
 
 #include "../../native/proton_verification.h"
+#include "launch_options.h"
 #include "include/cef_app.h"
 #include "include/cef_application_mac.h"
 #include "include/cef_browser.h"
@@ -315,7 +316,12 @@ class Verification final : public CefClient, public CefLifeSpanHandler,
   }
   void OnResourceLoadComplete(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame>,
       CefRefPtr<CefRequest> request, CefRefPtr<CefResponse>, URLRequestStatus status, int64_t) override {
-    if (!finished_ && status == UR_FAILED && !(probe_stage_ && request->GetURL() == handoff.ProbeHttps())) ErrorLater(@"PROTON_VERIFICATION_LOAD");
+    // The deliberately failed CONNECT probe can complete on the IO thread
+    // after the UI thread has accepted Ready and advanced to the challenge.
+    // Identify that expected failure by its immutable, session-bound URL;
+    // reading the current stage here would turn callback ordering into a
+    // spurious failure of an already established verification page.
+    if (!finished_ && status == UR_FAILED && request->GetURL() != handoff.ProbeHttps()) ErrorLater(@"PROTON_VERIFICATION_LOAD");
   }
   bool GetAuthCredentials(CefRefPtr<CefBrowser>, const CefString&, bool is_proxy,
       const CefString& host, int port, const CefString& realm, const CefString& scheme,
@@ -394,7 +400,8 @@ class BrowserApp final : public CefApp, public CefBrowserProcessHandler {
 @end
 
 int main(int argc, char** argv) {
-  const bool smoke = argc == 2 && std::string(argv[1]) == "--smoke-test";
+  const auto launch = usque::proton::macos::ParseLaunchOptions(argc, argv);
+  const bool smoke = launch.mode == usque::proton::macos::LaunchMode::kSmoke;
   signal(SIGPIPE, SIG_IGN);
   protocol_output = dup(STDOUT_FILENO);
   if (protocol_output < 0 || fcntl(protocol_output, F_SETFD, FD_CLOEXEC) != 0) return 1;
@@ -407,7 +414,12 @@ int main(int argc, char** argv) {
   // drains, including objects created by CEF initialization and shutdown.
   CefScopedLibraryLoader library;
   @autoreleasepool {
-    if (!smoke && (argc != 2 || std::string(argv[1]) != "--stdio")) { Respond(@"error", @"PROTON_VERIFICATION_INVALID"); return 1; }
+    if (launch.mode == usque::proton::macos::LaunchMode::kInteractiveDisabled) {
+      Respond(@"error", @"PROTON_VERIFICATION_INTERACTIVE_DISABLED"); return 1;
+    }
+    if (launch.mode == usque::proton::macos::LaunchMode::kInvalid) {
+      Respond(@"error", @"PROTON_VERIFICATION_INVALID"); return 1;
+    }
     CefRefPtr<Verification> client = new Verification;
     client->smoke = smoke;
     if (!smoke) {
@@ -423,6 +435,11 @@ int main(int argc, char** argv) {
         auto message = client->handoff.NetworkFailure(); Respond(@"success", nil, &message); return 0;
       }
       if (!client->handoff.proxy_port) { Respond(@"error", @"PROTON_VERIFICATION_INVALID"); return 1; }
+    }
+    // Automation uses this path even for an accidentally valid proxy handoff.
+    // Refuse before CEF loading, NSApplication creation or any browser work.
+    if (launch.no_interactive) {
+      Respond(@"error", @"PROTON_VERIFICATION_INTERACTIVE_DISABLED"); return 1;
     }
     if (!library.LoadInMain()) { Respond(@"error", @"PROTON_VERIFICATION_UNAVAILABLE"); return 1; }
     [VerificationApplication sharedApplication];

@@ -90,22 +90,46 @@ sandbox failure terminates the child. The browser always sets
 
 ## Isolated validation
 
+The default contract command is explicitly browser-free. It passes
+`--stdio --no-interactive` to the component; malformed input and physical-route
+recovery are handled before loading CEF, and even a valid proxy handoff must
+return `PROTON_VERIFICATION_INTERACTIVE_DISABLED` before browser initialization.
+An older component that does not recognize the extra flag also rejects the
+invocation before loading CEF. Rebuild it before expecting the updated six-case
+contract result.
+
 ```sh
 python3 tool/test_macos_proton_verification.py \
-  --app build/macos-proton-verification/arm64/UsqueProtonVerification.app
-
-python3 tool/test_macos_proton_verification.py \
   --app build/macos-proton-verification/arm64/UsqueProtonVerification.app \
-  --smoke --output build/macos-proton-verification/arm64/isolated-tests.json
+  --no-interactive
+
+python3 -m unittest discover -s tool \
+  -p test_macos_proton_verification_harness.py
 ```
 
-The first command exercises malformed framing and proxy handoff recovery
-without opening a browser. The second additionally requires WindowServer and
-starts only a fixed local data page and synthetic loopback proxy fixtures,
-including bound Basic authentication and a rejected foreign realm. It
-requires a clean browser exit; receiving a result followed by a forced kill or
+The harness unit tests launch only controlled Python fixtures and a pure C++
+argument-parser test. They cover opt-in rejection before child creation, private
+HOME isolation, bounded frames, input backpressure, process-group cleanup after
+the leader exits, proxy fixture responses and diagnostic redaction. They do not
+launch CEF or an app bundle, open sockets or request macOS permissions.
+
+Browser smoke is interactive and can open windows. Do not run it while the
+computer's user requires no windows or prompts. On a dedicated test session it
+requires **both** `--smoke` and explicit `--allow-interactive`; `--smoke` alone,
+or combined with `--no-interactive`, fails before running any checks. The native
+component likewise rejects bare `--smoke-test`; only
+`--smoke-test --allow-interactive` opts in. Ordinary signed account launches
+continue using `--stdio` after an explicit user action.
+
+An opted-in smoke uses only a fixed local data page and synthetic loopback
+proxy fixtures, including bound Basic authentication and a rejected foreign
+realm. It requires a clean browser exit; receiving a result followed by a forced kill or
 Chromium teardown watchdog failure is a failed test. Each fixture has a bounded
-timeout and cleans only its own process group.
+timeout, including input backpressure, and cleans only its own process group.
+Failure evidence separates the case name, child exit, fixed status/error code
+and stderr byte count. Auth fixtures additionally report only request/challenge
+counts and credential-acceptance booleans; response messages, headers,
+credentials, URLs and stderr contents are never copied into the report.
 
 Current validation (2026-10-29): both architecture builds pass their native
 Mach-O, macOS 13 minimum-version and ad-hoc integrity checks. The five framing
@@ -119,6 +143,13 @@ Chromium teardown watchdog failures with exit status `2`, including in a minimal
 client. The focused Keychain check does not establish full lifecycle or
 proxy-authentication reliability. Official account flow acceptance remains
 incomplete; keep the signed-launch capability gated.
+
+The subsequent browser-free changes add the launch guards and more precise
+failure evidence. They also remove a callback-ordering dependency: the expected
+failed CONNECT probe is identified by its immutable session URL even if its IO
+completion arrives after the UI has accepted the readiness proof. These changes
+have not been followed by a new browser run and do not establish that the
+historical authentication or shutdown failures are fixed.
 
 Cross compilation does not demonstrate Intel execution. These fixtures do not
 prove an official Proton challenge, signed application launch, macOS 13 device

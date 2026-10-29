@@ -71,6 +71,11 @@ link in Resources preserves the Flutter launch path. This also satisfies the
 Engine's canonical bundle lookup for `Contents/Helpers/usque-macos-control`.
 Every framework, Engine, helper and provider is inspected and ad-hoc signed
 after assembly. Passing this integrity check does not demonstrate VPN safety.
+When CEF is included, inspection requires its browser executable, framework and
+all five helper variants, required ICU/V8 data, and runnable program permissions,
+with the expected identity, macOS 13 target and required sandbox flag.
+Development, disabled-production, disabled-automatic-installation
+and disabled-signed-prototype flags are checked explicitly.
 The `build` command always includes CEF and maintenance. The lower-level
 `package` command permits omitting these components for fixtures and partial
 development builds, and records their absence explicitly in the manifest.
@@ -97,3 +102,8 @@ universal slices, symlink boundaries, nested CEF/helper assembly and development
 metadata. Real image builds and hardware acceptance must be recorded
 separately. The builder never claims Intel execution, macOS 13 hardware or
 signed system VPN acceptance from a successful cross build.
+
+Building, inspecting and these package fixtures do not launch the application,
+CEF or a browser. Use those background checks while the workstation is in use.
+WindowServer/CEF smoke, file-picker and permission tests are separate interactive
+acceptance steps and must not be started during a background-only run.

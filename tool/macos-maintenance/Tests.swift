@@ -15,6 +15,13 @@ private struct FixtureVerifier: MacBundleVerifier {
   }
 }
 
+private struct FixtureHealthVerifier: MacHealthVerifier {
+  func verify(_ acknowledgement: MacHealthAcknowledgement, candidate: MacCandidateIdentity) throws {
+    guard acknowledgement.evidence == Data("authenticated-test-health".utf8),
+      acknowledgement.candidate.identity == candidate else { throw MacMaintenanceError.healthUnverified }
+  }
+}
+
 @main
 enum MaintenanceTests {
   static func main() throws {
@@ -23,11 +30,13 @@ enum MaintenanceTests {
       ("failed verification", failedVerificationPreservesPrevious), ("tamper", tamperedRecoveryStops),
       ("confirmation", confirmationRetainsBackup), ("Rosetta migration", rosettaMigrationAndRollback),
       ("journal and lock fences", journalAndLockFences), ("bounded commands", boundedCommands),
-      ("interrupted swap", interruptedSwapRecovery)] {
+      ("interrupted swap", interruptedSwapRecovery), ("durable health retry", durableHealthRetry),
+      ("unverified health", unverifiedHealthPreservesBackup), ("invalid terminal journal", invalidTerminalJournal),
+      ("rollback receipt", rollbackRetainsHealthReceipt)] {
       do { try test(); print("Maintenance \(name): passed") }
       catch { print("Maintenance \(name): failed \(error)"); throw error }
     }
-    print("9 macOS maintenance contract groups passed (temporary fixtures, injected verifier)")
+    print("13 macOS maintenance contract groups passed (temporary fixtures, injected verifiers)")
   }
   private static func require(_ value: @autoclosure () -> Bool) throws {
     if !value() { throw NSError(domain: "MaintenanceTest", code: 1) }
@@ -101,9 +110,10 @@ enum MaintenanceTests {
     let current = root.appendingPathComponent("Usque.app")
     let candidate = root.appendingPathComponent("Candidate.app")
     try app(current, version: "1.0.0"); try app(candidate, version: "1.1.0")
-    let transaction = try MacAppTransaction(root: root, verifier: FixtureVerifier())
+    let transaction = try MacAppTransaction(root: root, verifier: FixtureVerifier(),
+      healthVerifier: FixtureHealthVerifier(), now: { 100_000 })
     let journal = try transaction.install(candidate: candidate, version: "1.1.0", architecture: "arm64")
-    try transaction.confirm(identifier: journal.identifier, digest: journal.candidateDigest, componentsHealthy: true)
+    try require(tryValue { try transaction.confirm(acknowledgement(journal)) } == .confirmed)
     try require(tryValue { try transaction.recover()?.stage } == "confirmed")
     try require(FileManager.default.fileExists(atPath: root.appendingPathComponent(".usque-update/\(journal.identifier.uuidString).app").path))
   }
@@ -172,6 +182,107 @@ enum MaintenanceTests {
     try JSONEncoder().encode(journal).write(to: path)
     try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: path.path)
     try require(tryValue { try transaction.recover()?.stage } == "awaiting_health")
+  }
+  private static func acknowledgement(_ journal: MacAppTransaction.Journal, operationID: UUID = UUID(),
+    transactionID: UUID? = nil, evidence: String = "authenticated-test-health",
+    issuedAt: Int64 = 100_000, expiresAt: Int64 = 101_000) -> MacHealthAcknowledgement {
+    MacHealthAcknowledgement(schemaVersion: 1, operationID: operationID,
+      candidate: .init(transactionID: transactionID ?? journal.identifier,
+        bundleIdentifier: MacReleaseTrust.identifier, version: journal.candidateVersion,
+        architecture: journal.architecture, bundleDigest: journal.candidateDigest),
+      issuedAt: issuedAt, expiresAt: expiresAt, evidence: Data(evidence.utf8))
+  }
+  private static func durableHealthRetry() throws {
+    let root = try folder()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let current = root.appendingPathComponent("Usque.app")
+    let candidate = root.appendingPathComponent("Candidate.app")
+    try app(current, version: "1.0.0"); try app(candidate, version: "1.1.0")
+    let journalPath = root.appendingPathComponent(".usque-update/transaction.json")
+    let ack: MacHealthAcknowledgement
+    do {
+      let transaction = try MacAppTransaction(root: root, verifier: FixtureVerifier(),
+        healthVerifier: FixtureHealthVerifier(), now: { 100_000 })
+      let journal = try transaction.install(candidate: candidate, version: "1.1.0", architecture: "arm64")
+      ack = acknowledgement(journal)
+      try require(tryValue { try transaction.confirm(ack) } == .confirmed)
+    }
+    let committed = try Data(contentsOf: journalPath)
+    // A new instance has no injected health authority and sees an expired
+    // request; only its exact, already committed replay can still succeed.
+    let restarted = try MacAppTransaction(root: root, verifier: FixtureVerifier(), now: { 200_000 })
+    try require(tryValue { try restarted.confirm(ack) } == .duplicate)
+    try require(tryValue { try Data(contentsOf: journalPath) } == committed)
+    let journal = try JSONDecoder().decode(MacAppTransaction.Journal.self, from: committed)
+    let changed = acknowledgement(journal, operationID: ack.operationID, evidence: "changed-proof")
+    do { _ = try restarted.confirm(changed); try require(false) }
+    catch MacMaintenanceError.healthUnverified {}
+    try require(tryValue { try Data(contentsOf: journalPath) } == committed)
+    try require(!String(decoding: committed, as: UTF8.self).contains("evidence"))
+  }
+  private static func unverifiedHealthPreservesBackup() throws {
+    let root = try folder()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let current = root.appendingPathComponent("Usque.app")
+    let candidate = root.appendingPathComponent("Candidate.app")
+    try app(current, version: "1.0.0"); try app(candidate, version: "1.1.0")
+    let journal: MacAppTransaction.Journal
+    do {
+      let transaction = try MacAppTransaction(root: root, verifier: FixtureVerifier(), now: { 100_000 })
+      journal = try transaction.install(candidate: candidate, version: "1.1.0", architecture: "arm64")
+      do { _ = try transaction.confirm(acknowledgement(journal)); try require(false) }
+      catch MacMaintenanceError.healthUnverified {}
+    }
+    let transaction = try MacAppTransaction(root: root, verifier: FixtureVerifier(),
+      healthVerifier: FixtureHealthVerifier(), now: { 100_000 })
+    let path = root.appendingPathComponent(".usque-update/transaction.json")
+    let original = try Data(contentsOf: path)
+    for invalid in [acknowledgement(journal, evidence: "forged-proof"),
+      acknowledgement(journal, transactionID: UUID()),
+      acknowledgement(journal, issuedAt: 98_000, expiresAt: 99_000),
+      acknowledgement(journal, evidence: String(repeating: "x", count: 16_385))] {
+      do { _ = try transaction.confirm(invalid); try require(false) }
+      catch MacMaintenanceError.healthUnverified {}
+      try require(tryValue { try Data(contentsOf: path) } == original)
+    }
+    try require(FileManager.default.fileExists(atPath: root.appendingPathComponent(".usque-update/\(journal.identifier.uuidString).app").path))
+  }
+  private static func invalidTerminalJournal() throws {
+    let root = try folder()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let current = root.appendingPathComponent("Usque.app")
+    let candidate = root.appendingPathComponent("Candidate.app")
+    try app(current, version: "1.0.0"); try app(candidate, version: "1.1.0")
+    let transaction = try MacAppTransaction(root: root, verifier: FixtureVerifier())
+    var journal = try transaction.install(candidate: candidate, version: "1.1.0", architecture: "arm64")
+    journal.stage = "confirmed" // A confirmation without a verified receipt is invalid.
+    let path = root.appendingPathComponent(".usque-update/transaction.json")
+    let invalid = try JSONEncoder().encode(journal)
+    try invalid.write(to: path)
+    try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: path.path)
+    let later = root.appendingPathComponent("Later.app")
+    try app(later, version: "1.2.0")
+    do { _ = try transaction.install(candidate: later, version: "1.2.0", architecture: "arm64"); try require(false) }
+    catch MacMaintenanceError.recoveryRequired {}
+    try require(tryValue { try Data(contentsOf: path) } == invalid)
+    try require(tryValue { try MacBundleIdentity.read(current).version } == "1.1.0")
+  }
+  private static func rollbackRetainsHealthReceipt() throws {
+    let root = try folder()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let current = root.appendingPathComponent("Usque.app")
+    let candidate = root.appendingPathComponent("Candidate.app")
+    try app(current, version: "1.0.0"); try app(candidate, version: "1.1.0")
+    let transaction = try MacAppTransaction(root: root, verifier: FixtureVerifier(),
+      healthVerifier: FixtureHealthVerifier(), now: { 100_000 })
+    let journal = try transaction.install(candidate: candidate, version: "1.1.0", architecture: "arm64")
+    let ack = acknowledgement(journal)
+    _ = try transaction.confirm(ack)
+    let rolledBack = try transaction.recover(rollback: true)
+    try require(rolledBack?.stage == "rolled_back" && rolledBack?.healthReceipt?.operationID == ack.operationID)
+    do { _ = try transaction.confirm(ack); try require(false) }
+    catch MacMaintenanceError.healthUnverified {}
+    try require(FileManager.default.fileExists(atPath: root.appendingPathComponent(".usque-update/\(journal.identifier.uuidString).app").path))
   }
   private static func tryValue<T>(_ body: () throws -> T) -> T? { try? body() }
 }
