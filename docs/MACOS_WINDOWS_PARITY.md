@@ -36,6 +36,7 @@ hardware. None of the isolated results establishes physical-egress safety.
 | Tray/background controls | Native menu bar status, connect/disconnect, VPN/proxy actions, hidden-window updates, explicit disconnect-and-quit | Native contract/type checks; real tray interaction pending |
 | Window lifecycle | Close-to-menu-bar default, Dock reopening, single-instance activation, remembered/clamped window position | Native contract/type checks; signed release UI acceptance pending |
 | Settings and shortcuts | Native Settings menu, Cmd+,; Cmd+1–4 and Cmd+S; existing unsaved-change guards | Dart widget and native contracts |
+| Traditional Chinese | Existing Hong Kong/Taiwan catalogs now also drive native menus, app-owned file-dialog copy and CEF UI language; framework controls use the same resolver and hidden windows follow system language changes | Headless language-switch/persistence regressions and native contracts; actual window display remains untested |
 | Login startup and notifications | SMAppService default off, authorization/cancel retry, native notifications | Build/contracts; real permission dialogs and login reboot pending |
 | Configuration import/export and diagnostics | Bounded batch file picker, JSON credential/config saves, diagnostics saved as ZIP | Dart regression/native contracts; real file-dialog acceptance pending |
 | Zero Trust browser login | ASWebAuthenticationSession callback, strict organization/path/token validation, attempt fencing and cancellation | Isolated URL/lifecycle checks; actual identity-provider login pending |
@@ -112,6 +113,23 @@ Mach-O checks, required CEF data/helper checks and ad-hoc/image integrity checks
 Nothing was installed or launched as an application. The current CEF executable
 contracts and actual proxy/renderer smoke were not run, so the historical
 authentication and teardown failures remain unresolved acceptance items.
+
+## Traditional Chinese follow-up
+
+Select **繁體中文（香港）** or **繁體中文（台灣）** in Settings → Language,
+or follow the system language. The existing 21 application catalogs and saved
+preference names are preserved. AppKit menu items, application-owned dialog copy,
+errors and the bundled CEF window title now follow the resolved Chinese catalog.
+CEF uses its supported `zh-TW` locale for both Traditional variants; the official
+verification website controls its own page language.
+
+The [Traditional Chinese validation record](MACOS_TRADITIONAL_CHINESE_VALIDATION.json)
+binds the source tree to fresh arm64/x86_64 development images. The final Flutter
+non-golden suite passed 1,302 tests with 1 skipped; native desktop contracts passed
+10 groups, CEF's fake/pure harness passed 21 tests and package fixtures passed 12.
+Static analysis and compile-only builds passed. No application/CEF process,
+native window, permission prompt or system integration was started for this work.
+Visual display, official verification and signed network acceptance remain pending.
 
 ## Remaining acceptance
 
