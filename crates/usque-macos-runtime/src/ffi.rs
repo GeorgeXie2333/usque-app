@@ -310,14 +310,65 @@ pub unsafe extern "C" fn usque_macos_runtime_send_packet(
     if !matches!(packet[0] >> 4, 4 | 6) {
         return -1;
     }
-    let snapshot = handle.controller.snapshot();
+    queue_packet(handle, packet, None)
+}
+/// Queue a packet captured under an exact session/revision/network generation.
+/// Native backpressure must never relabel an old packet as a new session.
+///
+/// # Safety
+/// Handle/input lifetime rules match runtime_command. Session is bounded JSON.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn usque_macos_runtime_send_session_packet(
+    handle: *mut RuntimeHandle,
+    data: *const u8,
+    len: usize,
+    session: *const u8,
+    session_len: usize,
+) -> i32 {
+    // SAFETY: Caller guarantees live allocations; null/lengths are checked.
+    let Some(handle) = (unsafe { handle.as_ref() }) else {
+        return -1;
+    };
+    // SAFETY: Read only the bounded input allocations guaranteed by the caller.
+    let Some(packet) = (unsafe { bytes(data, len, MAX_PACKET_BYTES) }) else {
+        return -1;
+    };
+    // SAFETY: Same bounded allocation contract for the session JSON.
+    let Some(session) = (unsafe { bytes(session, session_len, 512) }) else {
+        return -1;
+    };
+    let Ok(expected) = serde_json::from_slice::<SessionKey>(session) else {
+        return -1;
+    };
+    if !matches!(packet[0] >> 4, 4 | 6) {
+        return -1;
+    }
+    queue_packet(handle, packet, Some(&expected))
+}
+fn queue_packet(handle: &RuntimeHandle, packet: &[u8], expected: Option<&SessionKey>) -> i32 {
+    enqueue_packet(
+        handle.controller.snapshot(),
+        &handle.packets,
+        packet,
+        expected,
+    )
+}
+fn enqueue_packet(
+    snapshot: Snapshot,
+    endpoint: &Mutex<PacketEndpoint>,
+    packet: &[u8],
+    expected: Option<&SessionKey>,
+) -> i32 {
     if snapshot.phase != Phase::Connected {
         return -3;
     }
     let Some(session) = snapshot.session else {
         return -3;
     };
-    let Ok(packets) = handle.packets.lock() else {
+    if expected.is_some_and(|expected| expected != &session) {
+        return -3;
+    }
+    let Ok(packets) = endpoint.lock() else {
         return -1;
     };
     match packets.outgoing.try_send(SessionPacket {
@@ -526,5 +577,71 @@ pub unsafe extern "C" fn usque_macos_policy_free(policy: *mut PolicyEvaluator) {
     if !policy.is_null() {
         // SAFETY: Return ownership of policy_new_json's Box exactly once.
         drop(unsafe { Box::from_raw(policy) });
+    }
+}
+
+#[cfg(test)]
+mod packet_tests {
+    use super::*;
+    use tokio::sync::mpsc;
+    use uuid::Uuid;
+
+    #[test]
+    fn delayed_native_packets_cannot_enter_a_replacement_session() {
+        let old = SessionKey {
+            session_id: Uuid::new_v4(),
+            config_revision: 1,
+            network_generation: 7,
+        };
+        let current = SessionKey {
+            config_revision: 2,
+            ..old.clone()
+        };
+        let (outgoing, mut receiver) = mpsc::channel(1);
+        let (_, incoming) = mpsc::channel(1);
+        let endpoint = Mutex::new(PacketEndpoint { outgoing, incoming });
+        let connected = Snapshot {
+            phase: Phase::Connected,
+            session: Some(current.clone()),
+            ..Snapshot::default()
+        };
+        let packet = [0x45, 0, 0, 20];
+        for stale in [
+            old,
+            SessionKey {
+                network_generation: 8,
+                ..current.clone()
+            },
+            SessionKey {
+                session_id: Uuid::new_v4(),
+                ..current.clone()
+            },
+        ] {
+            assert_eq!(
+                enqueue_packet(connected.clone(), &endpoint, &packet, Some(&stale)),
+                -3
+            );
+            assert!(receiver.try_recv().is_err());
+        }
+        assert_eq!(
+            enqueue_packet(connected.clone(), &endpoint, &packet, Some(&current)),
+            0
+        );
+        assert_eq!(
+            enqueue_packet(connected.clone(), &endpoint, &packet, Some(&current)),
+            -2
+        );
+        let queued = receiver.try_recv().unwrap();
+        assert_eq!(queued.session, current);
+        assert_eq!(queued.bytes.as_ref(), packet);
+        let protected = Snapshot {
+            phase: Phase::Protected,
+            ..connected
+        };
+        assert_eq!(
+            enqueue_packet(protected, &endpoint, &packet, Some(&current)),
+            -3
+        );
+        assert!(receiver.try_recv().is_err());
     }
 }

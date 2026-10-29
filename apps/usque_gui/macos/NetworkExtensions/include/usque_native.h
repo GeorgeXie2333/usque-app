@@ -15,6 +15,7 @@ void *usque_macos_runtime_create_with_broker(UsquePlatformAction, UsqueCredentia
 int32_t usque_macos_runtime_command(void *, const uint8_t *, size_t, UsqueBuffer *);
 int32_t usque_macos_runtime_snapshot(void *, UsqueBuffer *);
 int32_t usque_macos_runtime_send_packet(void *, const uint8_t *, size_t);
+int32_t usque_macos_runtime_send_session_packet(void *, const uint8_t *, size_t, const uint8_t *, size_t);
 int32_t usque_macos_runtime_receive_packet(void *, UsqueBuffer *);
 void usque_macos_buffer_free(UsqueBuffer);
 void usque_macos_runtime_destroy(void *);

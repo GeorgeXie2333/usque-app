@@ -12,9 +12,9 @@ const kMacDesktopEn = <String, String>{
   'macos_proxy_failed':
       'The system proxy could not be applied. Check the active network service and retry.',
   'macos_warp_connection_required':
-      'Connect WARP first, then retry this request.',
+      'Connect WARP with chain proxy disabled, then refresh VPN Gate and select a server.',
   'macos_output_unavailable':
-      'This installation does not yet provide system VPN.',
+      'System VPN requires a signed Network Extension build; this development installation supports proxy mode.',
   'macos_proxy_unavailable':
       'System proxy is unavailable in this installation.',
   'macos_kill_switch_unavailable':
@@ -30,8 +30,8 @@ const kMacDesktopZhCN = <String, String>{
   'macos_proxy_permission': '尚未获得系统代理权限。请重新开启代理以重试授权。',
   'macos_proxy_recovery': '系统代理仍待恢复。请重新打开 Usque 或先导出诊断，再修改网络设置。',
   'macos_proxy_failed': '未能应用系统代理，请检查当前网络服务后重试。',
-  'macos_warp_connection_required': '请先连接 WARP，再重试此操作。',
-  'macos_output_unavailable': '此安装版本尚未提供系统 VPN。',
+  'macos_warp_connection_required': '请先关闭链式代理并连接 WARP，再刷新 VPN Gate 列表并选择服务器。',
+  'macos_output_unavailable': '系统 VPN 需要签署的网络扩展版本；此开发版本支持代理模式。',
   'macos_proxy_unavailable': '此安装版本尚未提供系统代理。',
   'macos_kill_switch_unavailable': '此设置为 VPN 保留。此安装版本尚未提供系统 VPN 保护；代理模式不受断网保护。',
   'macos_quit_failed': '尚未确认断开连接，请重试“断开”后再退出。',
@@ -44,8 +44,9 @@ const kMacDesktopZhHant = <String, String>{
   'macos_proxy_permission': '尚未取得系統代理權限。請重新開啟代理以重試授權。',
   'macos_proxy_recovery': '系統代理仍待恢復。請重新開啟 Usque 或先匯出診斷，再修改網路設定。',
   'macos_proxy_failed': '未能套用系統代理，請檢查目前網路服務後重試。',
-  'macos_warp_connection_required': '請先連線至 WARP，再重試此操作。',
-  'macos_output_unavailable': '此安裝版本尚未提供系統 VPN。',
+  'macos_warp_connection_required':
+      '請先關閉鏈式代理並連線至 WARP，再重新整理 VPN Gate 清單並選擇伺服器。',
+  'macos_output_unavailable': '系統 VPN 需要經簽署的網路延伸功能版本；此開發版本支援代理模式。',
   'macos_proxy_unavailable': '此安裝版本尚未提供系統代理。',
   'macos_kill_switch_unavailable': '此設定供 VPN 使用。此安裝版本尚未提供系統 VPN 保護；代理模式不受斷網保護。',
   'macos_quit_failed': '尚未確認中斷連線，請重試「中斷」後再退出。',

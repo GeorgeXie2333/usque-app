@@ -260,7 +260,9 @@ class _VpnGateChainEditorState extends State<VpnGateChainEditor>
       }
     } on Object {
       if (mounted && query == _query) {
-        setState(() => _fetchError = 'gate_fetch_error');
+        setState(
+          () => _fetchError = _controller.strings.get('gate_fetch_error'),
+        );
       }
       if (refreshIfOld && mounted && query == _query) await _refresh();
     } finally {
@@ -284,7 +286,9 @@ class _VpnGateChainEditorState extends State<VpnGateChainEditor>
       if (!value.refreshing) await _load();
     } on Object {
       if (mounted && _foreground && query == _query && _fetchError == null) {
-        setState(() => _fetchError = 'gate_fetch_error');
+        setState(
+          () => _fetchError = _controller.strings.get('gate_fetch_error'),
+        );
       }
     } finally {
       _pollingRefresh = false;
@@ -312,11 +316,11 @@ class _VpnGateChainEditorState extends State<VpnGateChainEditor>
     _refreshRequest = request;
     try {
       await request;
-    } on Object {
+    } on Object catch (error) {
       if (mounted && generation == _refreshGeneration) {
         setState(() {
           _ownsRefresh = false;
-          _fetchError = 'gate_fetch_error';
+          _fetchError = userFacingError(controller.strings, error);
         });
       }
     } finally {
@@ -338,7 +342,9 @@ class _VpnGateChainEditorState extends State<VpnGateChainEditor>
       await _stopRefresh(controller, pending);
     } on Object {
       if (mounted && generation == _refreshGeneration) {
-        setState(() => _fetchError = 'gate_fetch_error');
+        setState(
+          () => _fetchError = _controller.strings.get('gate_fetch_error'),
+        );
       }
     }
     if (mounted && generation == _refreshGeneration) {
@@ -705,7 +711,7 @@ class _VpnGateChainEditorState extends State<VpnGateChainEditor>
                     padding: const EdgeInsets.only(bottom: 16),
                     child: WarningBanner(
                       title: strings.get('error_generic'),
-                      message: strings.get(_fetchError!),
+                      message: _fetchError!,
                       danger: true,
                     ),
                   ),

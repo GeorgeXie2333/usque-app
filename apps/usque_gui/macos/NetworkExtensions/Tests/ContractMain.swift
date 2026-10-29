@@ -9,6 +9,30 @@ import Foundation
     }
     static func main() throws {
         let key = SessionKey(session_id:UUID(),config_revision:1,network_generation:7)
+        var batch = PacketBatch()
+        let packet = Data([0x45, 0, 0, 20])
+        try batch.append([packet], captured: key, current: key)
+        assert(batch.first == packet && batch.session == key)
+        let replaced = SessionKey(session_id:key.session_id,config_revision:2,network_generation:7)
+        batch.discardUnlessCurrent(replaced)
+        assert(batch.isEmpty)
+        // A delayed read callback must not attach old packets to a replacement.
+        try batch.append([packet], captured:key, current:replaced)
+        assert(batch.isEmpty)
+        try batch.append([packet], captured:replaced, current:replaced)
+        batch.discardUnlessCurrent(SessionKey(session_id:key.session_id,config_revision:2,network_generation:8))
+        assert(batch.isEmpty)
+        try batch.append([packet], captured:nil, current:key)
+        assert(batch.isEmpty)
+        expectFailure { try batch.append(Array(repeating:packet,count:257),captured:key,current:key) }
+        expectFailure { try batch.append([Data()],captured:key,current:key) }
+        expectFailure { try batch.append([Data(repeating:0,count:65_536)],captured:key,current:key) }
+        expectFailure { try batch.append(Array(repeating:Data(repeating:0,count:65_535),count:65),captured:key,current:key) }
+        assert(batch.isEmpty)
+        try batch.append([packet],captured:key,current:key)
+        batch.discardUnlessCurrent(nil)
+        assert(batch.isEmpty)
+        print("Packet backpressure session/revision/path fencing and memory bounds: passed")
         let state = NativeState()
         assert(state.snapshot()["protection_active"] as? Bool == true)
         assert(state.snapshot()["error_code"] as? String == "missing_credentials")

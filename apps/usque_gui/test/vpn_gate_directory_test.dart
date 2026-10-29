@@ -1,10 +1,55 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:usque/models/app_models.dart';
+import 'package:usque/services/engine_client.dart';
 
 import 'vpngate_test.dart' show GateEngine, host, showGateControl;
 
+class WarpRequiredEngine extends GateEngine {
+  @override
+  Future<void> refreshVpnGate({bool cancel = false}) async {
+    if (!cancel) {
+      throw const EngineException(
+        'MACOS_WARP_CONNECTION_REQUIRED',
+        'private backend detail',
+      );
+    }
+  }
+}
+
 void main() {
+  testWidgets('macOS catalogue refresh explains the WARP prerequisite', (
+    tester,
+  ) async {
+    final app = await host(
+      tester,
+      WarpRequiredEngine(),
+      locale: LocalePreference.english,
+    );
+    await showGateControl(
+      tester,
+      find.byKey(const ValueKey('vpn-gate-refresh')),
+    );
+    await tester.tap(find.text(app.strings.get('gate_refresh')));
+    await tester.pumpAndSettle();
+    await showGateControl(
+      tester,
+      find.text(app.strings.get('macos_warp_connection_required')),
+      delta: -200,
+    );
+    expect(
+      find.text(app.strings.get('macos_warp_connection_required')),
+      findsOneWidget,
+    );
+    expect(find.textContaining('private backend detail'), findsNothing);
+    // A rejected request is not polled as an active download.
+    await tester.pump(const Duration(seconds: 3));
+    expect(
+      find.text(app.strings.get('macos_warp_connection_required')),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+  });
   for (final platform in [TargetPlatform.windows, TargetPlatform.android]) {
     testWidgets(
       'directory failures after scrolling preserve page and text state: $platform',
