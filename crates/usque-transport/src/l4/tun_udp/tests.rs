@@ -456,6 +456,64 @@ async fn conflicting_domain_hint_only_changes_new_udp_flows() {
 }
 
 #[tokio::test]
+async fn issue_135_conflicting_dns_answers_preserve_cidr_and_explicit_proxy_precedence() {
+    use usque_core::RoutingAction::{Direct, Proxy};
+
+    for (cidr, explicit_proxy, direct) in [
+        (None, false, false),
+        (Some(Direct), false, true),
+        (Some(Proxy), false, false),
+        (Some(Direct), true, false),
+    ] {
+        let mut fixture = Fixture::new(true, 60).await;
+        let mut rules = Vec::new();
+        if let Some(action) = cidr {
+            rules.push(("127.0.0.0/8", action));
+        }
+        if explicit_proxy {
+            rules.push(("tunnel.test", Proxy));
+        }
+        let profile = crate::geo_direct::routing_test_profile(&rules);
+        let policy = &fixture.services.geo_policy;
+        policy
+            .publish_routing_update(policy.prepare_routing_update(&profile).unwrap())
+            .unwrap();
+
+        // Exercise real Split DNS observation and TUN admission. Both DNS
+        // paths answer with the same loopback IP. With no CIDR, first prove
+        // the DIRECT hint exists, then use another flow after the conflict.
+        fixture.dns("direct.test").await;
+        let initial_direct = usize::from(cidr.is_none());
+        if cidr.is_none() {
+            fixture.udp_from(41999).await;
+            assert_eq!(fixture.direct_packets.load(Ordering::SeqCst), 1);
+            assert!(fixture.associations.sent.lock().unwrap().is_empty());
+        }
+        fixture.dns("tunnel.test").await;
+        fixture.udp().await;
+        assert_eq!(
+            fixture.direct_packets.load(Ordering::SeqCst),
+            initial_direct + usize::from(direct),
+            "CIDR {cidr:?}, explicit PROXY {explicit_proxy}"
+        );
+        assert_eq!(
+            fixture.protector.direct_attempts.load(Ordering::SeqCst),
+            initial_direct + usize::from(direct)
+        );
+        let tunneled = fixture.associations.sent.lock().unwrap().clone();
+        assert_eq!(
+            tunneled,
+            if direct {
+                Vec::new()
+            } else {
+                vec![TcpTarget::address(fixture.remote)]
+            }
+        );
+        fixture.shutdown().await;
+    }
+}
+
+#[tokio::test]
 async fn routing_revisions_preserve_admitted_udp_paths_and_apply_to_new_targets() {
     let mut fixture = Fixture::new(true, 60).await;
     fixture.udp().await;
