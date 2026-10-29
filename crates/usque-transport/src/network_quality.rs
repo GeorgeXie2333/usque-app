@@ -334,7 +334,8 @@ pub struct H2FlowControlQuality {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NetworkQualitySnapshot {
     pub transport_performance: Option<crate::TransportPerformanceSnapshot>,
-    /// Runtime gateway observations exported locally, not through the UI wire schema.
+    /// Runtime gateway observations for local diagnostics, including Android's
+    /// allowlisted JNI snapshot. Not part of the desktop protobuf UI schema.
     pub direct_gateway: Option<crate::DirectGatewaySnapshot>,
     pub sampled_at: Instant,
     pub connection_id: Option<ConnectionInstanceId>,

@@ -208,6 +208,14 @@ and clear. Service log snapshots include an ordered capture barrier; unavailable
 service snapshots can fall back to explicitly marked persisted-only reads.
 Clear pauses producers before its barrier, and failures are reported.
 
+Android's `network-quality.json` export includes optional fixed DIRECT gateway
+fallback, worker-failure and return-queue-drop counters from the captured active
+runtime. Missing gateway data remains unavailable rather than zero, and the
+existing runtime reset clears these counters with the quality snapshot. This is
+structured diagnostic data, not a native tracing log bridge; arbitrary tracing
+messages and destination details are not exported. See the
+[counter semantics](network-quality-metrics.md) for lifetime and numeric limits.
+
 | Limit | Desktop Engine | Android |
 | --- | --- | --- |
 | Producer queue | 248 events and 2 MiB; command channel has 256 slots | 128 events; at most 8 control commands |

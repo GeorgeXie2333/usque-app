@@ -2917,6 +2917,7 @@ fn network_quality_value(snapshot: &NetworkQualitySnapshot) -> serde_json::Value
             .map(|connection| connection.0.to_string())
             .unwrap_or_default(),
         "transport_performance": snapshot.transport_performance.as_ref().map(usque_transport::TransportPerformanceSnapshot::to_json),
+        "direct_gateway": snapshot.direct_gateway.as_ref().map(native_direct_gateway_value),
         "udp_socket_receive": snapshot.socket_receive.as_ref().map(|socket| serde_json::json!({
             "receive_buffer_bytes": socket.receive_buffer_bytes,
             "send_buffer_bytes": socket.send_buffer_bytes,
@@ -3047,6 +3048,42 @@ fn network_quality_value(snapshot: &NetworkQualitySnapshot) -> serde_json::Value
                 .unwrap_or_default(),
         },
     })
+}
+
+#[cfg(any(test, target_os = "android"))]
+fn native_direct_gateway_value(
+    snapshot: &usque_transport::DirectGatewaySnapshot,
+) -> serde_json::Value {
+    // Android's JSONObject/Messenger counters use signed 64-bit integers. Keep
+    // this fixed allowlist numeric and saturate before any JSON parser can
+    // round an oversized unsigned integer or wrap it into a negative value.
+    [
+        ("fallback_total", snapshot.fallback_total),
+        ("fallback_unavailable", snapshot.fallback_unavailable),
+        ("fallback_worker_failed", snapshot.fallback_worker_failed),
+        ("fallback_flow_capacity", snapshot.fallback_flow_capacity),
+        ("fallback_setup_failed", snapshot.fallback_setup_failed),
+        (
+            "fallback_unsupported_target",
+            snapshot.fallback_unsupported_target,
+        ),
+        ("fallback_rewrite_failed", snapshot.fallback_rewrite_failed),
+        ("flow_failures", snapshot.flow_failures),
+        (
+            "return_queue_drop_packets",
+            snapshot.return_queue_drop_packets,
+        ),
+        ("return_queue_drop_bytes", snapshot.return_queue_drop_bytes),
+    ]
+    .into_iter()
+    .map(|(key, value)| {
+        (
+            key.to_owned(),
+            serde_json::Value::from(value.min(i64::MAX as u64)),
+        )
+    })
+    .collect::<serde_json::Map<_, _>>()
+    .into()
 }
 
 #[cfg(any(test, target_os = "android"))]
@@ -3836,6 +3873,14 @@ mod tests {
             snapshot.active_listeners = vec!["127.0.0.1:1080".into()];
             snapshot.tunnel_ipv4_available = true;
             snapshot.download_bytes_per_second = 123;
+            let mut quality =
+                NetworkQualitySampler::new(NetworkQualityTelemetry::default()).sample();
+            quality.direct_gateway = Some(usque_transport::DirectGatewaySnapshot {
+                fallback_total: 1,
+                fallback_setup_failed: 1,
+                ..Default::default()
+            });
+            snapshot.network_quality = Some(network_quality_value(&quality));
             snapshot.finish_runtime(GateStatus {
                 stage: GateStage::Connected,
                 warp_stage: Some("connected".into()),
@@ -3845,6 +3890,7 @@ mod tests {
             let wire = serde_json::to_value(snapshot).unwrap();
             assert_eq!(wire["phase"], "error");
             assert_eq!(wire["warning"], "the original connection error");
+            assert!(wire.get("network_quality").is_none());
             assert_eq!(wire["vpn_gate"]["stage"], "error");
             assert_eq!(wire["vpn_gate"]["warp_stage"], "disconnected");
             assert_eq!(
@@ -4397,6 +4443,71 @@ mod tests {
             catalog["shared_network_profile"]
                 .get("registered_endpoint_ipv4")
                 .is_none()
+        );
+    }
+
+    #[test]
+    fn android_direct_gateway_projection_distinguishes_absent_zero_and_observed() {
+        use usque_transport::DirectGatewaySnapshot;
+
+        let mut sample = NetworkQualitySampler::new(NetworkQualityTelemetry::default()).sample();
+        assert!(network_quality_value(&sample)["direct_gateway"].is_null());
+
+        sample.direct_gateway = Some(DirectGatewaySnapshot::default());
+        let zero = network_quality_value(&sample);
+        let counters = zero["direct_gateway"].as_object().unwrap();
+        assert_eq!(counters.len(), 10);
+        assert!(counters.values().all(|value| value.as_u64() == Some(0)));
+
+        sample.direct_gateway = Some(DirectGatewaySnapshot {
+            fallback_total: 21,
+            fallback_unavailable: 1,
+            fallback_worker_failed: 2,
+            fallback_flow_capacity: 3,
+            fallback_setup_failed: 4,
+            fallback_unsupported_target: 5,
+            fallback_rewrite_failed: 6,
+            flow_failures: 7,
+            return_queue_drop_packets: 8,
+            return_queue_drop_bytes: 9,
+        });
+        let expected: serde_json::Value = serde_json::from_str(include_str!(
+            "../tests/fixtures/android_direct_gateway.json"
+        ))
+        .unwrap();
+        let observed = network_quality_value(&sample);
+        assert_eq!(observed["direct_gateway"], expected);
+
+        // Replacing an active source with no registered gateway cannot retain
+        // the previous source's counters or manufacture a zero measurement.
+        sample.direct_gateway = None;
+        assert!(network_quality_value(&sample)["direct_gateway"].is_null());
+        assert_eq!(observed["direct_gateway"], expected);
+    }
+
+    #[test]
+    fn android_direct_gateway_projection_saturates_all_unsigned_counters() {
+        let mut sample = NetworkQualitySampler::new(NetworkQualityTelemetry::default()).sample();
+        sample.direct_gateway = Some(usque_transport::DirectGatewaySnapshot {
+            fallback_total: u64::MAX,
+            fallback_unavailable: u64::MAX,
+            fallback_worker_failed: u64::MAX,
+            fallback_flow_capacity: u64::MAX,
+            fallback_setup_failed: u64::MAX,
+            fallback_unsupported_target: u64::MAX,
+            fallback_rewrite_failed: u64::MAX,
+            flow_failures: u64::MAX,
+            return_queue_drop_packets: u64::MAX,
+            return_queue_drop_bytes: u64::MAX,
+        });
+        let wire = network_quality_value(&sample).to_string();
+        let decoded: serde_json::Value = serde_json::from_str(&wire).unwrap();
+        let counters = decoded["direct_gateway"].as_object().unwrap();
+        assert_eq!(counters.len(), 10);
+        assert!(
+            counters
+                .values()
+                .all(|value| value.as_i64() == Some(i64::MAX))
         );
     }
 
