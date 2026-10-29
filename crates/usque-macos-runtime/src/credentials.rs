@@ -184,8 +184,28 @@ impl ChainCredentials {
                 proton,
                 proton_server_id,
             } => {
-                let parsed = ValidatedProfile::parse(summary.source, secrets)
+                let mut parsed = ValidatedProfile::parse(summary.source, secrets)
                     .map_err(|_| "invalid_chain_profile")?;
+                // Core applies a WARP WireGuard endpoint override to the
+                // effective parsed profile and summary, leaving the immutable
+                // imported secrets unchanged. Restore that authorized numeric
+                // endpoint after decoding; every other source must still match
+                // its original configuration exactly.
+                if summary.source == usque_core::chain_exit::ChainSource::WarpWireguard
+                    && let ValidatedProfile::WireGuard(config) = &mut parsed
+                    && config.endpoint != summary.endpoint
+                {
+                    let endpoint = usque_core::chain_exit::Endpoint::parse(
+                        &summary.endpoint.host,
+                        &summary.endpoint.port.to_string(),
+                        0,
+                    )
+                    .map_err(|_| "invalid_warp_endpoint_override")?;
+                    if endpoint.address().is_none() {
+                        return Err("invalid_warp_endpoint_override".into());
+                    }
+                    config.endpoint = endpoint;
+                }
                 let expected = parsed
                     .summary(&summary.name, summary.id, summary.revision)
                     .map_err(|_| "invalid_chain_summary")?;

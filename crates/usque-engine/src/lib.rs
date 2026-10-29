@@ -5057,6 +5057,11 @@ pub enum ControlServiceError {
     #[cfg(target_os = "macos")]
     #[error("{0}")]
     MacSystemProxy(#[from] macos_system_proxy::Error),
+    #[cfg(target_os = "macos")]
+    #[error(
+        "Connect WARP before downloading VPN Gate servers on macOS; an unverified physical-network fallback is not allowed"
+    )]
+    MacWarpConnectionRequired,
     #[cfg(target_os = "linux")]
     #[error("Linux platform setup failed")]
     LinuxPlatform {
@@ -5194,6 +5199,8 @@ impl ControlServiceError {
             Self::PlatformVpn(_) => ("PLATFORM_VPN_FAILED", true),
             #[cfg(target_os = "macos")]
             Self::MacSystemProxy(error) => (error.code(), error.retryable()),
+            #[cfg(target_os = "macos")]
+            Self::MacWarpConnectionRequired => ("MACOS_WARP_CONNECTION_REQUIRED", true),
             #[cfg(target_os = "linux")]
             Self::LinuxPlatform { retryable, .. } => ("LINUX_PLATFORM_FAILED", *retryable),
             Self::PlatformRecoveryPending { .. } => ("WINDOWS_RECOVERY_PENDING", true),

@@ -49,6 +49,7 @@ Continuous connection behavior and control compatibility: [English / 简体中�
 | [macOS development packages](MACOS_DEVELOPMENT_PACKAGING.md) | Separate arm64/Intel DMGs, bundled CEF/maintenance tools and disabled production installation / 双架构开发 DMG 与内嵌组件 |
 | [macOS background validation](MACOS_BACKGROUND_VALIDATION.json) | No-window follow-up evidence, fresh dual-architecture development images and deferred interactive acceptance / 无窗口验证记录与待完成的交互验收 |
 | [macOS Traditional Chinese validation](MACOS_TRADITIONAL_CHINESE_VALIDATION.json) | Hong Kong/Taiwan desktop language, live system-language regression and dual-architecture development images / 香港、台灣繁體介面與無視窗驗證記錄 |
+| [macOS test checklist and known issues](MACOS_QA_CHECKLIST.md) | VPN/proxy/chain tests, simulated Windows UI comparison, window sizing and account acceptance limits / VPN、代理、鏈式出口、介面與帳號測試及保留問題 |
 | [Routing validation record](ROUTING_VALIDATION.md) | Workstation commands, results and unavailable isolated checks / 分流功能开发机验证与未运行的隔离检查 |
 | [GUI development](../apps/usque_gui/README.md) | Editing workflows and native UI conventions / 界面交互与布局约定 |
 | [Linux and WSL development](LINUX_DEVELOPMENT.md) | Native tools, debug UI preview, hot reload and checks / Linux 工具、模拟界面预览、热重载与检查 |

@@ -336,12 +336,16 @@ class AppController extends ChangeNotifier {
     await _refreshCapabilities();
   }
 
-  bool get tunnelOutputSupported =>
-      defaultTargetPlatform != TargetPlatform.linux ||
-      engineCapabilities?.vpn == true;
-  bool get systemProxyOutputSupported =>
-      defaultTargetPlatform != TargetPlatform.linux ||
-      engineCapabilities?.systemProxy == true;
+  bool get tunnelOutputSupported => switch (defaultTargetPlatform) {
+    TargetPlatform.linux ||
+    TargetPlatform.macOS => engineCapabilities?.vpn == true,
+    _ => true,
+  };
+  bool get systemProxyOutputSupported => switch (defaultTargetPlatform) {
+    TargetPlatform.linux ||
+    TargetPlatform.macOS => engineCapabilities?.systemProxy == true,
+    _ => true,
+  };
   PerAppProxySettings perAppProxy = const PerAppProxySettings();
   int zeroTrustCallbackTicket = 0;
   Object? _zeroTrustCurrentOwner;

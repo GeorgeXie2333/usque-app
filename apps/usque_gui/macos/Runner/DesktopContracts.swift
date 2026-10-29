@@ -180,6 +180,30 @@ enum DesktopConfigurationFiles {
 }
 
 enum DesktopWindowPlacement {
+  // Match the Windows logical client area. macOS keeps its native title bar
+  // outside this content size instead of drawing a second caption in Flutter.
+  static let defaultContentSize = CGSize(width: 1040, height: 760)
+  static let preferredMinimumContentSize = CGSize(width: 640, height: 480)
+
+  static func defaultFrame(on screen: CGRect, decoration: CGSize) -> CGRect {
+    let size = CGSize(
+      width: defaultContentSize.width + decoration.width,
+      height: defaultContentSize.height + decoration.height)
+    let centered = CGRect(
+      x: screen.midX - size.width / 2,
+      y: screen.midY - size.height / 2,
+      width: size.width, height: size.height)
+    return restoredFrame(centered, screens: [screen])
+  }
+
+  /// A minimum larger than the visible display prevents shrinking a window
+  /// back onto a small screen. Account for the native caption as well.
+  static func minimumContentSize(on screen: CGRect, decoration: CGSize) -> CGSize {
+    CGSize(
+      width: min(preferredMinimumContentSize.width, max(1, screen.width - decoration.width)),
+      height: min(preferredMinimumContentSize.height, max(1, screen.height - decoration.height)))
+  }
+
   /// Screen arrangements can change while the app is closed. Keep the saved
   /// window reachable without changing its preferred size unnecessarily.
   static func restoredFrame(_ frame: CGRect, screens: [CGRect]) -> CGRect {

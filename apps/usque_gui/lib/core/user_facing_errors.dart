@@ -55,6 +55,7 @@ String userFacingFailure(
     'MACOS_INSTALL_REQUIRED' => 'macos_install_required',
     'MACOS_LOGIN_APPROVAL_REQUIRED' => 'macos_login_approval',
     'MACOS_LOGIN_ITEM_FAILED' => 'macos_login_failed',
+    'MACOS_WARP_CONNECTION_REQUIRED' => 'macos_warp_connection_required',
     'SYSTEM_PROXY_PERMISSION_CANCELLED' || 'SYSTEM_PROXY_PERMISSION_REQUIRED'
         when defaultTargetPlatform == TargetPlatform.macOS =>
       'macos_proxy_permission',

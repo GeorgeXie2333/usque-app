@@ -1,4 +1,5 @@
 import Foundation
+import CoreFoundation
 
 enum ProtonVerificationBridgeError: Error {
   case invalidFrame
@@ -12,6 +13,16 @@ enum ProtonVerificationContract {
   static let maximumHandoff = 65_536
   static let maximumResult = 131_072
 
+  // Foundation bridges JSON booleans to NSNumber/Int too. They must never
+  // become route generations, protocol versions or expiry timestamps.
+  private static func integer(_ raw: Any?) -> Int? {
+    guard let number = raw as? NSNumber,
+      CFGetTypeID(number) != CFBooleanGetTypeID(),
+      !["f", "d"].contains(String(cString: number.objCType))
+    else { return nil }
+    return Int(number.stringValue)
+  }
+
   struct Binding {
     let expiresAt: Double
     let routeEpoch: Int?
@@ -20,16 +31,17 @@ enum ProtonVerificationContract {
     init(_ handoff: Data, now: Double = Date().timeIntervalSince1970 * 1000) throws {
       guard !handoff.isEmpty, handoff.count <= maximumHandoff,
         let fields = try JSONSerialization.jsonObject(with: handoff) as? [String: Any],
-        let expiry = fields["expires_at"] as? NSNumber,
+        let expiry = integer(fields["expires_at"]),
         let methods = fields["methods"] as? [String], !methods.isEmpty,
         Set(methods).count == methods.count,
         Set(methods).isSubset(of: ["captcha", "email", "sms"]),
-        expiry.doubleValue > now, expiry.doubleValue - now <= 300_000
+        Double(expiry) > now, Double(expiry) - now <= 300_000
       else { throw ProtonVerificationBridgeError.invalidHandoff }
-      expiresAt = expiry.doubleValue
+      expiresAt = Double(expiry)
       self.methods = Set(methods)
-      if let version = fields["version"] as? Int {
-        guard version == 2, let epoch = fields["route_epoch"] as? Int, (0...1).contains(epoch)
+      if fields["version"] != nil {
+        guard integer(fields["version"]) == 2,
+          let epoch = integer(fields["route_epoch"]), (0...1).contains(epoch)
         else { throw ProtonVerificationBridgeError.invalidHandoff }
         routeEpoch = epoch
       } else { routeEpoch = nil }
@@ -43,7 +55,8 @@ enum ProtonVerificationContract {
   }
 
   static func frame(_ payload: Data, maximum: Int) throws -> Data {
-    guard !payload.isEmpty, payload.count <= maximum else { throw ProtonVerificationBridgeError.invalidFrame }
+    guard maximum > 0, maximum <= Int(UInt32.max),
+      !payload.isEmpty, payload.count <= maximum else { throw ProtonVerificationBridgeError.invalidFrame }
     let length = UInt32(payload.count)
     var bytes = Data([UInt8(length >> 24), UInt8((length >> 16) & 255), UInt8((length >> 8) & 255), UInt8(length & 255)])
     bytes.append(payload)
@@ -51,7 +64,8 @@ enum ProtonVerificationContract {
   }
 
   static func payload(_ frame: Data, maximum: Int) throws -> Data {
-    guard frame.count >= 4, frame.count <= maximum + 4 else { throw ProtonVerificationBridgeError.invalidFrame }
+    guard maximum > 0, maximum <= Int(UInt32.max),
+      frame.count >= 4, frame.count <= maximum + 4 else { throw ProtonVerificationBridgeError.invalidFrame }
     let size = frame.prefix(4).reduce(0) { ($0 << 8) | Int($1) }
     guard size > 0, size <= maximum, frame.count == size + 4 else { throw ProtonVerificationBridgeError.invalidFrame }
     return Data(frame.dropFirst(4))
@@ -80,7 +94,7 @@ enum ProtonVerificationContract {
         let answer = try JSONSerialization.jsonObject(with: bytes) as? [String: Any], answer.count == 2,
         let type = answer["type"] as? String else { throw ProtonVerificationBridgeError.invalidResult }
       if type == "USQUE_VERIFICATION_NETWORK_FAILED" {
-        guard let epoch = answer["route_epoch"] as? Int, binding.routeEpoch == epoch else {
+        guard let epoch = integer(answer["route_epoch"]), binding.routeEpoch == epoch else {
           throw ProtonVerificationBridgeError.invalidResult
         }
       } else {

@@ -521,6 +521,12 @@ impl ControlService {
             .await
             .as_ref()
             .and_then(|active| active.runtime.internal_networks());
+        #[cfg(target_os = "macos")]
+        require_catalogue_warp(
+            networks
+                .as_ref()
+                .map(|(network, warp)| (network.health_snapshot(), warp.health_snapshot())),
+        )?;
         #[cfg(windows)]
         let allow_physical = networks.is_none()
             && crate::windows_agent::catalogue_physical_network_permitted().await;
@@ -528,7 +534,9 @@ impl ControlService {
         #[cfg(all(target_os = "linux", not(test)))]
         let allow_physical =
             networks.is_none() && crate::linux_observation::disconnected_probe_safe().await;
-        #[cfg(not(any(windows, all(target_os = "linux", not(test)))))]
+        #[cfg(target_os = "macos")]
+        let allow_physical = false;
+        #[cfg(not(any(windows, target_os = "macos", all(target_os = "linux", not(test)))))]
         let allow_physical = networks.is_none();
         let primary: Arc<dyn CatalogueHttp> = match &networks {
             Some((network, _))
@@ -643,6 +651,21 @@ impl ControlService {
         .await
         .map_err(|_| error(DirectoryError::CacheIo))?
         .map_err(error)
+    }
+}
+
+#[cfg(target_os = "macos")]
+pub(crate) fn require_catalogue_warp(
+    networks: Option<(RuntimeHealth, RuntimeHealth)>,
+) -> Result<(), ControlServiceError> {
+    // A reconnecting final exit must not hide the already connected WARP
+    // control handle used by WarpSource.existing. The primary exit is checked
+    // independently below; neither path may create a physical fallback or a
+    // second runtime. Missing Engine state also cannot release provider guards.
+    if networks.is_some_and(|(_, warp)| matches!(warp, RuntimeHealth::Connected { .. })) {
+        Ok(())
+    } else {
+        Err(ControlServiceError::MacWarpConnectionRequired)
     }
 }
 

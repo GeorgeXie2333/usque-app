@@ -181,6 +181,31 @@ installation remain disabled pending signed device acceptance. See the
 [macOS parity matrix](docs/MACOS_WINDOWS_PARITY.md) for implemented and pending
 features. iOS, store distribution and a public CLI are outside this release's scope.
 
+### macOS development testing and known issues
+
+The [macOS test checklist](docs/MACOS_QA_CHECKLIST.md) separates isolated tests
+from actual device acceptance. The following items remain open:
+
+- **System VPN/TUN:** disabled in development packages. Signed provider routing,
+  DNS and Kill Switch tests have not passed device acceptance. Proxy-only mode
+  does not provide system-wide Kill Switch protection.
+- **System proxy and chain exits:** isolated configuration, recovery and transport
+  tests do not establish a successful live connection. Real authorization and
+  each external exit still need device tests. On macOS, connect WARP before
+  refreshing or downloading VPN Gate servers; unprotected bootstrap is refused.
+- **Zero Trust:** callback validation and cancel/retry tests use synthetic data;
+  an actual organization login and callback remain unverified.
+- **Proton guest registration:** official CAPTCHA and successful registration
+  remain unverified. The earlier full CEF proxy-failure smoke test failed; new
+  adapter checks do not establish that its shutdown problem is fixed.
+- **Desktop and hardware:** layout checks use headless Windows/macOS widget
+  renders. Actual native-window interaction, Intel execution and macOS 13 hardware
+  remain untested. The default Mac content area now matches Windows at 1040×760,
+  fits the available screen, and preserves saved window geometry.
+
+No application, browser, permission window or host network setting is opened or
+changed by this background validation. Development packages are not notarized.
+
 ## Default network settings
 
 | Setting | Default |

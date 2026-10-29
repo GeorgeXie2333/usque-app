@@ -71,7 +71,9 @@ class LocalProxyOutputs extends StatelessWidget {
                 subtitle: Text(
                   strings.get(
                     !controller.systemProxyOutputSupported
-                        ? 'linux_output_unavailable'
+                        ? defaultTargetPlatform == TargetPlatform.macOS
+                              ? 'macos_proxy_unavailable'
+                              : 'linux_output_unavailable'
                         : !frontends.http && !systemProxy
                         ? 'home_system_proxy_requires_http'
                         : 'home_system_proxy_hint',

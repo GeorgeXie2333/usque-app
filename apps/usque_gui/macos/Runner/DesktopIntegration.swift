@@ -42,10 +42,19 @@ final class DesktopIntegration: NSObject, NSWindowDelegate, UNUserNotificationCe
     window.isReleasedWhenClosed = false
     window.delegate = self
     _ = window.setFrameAutosaveName("UsqueMainWindow")
-    _ = window.setFrameUsingName("UsqueMainWindow")
-    window.setFrame(
-      DesktopWindowPlacement.restoredFrame(window.frame, screens: NSScreen.screens.map { $0.visibleFrame }),
-      display: false)
+    let restored = window.setFrameUsingName("UsqueMainWindow")
+    let content = window.contentRect(forFrameRect: window.frame)
+    let decoration = CGSize(
+      width: max(0, window.frame.width - content.width),
+      height: max(0, window.frame.height - content.height))
+    if let screen = window.screen ?? NSScreen.main {
+      let frame = restored
+        ? DesktopWindowPlacement.restoredFrame(window.frame, screens: NSScreen.screens.map { $0.visibleFrame })
+        : DesktopWindowPlacement.defaultFrame(on: screen.visibleFrame, decoration: decoration)
+      window.contentMinSize = DesktopWindowPlacement.minimumContentSize(
+        on: screen.visibleFrame, decoration: decoration)
+      window.setFrame(frame, display: false)
+    }
     channel.setMethodCallHandler { [weak self] call, result in self?.handle(call, result: result) }
     installStatusItem()
     localizeMainMenu()

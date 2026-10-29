@@ -28,13 +28,14 @@ hardware. None of the isolated results establishes physical-egress safety.
 | Country/custom rules, DIRECT/REJECT/PROXY, advertising rules | Shared Rust immutable policy snapshots; separate flow, DNS and filter providers | Rule/epoch contracts; same-IP domain split and real `enforceRoutes` egress pending |
 | IPv4/IPv6 and encrypted DNS | Shared runtime and separate DNS provider; encrypted-upstream errors do not request plaintext fallback | IPv6 loopback and policy contracts; physical/tunnel DNS, leakage and LAN device acceptance pending |
 | Kill Switch and reconnect | Independent protection before tunnel admission, credential-less restart blocked; Engine loss is not Stop | Isolated lifecycle/fault contracts; actual provider crash, sleep and network-change protection pending |
-| Chain exits and account managers | macOS now wires the shared HTTP, SOCKS, OpenVPN, WireGuard, WARP WireGuard, VPN Gate and Proton handlers | Engine contract/regression tests; live service acceptance pending; existing experimental flags retained |
+| Chain exits and account managers | macOS wires the shared HTTP, SOCKS, OpenVPN, WireGuard, WARP WireGuard, VPN Gate and Proton handlers; numeric WARP endpoint overrides survive the dedicated secret handoff | Engine preparation/DTO tests across all families; live service acceptance pending; existing experimental flags retained |
 | Account bootstrap protection | Existing connected WARP runtime can be reused; unprotected standalone physical bootstrap remains refused | No fallback that bypasses authenticated protection |
 | Credentials and configuration | User Engine owns Keychain and encrypted chain storage; dedicated secret transfer and durable refresh acknowledgement | In-memory test vault; no host credentials read or replaced by tests |
 | System proxy | Per-service SystemConfiguration transaction, authorization retry, encrypted ownership journal, compare-and-restore; pending recovery blocks new sessions and key deletion | Fake preferences/failure injection; real authorization cancellation and crash recovery pending; newly created services require reapply |
 | Continuous desktop events | Authenticated per-user Unix control/events sockets; bounded, fragmented/coalesced frame decoder | Engine and Dart tests; hidden-window event loop is implemented |
 | Tray/background controls | Native menu bar status, connect/disconnect, VPN/proxy actions, hidden-window updates, explicit disconnect-and-quit | Native contract/type checks; real tray interaction pending |
-| Window lifecycle | Close-to-menu-bar default, Dock reopening, single-instance activation, remembered/clamped window position | Native contract/type checks; signed release UI acceptance pending |
+| Output availability | Home, Proxy, tray and shortcuts honor Engine VPN/proxy capabilities; unavailable saved outputs can still be turned off; Settings explains unavailable VPN protection | Headless capability/refresh contracts; unsigned VPN stays disabled |
+| Window lifecycle | Close-to-menu-bar default, Dock reopening, single-instance activation, 1040×760 default content with first-launch centering and remembered/clamped geometry | Native geometry/type checks and headless small-screen layouts; actual window interaction pending |
 | Settings and shortcuts | Native Settings menu, Cmd+,; Cmd+1–4 and Cmd+S; existing unsaved-change guards | Dart widget and native contracts |
 | Traditional Chinese | Existing Hong Kong/Taiwan catalogs now also drive native menus, app-owned file-dialog copy and CEF UI language; framework controls use the same resolver and hidden windows follow system language changes | Headless language-switch/persistence regressions and native contracts; actual window display remains untested |
 | Login startup and notifications | SMAppService default off, authorization/cancel retry, native notifications | Build/contracts; real permission dialogs and login reboot pending |
@@ -132,6 +133,12 @@ native window, permission prompt or system integration was started for this work
 Visual display, official verification and signed network acceptance remain pending.
 
 ## Remaining acceptance
+
+The [user-requested test checklist](MACOS_QA_CHECKLIST.md) records the current
+VPN/proxy/chain, UI, window and account results, with clearly labelled headless
+Windows/macOS renders. It also preserves the unresolved CEF failure and device
+acceptance items surfaced in the root READMEs. A simulated account or successful
+component build is never counted as a real Zero Trust or Proton registration.
 
 Before exposing the VPN capability, signed providers must simultaneously prove
 same-IP domain splitting, IPv4/IPv6, DNS separation, encrypted DNS failure

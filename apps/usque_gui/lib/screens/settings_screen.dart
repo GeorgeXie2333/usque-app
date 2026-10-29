@@ -111,6 +111,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           strings.get(
                             android
                                 ? 'kill_switch_help_android'
+                                : defaultTargetPlatform ==
+                                          TargetPlatform.macOS &&
+                                      !controller.tunnelOutputSupported
+                                ? 'macos_kill_switch_unavailable'
                                 : 'kill_switch_help',
                           ),
                         ),

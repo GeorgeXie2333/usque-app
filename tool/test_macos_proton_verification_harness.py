@@ -276,6 +276,84 @@ class ProxyFixtureTests(unittest.TestCase):
 
 @unittest.skipUnless(POSIX and CXX, "pure launch-guard test requires a POSIX C++ compiler")
 class NativeLaunchGuardTests(unittest.TestCase):
+    def test_native_policy_binds_origins_main_frame_and_proxy_authentication(self):
+        header = ROOT / "apps/usque_gui/macos/ProtonVerification/verification_policy.h"
+        with tempfile.TemporaryDirectory(prefix="usque-cef-policy-") as directory:
+            source = Path(directory) / "policy.cc"
+            executable = Path(directory) / "policy"
+            source.write_text(
+                f"#include {json.dumps(str(header))}\n"
+                + textwrap.dedent(
+                    r"""
+                    #include <cassert>
+                    #include <string>
+                    using namespace usque::proton::macos;
+                    int main() {
+                      for (const auto origin : {"https://verify.proton.me",
+                           "https://verify-api.proton.me", "https://account.proton.me"}) {
+                        assert(OfficialResource(origin));
+                        assert(OfficialResource(std::string(origin) + "/resource?x=1"));
+                      }
+                      for (const auto bad : {"http://verify.proton.me/",
+                           "https://verify.proton.me.evil/", "https://verify.proton.me@evil/",
+                           "https://evil@verify.proton.me/", "https://verify.proton.me:443/",
+                           "https://verify.proton.me\\evil/", "https://verify.proton.me/\n"}) {
+                        assert(!OfficialResource(bad));
+                      }
+                      assert(!OfficialResource("https://verify.proton.me/" + std::string(16384, 'x')));
+                      constexpr auto proof = "usque-proxy-ready://synthetic/proof";
+                      assert(ReadyProofBound(true, true, 2, proof, proof));
+                      assert(!ReadyProofBound(false, true, 2, proof, proof));
+                      assert(!ReadyProofBound(true, false, 2, proof, proof));
+                      assert(!ReadyProofBound(true, true, 1, proof, proof));
+                      assert(!ReadyProofBound(true, true, 2, proof, "another-proof"));
+                      assert(!ReadyProofBound(true, true, 2, "", ""));
+                      assert(MainDocumentHttpFailed(true, 502));
+                      assert(MainDocumentHttpFailed(true, 403));
+                      assert(!MainDocumentHttpFailed(false, 404));
+                      assert(!MainDocumentHttpFailed(true, 200));
+                      assert(!MainDocumentHttpFailed(true, 302));
+                      assert(!MainDocumentHttpFailed(true, 0));
+                      assert(ProxyCredentialsAllowed(false, true, "127.0.0.1", 12345,
+                          "synthetic-realm", "basic", 12345, "synthetic-realm"));
+                      assert(!ProxyCredentialsAllowed(true, true, "127.0.0.1", 12345,
+                          "synthetic-realm", "basic", 12345, "synthetic-realm"));
+                      assert(!ProxyCredentialsAllowed(false, false, "127.0.0.1", 12345,
+                          "synthetic-realm", "basic", 12345, "synthetic-realm"));
+                      assert(!ProxyCredentialsAllowed(false, true, "localhost", 12345,
+                          "synthetic-realm", "basic", 12345, "synthetic-realm"));
+                      assert(!ProxyCredentialsAllowed(false, true, "127.0.0.1", 12346,
+                          "synthetic-realm", "basic", 12345, "synthetic-realm"));
+                      assert(!ProxyCredentialsAllowed(false, true, "127.0.0.1", 12345,
+                          "wrong-realm", "basic", 12345, "synthetic-realm"));
+                      assert(!ProxyCredentialsAllowed(false, true, "127.0.0.1", 12345,
+                          "synthetic-realm", "digest", 12345, "synthetic-realm"));
+                      assert(!ProxyCredentialsAllowed(false, true, "127.0.0.1", 0,
+                          "", "basic", 0, ""));
+                    }
+                    """
+                ),
+                encoding="utf-8",
+            )
+            subprocess.run(  # noqa: S603 - existing compiler and pure adapter-policy fixture.
+                [
+                    CXX,
+                    "-std=c++17",
+                    "-Wall",
+                    "-Wextra",
+                    "-Werror",
+                    str(source),
+                    "-o",
+                    str(executable),
+                ],
+                check=True,
+                capture_output=True,
+                timeout=30,
+            )
+            subprocess.run(  # noqa: S603 - pure policy checks, no Cocoa/CEF/network/Keychain.
+                [str(executable)], check=True, capture_output=True, timeout=5
+            )
+
     def test_native_ui_catalog_is_bounded_and_uses_only_whitelisted_labels(self):
         header = ROOT / "apps/usque_gui/macos/ProtonVerification/ui_localization.h"
         with tempfile.TemporaryDirectory(prefix="usque-cef-ui-") as directory:

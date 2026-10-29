@@ -33,6 +33,39 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   test(
+    'macOS protected bootstrap refusal explains the retry without secrets',
+    () {
+      for (final locale in [
+        LocalePreference.english,
+        LocalePreference.simplifiedChinese,
+        LocalePreference.traditionalChineseHongKong,
+        LocalePreference.traditionalChineseTaiwan,
+      ]) {
+        final strings = AppStrings(locale);
+        final expected = strings.get('macos_warp_connection_required');
+        expect(expected, contains('WARP'));
+        expect(expected, isNot(strings.get('operation_failed')));
+        for (final error in [
+          const EngineException(
+            'MACOS_WARP_CONNECTION_REQUIRED',
+            _privateError,
+          ),
+          PlatformException(
+            code: 'MACOS_WARP_CONNECTION_REQUIRED',
+            message: _privateError,
+          ),
+        ]) {
+          expect(userFacingError(strings, error), expected);
+          expect(
+            userFacingError(strings, error),
+            isNot(contains(_privateError)),
+          );
+        }
+      }
+    },
+  );
+
+  test(
     'update errors are localized on both native bridges without private text',
     () {
       const codes = {

@@ -374,6 +374,10 @@ class _ShellScreenState extends State<ShellScreen> {
                   ({
                     ThemePreference theme,
                     LocalePreference locale,
+                    bool startOnBoot,
+                    bool closeToTray,
+                    bool trayAvailable,
+                    bool tunnelOutputSupported,
                     bool networkQualitySupported,
                     bool updateChecksEnabled,
                     UpdateCheckResult? updateResult,
@@ -395,6 +399,10 @@ class _ShellScreenState extends State<ShellScreen> {
                   selector: (controller) => (
                     theme: controller.themePreference,
                     locale: controller.localePreference,
+                    startOnBoot: controller.startOnBoot,
+                    closeToTray: controller.closeToTray,
+                    trayAvailable: controller.trayAvailable,
+                    tunnelOutputSupported: controller.tunnelOutputSupported,
                     networkQualitySupported:
                         controller.engineCapabilities?.networkQuality ?? false,
                     updateChecksEnabled: controller.updateChecksEnabled,

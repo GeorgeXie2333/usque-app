@@ -11,6 +11,7 @@
 #include "../../native/proton_verification.h"
 #include "launch_options.h"
 #include "ui_localization.h"
+#include "verification_policy.h"
 #include "include/cef_app.h"
 #include "include/cef_application_mac.h"
 #include "include/cef_browser.h"
@@ -56,16 +57,6 @@ void Respond(NSString* status, NSString* code = nil, const std::string* message 
   uint32_t count = htonl(static_cast<uint32_t>(data.length));
   Exact(protocol_output, &count, sizeof(count), true);
   Exact(protocol_output, const_cast<void*>(data.bytes), data.length, true);
-}
-bool OfficialResource(const std::string& url) {
-  if (url.empty() || url.size() > 16384) return false;
-  for (const char* host : {"verify.proton.me", "verify-api.proton.me", "account.proton.me"}) {
-    const auto origin = std::string("https://") + host;
-    if (url.compare(0, origin.size(), origin) == 0 &&
-        (url.size() == origin.size() || url[origin.size()] == '/' || url[origin.size()] == '?' || url[origin.size()] == '#') &&
-        std::all_of(url.begin(), url.end(), [](unsigned char value) { return value >= 0x21 && value <= 0x7e && value != '\\'; })) return true;
-  }
-  return false;
 }
 class Verification;
 CefRefPtr<Verification> current;
@@ -274,7 +265,8 @@ class Verification final : public CefClient, public CefLifeSpanHandler,
     const auto url = request->GetURL().ToString();
     if (finished_) return true;
     if (smoke) return url != SmokeUrl();
-    if (probe_stage_ == 2 && url == handoff.Ready(Sha)) {
+    if (usque::proton::macos::ReadyProofBound(
+        browser_ && browser_->IsSame(browser), frame->IsMain(), probe_stage_, url, handoff.Ready(Sha))) {
       probe_stage_ = 0; load_deadline_ = std::chrono::steady_clock::now() + std::chrono::seconds(15);
       frame->LoadURL(handoff.url); return true;
     }
@@ -292,7 +284,13 @@ class Verification final : public CefClient, public CefLifeSpanHandler,
       frame->ExecuteJavaScript(script, frame->GetURL(), 0); usque::proton::Wipe(script);
     }
   }
-  void OnLoadEnd(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame> frame, int) override {
+  void OnLoadEnd(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame> frame, int status) override {
+    if (finished_) return;
+    // CEF reports an HTTP error page as a completed load, not necessarily an
+    // OnLoadError. It cannot complete this main-document verification flow.
+    if (usque::proton::macos::MainDocumentHttpFailed(frame->IsMain(), status)) {
+      Finish(@"error", @"PROTON_VERIFICATION_LOAD"); return;
+    }
     if (frame->IsMain() && (smoke || (!probe_stage_ && handoff.Matches(frame->GetURL().ToString(), Sha)))) loaded_ = true;
   }
   void OnLoadError(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame> frame, ErrorCode error,
@@ -314,7 +312,7 @@ class Verification final : public CefClient, public CefLifeSpanHandler,
   ReturnValue OnBeforeResourceLoad(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame>,
       CefRefPtr<CefRequest> request, CefRefPtr<CefCallback>) override {
     const auto url = request->GetURL().ToString();
-    return !finished_ && (smoke ? url == SmokeUrl() : probe_stage_ ? handoff.ProbeUrl(url) : OfficialResource(url)) ? RV_CONTINUE : RV_CANCEL;
+    return !finished_ && (smoke ? url == SmokeUrl() : probe_stage_ ? handoff.ProbeUrl(url) : usque::proton::macos::OfficialResource(url)) ? RV_CONTINUE : RV_CANCEL;
   }
   void OnResourceLoadComplete(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame>,
       CefRefPtr<CefRequest> request, CefRefPtr<CefResponse>, URLRequestStatus status, int64_t) override {
@@ -328,8 +326,8 @@ class Verification final : public CefClient, public CefLifeSpanHandler,
   bool GetAuthCredentials(CefRefPtr<CefBrowser>, const CefString&, bool is_proxy,
       const CefString& host, int port, const CefString& realm, const CefString& scheme,
       CefRefPtr<CefAuthCallback> callback) override {
-    if (!finished_ && is_proxy && host == "127.0.0.1" && port == static_cast<int>(handoff.proxy_port) &&
-        realm == handoff.proxy_nonce && scheme == "basic") {
+    if (usque::proton::macos::ProxyCredentialsAllowed(finished_, is_proxy,
+        host.ToString(), port, realm.ToString(), scheme.ToString(), handoff.proxy_port, handoff.proxy_nonce)) {
       callback->Continue(handoff.proxy_username, handoff.proxy_password); return true;
     }
     callback->Cancel(); ErrorLater(@"PROTON_VERIFICATION_LOAD"); return true;
