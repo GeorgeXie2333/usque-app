@@ -36,7 +36,10 @@ prefix=io.github.georgexie2333.usque
 if ((signed_poc)); then flags+=(-D SIGNED_POC); prefix+=.poc; fi
 common=("$extension_root/Shared/Protocol.swift" "$extension_root/Shared/PhysicalPathState.swift" "$extension_root/Shared/PhysicalNetwork.swift" "$extension_root/Shared/Identity.swift" "$extension_root/Shared/ControlChannel.swift" "$extension_root/Shared/Policy.swift")
 frameworks=(-framework Foundation -framework Security -framework Network -framework NetworkExtension -framework SystemExtensions)
-link_checks=(-Xlinker -fatal_warnings)
+# Each provider links the shared Rust archive but uses only its own policy or
+# data-plane entry points. Keep directly referenced C callbacks and Objective-C
+# registration metadata while dropping unreachable code from the other roles.
+link_checks=(-Xlinker -fatal_warnings -Xlinker -dead_strip)
 if ((typecheck)); then
   xcrun clang -fobjc-arc -fblocks -fsyntax-only -isysroot "$sdk" -target "$arch-apple-macos13.0" "$extension_root/Shared/AuthenticatedXPC.m"
   for role in PacketTunnel TransparentProxy DNSProxy ContentFilter; do

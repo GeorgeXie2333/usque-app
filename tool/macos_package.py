@@ -33,6 +33,10 @@ PROVIDERS = {
 }
 VERIFICATION_NAME = "UsqueProtonVerification"
 VERIFICATION_HELPER_SUFFIXES = ("", " (Alerts)", " (GPU)", " (Plugin)", " (Renderer)")
+# UiForCatalog explicitly selects these CEF locales; other Flutter catalogs
+# already use the verification component's English fallback.
+CEF_LOCALES = ("en", "zh_CN", "zh_TW")
+DMG_FORMAT = "ULMO"
 VERSION = re.compile(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-beta\.[1-9][0-9]*)?")
 MACHO_MAGICS = {b"\xcf\xfa\xed\xfe", b"\xfe\xed\xfa\xcf"}
 FAT_MAGICS = {
@@ -235,7 +239,32 @@ def required_resources(app: Path, architecture: str) -> list[Path]:
     resources = verification / "Contents/Frameworks/Chromium Embedded Framework.framework/Resources"
     # The pinned macOS SDK uses a per-architecture snapshot filename; the SDK
     # README also lists the generic filename used by its other platforms.
-    return [resources / name for name in ("icudtl.dat", f"v8_context_snapshot.{architecture}.bin")]
+    return [
+        resources / name
+        for name in (
+            "icudtl.dat",
+            f"v8_context_snapshot.{architecture}.bin",
+            *(f"{locale}.lproj/locale.pak" for locale in CEF_LOCALES),
+        )
+    ]
+
+
+def trim_cef_locales(app: Path) -> None:
+    """Trim only unused CEF UI locales, before signing a private staged copy."""
+    verification = app / "Contents/Helpers" / (VERIFICATION_NAME + ".app")
+    if not verification.exists():
+        return
+    bundle_files(verification)
+    resources = verification / "Contents/Frameworks/Chromium Embedded Framework.framework/Resources"
+    for locale in CEF_LOCALES:
+        required = resources / f"{locale}.lproj/locale.pak"
+        if not required.is_file() or required.stat().st_size == 0:
+            raise ValueError(f"Proton verification is missing required CEF locale: {locale}")
+    unused = [path for path in resources.glob("*.lproj") if path.stem not in CEF_LOCALES]
+    if any(path.is_symlink() or not path.is_dir() for path in unused):
+        raise ValueError("Unexpected CEF locale directory")
+    for path in unused:
+        shutil.rmtree(path)
 
 
 def inspect_bundle(app: Path, architecture: str) -> list[dict]:
@@ -299,6 +328,13 @@ def _thin_and_sign(app: Path, architecture: str) -> None:
             run(["xcrun", "lipo", path, "-thin", architecture, "-output", temporary])
             temporary.chmod(mode)
             temporary.replace(path)
+        # Keep every global/dynamic export and runtime metadata. Only debug and
+        # local symbol-table entries are removed; never use strip's default
+        # aggressive mode on dynamically loaded CEF/Flutter frameworks.
+        exports = sorted(run(["xcrun", "nm", "-gjU", path]).splitlines())
+        run(["xcrun", "strip", "-S", "-x", path])
+        if sorted(run(["xcrun", "nm", "-gjU", path]).splitlines()) != exports:
+            raise ValueError(f"Symbol stripping changed Mach-O exports: {path.name}")
     bundles = [
         path
         for path in app.rglob("*")
@@ -394,6 +430,7 @@ def assemble_app(
     )
     with info_path.open("wb") as handle:
         plistlib.dump(info, handle)
+    trim_cef_locales(destination)
     _thin_and_sign(destination, architecture)
     return inspect_bundle(destination, architecture)
 
@@ -410,6 +447,13 @@ def development_manifest(app: Path, architecture: str, version: str, machos: lis
         "notarized": False,
         "production_capable": False,
         "automatic_installation_enabled": False,
+        "packaging": {
+            "dmg_format": DMG_FORMAT,
+            "native_symbols": "debug_and_local_removed_global_exports_preserved",
+            "cef_locales": list(CEF_LOCALES)
+            if (app / "Contents/Helpers/UsqueProtonVerification.app").is_dir()
+            else [],
+        },
         "components": {
             "flutter": "included",
             "engine": "included",
@@ -532,7 +576,7 @@ def package(
                     "-volname",
                     f"Usque Development {version} {architecture}",
                     "-format",
-                    "UDZO",
+                    DMG_FORMAT,
                     "-fs",
                     "HFS+",
                     image,

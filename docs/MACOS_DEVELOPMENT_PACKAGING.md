@@ -46,7 +46,11 @@ python3 tool/macos_package.py build --arch x86_64
 
 Each invocation explicitly selects Flutter/Xcode and Rust architectures, sets
 the macOS deployment target to 13.0, builds all native components, removes
-unneeded framework slices, and checks every included Mach-O file. An Intel
+unneeded framework slices, and checks every included Mach-O file. Network
+providers use linker dead-code elimination so a DNS/filter/control process does
+not retain an unused copy of the complete VPN data plane. Staged Mach-O files
+lose only debug/local symbols, with global exports checked before and after,
+then receive fresh ad-hoc signatures. An Intel
 build produced on Apple Silicon remains a cross build until run on Intel
 hardware. Builds serialize access to Flutter's shared build directory.
 
@@ -58,9 +62,17 @@ The output directory is `build/macos-development/<architecture>/`:
 - A SHA-256 file, development manifest, and SPDX 2.3 file inventory.
 
 The disk image contains the app, an Applications folder link and a development
-status notice. The builder verifies image integrity without mounting or
+status notice. It uses macOS's LZMA-compressed `ULMO` format, supported since
+macOS 10.15 and within this port's macOS 13 minimum. The builder verifies image integrity without mounting or
 installing it. `--no-dmg` builds and verifies only the app and reports no disk
 image artifact.
+
+The standalone verification component explicitly selects English, Simplified
+Chinese or Traditional Chinese. Packaging keeps its `en`, `zh_CN` and `zh_TW`
+CEF resources and rejects a missing/empty required locale before trimming unused
+CEF locales. This does not remove any Flutter application language. CEF itself,
+ICU, snapshots, GPU/software rendering libraries, sandbox helpers and license
+notices remain bundled; they account for much of the remaining payload.
 
 The SPDX document is a hashed bundle file inventory. Its dependency/license
 review is explicitly incomplete; it does not replace the signed production

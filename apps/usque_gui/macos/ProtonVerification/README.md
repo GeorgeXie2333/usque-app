@@ -59,8 +59,10 @@ sandbox failure terminates the child. The browser always sets
   absent, unknown or overlong labels fall back to English. Simplified Chinese
   uses the title `Proton 验证` and CEF locale `zh-CN`; both Traditional Chinese
   variants use `Proton 驗證` and the pinned framework's supported `zh-TW`
-  locale. English uses `Proton verification` and `en-US`. The bundled framework
-  retains its locale resources. This label does not change the sensitive
+  locale. English uses `Proton verification` and `en-US`. Final application
+  packaging retains the matching `en`, `zh_CN` and `zh_TW` framework locales;
+  other application languages already use this component's English fallback.
+  Flutter's application language catalogs are unchanged. This label does not change the sensitive
   handoff schema, launch arguments, proxy, challenge validation or sandbox.
 - stdout: one bounded frame containing `status: success`, `cancelled` or
   `error`. Success contains the original validated message as a JSON string;

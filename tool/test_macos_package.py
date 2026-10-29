@@ -88,6 +88,13 @@ def verification_fixture(app: Path, architecture="arm64") -> None:
             app / "Contents/Frameworks/Chromium Embedded Framework.framework/Resources" / name,
             b"synthetic CEF data",
         )
+    for locale in ("en", "zh_CN", "zh_TW"):
+        write(
+            app
+            / "Contents/Frameworks/Chromium Embedded Framework.framework/Resources"
+            / f"{locale}.lproj/locale.pak",
+            b"synthetic CEF locale",
+        )
     for suffix in macos_package.VERIFICATION_HELPER_SUFFIXES:
         helper = macos_package.VERIFICATION_NAME + " Helper" + suffix
         write(
@@ -169,6 +176,107 @@ class MacOSPackageTests(unittest.TestCase):
                 with self.assertRaises((ValueError, FileNotFoundError)):
                     macos_package.bundle_files(app)
                 link.unlink()
+
+    def test_cef_locale_trimming_keeps_supported_languages_and_unrelated_resources(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            app = Path(directory) / "Usque.app"
+            verification = app / "Contents/Helpers/UsqueProtonVerification.app"
+            verification_fixture(verification)
+            resources = (
+                verification / "Contents/Frameworks/Chromium Embedded Framework.framework/Resources"
+            )
+            for locale in ("de", "fr", "ja"):
+                write(resources / f"{locale}.lproj/locale.pak", b"unused CEF locale")
+            preserved = [
+                resources / "icudtl.dat",
+                resources / "v8_context_snapshot.arm64.bin",
+                resources / "LICENSE.txt",
+                resources / "resources.pak",
+                resources / "chrome_100_percent.pak",
+                resources / "chrome_200_percent.pak",
+                resources / "vk_swiftshader_icd.json",
+                verification / "Contents/Resources/en.lproj/InfoPlist.strings",
+                app / "Contents/Resources/zh_TW.lproj/InfoPlist.strings",
+                app
+                / "Contents/Frameworks/App.framework/Resources/flutter_assets/assets/translations/zh_TW.json",
+            ]
+            for path in preserved:
+                if not path.exists():
+                    write(path, b"keep this resource")
+            before = {path: path.read_bytes() for path in preserved}
+            binaries = {path: path.read_bytes() for path in macos_package.macho_files(verification)}
+
+            macos_package.trim_cef_locales(app)
+
+            self.assertEqual(macos_package.CEF_LOCALES, ("en", "zh_CN", "zh_TW"))
+            self.assertEqual(
+                {path.name for path in resources.glob("*.lproj")},
+                {"en.lproj", "zh_CN.lproj", "zh_TW.lproj"},
+            )
+            for locale in macos_package.CEF_LOCALES:
+                self.assertEqual(
+                    (resources / f"{locale}.lproj/locale.pak").read_bytes(),
+                    b"synthetic CEF locale",
+                )
+            for path, content in {**before, **binaries}.items():
+                self.assertEqual(path.read_bytes(), content, str(path.relative_to(app)))
+            # Repackaging an already trimmed app is harmless.
+            macos_package.trim_cef_locales(app)
+
+    def test_cef_locale_trimming_validates_all_required_payloads_before_deleting(self) -> None:
+        for locale in ("en", "zh_CN", "zh_TW"):
+            for empty in (False, True):
+                with (
+                    self.subTest(locale=locale, empty=empty),
+                    tempfile.TemporaryDirectory() as directory,
+                ):
+                    app = Path(directory) / "Usque.app"
+                    verification = app / "Contents/Helpers/UsqueProtonVerification.app"
+                    verification_fixture(verification)
+                    resources = verification / (
+                        "Contents/Frameworks/Chromium Embedded Framework.framework/Resources"
+                    )
+                    foreign = resources / "de.lproj/locale.pak"
+                    write(foreign, b"do not delete on failed validation")
+                    required = resources / f"{locale}.lproj/locale.pak"
+                    if empty:
+                        required.write_bytes(b"")
+                    else:
+                        required.unlink()
+
+                    with self.assertRaises(ValueError):
+                        macos_package.trim_cef_locales(app)
+
+                    self.assertEqual(foreign.read_bytes(), b"do not delete on failed validation")
+
+    def test_cef_locale_trimming_does_not_follow_external_resource_symlinks(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            app = root / "Usque.app"
+            verification = app / "Contents/Helpers/UsqueProtonVerification.app"
+            verification_fixture(verification)
+            resources = verification / (
+                "Contents/Frameworks/Chromium Embedded Framework.framework/Resources"
+            )
+            outside = root / "external-locales"
+            write(outside / "locale.pak", b"external resource must remain intact")
+            (resources / "de.lproj").symlink_to(outside)
+            with self.assertRaises(ValueError):
+                macos_package.trim_cef_locales(app)
+            self.assertTrue((resources / "de.lproj").is_symlink())
+            self.assertEqual(
+                (outside / "locale.pak").read_bytes(), b"external resource must remain intact"
+            )
+
+    def test_cef_locale_trimming_is_optional_without_verification_component(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            app = Path(directory) / "Usque.app"
+            flutter_fixture(app)
+            before = {path: path.read_bytes() for path in macos_package.bundle_files(app)}
+            macos_package.trim_cef_locales(app)
+            self.assertEqual(
+                {path: path.read_bytes() for path in macos_package.bundle_files(app)}, before
+            )
 
     def test_assembly_connects_engine_and_helper_layout_and_fails_mixed_architecture(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -260,9 +368,26 @@ class MacOSPackageTests(unittest.TestCase):
                 flutter_fixture(source, architecture)
                 prototype_fixture(prototype, architecture)
                 verification_fixture(verification, architecture)
+                unused_locale = Path(
+                    "Contents/Frameworks/Chromium Embedded Framework.framework/Resources/de.lproj/locale.pak"
+                )
+                write(verification / unused_locale, b"unused CEF locale")
                 engine.write_bytes(macho(architecture))
                 write(maintenance, macho(architecture))
-                with patch.object(macos_package, "run", return_value=""):
+                packaged = root / "output/Usque.app"
+
+                def tool(arguments, packaged=packaged, unused_locale=unused_locale):
+                    if "--sign" in arguments:
+                        self.assertFalse(
+                            (
+                                packaged
+                                / "Contents/Helpers/UsqueProtonVerification.app"
+                                / unused_locale
+                            ).exists()
+                        )
+                    return ""
+
+                with patch.object(macos_package, "run", side_effect=tool):
                     manifest = macos_package.package(
                         source,
                         engine,
@@ -284,6 +409,15 @@ class MacOSPackageTests(unittest.TestCase):
                     manifest["components"]["atomic_update"], "helper_included_installation_disabled"
                 )
                 self.assertFalse(manifest["automatic_installation_enabled"])
+                self.assertTrue((verification / unused_locale).is_file())
+                required = macos_package.required_resources(packaged, architecture)
+                for locale in ("en", "zh_CN", "zh_TW"):
+                    self.assertTrue(
+                        any(
+                            path.parts[-2:] == (f"{locale}.lproj", "locale.pak")
+                            for path in required
+                        )
+                    )
                 other = "arm64" if architecture == "x86_64" else "x86_64"
                 nested = (
                     verification
@@ -435,9 +569,12 @@ class MacOSPackageTests(unittest.TestCase):
             write(principal, macho("x86_64"))
             write(nested / "Contents/MacOS/sidecar", macho("x86_64"))
             operations = []
-            with patch.object(
-                macos_package, "run", side_effect=lambda args: operations.append(args)
-            ):
+
+            def tool(arguments):
+                operations.append(arguments)
+                return "_exported_fixture_symbol\n" if arguments[:2] == ["xcrun", "nm"] else ""
+
+            with patch.object(macos_package, "run", side_effect=tool):
                 macos_package._thin_and_sign(app, "x86_64")
             signed = [args[-1] for args in operations if "--sign" in args]
             self.assertNotIn(app / "Contents/MacOS/Usque", signed)
@@ -446,6 +583,40 @@ class MacOSPackageTests(unittest.TestCase):
             self.assertLess(signed.index(nested / "Contents/MacOS/sidecar"), signed.index(nested))
             self.assertLess(signed.index(nested), signed.index(app))
             self.assertEqual(operations[-1], ["codesign", "--verify", "--strict", "--deep", app])
+            first_sign = next(index for index, args in enumerate(operations) if "--sign" in args)
+            for binary in macos_package.macho_files(app):
+                symbols = ["xcrun", "nm", "-gjU", binary]
+                strip = ["xcrun", "strip", "-S", "-x", binary]
+                symbol_checks = [index for index, args in enumerate(operations) if args == symbols]
+                self.assertEqual(len(symbol_checks), 2)
+                self.assertLess(symbol_checks[0], operations.index(strip))
+                self.assertLess(operations.index(strip), symbol_checks[1])
+                self.assertLess(symbol_checks[1], first_sign)
+
+    def test_symbol_trimming_rejects_lost_exports_before_signing(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            app = Path(directory) / "Usque.app"
+            flutter_fixture(app)
+            operations = []
+            checks = 0
+
+            def tool(arguments):
+                nonlocal checks
+                operations.append(arguments)
+                if arguments[:2] == ["xcrun", "nm"]:
+                    checks += 1
+                    return "_public_api\n" if checks == 1 else ""
+                return ""
+
+            with (
+                patch.object(macos_package, "run", side_effect=tool),
+                self.assertRaises(ValueError),
+            ):
+                macos_package._thin_and_sign(app, "arm64")
+            self.assertFalse(any("--sign" in arguments for arguments in operations))
+            self.assertTrue(
+                any(arguments[:4] == ["xcrun", "strip", "-S", "-x"] for arguments in operations)
+            )
 
     def test_image_is_verified_before_replacing_an_existing_artifact(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -465,6 +636,7 @@ class MacOSPackageTests(unittest.TestCase):
                 if arguments[0] == "hdiutil":
                     operations.append(arguments[1])
                     if arguments[1] == "create":
+                        self.assertEqual(arguments[arguments.index("-format") + 1], "ULMO")
                         volume = Path(arguments[arguments.index("-srcfolder") + 1])
                         self.assertEqual(
                             (volume / "Applications").readlink(), Path("/Applications")
