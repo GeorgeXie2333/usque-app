@@ -144,7 +144,10 @@ Android 的“分应用代理”对所有账号生效。关闭时，所有应用
 ### 实验性功能与支持范围
 
 [Zero Trust 注册](docs/ZERO_TRUST_EXPERIMENTAL.md)仍属实验性功能：可以用组织身份建立 MASQUE 公网隧道，
-但不提供完整的 Cloudflare One™ Client 功能。仓库保留 macOS 源码，但不构建或发布；
+但不提供完整的 Cloudflare One™ Client 功能。macOS 提供独立的 arm64 和 x86_64
+[开发版 DMG 构建](docs/MACOS_DEVELOPMENT_PACKAGING.md)，桌面与代理功能仍在验证中。
+系统 VPN 和生产版本自动安装保持关闭，等待签名后的真机验收。
+已实现与待完成的功能请参阅 [macOS 功能对照表](docs/MACOS_WINDOWS_PARITY.md)。
 当前也不提供 iOS 版本、应用商店分发或公开命令行工具。
 
 ## 默认网络设置

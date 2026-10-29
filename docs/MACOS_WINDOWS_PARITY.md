@@ -32,7 +32,7 @@ hardware. None of the isolated results establishes physical-egress safety.
 | Login startup and notifications | SMAppService default off, authorization/cancel retry, native notifications | Build/contracts; real permission dialogs and login reboot pending |
 | Configuration import/export and diagnostics | Bounded batch file picker, JSON credential/config saves, diagnostics saved as ZIP | Dart regression/native contracts; real file-dialog acceptance pending |
 | Zero Trust browser login | ASWebAuthenticationSession callback, strict organization/path/token validation, attempt fencing and cancellation | Isolated URL/lifecycle checks; actual identity-provider login pending |
-| Proton verification window | Dedicated CEF component on all macOS 13+ targets, official-origin allowlist, in-memory context, authenticated loopback proxy, sandbox required | Framing/challenge checks; final rebuilt renderer/proxy shutdown smoke pending; official challenge and signed launcher pending |
+| Proton verification window | Dedicated CEF component on all macOS 13+ targets, official-origin allowlist, in-memory context, authenticated loopback proxy, sandbox required; Chromium storage does not access the user's Keychain | Five framing checks and a focused renderer exit pass; the complete proxy-failure smoke remains failed; official challenge and signed launcher pending |
 | Architecture-specific installation | Native arm64 and x86_64 DMG builders with drag-to-Applications layout, complete nested Mach-O/minimum-OS checks | Development image verification; Intel execution and macOS 13 hardware pending |
 | Update selection and recovery | Maintenance foundation verifies version, native hardware architecture, name, size, hash and signing; same-volume atomic swap with retained backup and hash-fenced recovery | Temporary injected-verifier tests including Intel-to-arm64 migration; production installation disabled because trust authority is unconfigured |
 | Extension update and uninstall | Application transaction leaves extensions/user data separate; manual app removal preserves user data | Extension approval/restart orchestration and managed uninstall remain pending |
@@ -56,14 +56,21 @@ does not establish Intel runtime compatibility.
   code still rejects symlink ancestors and overwrites.
 - Repository source checks passed: Rust format/strict Clippy, Dart format and
   analyze, Kotlin lint, Python Ruff, PowerShell analyzer and Protobuf lint/format.
-- Both final desktop/Engine/Network Extension/maintenance architectures have
-  built successfully. Final DMG assembly waits for CEF shutdown verification.
+- Both desktop/Engine/Network Extension/CEF/maintenance architectures have
+  built successfully. Development DMGs include all 20 matching Mach-O files;
+  image and ad-hoc signature checks do not establish runtime acceptance.
 
-An earlier CEF candidate returned a success frame and exited cleanly, but a fresh
-verified-SDK rebuild exposed teardown failures (exit 2 after the success frame).
-That final smoke remains failed until a new candidate proves clean shutdown
-repeatedly. A framed success followed by a watchdog exit is never counted as a
-pass, and the unsigned release launcher still refuses real credential handoffs.
+Earlier CEF candidates returned a success frame followed by a teardown watchdog
+and exit 2. The popup fix prevents Chromium from accessing the user's Keychain
+in this strictly in-memory, one-shot process. A focused renderer smoke then
+returned success and exited 0, with the storage policy observed on renderer,
+GPU and utility children. The complete smoke still fails its authentication-proxy
+failure/exit check. This is partial evidence, not full verification acceptance;
+the unsigned release launcher continues to refuse real credential handoffs.
+
+The [candidate validation record](MACOS_DESKTOP_VALIDATION.json) binds build,
+artifact and incomplete device results separately. Development work is reviewed
+in [draft PR #3](https://github.com/JustinL330/usque-app/pull/3), targeting `dev`.
 - The earlier [network prototype record](MACOS_NETWORK_VALIDATION.json) preserves
   the first milestone's distinct code candidates and results.
 

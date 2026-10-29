@@ -42,7 +42,7 @@ FAT_MAGICS = {
 
 
 def run(arguments: list[str | Path], *, cwd: Path | None = None, env=None) -> str:
-    return subprocess.check_output(  # noqa: S603
+    return subprocess.check_output(  # noqa: S603 - fixed build-tool argv; no shell command text.
         [str(value) for value in arguments],
         cwd=cwd,
         env=env,
@@ -379,6 +379,7 @@ def development_manifest(app: Path, architecture: str, version: str, machos: lis
             "intel_native_execution": "not_run",
             "signed_system_vpn": "not_run",
             "macos_13_hardware": "not_run",
+            "proton_cef_renderer_proxy_smoke": "not_run_by_packager",
         },
         "mach_o": machos,
         "files": [

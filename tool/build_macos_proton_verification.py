@@ -32,7 +32,7 @@ IDENTIFIER = macos_package.IDENTIFIER + ".proton-verification"
 
 
 def run(arguments: list[str | Path]) -> None:
-    subprocess.run([str(value) for value in arguments], check=True)  # noqa: S603
+    subprocess.run([str(value) for value in arguments], check=True)  # noqa: S603 - fixed build argv; no shell or handoff input.
 
 
 def build(architecture: str, cef: Path, output: Path, *, verified_sdk=False) -> Path:

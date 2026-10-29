@@ -153,7 +153,9 @@ HTTP/SOCKS5 のチェーン DNS は、既定でそのプロキシ経由の TLS �
 ### 実験的な機能と未対応の範囲
 
 [Zero Trust 登録](docs/ZERO_TRUST_EXPERIMENTAL.md)は実験的な機能です。組織の ID を使って MASQUE インターネットトンネルを構成しますが、Cloudflare One™ Client の全機能との互換性は提供しません。
-macOS のソースは保持していますが、ビルドやリリースは行いません。
+macOS には arm64 と x86_64 向けの個別の[開発用 DMG ビルド](docs/MACOS_DEVELOPMENT_PACKAGING.md)があり、デスクトップ機能とプロキシ機能を検証中です。
+システム VPN と正式版の自動インストールは、署名済みビルドの実機検証が完了するまで無効です。
+実装済みの機能と未完了の機能については、[macOS 機能対応表](docs/MACOS_WINDOWS_PARITY.md)を参照してください。
 iOS、アプリストアでの配布、公開 CLI は今回のリリース範囲に含まれません。
 
 ## 既定のネットワーク設定

@@ -69,6 +69,16 @@ sandbox failure terminates the child. The browser always sets
   challenge realm. A probe verifies authenticated HTTP and CONNECT handling
   before the official challenge is loaded. Proxy or resource transport failure
   ends the verification.
+- CEF process metadata uses a short, atomically created private directory with
+  mode `0700`; normal shutdown removes it. The handoff never enters that
+  directory. The browser profile remains in memory.
+- The browser and its child processes use `use-mock-keychain` so Chromium Safe
+  Storage does not access the user's macOS Keychain or ask to create a keychain
+  under the isolated tests' temporary HOME. This uses mock encryption and is
+  suitable only for this one-shot, in-memory profile: do not enable persistent
+  cookies, saved passwords or a disk cache with this setting. It does not
+  disable TLS certificate validation or the CEF sandbox. A test keychain popup
+  should be cancelled; resetting the user's default keychain is unnecessary.
 - Network resources are restricted to the official HTTPS
   `verify.proton.me`, `verify-api.proton.me` and `account.proton.me` origins.
   Top-frame navigation must retain the handoff's challenge digest. CAPTCHA
@@ -91,10 +101,24 @@ python3 tool/test_macos_proton_verification.py \
 
 The first command exercises malformed framing and proxy handoff recovery
 without opening a browser. The second additionally requires WindowServer and
-starts only a fixed local data page and an unavailable loopback proxy. It
+starts only a fixed local data page and synthetic loopback proxy fixtures,
+including bound Basic authentication and a rejected foreign realm. It
 requires a clean browser exit; receiving a result followed by a forced kill or
 Chromium teardown watchdog failure is a failed test. Each fixture has a bounded
 timeout and cleans only its own process group.
+
+Current validation (2026-10-29): both architecture builds pass their native
+Mach-O, macOS 13 minimum-version and ad-hoc integrity checks. The five framing
+and handoff-recovery checks pass on Apple Silicon. After the Keychain isolation
+change, a focused local renderer smoke returns success and exits cleanly with
+status `0`; its observed GPU, renderer and utility processes all carry
+`--use-mock-keychain` (see the generated `keychain-focused-smoke.json`). The full
+`--smoke` suite still **fails** at `Authentication proxy failure did not end
+cleanly` (see `keychain-smoke-tests.json`). Earlier runs also showed intermittent
+Chromium teardown watchdog failures with exit status `2`, including in a minimal
+client. The focused Keychain check does not establish full lifecycle or
+proxy-authentication reliability. Official account flow acceptance remains
+incomplete; keep the signed-launch capability gated.
 
 Cross compilation does not demonstrate Intel execution. These fixtures do not
 prove an official Proton challenge, signed application launch, macOS 13 device

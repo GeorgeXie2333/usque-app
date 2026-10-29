@@ -25,9 +25,13 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def execute(executable: Path, payload: bytes | None, *, smoke=False, keep_stdin=False) -> dict:
-    with tempfile.TemporaryDirectory(prefix="usque-cef-isolated-") as directory:
+    with tempfile.TemporaryDirectory(prefix="usque-cef-", dir="/private/tmp") as directory:
+        home = Path(directory) / "home"
+        temporary = Path(directory) / "tmp"
+        home.mkdir(mode=0o700)
+        temporary.mkdir(mode=0o700)
         env = os.environ.copy()
-        env.update(HOME=directory, CFFIXED_USER_HOME=directory, TMPDIR=directory)
+        env.update(HOME=str(home), CFFIXED_USER_HOME=str(home), TMPDIR=str(temporary) + "/")
         process = subprocess.Popen(  # noqa: S603 - explicit local test executable.
             [str(executable), "--smoke-test" if smoke else "--stdio"],
             stdin=subprocess.PIPE,

@@ -368,9 +368,18 @@ class BrowserApp final : public CefApp, public CefBrowserProcessHandler {
   CefRefPtr<CefBrowserProcessHandler> GetBrowserProcessHandler() override { return this; }
   void OnContextInitialized() override { client_->Create(); }
   void OnBeforeCommandLineProcessing(const CefString&, CefRefPtr<CefCommandLine> command) override {
+    // This one-shot browser has no persistent profile or passwords to protect.
+    // Avoid Chromium Safe Storage accessing the user's Keychain (or prompting
+    // to create one when the isolated tests run with a temporary HOME). Mock
+    // encryption must never be used with a persistent browser profile.
+    command->AppendSwitch("use-mock-keychain");
     for (const char* flag : {"disable-background-networking", "disable-component-update", "disable-sync",
                             "disable-default-apps", "disable-breakpad", "no-first-run", "disable-quic", "disable-databases"}) command->AppendSwitch(flag);
     command->AppendSwitchWithValue("force-webrtc-ip-handling-policy", "disable_non_proxied_udp");
+  }
+  void OnBeforeChildProcessLaunch(CefRefPtr<CefCommandLine> command) override {
+    // Apply the same storage policy to the out-of-process network service.
+    command->AppendSwitch("use-mock-keychain");
   }
  private:
   CefRefPtr<Verification> client_;
@@ -428,12 +437,16 @@ int main(int argc, char** argv) {
     // CEF requires a root for process metadata even when the request context
     // itself is in memory. Isolate it from every installed user browser and
     // from concurrent verification processes, then remove it after shutdown.
-    NSString* private_root = [NSTemporaryDirectory() stringByAppendingPathComponent:
-        [@"usque-cef-" stringByAppendingString:NSUUID.UUID.UUIDString]];
-    if (![NSFileManager.defaultManager createDirectoryAtPath:private_root
-        withIntermediateDirectories:NO attributes:@{NSFilePosixPermissions: @0700} error:nil]) {
+    // Keep the root short: macOS Unix-domain sockets have a bounded pathname,
+    // and NSTemporaryDirectory plus a UUID can exhaust it before CEF's suffix.
+    // mkdtemp atomically creates a private 0700 directory without following an
+    // existing pathname. This directory never contains the handoff itself.
+    char root_template[] = "/private/tmp/usque-cef-XXXXXX";
+    const auto root = mkdtemp(root_template);
+    if (!root) {
       Respond(@"error", @"PROTON_VERIFICATION_UNAVAILABLE"); return 1;
     }
+    NSString* private_root = [NSString stringWithUTF8String:root];
     CefString(&settings.root_cache_path) = std::string(private_root.UTF8String);
     CefString(&settings.browser_subprocess_path) = std::string([NSBundle.mainBundle.bundlePath UTF8String]) +
         "/Contents/Frameworks/UsqueProtonVerification Helper.app/Contents/MacOS/UsqueProtonVerification Helper";
