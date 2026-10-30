@@ -49,6 +49,17 @@ pub(crate) fn command(path: &str, request: &str) -> Result<String, String> {
         | ScenarioCommand::Restore { operation_id, .. } => Some(*operation_id),
         _ => None,
     };
+    let parent = path.parent().ok_or("SCENARIO_INVALID_REQUEST")?;
+    let store = ConfigStore::new(path);
+    if operation.is_some() {
+        // Reject a stale, unavailable or unauthorized activation before it
+        // stops unrelated account, provider or catalogue work.
+        let (mut context, stable, _) = owner_context(&envelope, operation)?;
+        let mut config = load(&store)?;
+        prepare(&config, &request, &envelope, parent, &mut context, stable)?;
+        scenarios::command(&mut config, request.clone(), &context)
+            .map_err(|error| error.to_string())?;
+    }
     #[cfg(feature = "wireguard")]
     if operation.is_some() && (!crate::warp_wireguard::stop() || !crate::proton_vpn::stop()) {
         return Err("SCENARIO_BUSY".into());
@@ -56,55 +67,20 @@ pub(crate) fn command(path: &str, request: &str) -> Result<String, String> {
     if operation.is_some() && !crate::vpngate::cancel_refresh() {
         return Err("SCENARIO_BUSY".into());
     }
-    let parent = path.parent().ok_or("SCENARIO_INVALID_REQUEST")?;
     let _provider_lease = operation
         .map(|_| usque_core::proton_vpn::lifecycle_lease(parent).map_err(|_| "SCENARIO_BUSY"))
         .transpose()?;
-    let state = crate::network_settings::scenario_snapshot()?;
-    let mut confirmed_operations = state.persisted_operation_ids.clone();
-    let stable = envelope.available
-        && matches!(envelope.phase.as_str(), "connected" | "degraded")
-        && state.session_id.as_deref() == Some(envelope.session_id.as_str());
-    if operation.is_some() && envelope.available && (!stable || state.applied_profile.is_none()) {
-        return Err("SCENARIO_UNCONFIRMED".into());
-    }
-    let mut context = ScenarioContext {
-        source_epoch: state.source_epoch,
-        session_id: (!matches!(envelope.phase.as_str(), "disconnected" | "idle"))
-            .then(|| envelope.session_id.clone()),
-        applied_profile: stable.then_some(state.applied_profile).flatten(),
-        apply_status: if stable
-            || state.operation_id.is_some()
-                && matches!(
-                    state.apply_status,
-                    ApplyStatus::Unknown | ApplyStatus::Failed | ApplyStatus::Applying
-                ) {
-            state.apply_status
-        } else {
-            ApplyStatus::Deferred
-        },
-        dependency_fingerprint: String::new(),
-    };
-    let store = ConfigStore::new(path);
+    let (mut context, stable, mut confirmed_operations) = owner_context(&envelope, operation)?;
     // Keep config -> provider/library lock ordering. No network requests occur
     // while preparing or committing these local metadata operations.
-    let _guard = store.lock_exclusive().map_err(|_| "SCENARIO_UNCONFIRMED")?;
+    let _guard = store
+        .lock_exclusive()
+        .map_err(|_| "SCENARIO_STORAGE_UNAVAILABLE")?;
     let mut config = store
         .load_or_default()
-        .map_err(|_| "SCENARIO_UNCONFIRMED")?;
-    let candidate =
-        scenarios::candidate_profile(&config, &request).map_err(|error| error.to_string())?;
-    if let Some(target) = candidate.as_ref() {
-        context.dependency_fingerprint = validate_dependencies(parent, target)?;
-        if operation.is_some() {
-            if envelope.identity_account_id != Some(target.id) {
-                return Err("SCENARIO_ACCOUNT_UNAVAILABLE".into());
-            }
-            if stable && target.frontends.tunnel && !envelope.vpn_authorized {
-                return Err("SCENARIO_VPN_PERMISSION_REQUIRED".into());
-            }
-        }
-    }
+        .map_err(|_| "SCENARIO_STORAGE_UNAVAILABLE")?;
+    resolve_unconfirmed(&store, &mut config)?;
+    prepare(&config, &request, &envelope, parent, &mut context, stable)?;
     let mut result = scenarios::command(&mut config, request.clone(), &context)
         .map_err(|error| error.to_string())?;
     if result.changed {
@@ -119,10 +95,11 @@ pub(crate) fn command(path: &str, request: &str) -> Result<String, String> {
         }
         if let Err(error) = store.save(&config) {
             if matches!(error, StoreError::CommitUncertain(_)) {
-                *UNCONFIRMED_OPERATION
-                    .lock()
-                    .map_err(|_| "SCENARIO_UNCONFIRMED")? = operation;
+                // A template save cannot retire an older unresolved activation.
                 if let Some(id) = operation {
+                    *UNCONFIRMED_OPERATION
+                        .lock()
+                        .map_err(|_| "SCENARIO_UNCONFIRMED")? = Some(id);
                     crate::network_settings::record_scenario_uncertain(&config, id)?;
                 }
                 return Err("SCENARIO_COMMIT_UNCONFIRMED".into());
@@ -193,6 +170,9 @@ pub(crate) fn command(path: &str, request: &str) -> Result<String, String> {
     }) {
         result.response["persisted_operation_id"] = json!(record.operation_id);
     }
+    // The GUI keeps its connection barrier only while this owner cannot
+    // settle the operation from storage.
+    result.response["unresolved_operation_id"] = json!(uncertain);
     result.response["target"] = runtime_target
         .as_ref()
         .filter(|_| requires_runtime)
@@ -204,6 +184,103 @@ pub(crate) fn command(path: &str, request: &str) -> Result<String, String> {
         .map(|profile| crate::android_profile_value(profile, None, false))
         .unwrap_or(Value::Null);
     serde_json::to_string(&result.response).map_err(|_| "SCENARIO_UNCONFIRMED".into())
+}
+
+/// Trusted runtime observations for one command. Every rejection here happens
+/// before storage is changed.
+fn owner_context(
+    envelope: &Envelope,
+    operation: Option<Uuid>,
+) -> Result<(ScenarioContext, bool, Vec<Uuid>), String> {
+    let state = crate::network_settings::scenario_snapshot()?;
+    let stable = envelope.available
+        && matches!(envelope.phase.as_str(), "connected" | "degraded")
+        && state.session_id.as_deref() == Some(envelope.session_id.as_str());
+    if operation.is_some() && envelope.available && (!stable || state.applied_profile.is_none()) {
+        return Err("SCENARIO_RUNTIME_UNCONFIRMED".into());
+    }
+    let context = ScenarioContext {
+        source_epoch: state.source_epoch,
+        session_id: (!matches!(envelope.phase.as_str(), "disconnected" | "idle"))
+            .then(|| envelope.session_id.clone()),
+        applied_profile: stable.then_some(state.applied_profile).flatten(),
+        apply_status: if stable
+            || state.operation_id.is_some()
+                && matches!(
+                    state.apply_status,
+                    ApplyStatus::Unknown | ApplyStatus::Failed | ApplyStatus::Applying
+                ) {
+            state.apply_status
+        } else {
+            ApplyStatus::Deferred
+        },
+        dependency_fingerprint: String::new(),
+    };
+    Ok((context, stable, state.persisted_operation_ids))
+}
+
+fn load(store: &ConfigStore) -> Result<usque_core::AppConfig, String> {
+    let _guard = store
+        .lock_exclusive()
+        .map_err(|_| "SCENARIO_STORAGE_UNAVAILABLE")?;
+    store
+        .load_or_default()
+        .map_err(|_| "SCENARIO_STORAGE_UNAVAILABLE".into())
+}
+
+/// Validate the candidate's local resources and the activation envelope.
+fn prepare(
+    config: &usque_core::AppConfig,
+    request: &ScenarioCommand,
+    envelope: &Envelope,
+    parent: &Path,
+    context: &mut ScenarioContext,
+    stable: bool,
+) -> Result<(), String> {
+    let candidate =
+        scenarios::candidate_profile(config, request).map_err(|error| error.to_string())?;
+    if let Some(target) = candidate.as_ref() {
+        context.dependency_fingerprint = validate_dependencies(parent, target)?;
+        if request.is_mutation() {
+            if envelope.identity_account_id != Some(target.id) {
+                return Err("SCENARIO_ACCOUNT_UNAVAILABLE".into());
+            }
+            if stable && target.frontends.tunnel && !envelope.vpn_authorized {
+                return Err("SCENARIO_VPN_PERMISSION_REQUIRED".into());
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Settle an uncertain commit from durable storage, under the config lock.
+/// A recorded target is acknowledged only by a successful durable write; a
+/// different record proves that the operation never committed. Its runtime
+/// application is never replayed.
+fn resolve_unconfirmed(
+    store: &ConfigStore,
+    config: &mut usque_core::AppConfig,
+) -> Result<(), String> {
+    let mut pending = UNCONFIRMED_OPERATION
+        .lock()
+        .map_err(|_| "SCENARIO_UNCONFIRMED")?;
+    let Some(operation) = *pending else {
+        return Ok(());
+    };
+    if config
+        .last_scenario_switch
+        .as_ref()
+        .is_some_and(|record| record.operation_id == operation)
+    {
+        let mut acknowledged = config.clone();
+        scenarios::acknowledge_operation(&mut acknowledged, operation);
+        if store.save(&acknowledged).is_err() {
+            return Ok(());
+        }
+        *config = acknowledged;
+    }
+    *pending = None;
+    Ok(())
 }
 
 fn validate_dependencies(parent: &Path, profile: &Profile) -> Result<String, String> {
@@ -347,6 +424,71 @@ mod tests {
             acknowledged["persisted_operation_id"],
             operation.to_string()
         );
+    }
+
+    #[test]
+    fn uncertain_activation_is_settled_from_storage_and_reported_unresolved_until_then() {
+        let _guard = crate::network_settings::TEST_STATE.lock().unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("profiles-v2.json");
+        let store = ConfigStore::new(&path);
+        let config = AppConfig::default();
+        store.save(&config).unwrap();
+        crate::network_settings::command(path.to_str().unwrap(), r#"{"command":"reset"}"#).unwrap();
+        let invoke = |request: Value, identity: Option<Uuid>| -> Result<Value, String> {
+            let source = command(path.to_str().unwrap(), &json!({"request": request, "phase":"disconnected","available":false,"session_id":"1","vpn_authorized":false,"identity_account_id":identity}).to_string())?;
+            serde_json::from_str(&source).map_err(|error| error.to_string())
+        };
+        let saved = invoke(json!({"action":"save","name":"Work","settings":scenarios::ScenarioSettings::default()}), None).unwrap();
+        let scenario = &saved["scenarios"][0];
+        let preview = invoke(json!({"action":"preview","id":scenario["id"],"expected_revision":scenario["revision"]}), None).unwrap();
+        let operation = Uuid::new_v4();
+        invoke(json!({"action":"activate","id":scenario["id"],"expected_revision":scenario["revision"],"preview_token":preview["preview"]["preview_token"],"operation_id":operation}), config.active_profile_id).unwrap();
+        let mut stored = store.load().unwrap();
+        stored.last_scenario_switch.as_mut().unwrap().acknowledged = false;
+        store.save(&stored).unwrap();
+        crate::network_settings::command(path.to_str().unwrap(), r#"{"command":"reset"}"#).unwrap();
+        *UNCONFIRMED_OPERATION.lock().unwrap() = Some(operation);
+        let settled = invoke(json!({"action":"list"}), None).unwrap();
+        assert!(settled["unresolved_operation_id"].is_null());
+        assert_eq!(settled["persisted_operation_id"], operation.to_string());
+        assert!(
+            store
+                .load()
+                .unwrap()
+                .last_scenario_switch
+                .unwrap()
+                .acknowledged
+        );
+
+        let lost = Uuid::new_v4();
+        *UNCONFIRMED_OPERATION.lock().unwrap() = Some(lost);
+        let absent = invoke(json!({"action":"list"}), None).unwrap();
+        assert!(absent["unresolved_operation_id"].is_null());
+        assert_ne!(absent["last_operation_id"], lost.to_string());
+    }
+
+    #[test]
+    fn rejected_activation_does_not_stop_unrelated_work_or_change_storage() {
+        let _guard = crate::network_settings::TEST_STATE.lock().unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("profiles-v2.json");
+        let store = ConfigStore::new(&path);
+        store.save(&AppConfig::default()).unwrap();
+        crate::network_settings::command(path.to_str().unwrap(), r#"{"command":"reset"}"#).unwrap();
+        let before = store.load().unwrap();
+        let stale = command(path.to_str().unwrap(), &json!({
+            "request":{"action":"activate","id":Uuid::new_v4(),"expected_revision":Uuid::new_v4(),"preview_token":"0".repeat(64),"operation_id":Uuid::new_v4()},
+            "phase":"disconnected","available":false,"session_id":"1","vpn_authorized":false
+        }).to_string()).unwrap_err();
+        assert_eq!(stale, "SCENARIO_NOT_FOUND");
+        // Pre-commit runtime uncertainty uses a distinct, rejected code.
+        let unstable = command(path.to_str().unwrap(), &json!({
+            "request":{"action":"activate","id":Uuid::new_v4(),"expected_revision":Uuid::new_v4(),"preview_token":"0".repeat(64),"operation_id":Uuid::new_v4()},
+            "phase":"reconnecting","available":true,"session_id":"1","vpn_authorized":false
+        }).to_string()).unwrap_err();
+        assert_eq!(unstable, "SCENARIO_RUNTIME_UNCONFIRMED");
+        assert_eq!(store.load().unwrap(), before);
     }
 
     #[test]

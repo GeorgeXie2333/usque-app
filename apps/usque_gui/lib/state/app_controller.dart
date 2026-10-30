@@ -180,6 +180,14 @@ class AppController extends ChangeNotifier {
   final EngineClient _engine;
   late final ScenariosController scenarios;
   ProfilesTab profilesTab = ProfilesTab.scenes;
+
+  /// Scene state is polled only while Home or Profiles is observed.
+  void _syncScenarioVisibility() => scenarios.setVisible(
+    _uiVisible &&
+        _observationVisible &&
+        (section == AppSection.profiles || section == AppSection.home),
+  );
+
   void selectProfilesTab(ProfilesTab tab) {
     profilesTab = tab;
     _notifyListeners();
@@ -408,11 +416,7 @@ class AppController extends ChangeNotifier {
   set engineCapabilities(EngineCapabilities? value) {
     _engineCapabilities = value;
     scenarios.setSupported(value?.connectionScenarios ?? false);
-    scenarios.setVisible(
-      _uiVisible &&
-          _observationVisible &&
-          (section == AppSection.profiles || section == AppSection.home),
-    );
+    _syncScenarioVisibility();
     quality.setEnabled(value?.networkQuality ?? false);
     final newlySupported =
         !networkSettings.supported &&
@@ -948,11 +952,7 @@ class AppController extends ChangeNotifier {
   void selectSection(AppSection value) {
     if (!availableSections.contains(value)) return;
     section = value;
-    scenarios.setVisible(
-      _uiVisible &&
-          _observationVisible &&
-          (value == AppSection.profiles || value == AppSection.home),
-    );
+    _syncScenarioVisibility();
     _notifyListeners();
   }
 
@@ -1487,7 +1487,7 @@ class AppController extends ChangeNotifier {
       if (!await scenarios.synchronizeActivation()) {
         throw EngineException(
           'SCENARIO_RESULT_UNKNOWN',
-          strings.get('scenario_unknown'),
+          strings.get('scenario_confirm_before_connect'),
         );
       }
       if (intent != _connectionIntent) return;
@@ -1516,7 +1516,7 @@ class AppController extends ChangeNotifier {
       if (!await scenarios.synchronizeActivation()) {
         throw EngineException(
           'SCENARIO_RESULT_UNKNOWN',
-          strings.get('scenario_unknown'),
+          strings.get('scenario_confirm_before_connect'),
         );
       }
       if (intent != _connectionIntent) return;
@@ -2989,11 +2989,7 @@ class AppController extends ChangeNotifier {
   void setUiVisible(bool visible) {
     if (_disposed || visible == _uiVisible) return;
     _uiVisible = visible;
-    scenarios.setVisible(
-      visible &&
-          _observationVisible &&
-          (section == AppSection.profiles || section == AppSection.home),
-    );
+    _syncScenarioVisibility();
     _uiObservationGeneration++;
     quality.setObservationVisible(visible && _observationVisible);
     diagnostics.setObservationVisible(visible && _observationVisible);
@@ -3011,11 +3007,7 @@ class AppController extends ChangeNotifier {
   void setObservationVisible(bool visible) {
     if (_disposed || visible == _observationVisible) return;
     _observationVisible = visible;
-    scenarios.setVisible(
-      visible &&
-          _uiVisible &&
-          (section == AppSection.profiles || section == AppSection.home),
-    );
+    _syncScenarioVisibility();
     _observationGeneration++;
     _snapshotRevision++;
     quality.setObservationVisible(visible && _uiVisible);

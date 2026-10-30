@@ -73,6 +73,7 @@ class SceneEngine extends WorkflowEngine {
   List<String> actualPreviewFields = [];
   List<String> previewFields = ['frontends.http'];
   Map<String, Object?>? settingsOverride;
+  Map<String, Object?> previewExtra = {};
   final sceneCalls = <Map<String, Object?>>[];
   List<Map<String, Object?>> entries = [
     {
@@ -151,6 +152,7 @@ class SceneEngine extends WorkflowEngine {
           'restore': false,
           'apply_kind': 'select',
           'needs_reconnect': false,
+          ...previewExtra,
         },
     };
   }
@@ -982,4 +984,84 @@ void main() {
       expect(engine.sceneCalls.where((r) => r['action'] == 'save'), isEmpty);
     },
   );
+
+  testWidgets('preview warns when a scene ends Kill Switch protection', (
+    tester,
+  ) async {
+    final engine = SceneEngine()
+      ..previewExtra = {'kill_switch_output_removed': true};
+    final app = await pumpWorkflow(
+      tester,
+      engine,
+      section: AppSection.profiles,
+    );
+    app.engineCapabilities = await engine.getCapabilities();
+    await app.scenarios.refresh();
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('scenario-use-scene-a')));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('scenario-kill-switch-warning')),
+      findsOneWidget,
+    );
+    expect(
+      find.text(app.strings.get('scenario_kill_switch_output')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('a scene rejected by current rules cannot be used', (
+    tester,
+  ) async {
+    final engine = SceneEngine()
+      ..extraState = {
+        'invalid_scenario_ids': ['scene-a'],
+      };
+    final app = await pumpWorkflow(
+      tester,
+      engine,
+      section: AppSection.profiles,
+    );
+    app.engineCapabilities = await engine.getCapabilities();
+    await app.scenarios.refresh();
+    await tester.pumpAndSettle();
+    final use = tester.widget<TextButton>(
+      find.byKey(const ValueKey('scenario-use-scene-a')),
+    );
+    expect(use.onPressed, isNull);
+    expect(
+      find.text(app.strings.get('scenario_settings_invalid')),
+      findsOneWidget,
+    );
+    await tester.pump(const Duration(milliseconds: 200));
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('a binding to a deleted account is repaired without editing', (
+    tester,
+  ) async {
+    final engine = SceneEngine();
+    engine.entries.single['bound_account_id'] = 'deleted-account';
+    final app = await pumpWorkflow(
+      tester,
+      engine,
+      section: AppSection.profiles,
+    );
+    app.engineCapabilities = await engine.getCapabilities();
+    await app.scenarios.refresh();
+    await tester.pumpAndSettle();
+    final use = tester.widget<TextButton>(
+      find.byKey(const ValueKey('scenario-use-scene-a')),
+    );
+    expect(use.onPressed, isNull);
+    await tester.tap(find.byKey(const ValueKey('scenario-rebind-scene-a')));
+    await tester.pumpAndSettle();
+    final save = engine.sceneCalls.lastWhere(
+      (call) => call['action'] == 'save',
+    );
+    expect(save['id'], 'scene-a');
+    expect(save['bound_account_id'], isNull);
+    expect(save['settings'], engine.entries.single['settings']);
+    expect(find.byKey(const ValueKey('scenario-rebind-scene-a')), findsNothing);
+  });
 }

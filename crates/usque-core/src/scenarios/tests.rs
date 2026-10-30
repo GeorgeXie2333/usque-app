@@ -237,8 +237,25 @@ fn bound_account_and_settings_commit_together_and_manual_account_changes_are_mod
 fn missing_binding_does_not_break_storage_but_blocks_activation() {
     let mut config = AppConfig::default();
     let missing = Uuid::new_v4();
+    config
+        .profiles
+        .push(crate::Account::new(missing, "Deleted"));
     let scenario = save(&mut config, ScenarioSettings::default(), Some(missing));
+    config.profiles.retain(|account| account.id != missing);
     config.validate().unwrap();
+    // Renaming keeps the dangling binding the user still has to repair.
+    let renamed = command(
+        &mut config.clone(),
+        ScenarioCommand::Save {
+            id: Some(scenario.id),
+            name: "Renamed".into(),
+            bound_account_id: Some(missing),
+            settings: Box::new(scenario.settings.clone()),
+            expected_revision: Some(scenario.revision),
+        },
+        &ScenarioContext::default(),
+    );
+    assert!(renamed.is_ok());
     let error = command(
         &mut config,
         ScenarioCommand::Preview {
@@ -646,7 +663,9 @@ fn oversized_current_configuration_keeps_catalogue_and_deletion_available() {
     let value = save(&mut config, ScenarioSettings::default(), None);
     let response = command(
         &mut config,
-        ScenarioCommand::List,
+        ScenarioCommand::List {
+            known_revision: None,
+        },
         &ScenarioContext::default(),
     )
     .unwrap()
@@ -689,7 +708,9 @@ fn all_command_envelopes_reject_owner_observations_and_secret_fields() {
     }
     assert!(matches!(
         ScenarioCommand::parse(r#"{"action":"list"}"#).unwrap(),
-        ScenarioCommand::List
+        ScenarioCommand::List {
+            known_revision: None,
+        }
     ));
     assert!(matches!(
         ScenarioCommand::parse(r#"{"action":"preview_restore"}"#).unwrap(),
@@ -896,4 +917,204 @@ fn applied_scene_never_guesses_from_catalogue_or_mismatched_binding() {
     assert_eq!(modified["applied_scene_confirmed"], true);
     assert!(modified["applied_scenario_id"].is_null());
     assert_eq!(modified["state"]["modified"], true);
+}
+
+#[test]
+fn new_bindings_must_name_an_existing_account() {
+    let mut config = AppConfig::default();
+    let before = config.clone();
+    let error = command(
+        &mut config,
+        ScenarioCommand::Save {
+            id: None,
+            name: "Work".into(),
+            bound_account_id: Some(Uuid::new_v4()),
+            settings: Box::default(),
+            expected_revision: None,
+        },
+        &ScenarioContext::default(),
+    )
+    .unwrap_err();
+    assert_eq!(error, ScenarioError::AccountUnavailable);
+    assert_eq!(config, before);
+}
+
+#[test]
+fn stored_scene_rejected_by_current_rules_loads_and_is_reported_unavailable() {
+    let mut config = AppConfig::default();
+    let valid = save(&mut config, ScenarioSettings::default(), None);
+    let mut invalid = save(&mut config, ScenarioSettings::default(), None);
+    // Models a snapshot accepted by an older release and rejected by a
+    // tightened rule: duplicate rule ids fail routing normalization.
+    let rule = crate::RoutingRule {
+        id: Uuid::new_v4(),
+        kind: crate::RoutingMatch::Domain,
+        target: "example.com".into(),
+        action: crate::RoutingAction::Direct,
+    };
+    invalid.settings.routing.rules = vec![
+        rule.clone(),
+        crate::RoutingRule {
+            target: "example.net".into(),
+            ..rule
+        },
+    ];
+    config.scenarios[1] = invalid.clone();
+    config.validate().unwrap();
+    let temp = tempfile::tempdir().unwrap();
+    let store = crate::storage::ConfigStore::new(temp.path().join("profiles-v2.json"));
+    std::fs::write(
+        temp.path().join("profiles-v2.json"),
+        serde_json::to_vec(&config).unwrap(),
+    )
+    .unwrap();
+    let loaded = store.load().unwrap();
+    assert_eq!(loaded.scenarios.len(), 2);
+    let response = catalogue(&loaded, &ScenarioContext::default());
+    assert_eq!(response["invalid_scenario_ids"], json!([invalid.id]));
+    let mut working = loaded.clone();
+    let error = command(
+        &mut working,
+        ScenarioCommand::Preview {
+            id: invalid.id,
+            expected_revision: invalid.revision,
+        },
+        &ScenarioContext::default(),
+    )
+    .unwrap_err();
+    assert_eq!(error, ScenarioError::InvalidSettings);
+    command(
+        &mut working,
+        ScenarioCommand::Preview {
+            id: valid.id,
+            expected_revision: valid.revision,
+        },
+        &context(&loaded),
+    )
+    .unwrap();
+}
+
+#[test]
+fn status_poll_omits_unchanged_templates_but_keeps_state() {
+    let mut config = AppConfig::default();
+    save(&mut config, ScenarioSettings::default(), None);
+    let list = |config: &mut AppConfig, known: Option<String>| {
+        command(
+            config,
+            ScenarioCommand::List {
+                known_revision: known,
+            },
+            &ScenarioContext::default(),
+        )
+        .unwrap()
+        .response
+    };
+    let full = list(&mut config, None);
+    let revision = full["catalogue_revision"].as_str().unwrap().to_owned();
+    let poll = list(&mut config, Some(revision.clone()));
+    assert!(poll.get("scenarios").is_none());
+    assert_eq!(poll["scenarios_unchanged"], true);
+    assert_eq!(poll["state"], full["state"]);
+    save(&mut config, ScenarioSettings::default(), None);
+    let changed = list(&mut config, Some(revision));
+    assert_eq!(changed["scenarios"].as_array().unwrap().len(), 2);
+    assert!(changed.get("scenarios_unchanged").is_none());
+}
+
+#[test]
+fn preview_warns_when_a_scene_turns_off_vpn_output_under_kill_switch() {
+    let mut config = AppConfig::default();
+    config.network.frontends.tunnel = true;
+    config.network.kill_switch = true;
+    let mut settings = ScenarioSettings::from_network(&config.network);
+    settings.frontends.tunnel = false;
+    settings.frontends.socks5 = true;
+    let scenario = save(&mut config, settings, None);
+    let current = ScenarioSettings::from_network(&config.network);
+    let keep = save(&mut config, current, None);
+    let preview = |config: &mut AppConfig, scene: &ConnectionScenario| {
+        let ctx = context(config);
+        command(
+            config,
+            ScenarioCommand::Preview {
+                id: scene.id,
+                expected_revision: scene.revision,
+            },
+            &ctx,
+        )
+        .unwrap()
+        .response["preview"]
+            .clone()
+    };
+    let removed = preview(&mut config, &scenario);
+    assert_eq!(removed["kill_switch_output_removed"], true);
+    assert!(removed.get("settings").is_none());
+    assert!(removed["target_settings"].is_object());
+    assert_eq!(
+        preview(&mut config, &keep)["kill_switch_output_removed"],
+        false
+    );
+    config.network.kill_switch = false;
+    assert_eq!(
+        preview(&mut config, &scenario)["kill_switch_output_removed"],
+        false
+    );
+}
+
+/// A non-default projection shared with the GUI. Rust owns the field set; the
+/// Flutter contract test reads the same fixture and checks its round trip.
+fn gui_contract_sample() -> ScenarioSettings {
+    let mut settings = ScenarioSettings::default();
+    settings.frontends.tunnel = true;
+    settings.frontends.socks5 = true;
+    settings.frontends.http = false;
+    settings.transport = crate::TransportPolicy::Http2;
+    settings.ip_policy = crate::IpPolicy::PreferIpv6;
+    settings.allow_lan = true;
+    settings.routing.ads_enabled = true;
+    settings.routing.rules = vec![crate::RoutingRule {
+        id: Uuid::from_u128(0x5ce0_0000_0000_4000_8000_0000_0000_0001),
+        kind: crate::RoutingMatch::Domain,
+        target: "example.com".into(),
+        action: crate::RoutingAction::Direct,
+    }];
+    settings.geo_direct_countries = vec!["CN".into()];
+    settings.dns_mode = DnsMode::LocalConfigured;
+    settings.dns_servers = vec![
+        "1.1.1.1".parse().unwrap(),
+        "2606:4700:4700::1111".parse().unwrap(),
+    ];
+    settings.proxy_dns_mode = ProxyDnsMode::LocalConfigured;
+    settings.proxy_dns_servers = vec!["9.9.9.9".parse().unwrap()];
+    settings.chain_exit = Some(ChainExitSettings {
+        enabled: true,
+        source: crate::chain_exit::ChainSource::WireguardCustom,
+        profile_id: Some(Uuid::from_u128(0x5ce0_0000_0000_4000_8000_0000_0000_0002)),
+        revision: Some(Uuid::from_u128(0x5ce0_0000_0000_4000_8000_0000_0000_0003)),
+        endpoint_override: None,
+        proton_server_id: None,
+    });
+    settings.normalized().unwrap()
+}
+
+#[test]
+fn gui_scene_settings_contract_fixture_matches_the_rust_projection() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../apps/usque_gui/test/fixtures/scenario_settings_contract.json");
+    let expected = serde_json::to_string_pretty(&json!({
+        "default": ScenarioSettings::default().normalized().unwrap(),
+        "sample": gui_contract_sample(),
+    }))
+    .unwrap()
+        + "\n";
+    if std::env::var_os("USQUE_UPDATE_CONTRACT_FIXTURES").is_some() {
+        std::fs::write(&path, &expected).unwrap();
+    }
+    assert_eq!(
+        std::fs::read_to_string(&path)
+            .unwrap_or_default()
+            .replace("\r\n", "\n"),
+        expected,
+        "scene settings changed; regenerate with USQUE_UPDATE_CONTRACT_FIXTURES=1 and update the GUI projection",
+    );
 }

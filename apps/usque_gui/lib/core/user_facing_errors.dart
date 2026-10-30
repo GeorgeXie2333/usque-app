@@ -85,6 +85,9 @@ String userFacingFailure(
     'ENDPOINT_PRESET_REQUIRES_IPV6' => 'endpoint_preset_policy',
     'ENDPOINT_PRESET_REQUIRES_CUSTOM' => 'endpoint_custom',
     'NETWORK_SETTINGS_UNSUPPORTED' ||
+    'ACCOUNT_PROTECTION_UNAVAILABLE' ||
+    'ACCOUNT_HANDOFF_UNCONFIRMED' ||
+    'SCENARIO_PROTECTION_UNAVAILABLE' => 'protection_handoff_unavailable',
     'PROXY_AUTH_UNSUPPORTED' => 'settings_unsupported',
     'PROXY_AUTH_APPLY_FAILED' => 'settings_failed',
     'PROXY_AUTH_SAVE_FAILED' => 'settings_save_failed',

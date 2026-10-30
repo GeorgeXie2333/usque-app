@@ -98,6 +98,16 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
     );
   }
 
+  /// Repair a binding whose account was deleted, keeping the saved settings.
+  Future<void> _unbind(ConnectionScenario scene) async {
+    await app.scenarios.save(
+      previous: scene,
+      name: scene.name,
+      boundAccountId: null,
+      settings: scene.settings,
+    );
+  }
+
   Future<void> _remove(ConnectionScenario scene) async {
     final strings = app.strings;
     final confirmed = await showDialog<bool>(
@@ -195,6 +205,8 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
     final account = app.profiles
         .where((a) => a.id == scene.boundAccountId)
         .firstOrNull;
+    final invalid = state?.invalidIds.contains(scene.id) == true;
+    final bindingMissing = scene.boundAccountId != null && account == null;
     final summary = [
       if (profile.frontends.tunnel)
         strings.tunnelOutputLabel(Theme.of(context).platform),
@@ -219,9 +231,15 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
           onPressed: app.scenarios.busy ? null : () => _edit(scene: scene),
           child: Text(strings.get('edit')),
         ),
+        if (bindingMissing)
+          TextButton(
+            key: ValueKey('scenario-rebind-${scene.id}'),
+            onPressed: app.scenarios.busy ? null : () => _unbind(scene),
+            child: Text(strings.get('scenario_follow_account')),
+          ),
         TextButton(
           key: ValueKey('scenario-use-${scene.id}'),
-          onPressed: app.scenarios.busy
+          onPressed: app.scenarios.busy || invalid || bindingMissing
               ? null
               : () => previewAndUseScenario(context, app, scene),
           child: Text(strings.get('scenario_use')),
@@ -286,6 +304,7 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
             scene.boundAccountId != null &&
             scene.boundAccountId != state?.currentAccountId)
           HintText(strings.get('scenario_binding_modified')),
+        if (invalid) HintText(strings.get('scenario_settings_invalid')),
       ],
     );
     return Material(
@@ -582,6 +601,14 @@ Future<bool> _previewAndUseScenario(
                   child: Text(scenarioFieldLabel(strings, field)),
                 ),
             ],
+            if (preview.killSwitchOutputRemoved) ...[
+              const SizedBox(height: 16),
+              WarningBanner(
+                key: const ValueKey('scenario-kill-switch-warning'),
+                title: null,
+                message: strings.get('scenario_kill_switch_output'),
+              ),
+            ],
             const SizedBox(height: 16),
             HintText(
               strings.get(
@@ -768,6 +795,9 @@ String scenarioErrorKey(String? code) => switch (code) {
   'SCENARIO_COMMIT_UNCONFIRMED' ||
   'SCENARIO_RESULT_UNKNOWN' => 'scenario_unknown',
   'SCENARIO_PLATFORM_UNSUPPORTED' => 'scenario_platform_unsupported',
+  'SCENARIO_NOT_APPLIED' => 'scenario_not_applied',
+  'SCENARIO_INVALID_SETTINGS' => 'scenario_settings_invalid',
+  'SCENARIO_PROTECTION_UNAVAILABLE' => 'protection_handoff_unavailable',
   'SCENARIO_LIMIT' => 'scenario_limit',
   'SCENARIOS_UNSUPPORTED' => 'scenario_unsupported',
   _ => 'scenario_save_failed',

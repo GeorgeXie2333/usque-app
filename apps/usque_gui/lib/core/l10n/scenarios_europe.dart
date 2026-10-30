@@ -61,6 +61,13 @@ const kScenarioJa = <String, String>{
   'scenario_confirm_use': "シーンを適用",
   'scenario_invalid_dns': "有効な DNS の IP アドレスを入力してください。",
   'scenario_new_flows': "変更は新しい接続に適用されます。既存の接続は元の経路を使い続ける場合があります。",
+  'scenario_not_applied': "シーンは適用されませんでした。現在の設定は変更されていません。",
+  'scenario_kill_switch_output':
+      "Kill Switch がオンですが、このシーンは {tunnel} をオフにします。切り替え後はシステム全体の保護が停止します。",
+  'scenario_settings_invalid': "このシーンに保存された設定は無効になりました。編集して保存し直してください。",
+  'protection_handoff_unavailable':
+      "この切り替えでは Kill Switch の保護を維持できません。接続を切断してから切り替えてください。",
+  'scenario_confirm_before_connect': "前回のシーン切り替えを確認中です。シーンを更新してから接続してください。",
 };
 
 const kScenarioKo = <String, String>{
@@ -126,6 +133,15 @@ const kScenarioKo = <String, String>{
   'scenario_confirm_use': "시나리오 적용",
   'scenario_invalid_dns': "올바른 DNS IP 주소를 입력하세요.",
   'scenario_new_flows': "변경 사항은 새 연결에 적용됩니다. 기존 연결은 이전 경로를 계속 사용할 수 있습니다.",
+  'scenario_not_applied': "시나리오가 적용되지 않았습니다. 현재 설정은 바뀌지 않았습니다.",
+  'scenario_kill_switch_output':
+      "Kill Switch가 켜져 있지만 이 시나리오는 {tunnel}을(를) 끕니다. 전환 후에는 시스템 전체 보호가 중지됩니다.",
+  'scenario_settings_invalid':
+      "이 시나리오에 저장된 설정이 더 이상 유효하지 않습니다. 편집한 뒤 다시 저장하세요.",
+  'protection_handoff_unavailable':
+      "이번 전환에서는 Kill Switch 보호를 유지할 수 없습니다. 연결을 끊은 뒤 다시 전환하세요.",
+  'scenario_confirm_before_connect':
+      "이전 시나리오 전환을 아직 확인하는 중입니다. 시나리오를 새로 고친 뒤 다시 연결하세요.",
 };
 
 const kScenarioEs = <String, String>{
@@ -201,6 +217,16 @@ const kScenarioEs = <String, String>{
   'scenario_invalid_dns': "Introduce direcciones IP de DNS válidas.",
   'scenario_new_flows':
       "Los cambios se aplican a las conexiones nuevas; las existentes pueden conservar sus rutas.",
+  'scenario_not_applied':
+      "El escenario no se aplicó. Los ajustes actuales no cambiaron.",
+  'scenario_kill_switch_output':
+      "Kill Switch está activado, pero este escenario desactiva {tunnel}. La protección de todo el sistema se detiene tras el cambio.",
+  'scenario_settings_invalid':
+      "Los ajustes guardados de este escenario ya no son válidos. Edítalo y vuelve a guardarlo.",
+  'protection_handoff_unavailable':
+      "No se puede mantener la protección de Kill Switch durante este cambio. Desconéctate y vuelve a cambiar.",
+  'scenario_confirm_before_connect':
+      "El último cambio de escenario aún se está confirmando. Actualiza Escenarios y vuelve a conectar.",
 };
 
 const kScenarioPt = <String, String>{
@@ -276,6 +302,16 @@ const kScenarioPt = <String, String>{
   'scenario_invalid_dns': "Introduza endereços IP de DNS válidos.",
   'scenario_new_flows':
       "As alterações aplicam-se às novas ligações; as ligações existentes podem manter os seus percursos.",
+  'scenario_not_applied':
+      "O cenário não foi aplicado. As definições atuais não foram alteradas.",
+  'scenario_kill_switch_output':
+      "O Kill Switch está ativado, mas este cenário desativa {tunnel}. A proteção de todo o sistema para após a mudança.",
+  'scenario_settings_invalid':
+      "As definições guardadas deste cenário já não são válidas. Edite-o e guarde-o novamente.",
+  'protection_handoff_unavailable':
+      "Não é possível manter a proteção do Kill Switch durante esta mudança. Desligue e volte a mudar.",
+  'scenario_confirm_before_connect':
+      "A última mudança de cenário ainda está a ser confirmada. Atualize Cenários e volte a ligar.",
 };
 
 const kScenarioFr = <String, String>{
@@ -351,6 +387,16 @@ const kScenarioFr = <String, String>{
   'scenario_invalid_dns': "Saisissez des adresses IP de DNS valides.",
   'scenario_new_flows':
       "Les changements s’appliquent aux nouvelles connexions ; les connexions existantes peuvent conserver leur chemin.",
+  'scenario_not_applied':
+      "Le scénario n’a pas été appliqué. Les réglages actuels sont inchangés.",
+  'scenario_kill_switch_output':
+      "Kill Switch est activé, mais ce scénario désactive {tunnel}. La protection de tout le système s’arrête après le changement.",
+  'scenario_settings_invalid':
+      "Les réglages enregistrés de ce scénario ne sont plus valides. Modifiez-le puis enregistrez-le à nouveau.",
+  'protection_handoff_unavailable':
+      "La protection Kill Switch ne peut pas être maintenue pendant ce changement. Déconnectez-vous, puis changez à nouveau.",
+  'scenario_confirm_before_connect':
+      "Le dernier changement de scénario est encore en cours de confirmation. Actualisez Scénarios, puis reconnectez-vous.",
 };
 
 const kScenarioNl = <String, String>{
@@ -426,6 +472,16 @@ const kScenarioNl = <String, String>{
   'scenario_invalid_dns': "Voer geldige DNS-IP-adressen in.",
   'scenario_new_flows':
       "Wijzigingen gelden voor nieuwe verbindingen; bestaande verbindingen kunnen hun huidige routes behouden.",
+  'scenario_not_applied':
+      "Het scenario is niet toegepast. De huidige instellingen zijn ongewijzigd.",
+  'scenario_kill_switch_output':
+      "Kill Switch staat aan, maar dit scenario schakelt {tunnel} uit. De systeembrede bescherming stopt na het wisselen.",
+  'scenario_settings_invalid':
+      "De opgeslagen instellingen van dit scenario zijn niet meer geldig. Bewerk het en sla het opnieuw op.",
+  'protection_handoff_unavailable':
+      "De Kill Switch-bescherming kan tijdens deze wissel niet behouden blijven. Verbreek de verbinding en wissel opnieuw.",
+  'scenario_confirm_before_connect':
+      "De laatste scenariowissel wordt nog bevestigd. Vernieuw Scenario's en maak opnieuw verbinding.",
 };
 
 const kScenarioTr = <String, String>{
@@ -501,6 +557,15 @@ const kScenarioTr = <String, String>{
   'scenario_invalid_dns': "Geçerli DNS IP adresleri girin.",
   'scenario_new_flows':
       "Değişiklikler yeni bağlantılara uygulanır; mevcut bağlantılar önceki yollarını koruyabilir.",
+  'scenario_not_applied': "Senaryo uygulanmadı. Geçerli ayarlar değişmedi.",
+  'scenario_kill_switch_output':
+      "Kill Switch açık, ancak bu senaryo {tunnel} özelliğini kapatıyor. Geçişten sonra sistem genelindeki koruma durur.",
+  'scenario_settings_invalid':
+      "Bu senaryonun kayıtlı ayarları artık geçerli değil. Düzenleyip yeniden kaydedin.",
+  'protection_handoff_unavailable':
+      "Bu geçiş sırasında Kill Switch koruması korunamıyor. Bağlantıyı kesip yeniden geçiş yapın.",
+  'scenario_confirm_before_connect':
+      "Son senaryo geçişi hâlâ doğrulanıyor. Senaryoları yenileyip yeniden bağlanın.",
 };
 
 const kScenarioRu = <String, String>{
@@ -576,6 +641,16 @@ const kScenarioRu = <String, String>{
   'scenario_invalid_dns': "Введите допустимые IP-адреса DNS.",
   'scenario_new_flows':
       "Изменения применяются к новым подключениям; существующие подключения могут сохранить прежние маршруты.",
+  'scenario_not_applied':
+      "Сценарий не применён. Текущие настройки не изменились.",
+  'scenario_kill_switch_output':
+      "Kill Switch включён, но этот сценарий отключает {tunnel}. После переключения защита всей системы прекратится.",
+  'scenario_settings_invalid':
+      "Сохранённые настройки этого сценария больше недействительны. Измените и сохраните его снова.",
+  'protection_handoff_unavailable':
+      "Во время этого переключения нельзя сохранить защиту Kill Switch. Отключитесь и переключитесь снова.",
+  'scenario_confirm_before_connect':
+      "Последнее переключение сценария ещё подтверждается. Обновите сценарии и подключитесь снова.",
 };
 
 const kScenarioDe = <String, String>{
@@ -652,6 +727,16 @@ const kScenarioDe = <String, String>{
   'scenario_invalid_dns': "Gültige DNS-IP-Adressen eingeben.",
   'scenario_new_flows':
       "Änderungen gelten für neue Verbindungen; bestehende Verbindungen können ihre bisherigen Wege beibehalten.",
+  'scenario_not_applied':
+      "Das Szenario wurde nicht angewendet. Die aktuellen Einstellungen sind unverändert.",
+  'scenario_kill_switch_output':
+      "Kill Switch ist aktiv, aber dieses Szenario schaltet {tunnel} aus. Nach dem Wechsel endet der systemweite Schutz.",
+  'scenario_settings_invalid':
+      "Die gespeicherten Einstellungen dieses Szenarios sind nicht mehr gültig. Bearbeiten und speichern Sie es erneut.",
+  'protection_handoff_unavailable':
+      "Der Kill-Switch-Schutz kann bei diesem Wechsel nicht aufrechterhalten werden. Trennen Sie die Verbindung und wechseln Sie erneut.",
+  'scenario_confirm_before_connect':
+      "Der letzte Szenariowechsel wird noch bestätigt. Aktualisieren Sie die Szenarien und verbinden Sie sich erneut.",
 };
 
 const kScenarioIt = <String, String>{
@@ -727,6 +812,16 @@ const kScenarioIt = <String, String>{
   'scenario_invalid_dns': "Inserisci indirizzi IP DNS validi.",
   'scenario_new_flows':
       "Le modifiche si applicano alle nuove connessioni; quelle esistenti possono mantenere i percorsi precedenti.",
+  'scenario_not_applied':
+      "Lo scenario non è stato applicato. Le impostazioni attuali non sono cambiate.",
+  'scenario_kill_switch_output':
+      "Kill Switch è attivo, ma questo scenario disattiva {tunnel}. Dopo il cambio la protezione dell’intero sistema si interrompe.",
+  'scenario_settings_invalid':
+      "Le impostazioni salvate di questo scenario non sono più valide. Modificalo e salvalo di nuovo.",
+  'protection_handoff_unavailable':
+      "Durante questo cambio non è possibile mantenere la protezione Kill Switch. Disconnettiti e cambia di nuovo.",
+  'scenario_confirm_before_connect':
+      "L’ultimo cambio di scenario è ancora in fase di conferma. Aggiorna Scenari e riconnettiti.",
 };
 
 const kScenarioPl = <String, String>{
@@ -802,4 +897,14 @@ const kScenarioPl = <String, String>{
   'scenario_invalid_dns': "Wpisz poprawne adresy IP DNS.",
   'scenario_new_flows':
       "Zmiany dotyczą nowych połączeń; istniejące połączenia mogą zachować dotychczasowe trasy.",
+  'scenario_not_applied':
+      "Scenariusz nie został zastosowany. Bieżące ustawienia się nie zmieniły.",
+  'scenario_kill_switch_output':
+      "Kill Switch jest włączony, ale ten scenariusz wyłącza {tunnel}. Po przełączeniu ochrona całego systemu zostanie zatrzymana.",
+  'scenario_settings_invalid':
+      "Zapisane ustawienia tego scenariusza są już nieprawidłowe. Edytuj go i zapisz ponownie.",
+  'protection_handoff_unavailable':
+      "Podczas tego przełączenia nie można utrzymać ochrony Kill Switch. Rozłącz się i przełącz ponownie.",
+  'scenario_confirm_before_connect':
+      "Ostatnie przełączenie scenariusza jest nadal potwierdzane. Odśwież scenariusze i połącz się ponownie.",
 };

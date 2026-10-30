@@ -247,7 +247,12 @@ impl Default for ScenarioContext {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ScenarioCommand {
-    List,
+    List {
+        /// The caller's last accepted catalogue revision. A matching value
+        /// omits the unchanged templates from a status poll.
+        #[serde(default)]
+        known_revision: Option<String>,
+    },
     Save {
         id: Option<Uuid>,
         name: String,
@@ -287,7 +292,8 @@ impl ScenarioCommand {
             serde_json::from_str(request).map_err(|_| ScenarioError::InvalidRequest)?;
         let object = value.as_object().ok_or(ScenarioError::InvalidRequest)?;
         let allowed: &[&str] = match object.get("action").and_then(Value::as_str) {
-            Some("list" | "preview_restore") => &["action"],
+            Some("list") => &["action", "known_revision"],
+            Some("preview_restore") => &["action"],
             Some("save") => &[
                 "action",
                 "id",
@@ -388,12 +394,12 @@ fn validate_selection(selection: &ScenarioSelection) -> Result<(), ScenarioError
     {
         return Err(ScenarioError::InvalidRequest);
     }
-    selection.settings.normalized()?;
-    Ok(())
+    validate_settings_size(&selection.settings)
 }
 
-/// Dangling account/library references are intentionally accepted here. They
-/// make one scenario unavailable, never the entire application configuration.
+/// Dangling account/library references and settings rejected by the current
+/// validation rules are intentionally accepted here. They make one scenario
+/// unavailable, never the entire application configuration.
 pub fn validate_config(config: &AppConfig) -> Result<(), ScenarioError> {
     if config.scenarios.len() > MAX_SCENARIOS
         || encoded_size(&config.scenarios)? > MAX_SCENARIOS_BYTES
@@ -409,7 +415,7 @@ pub fn validate_config(config: &AppConfig) -> Result<(), ScenarioError> {
         if scenario.bound_account_id.is_some_and(|id| !valid_id(id)) {
             return Err(ScenarioError::InvalidRequest);
         }
-        scenario.settings.normalized()?;
+        validate_settings_size(&scenario.settings)?;
     }
     if let Some(selection) = &config.scenario_selection {
         validate_selection(selection)?;
@@ -422,13 +428,27 @@ pub fn validate_config(config: &AppConfig) -> Result<(), ScenarioError> {
             if !valid_id(snapshot.account_id) {
                 return Err(ScenarioError::InvalidRequest);
             }
-            snapshot.settings.normalized()?;
+            validate_settings_size(&snapshot.settings)?;
             if let Some(selection) = &snapshot.selection {
                 validate_selection(selection)?;
             }
         }
     }
     Ok(())
+}
+
+/// Stored snapshots are checked for shape and size only. A snapshot that a
+/// newer validation rule rejects makes that scene, selection or restore
+/// unavailable when used; it never prevents accounts from loading.
+fn validate_settings_size(settings: &ScenarioSettings) -> Result<(), ScenarioError> {
+    if encoded_size(settings)? > MAX_SCENARIO_BYTES {
+        return Err(ScenarioError::Limit);
+    }
+    Ok(())
+}
+
+fn catalogue_revision(config: &AppConfig) -> Result<String, ScenarioError> {
+    digest(&config.scenarios)
 }
 
 fn validate_name(name: &str) -> Result<(), ScenarioError> {
@@ -733,8 +753,16 @@ pub fn catalogue(config: &AppConfig, context: &ScenarioContext) -> Value {
         } else {
             context.apply_status
         };
+    let invalid: Vec<_> = config
+        .scenarios
+        .iter()
+        .filter(|scene| scene.settings.normalized().is_err())
+        .map(|scene| scene.id)
+        .collect();
     json!({
         "scenarios":config.scenarios,"selection":selection_metadata,
+        "catalogue_revision":catalogue_revision(config).ok(),
+        "invalid_scenario_ids":invalid,
         "current_settings":current_fits.then_some(&current),
         "current_settings_error":(!current_fits).then_some("SCENARIO_LIMIT"),
         "current_account_id":config.active_profile_id,
@@ -763,8 +791,11 @@ pub fn command(
     let mut preview_target = None;
     let mut preview = None;
     let mut saved_scenario_id = None;
+    let mut known_revision = None;
     match request {
-        ScenarioCommand::List => {}
+        ScenarioCommand::List {
+            known_revision: known,
+        } => known_revision = known,
         ScenarioCommand::Save {
             id,
             name,
@@ -778,15 +809,27 @@ pub fn command(
                 return Err(ScenarioError::InvalidRequest);
             }
             let settings = settings.normalized()?;
-            let id = match id {
-                Some(id) => {
+            let existing_binding = match id {
+                Some(id) => Some(
                     scenario(
                         &next,
                         id,
                         expected_revision.ok_or(ScenarioError::StaleRevision)?,
-                    )?;
-                    id
-                }
+                    )?
+                    .bound_account_id,
+                ),
+                None => None,
+            };
+            // A new binding must name an existing account. An unchanged
+            // dangling binding can still be saved while the user repairs it.
+            if let Some(account) = bound_account_id
+                && existing_binding != Some(Some(account))
+                && next.account(account).is_none()
+            {
+                return Err(ScenarioError::AccountUnavailable);
+            }
+            let id = match id {
+                Some(id) => id,
                 None => {
                     if expected_revision.is_some() {
                         return Err(ScenarioError::InvalidRequest);
@@ -880,6 +923,16 @@ pub fn command(
     if let Some(id) = saved_scenario_id {
         response["saved_scenario_id"] = json!(id);
     }
+    if known_revision.is_some()
+        && response["catalogue_revision"].as_str() == known_revision.as_deref()
+    {
+        // The poll still carries selection and application state.
+        response
+            .as_object_mut()
+            .expect("catalogue object")
+            .remove("scenarios");
+        response["scenarios_unchanged"] = json!(true);
+    }
     if let Some(value) = preview {
         // Preview carries its own bounded before/target/applied projections;
         // do not repeat the potentially large template catalogue over Binder.
@@ -956,13 +1009,29 @@ fn preview_value(
         "changed_fields":managed_changed_fields(config,profile,context),
         "actual_changed_fields":actual_changed_fields,"apply_kind":apply_kind,"needs_reconnect":needs_reconnect,
         "preview_token":preview_token(config,target,context,restore)?,"restore":restore,
-        "settings":target.settings,
+        "kill_switch_output_removed":kill_switch_output_removed(config,profile,context),
         "before_settings":before_fits.then_some(before_settings),
         "before_settings_omitted":!before_fits,
         "target_settings":target.settings,
         "applied_settings":if applied_fits{applied_settings}else{None},
         "applied_settings_omitted":!applied_fits
     }))
+}
+
+/// Kill Switch is a device setting. A scene that turns off the VPN output while
+/// it is enabled ends system-wide protection after the switch.
+fn kill_switch_output_removed(
+    config: &AppConfig,
+    target: &Profile,
+    context: &ScenarioContext,
+) -> bool {
+    let tunnel_before = context
+        .applied_profile
+        .as_ref()
+        .map_or(config.network.frontends.tunnel, |applied| {
+            applied.frontends.tunnel
+        });
+    target.kill_switch && tunnel_before && !target.frontends.tunnel
 }
 
 fn commit_target(

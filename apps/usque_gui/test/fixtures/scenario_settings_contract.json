@@ -1,0 +1,89 @@
+{
+  "default": {
+    "allow_lan": true,
+    "chain_exit": null,
+    "direct_dns": {
+      "mode": "physical_system"
+    },
+    "dns_mode": "tunnel",
+    "dns_servers": [
+      "1.1.1.1",
+      "2606:4700:4700::1111"
+    ],
+    "frontends": {
+      "http": true,
+      "socks5": true,
+      "tunnel": true
+    },
+    "geo_direct_countries": [],
+    "ip_policy": "auto",
+    "proxy_dns_mode": "remote",
+    "proxy_dns_servers": [
+      "1.1.1.1",
+      "2606:4700:4700::1111"
+    ],
+    "proxy_system_proxy": false,
+    "routing": {
+      "ads_enabled": false,
+      "rules": []
+    },
+    "transport": "auto",
+    "vpn_gate": {
+      "enabled": false,
+      "selection": null
+    },
+    "warp_dns": {
+      "mode": "plain"
+    }
+  },
+  "sample": {
+    "allow_lan": true,
+    "chain_exit": {
+      "enabled": true,
+      "profile_id": "5ce00000-0000-4000-8000-000000000002",
+      "revision": "5ce00000-0000-4000-8000-000000000003",
+      "source": "wireguard_custom"
+    },
+    "direct_dns": {
+      "mode": "physical_system"
+    },
+    "dns_mode": "local_configured",
+    "dns_servers": [
+      "1.1.1.1",
+      "2606:4700:4700::1111"
+    ],
+    "frontends": {
+      "http": false,
+      "socks5": true,
+      "tunnel": true
+    },
+    "geo_direct_countries": [
+      "CN"
+    ],
+    "ip_policy": "prefer_ipv6",
+    "proxy_dns_mode": "local_configured",
+    "proxy_dns_servers": [
+      "9.9.9.9"
+    ],
+    "proxy_system_proxy": false,
+    "routing": {
+      "ads_enabled": true,
+      "rules": [
+        {
+          "action": "direct",
+          "id": "5ce00000-0000-4000-8000-000000000001",
+          "kind": "domain",
+          "target": "example.com"
+        }
+      ]
+    },
+    "transport": "http2",
+    "vpn_gate": {
+      "enabled": false,
+      "selection": null
+    },
+    "warp_dns": {
+      "mode": "plain"
+    }
+  }
+}

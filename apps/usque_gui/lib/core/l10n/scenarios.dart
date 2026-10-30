@@ -74,6 +74,16 @@ const kScenarioEn = <String, String>{
       'Disconnect, select this scene, then connect to grant VPN permission.',
   'scenario_rules_missing':
       'Prepare the required routing data in Settings before using this scene.',
+  'scenario_not_applied':
+      "The scene was not applied. Current settings are unchanged.",
+  'scenario_kill_switch_output':
+      "Kill Switch is on, but this scene turns off {tunnel}. System-wide protection stops after the switch.",
+  'scenario_settings_invalid':
+      "This scene's saved settings are no longer valid. Edit and save it again.",
+  'protection_handoff_unavailable':
+      "Kill Switch protection can't be kept during this switch. Disconnect, then switch again.",
+  'scenario_confirm_before_connect':
+      "The last scene switch is still being confirmed. Refresh Scenes, then connect again.",
 };
 
 const kScenarioZhCn = <String, String>{
@@ -135,6 +145,12 @@ const kScenarioZhCn = <String, String>{
   'scenario_new_flows': '变更对新连接生效，已有连接可能保留原路径。',
   'scenario_vpn_permission': '先断开连接，选择场景，再连接以完成 VPN 授权。',
   'scenario_rules_missing': '使用此场景前，请在设置中准备所需分流数据。',
+  'scenario_not_applied': "场景未应用，当前设置保持不变。",
+  'scenario_kill_switch_output':
+      "Kill Switch 已开启，但此场景会关闭 {tunnel}。切换后将不再保护系统全部流量。",
+  'scenario_settings_invalid': "此场景保存的设置已失效，请编辑后重新保存。",
+  'protection_handoff_unavailable': "此次切换无法保持 Kill Switch 保护。请先断开连接，再重新切换。",
+  'scenario_confirm_before_connect': "上次场景切换仍在确认中。请刷新场景后再连接。",
 };
 
 const kScenarioCatalogs = <String, Map<String, String>>{

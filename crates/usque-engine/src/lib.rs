@@ -4593,7 +4593,7 @@ impl ControlService {
             && !self.protected_chain_present().await
         {
             return Err(ControlServiceError::ScenarioUnavailable(
-                "SCENARIO_PROTECTION_UNAVAILABLE",
+                "ACCOUNT_PROTECTION_UNAVAILABLE",
             ));
         }
         next.active_profile_id = Some(id);

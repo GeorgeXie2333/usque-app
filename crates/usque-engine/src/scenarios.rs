@@ -9,6 +9,25 @@ use usque_ipc::v1;
 
 use crate::{ControlService, ControlServiceError};
 
+/// Clears the scene/settings application flags even if the owned worker
+/// unwinds, so later settings saves are not refused indefinitely.
+struct ApplyingFlags(ControlService);
+
+impl ApplyingFlags {
+    fn set(service: &ControlService) -> Self {
+        service.scenario_applying.store(true, Ordering::SeqCst);
+        service.settings_applying.store(true, Ordering::SeqCst);
+        Self(service.clone())
+    }
+}
+
+impl Drop for ApplyingFlags {
+    fn drop(&mut self) {
+        self.0.settings_applying.store(false, Ordering::SeqCst);
+        self.0.scenario_applying.store(false, Ordering::SeqCst);
+    }
+}
+
 impl ControlService {
     async fn scenario_context(&self) -> ScenarioContext {
         let phase = self.state.lock().await.snapshot().phase;
@@ -85,6 +104,58 @@ impl ControlService {
         serde_json::to_string(&revisions).map_err(ControlServiceError::configuration)
     }
 
+    async fn validate_scenario_resources(
+        &self,
+        profile: &Profile,
+    ) -> Result<String, ControlServiceError> {
+        let parent = self.profile_dir.clone();
+        let cache = self.cache_dir.clone();
+        let cipher = self.chain_cipher.clone();
+        let profile = profile.clone();
+        // Library reads and decryption are blocking file work.
+        tokio::task::spawn_blocking(move || {
+            Self::validate_scenario_resources_at(&parent, &cache, cipher.as_deref(), &profile)
+        })
+        .await
+        .map_err(|_| ControlServiceError::ScenarioUnavailable("SCENARIO_DEPENDENCY_UNAVAILABLE"))?
+    }
+
+    /// Publish a configuration observed after an uncertain commit.
+    async fn observe_scenario_config(&self, config: &usque_core::AppConfig) {
+        let mut state = self.settings.lock().await;
+        state.stored_profile = config.active_profile();
+        state.shared_network_profile = Some(
+            config
+                .network
+                .hydrate(&usque_core::config::Account::default_account()),
+        );
+        state.advance();
+        self.settings_tx.send_replace(state.sequence);
+    }
+
+    /// Settle an uncertain commit from durable storage before later scene
+    /// commands. A recorded target is acknowledged only by a successful durable
+    /// write; a different record proves that the operation never committed.
+    /// The lost runtime application is never replayed.
+    async fn resolve_unconfirmed_scenario(&self) {
+        let Some(operation) = *self.scenario_unconfirmed_operation.lock().await else {
+            return;
+        };
+        let store = self.store.clone();
+        let Ok(Ok((observed, _))) = tokio::task::spawn_blocking(move || {
+            store.update::<_, StoreError>(|latest| {
+                Ok(scenarios::acknowledge_operation(latest, operation))
+            })
+        })
+        .await
+        else {
+            return;
+        };
+        *self.config.write().await = observed.clone();
+        *self.scenario_unconfirmed_operation.lock().await = None;
+        self.observe_scenario_config(&observed).await;
+    }
+
     pub(crate) async fn scenario_command(
         &self,
         request: v1::ScenarioRequest,
@@ -100,25 +171,27 @@ impl ControlService {
             _ => None,
         };
         let _submission = self.settings_submission.lock().await;
-        // Queries remain available while the owned executor applies a scene.
-        let lifecycle = if matches!(command, ScenarioCommand::List) {
-            None
-        } else {
+        self.resolve_unconfirmed_scenario().await;
+        // Queries and template edits remain available during connection
+        // lifecycle work. A saved VPN Gate pin is serialized with catalogue
+        // cleanup, which runs under the lifecycle lock.
+        let pins_gate = matches!(
+            &command,
+            ScenarioCommand::Save { settings, .. } if settings.vpn_gate.selection.is_some()
+        );
+        let lifecycle = if applying || pins_gate {
             Some(
                 Arc::clone(&self.mutation_lock)
                     .try_lock_owned()
                     .map_err(|_| ControlServiceError::ScenarioUnavailable("SCENARIO_BUSY"))?,
             )
+        } else {
+            None
         };
         let mut context = self.scenario_context().await;
         let mut candidate = self.config.read().await.clone();
         if let Some(target) = scenarios::candidate_profile(&candidate, &command)? {
-            context.dependency_fingerprint = Self::validate_scenario_resources_at(
-                &self.profile_dir,
-                &self.cache_dir,
-                self.chain_cipher.as_deref(),
-                &target,
-            )?;
+            context.dependency_fingerprint = self.validate_scenario_resources(&target).await?;
             if let Some(previous) = &context.applied_profile {
                 let runtime_target = scenarios::runtime_target(&target, previous);
                 let cold = previous.id != runtime_target.id
@@ -218,22 +291,23 @@ impl ControlService {
             })
         })
         .await
-        .map_err(|_| ControlServiceError::ScenarioUnavailable("SCENARIO_STORAGE_UNAVAILABLE"))?;
+        // A worker that unwound may have stopped after the durable write.
+        .unwrap_or(Err(ControlServiceError::Persistence(
+            StoreError::CommitUncertain(std::io::Error::other("scene worker stopped")),
+        )));
         let (next, mut result) = match commit {
             Ok(value) => value,
             Err(ControlServiceError::Persistence(StoreError::CommitUncertain(_))) => {
-                *self.scenario_unconfirmed_operation.lock().await = operation_id;
+                // A template save cannot retire an older unresolved activation.
+                if operation_id.is_some() {
+                    *self.scenario_unconfirmed_operation.lock().await = operation_id;
+                }
                 let store = self.store.clone();
                 if let Ok(Ok(observed)) = tokio::task::spawn_blocking(move || store.load()).await {
                     *config = observed;
                 }
+                self.observe_scenario_config(&config).await;
                 let mut state = self.settings.lock().await;
-                state.stored_profile = config.active_profile();
-                state.shared_network_profile = Some(
-                    config
-                        .network
-                        .hydrate(&usque_core::config::Account::default_account()),
-                );
                 state.apply_status = ApplyStatus::Unknown;
                 state.operation_id = operation_id;
                 state.persisted = None;
@@ -293,8 +367,7 @@ impl ControlService {
             result.response["state"]["applied_matches"] = Value::Null;
             drop(state);
             if running {
-                self.scenario_applying.store(true, Ordering::SeqCst);
-                self.settings_applying.store(true, Ordering::SeqCst);
+                let applying = ApplyingFlags::set(self);
                 let service = self.clone();
                 tokio::spawn(async move {
                     let _lifecycle = lifecycle;
@@ -331,8 +404,7 @@ impl ControlService {
                         Ok(class)
                     }
                     .await;
-                    service.settings_applying.store(false, Ordering::SeqCst);
-                    service.scenario_applying.store(false, Ordering::SeqCst);
+                    drop(applying);
                     if service.settings_intent.load(Ordering::SeqCst) != intent {
                         return;
                     }
@@ -391,6 +463,9 @@ impl ControlService {
     async fn scenario_receipt(&self, response: &mut Value) {
         let record = self.config.read().await.last_scenario_switch.clone();
         let unconfirmed = *self.scenario_unconfirmed_operation.lock().await;
+        // The GUI keeps its connection barrier only while the owner itself
+        // cannot settle this operation from storage.
+        response["unresolved_operation_id"] = json!(unconfirmed);
         if let Some(record) = record.filter(|record| Some(record.operation_id) != unconfirmed) {
             let acknowledged = record.acknowledged
                 || self

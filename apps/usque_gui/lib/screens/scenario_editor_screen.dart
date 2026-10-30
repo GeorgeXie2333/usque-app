@@ -57,7 +57,11 @@ class _ScenarioEditorScreenState extends State<ScenarioEditorScreen> {
     _baseline =
         widget.scene?.settings ?? app.scenarios.catalog!.currentSettings!;
     _draft = _baseline.toProfile(app.activeProfile);
-    _binding = widget.scene?.boundAccountId;
+    final binding = widget.scene?.boundAccountId;
+    // A copy starts unbound when the original account was deleted.
+    _binding = widget.duplicate && !app.profiles.any((a) => a.id == binding)
+        ? null
+        : binding;
     _name = TextEditingController(text: widget.scene?.name ?? '');
     _countries = TextEditingController(
       text: _draft.geoDirectCountries.join(', '),
@@ -541,6 +545,11 @@ class _ScenarioEditorScreenState extends State<ScenarioEditorScreen> {
                           ),
                           ['frontends', 'proxy_system_proxy'],
                         ),
+                      ),
+                    if (!_draft.frontends.any)
+                      WarningBanner(
+                        title: s.get('channel_only'),
+                        message: s.get('channel_only_warning'),
                       ),
                     _heading('routing_protection'),
                     _switch(

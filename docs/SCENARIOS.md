@@ -40,10 +40,17 @@ Choose an already saved and prepared exit in the editor. Import, generate,
 sign in to, and manage exits in **Proxy**. Required routing data must already
 be available before using a scene. A referenced configuration is retained by
 normal library cleanup. A missing dependency makes that scene unavailable,
-without preventing other scenes or accounts from loading.
+without preventing other scenes or accounts from loading. The same applies to
+saved scene settings that a newer release no longer accepts: the scene shows
+that its settings are no longer valid and **Use scene** is unavailable until
+you edit and save it again. A new binding must name an existing account.
+Turning off every output saves a channel-only scene and shows the same warning
+as the Proxy page.
 
 编辑器选择已有且已准备的出口。导入、生成、登录和资源管理仍在 **代理** 页进行。
 使用场景前须准备所需分流数据。正常清理会保留场景引用；依赖失效只影响对应场景。
+新版本不再接受的已保存场景设置同样只使该场景不可用，编辑并重新保存后即可使用。
+新绑定必须指向已有账号。关闭全部输出会保存为仅通道场景，并显示与代理页相同的提示。
 
 ## Use a scene / 使用场景
 
@@ -65,15 +72,31 @@ using the normal system authorization flow.
 Android 首次启用 VPN 需要系统授权。如果当前代理连接缺少该授权，请先断开、
 选择场景，再通过正常连接流程授权。
 
+If Kill Switch is on and the scene turns off VPN mode, the preview warns that
+system-wide protection stops after the switch.
+
 **Selected** and **Saved; waiting to apply** are not runtime success. The page
 distinguishes confirmed application, failure and an unconfirmed result.
 Refresh an uncertain result before deciding whether to retry; the app does not
 automatically replay a lost activation request. A failed selected exit never
 authorizes switching to direct access or another exit.
 
+After a lost reply, Connect waits until the native owner settles the switch
+from saved configuration. The page then reports that the scene was not
+applied, or keeps **Result not confirmed** for a saved selection without a
+receipt. Either way the app reads the saved account and settings back before
+connecting. If the owner cannot read its storage, Connect stays unavailable and
+asks you to refresh Scenes.
+
+Kill Switch 开启而场景关闭 VPN 模式时，预览会提示切换后不再保护系统全部流量。
+
 **已选择**、**已保存，待应用** 不代表当前连接已经采用设置。页面区分已确认应用、
 失败与结果待确认。结果不确定时先刷新，应用不会自动重放丢失回复的切换请求；
 所选出口失败不会擅自改为直连或其他出口。
+
+回复丢失后，连接会等待原生层根据已保存配置确定切换结果：页面显示场景未应用，
+或对没有回执的已保存选择保持 **结果待确认**。两种情况都会先读回账号和设置再连接；
+原生层无法读取存储时，连接保持不可用并提示刷新场景。
 
 ## Changes, binding and recovery / 修改、绑定与恢复
 
@@ -87,8 +110,8 @@ authorizes switching to direct access or another exit.
 - Editing a template can show **Scene has an update** while the existing
   connection continues using its previous snapshot.
 - Deleting a scene keeps current network settings and shows **Custom**.
-  Deleting a bound account removes its credentials normally; repair the scene's
-  binding before using it again.
+  Deleting a bound account removes its credentials normally. The scene then
+  offers **Use the current account** to repair its binding before use.
 - **Restore previous settings** previews the latest switch's saved prior
   account and scene settings. Later account or scene-setting edits invalidate
   that recovery. Global settings remain current. Application success is checked
@@ -96,7 +119,7 @@ authorizes switching to direct access or another exit.
 
 修改当前网络设置不会覆盖模板；手动换账号可以使绑定场景显示 **账号与绑定不同**。
 再次使用会恢复绑定账号。更新模板不会打断当前连接。删除模板保留当前设置并显示
-**自定义**；删除账号照常移除凭据，场景需重新绑定后才能使用。
+**自定义**；删除账号照常移除凭据，场景卡片提供 **沿用当前账号** 以修复绑定。
 **恢复切换前配置** 只针对最近切换，先显示预览；后续修改账号或场景受管设置会使
 旧恢复操作失效，防止覆盖新修改。恢复保存值与确认运行生效仍是两个结果。
 

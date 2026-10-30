@@ -166,7 +166,28 @@ async fn stale_preview_rejects_before_mutating_storage() {
 #[tokio::test]
 async fn missing_bound_account_remains_editable_but_cannot_be_used() {
     let (_directory, service) = fixture().await;
-    let scene = save_scene(&service, ScenarioSettings::default(), Some(Uuid::new_v4())).await;
+    let missing = Uuid::new_v4();
+    let error = request(
+        &service,
+        json!({"action":"save","name":"Work","settings":ScenarioSettings::default(),"bound_account_id":missing}),
+    )
+    .await
+    .unwrap_err();
+    assert!(matches!(
+        error,
+        ControlServiceError::Scenario(ScenarioError::AccountUnavailable)
+    ));
+    let saved = save_scene(&service, ScenarioSettings::default(), None).await;
+    // Model an account deleted after the scene was bound to it.
+    service
+        .update_config(move |config| {
+            config.scenarios[0].bound_account_id = Some(missing);
+            Ok(())
+        })
+        .await
+        .unwrap();
+    let mut scene = saved;
+    scene["bound_account_id"] = json!(missing);
     let before = service.store.load().unwrap();
     let error = request(
         &service,
@@ -191,18 +212,26 @@ async fn missing_bound_account_remains_editable_but_cannot_be_used() {
 }
 
 #[tokio::test]
-async fn list_remains_available_while_lifecycle_owner_is_busy() {
+async fn queries_and_template_edits_remain_available_while_lifecycle_owner_is_busy() {
     let (_directory, service) = fixture().await;
     let scene = save_scene(&service, ScenarioSettings::default(), None).await;
-    let _owner = service.mutation_lock.lock().await;
+    let owner = service.mutation_lock.lock().await;
     let response = request(&service, json!({"action":"list"})).await.unwrap();
     assert_eq!(response["scenarios"].as_array().unwrap().len(), 1);
-    let error = request(
+    let plan = preview(&service, &scene).await;
+    let second = save_scene(&service, ScenarioSettings::default(), None).await;
+    request(
         &service,
-        json!({"action":"preview","id":scene["id"],"expected_revision":scene["revision"]}),
+        json!({"action":"delete","id":second["id"],"expected_revision":second["revision"]}),
     )
     .await
-    .unwrap_err();
+    .unwrap();
+    let before = service.store.load().unwrap();
+    let error = request(&service, activate_request(&scene, &plan, Uuid::new_v4()))
+        .await
+        .unwrap_err();
+    assert_eq!(service.store.load().unwrap(), before);
+    drop(owner);
     assert!(matches!(
         error,
         ControlServiceError::ScenarioUnavailable("SCENARIO_BUSY")
@@ -620,4 +649,59 @@ async fn scene_noop_and_failed_hot_rollback_keep_private_listener_authentication
             .as_slice(),
         password
     );
+}
+
+#[tokio::test]
+async fn applying_flags_clear_when_the_owned_worker_unwinds() {
+    let (_directory, service) = fixture().await;
+    let flags = ApplyingFlags::set(&service);
+    assert!(service.scenario_applying.load(Ordering::SeqCst));
+    let worker = tokio::spawn(async move {
+        let _flags = flags;
+        panic!("simulated scene worker failure");
+    });
+    assert!(worker.await.is_err());
+    assert!(!service.scenario_applying.load(Ordering::SeqCst));
+    assert!(!service.settings_applying.load(Ordering::SeqCst));
+}
+
+#[tokio::test]
+async fn uncertain_activation_is_settled_from_storage_without_replay() {
+    let (_directory, service) = fixture().await;
+    let scene = save_scene(&service, ScenarioSettings::default(), None).await;
+    let plan = preview(&service, &scene).await;
+    let operation = Uuid::new_v4();
+    request(&service, activate_request(&scene, &plan, operation))
+        .await
+        .unwrap();
+    // Model a reply whose durable write was uncertain: the record is on disk
+    // without the acknowledgement marker and this owner has no receipt.
+    service
+        .update_config(|config| {
+            config.last_scenario_switch.as_mut().unwrap().acknowledged = false;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    service
+        .settings
+        .lock()
+        .await
+        .persisted_operation_ids
+        .clear();
+    *service.scenario_unconfirmed_operation.lock().await = Some(operation);
+    let list = request(&service, json!({"action":"list"})).await.unwrap();
+    assert!(list["unresolved_operation_id"].is_null());
+    assert_eq!(list["persisted_operation_id"], operation.to_string());
+    assert_eq!(list["last_operation_id"], operation.to_string());
+    let stored = service.store.load().unwrap();
+    assert!(stored.last_scenario_switch.unwrap().acknowledged);
+    assert!(service.data_plane.lock().await.is_none());
+
+    // An operation absent from storage never committed.
+    let lost = Uuid::new_v4();
+    *service.scenario_unconfirmed_operation.lock().await = Some(lost);
+    let list = request(&service, json!({"action":"list"})).await.unwrap();
+    assert!(list["unresolved_operation_id"].is_null());
+    assert_ne!(list["last_operation_id"], lost.to_string());
 }

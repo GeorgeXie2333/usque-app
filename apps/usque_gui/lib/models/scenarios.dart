@@ -145,28 +145,42 @@ class ConnectionScenario {
 
 @immutable
 class ScenarioCatalog {
-  ScenarioCatalog.fromMap(Map<String, Object?> value)
-    : scenarios = List.unmodifiable(
-        (value['scenarios'] as List? ?? const []).map(
-          (v) => ConnectionScenario.fromMap(scenarioMap(v)),
-        ),
-      ),
-      selection = value['selection'] is Map
-          ? scenarioMap(value['selection'])
-          : null,
-      currentSettings = value['current_settings'] is Map
-          ? ScenarioSettings(scenarioMap(value['current_settings']))
-          : null,
-      currentSettingsError = value['current_settings_error'] as String?,
-      currentAccountId = value['current_account_id'] as String?,
-      appliedAccountId = value['applied_account_id'] as String?,
-      appliedScenarioId = value['applied_scenario_id'] as String?,
-      appliedSceneConfirmed = value['applied_scene_confirmed'] == true,
-      sessionId = value['session_id'] as String?,
-      state = scenarioMap(value['state']),
-      canRestore = value['can_restore'] == true,
-      lastOperationId = value['last_operation_id'] as String?;
+  /// A status poll can omit unchanged templates; [unchanged] supplies the
+  /// previously accepted templates for that same catalogue revision.
+  ScenarioCatalog.fromMap(
+    Map<String, Object?> value, {
+    List<ConnectionScenario>? unchanged,
+  }) : scenarios =
+           unchanged ??
+           List.unmodifiable(
+             (value['scenarios'] as List? ?? const []).map(
+               (v) => ConnectionScenario.fromMap(scenarioMap(v)),
+             ),
+           ),
+       revision = value['catalogue_revision'] as String?,
+       invalidIds = Set.unmodifiable(
+         (value['invalid_scenario_ids'] as List? ?? const []).cast<String>(),
+       ),
+       selection = value['selection'] is Map
+           ? scenarioMap(value['selection'])
+           : null,
+       currentSettings = value['current_settings'] is Map
+           ? ScenarioSettings(scenarioMap(value['current_settings']))
+           : null,
+       currentSettingsError = value['current_settings_error'] as String?,
+       currentAccountId = value['current_account_id'] as String?,
+       appliedAccountId = value['applied_account_id'] as String?,
+       appliedScenarioId = value['applied_scenario_id'] as String?,
+       appliedSceneConfirmed = value['applied_scene_confirmed'] == true,
+       sessionId = value['session_id'] as String?,
+       state = scenarioMap(value['state']),
+       canRestore = value['can_restore'] == true,
+       lastOperationId = value['last_operation_id'] as String?;
   final List<ConnectionScenario> scenarios;
+  final String? revision;
+
+  /// Templates whose saved settings fail the current validation rules.
+  final Set<String> invalidIds;
   final Map<String, Object?>? selection;
   final ScenarioSettings? currentSettings;
   final String? currentAccountId,
@@ -208,6 +222,10 @@ class ScenarioPreview {
       scenarioMap(values['before_settings']);
   Map<String, Object?> get targetSettings =>
       scenarioMap(values['target_settings'] ?? values['settings']);
+
+  /// Kill Switch stays on while this scene turns off the VPN output.
+  bool get killSwitchOutputRemoved =>
+      values['kill_switch_output_removed'] == true;
   Map<String, Object?>? get appliedSettings => values['applied_settings'] is Map
       ? scenarioMap(values['applied_settings'])
       : null;

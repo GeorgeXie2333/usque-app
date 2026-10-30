@@ -58,6 +58,12 @@ const kScenarioZhTw = <String, String>{
   'scenario_confirm_use': '套用情境',
   'scenario_invalid_dns': '請輸入有效的 DNS IP 位址。',
   'scenario_new_flows': '變更對新連線生效，現有連線可能保留原路徑。',
+  'scenario_not_applied': "情境未套用，目前設定維持不變。",
+  'scenario_kill_switch_output':
+      "Kill Switch 已開啟，但此情境會關閉 {tunnel}。切換後將不再保護系統全部流量。",
+  'scenario_settings_invalid': "此情境儲存的設定已失效，請編輯後重新儲存。",
+  'protection_handoff_unavailable': "此次切換無法維持 Kill Switch 保護。請先中斷連線，再重新切換。",
+  'scenario_confirm_before_connect': "上次情境切換仍在確認中。請重新整理情境後再連線。",
 };
 
 const kScenarioAr = <String, String>{
@@ -132,6 +138,15 @@ const kScenarioAr = <String, String>{
   'scenario_invalid_dns': 'أدخل عناوين IP صالحة لخوادم DNS.',
   'scenario_new_flows':
       'تنطبق التغييرات على الاتصالات الجديدة؛ قد تحتفظ الاتصالات الحالية بمساراتها.',
+  'scenario_not_applied': "لم يُطبَّق المشهد. لم تتغير الإعدادات الحالية.",
+  'scenario_kill_switch_output':
+      "ميزة Kill Switch مفعّلة، لكن هذا المشهد يوقف {tunnel}. ستتوقف حماية النظام بالكامل بعد التبديل.",
+  'scenario_settings_invalid':
+      "لم تعد الإعدادات المحفوظة لهذا المشهد صالحة. عدّله واحفظه مرة أخرى.",
+  'protection_handoff_unavailable':
+      "لا يمكن الحفاظ على حماية Kill Switch أثناء هذا التبديل. اقطع الاتصال ثم بدّل مرة أخرى.",
+  'scenario_confirm_before_connect':
+      "لا يزال آخر تبديل للمشهد قيد التأكيد. حدّث المشاهد ثم اتصل مرة أخرى.",
 };
 
 const kScenarioFa = <String, String>{
@@ -207,6 +222,15 @@ const kScenarioFa = <String, String>{
   'scenario_invalid_dns': 'نشانی‌های IP معتبر برای DNS وارد کنید.',
   'scenario_new_flows':
       'تغییرات برای اتصال‌های جدید اعمال می‌شوند؛ اتصال‌های موجود ممکن است مسیر قبلی را حفظ کنند.',
+  'scenario_not_applied': "سناریو اعمال نشد. تنظیمات فعلی تغییری نکرده است.",
+  'scenario_kill_switch_output':
+      "Kill Switch روشن است، اما این سناریو {tunnel} را خاموش می‌کند. پس از تغییر، محافظت از کل سیستم متوقف می‌شود.",
+  'scenario_settings_invalid':
+      "تنظیمات ذخیره‌شدهٔ این سناریو دیگر معتبر نیست. آن را ویرایش و دوباره ذخیره کنید.",
+  'protection_handoff_unavailable':
+      "در این تغییر نمی‌توان محافظت Kill Switch را حفظ کرد. اتصال را قطع کنید و دوباره تغییر دهید.",
+  'scenario_confirm_before_connect':
+      "آخرین تغییر سناریو هنوز در حال تأیید است. سناریوها را تازه کنید و دوباره وصل شوید.",
 };
 
 const kScenarioId = <String, String>{
@@ -282,6 +306,16 @@ const kScenarioId = <String, String>{
   'scenario_invalid_dns': 'Masukkan alamat IP DNS yang valid.',
   'scenario_new_flows':
       'Perubahan berlaku untuk koneksi baru; koneksi yang ada dapat tetap menggunakan jalur sebelumnya.',
+  'scenario_not_applied':
+      "Skenario tidak diterapkan. Pengaturan saat ini tidak berubah.",
+  'scenario_kill_switch_output':
+      "Kill Switch aktif, tetapi skenario ini mematikan {tunnel}. Perlindungan seluruh sistem berhenti setelah peralihan.",
+  'scenario_settings_invalid':
+      "Pengaturan tersimpan skenario ini sudah tidak valid. Edit lalu simpan kembali.",
+  'protection_handoff_unavailable':
+      "Perlindungan Kill Switch tidak dapat dipertahankan selama peralihan ini. Putuskan koneksi, lalu beralih lagi.",
+  'scenario_confirm_before_connect':
+      "Peralihan skenario terakhir masih dikonfirmasi. Muat ulang Skenario, lalu sambungkan lagi.",
 };
 
 const kScenarioTh = <String, String>{
@@ -355,6 +389,16 @@ const kScenarioTh = <String, String>{
   'scenario_invalid_dns': 'ป้อนที่อยู่ IP ของ DNS ที่ถูกต้อง',
   'scenario_new_flows':
       'การเปลี่ยนแปลงมีผลกับการเชื่อมต่อใหม่ การเชื่อมต่อเดิมอาจยังใช้เส้นทางเดิม',
+  'scenario_not_applied':
+      "ไม่ได้ใช้สถานการณ์นี้ การตั้งค่าปัจจุบันไม่เปลี่ยนแปลง",
+  'scenario_kill_switch_output':
+      "Kill Switch เปิดอยู่ แต่สถานการณ์นี้จะปิด {tunnel} หลังจากสลับแล้วการป้องกันทั้งระบบจะหยุดทำงาน",
+  'scenario_settings_invalid':
+      "การตั้งค่าที่บันทึกไว้ของสถานการณ์นี้ใช้ไม่ได้แล้ว โปรดแก้ไขแล้วบันทึกอีกครั้ง",
+  'protection_handoff_unavailable':
+      "ไม่สามารถคงการป้องกันของ Kill Switch ระหว่างการสลับครั้งนี้ได้ โปรดตัดการเชื่อมต่อแล้วสลับอีกครั้ง",
+  'scenario_confirm_before_connect':
+      "ยังยืนยันการสลับสถานการณ์ครั้งล่าสุดอยู่ โปรดรีเฟรชสถานการณ์แล้วเชื่อมต่ออีกครั้ง",
 };
 
 const kScenarioUk = <String, String>{
@@ -430,6 +474,16 @@ const kScenarioUk = <String, String>{
   'scenario_invalid_dns': 'Введіть дійсні IP-адреси DNS.',
   'scenario_new_flows':
       'Зміни застосовуються до нових з’єднань; наявні можуть зберігати попередні маршрути.',
+  'scenario_not_applied':
+      "Сценарій не застосовано. Поточні налаштування не змінилися.",
+  'scenario_kill_switch_output':
+      "Kill Switch увімкнено, але цей сценарій вимикає {tunnel}. Після перемикання захист усієї системи припиниться.",
+  'scenario_settings_invalid':
+      "Збережені налаштування цього сценарію більше не дійсні. Змініть і збережіть його знову.",
+  'protection_handoff_unavailable':
+      "Під час цього перемикання неможливо зберегти захист Kill Switch. Від’єднайтеся та перемкніть знову.",
+  'scenario_confirm_before_connect':
+      "Останнє перемикання сценарію ще підтверджується. Оновіть сценарії та підключіться знову.",
 };
 
 const kScenarioVi = <String, String>{
@@ -505,6 +559,16 @@ const kScenarioVi = <String, String>{
   'scenario_invalid_dns': 'Nhập địa chỉ IP DNS hợp lệ.',
   'scenario_new_flows':
       'Thay đổi áp dụng cho kết nối mới; kết nối hiện có có thể giữ nguyên đường đi.',
+  'scenario_not_applied':
+      "Kịch bản chưa được áp dụng. Thiết lập hiện tại không thay đổi.",
+  'scenario_kill_switch_output':
+      "Kill Switch đang bật, nhưng kịch bản này sẽ tắt {tunnel}. Sau khi chuyển, chế độ bảo vệ toàn hệ thống sẽ dừng.",
+  'scenario_settings_invalid':
+      "Thiết lập đã lưu của kịch bản này không còn hợp lệ. Hãy chỉnh sửa và lưu lại.",
+  'protection_handoff_unavailable':
+      "Không thể duy trì bảo vệ Kill Switch trong lần chuyển này. Hãy ngắt kết nối rồi chuyển lại.",
+  'scenario_confirm_before_connect':
+      "Lần chuyển kịch bản gần nhất vẫn đang được xác nhận. Hãy làm mới Kịch bản rồi kết nối lại.",
 };
 
 const kScenarioZhHk = <String, String>{
@@ -566,4 +630,10 @@ const kScenarioZhHk = <String, String>{
   'scenario_confirm_use': '套用情境',
   'scenario_invalid_dns': '請輸入有效的 DNS IP 位址。',
   'scenario_new_flows': '變更對新連線生效，現有連線可能保留原路徑。',
+  'scenario_not_applied': "情境未套用，目前設定維持不變。",
+  'scenario_kill_switch_output':
+      "Kill Switch 已開啟，但此情境會關閉 {tunnel}。切換後將不再保護系統全部流量。",
+  'scenario_settings_invalid': "此情境儲存的設定已失效，請編輯後重新儲存。",
+  'protection_handoff_unavailable': "此次切換無法維持 Kill Switch 保護。請先中斷連線，再重新切換。",
+  'scenario_confirm_before_connect': "上次情境切換仍在確認中。請重新整理情境後再連線。",
 };
