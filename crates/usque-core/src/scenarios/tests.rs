@@ -1,5 +1,8 @@
 use super::*;
 
+#[path = "endpoint_tests.rs"]
+mod endpoint_tests;
+
 fn context(config: &AppConfig) -> ScenarioContext {
     ScenarioContext {
         source_epoch: Uuid::new_v4(),
@@ -546,7 +549,10 @@ fn schema_twenty_six_migration_preserves_account_and_network_and_starts_without_
     std::fs::write(&path, serde_json::to_vec(&legacy).unwrap()).unwrap();
     let store = crate::storage::ConfigStore::new(path);
     let migrated = store.load().unwrap();
-    assert_eq!(migrated.schema_version, 27);
+    assert_eq!(
+        migrated.schema_version,
+        crate::config::CURRENT_SCHEMA_VERSION
+    );
     assert_eq!(migrated.network, config.network);
     assert_eq!(migrated.profiles, config.profiles);
     assert_eq!(migrated.active_profile_id, config.active_profile_id);

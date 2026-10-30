@@ -17,6 +17,7 @@ import '../widgets/direct_dns_editor.dart';
 import '../widgets/proton_vpn_panel.dart';
 import '../widgets/routing_rules_editor.dart';
 import '../widgets/save_changes_bar.dart';
+import '../widgets/scenario_endpoint_editor.dart';
 import '../widgets/unsaved_changes_guard.dart';
 import '../widgets/usque_dialog.dart';
 import '../widgets/warp_dns_editor.dart';
@@ -39,10 +40,12 @@ class ScenarioEditorScreen extends StatefulWidget {
 class _ScenarioEditorScreenState extends State<ScenarioEditorScreen> {
   AppController get app => widget.controller;
   final _form = GlobalKey<FormState>();
+  var _endpointKey = GlobalKey<ScenarioEndpointEditorState>();
   late final TextEditingController _name, _countries, _dns, _proxyDns;
   late ScenarioSettings _baseline;
   late UsqueProfile _draft;
   String? _binding;
+  String? _endpointAccountId;
   ConnectionScenario? _savedScene;
   bool _dirty = false, _saving = false, _loading = false;
   String? _error;
@@ -160,6 +163,12 @@ class _ScenarioEditorScreenState extends State<ScenarioEditorScreen> {
   }
 
   Future<void> _save({bool use = false}) async {
+    if (_saving) return;
+    if (!await (_endpointKey.currentState?.prepareSave() ??
+            Future.value(true)) ||
+        !mounted) {
+      return;
+    }
     if (_saving || !(_form.currentState?.validate() ?? false)) return;
     try {
       _draft.routing.validate();
@@ -196,6 +205,7 @@ class _ScenarioEditorScreenState extends State<ScenarioEditorScreen> {
               ', ',
             );
         _changed.clear();
+        _endpointKey = GlobalKey<ScenarioEndpointEditorState>();
         _dirty = false;
       } else {
         _error = app.strings.get(scenarioErrorKey(app.scenarios.errorCode));
@@ -410,8 +420,21 @@ class _ScenarioEditorScreenState extends State<ScenarioEditorScreen> {
   );
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: app,
+    builder: (context, _) => _buildEditor(context),
+  );
+
+  Widget _buildEditor(BuildContext context) {
     final s = app.strings;
+    final endpointAccount =
+        app.profiles.where((p) => p.id == _binding).firstOrNull ??
+        app.activeProfile;
+    if (_endpointAccountId != endpointAccount.id) {
+      _draft = _settings().toProfile(endpointAccount);
+      _endpointKey = GlobalKey<ScenarioEndpointEditorState>();
+      _endpointAccountId = endpointAccount.id;
+    }
     final availableIds = app.profiles.map((p) => p.id).toSet();
     final exitItems = <DropdownMenuItem<String>>[
       const DropdownMenuItem(value: 'none', child: Text('WARP')),
@@ -493,6 +516,13 @@ class _ScenarioEditorScreenState extends State<ScenarioEditorScreen> {
                       ],
                       onChanged: (id) => setState(() {
                         _binding = id == '' ? null : id;
+                        final account =
+                            app.profiles
+                                .where((p) => p.id == _binding)
+                                .firstOrNull ??
+                            app.activeProfile;
+                        _draft = _settings().toProfile(account);
+                        _endpointKey = GlobalKey<ScenarioEndpointEditorState>();
                         _dirty = true;
                       }),
                     ),
@@ -694,6 +724,20 @@ class _ScenarioEditorScreenState extends State<ScenarioEditorScreen> {
                           ? s.get('scenario_invalid_dns')
                           : null,
                     ),
+                    if (app.scenarios.catalog?.endpointEditing == true) ...[
+                      const SizedBox(height: 28),
+                      ScenarioEndpointEditor(
+                        key: _endpointKey,
+                        value: _draft,
+                        account: endpointAccount,
+                        identity: app.identityStatus(endpointAccount.id),
+                        capabilities: app.engineCapabilities,
+                        strings: s,
+                        enabled: !_saving,
+                        onChanged: (value) =>
+                            _edit(value, ['endpoint', 'ip_policy']),
+                      ),
+                    ],
                     _heading('scenario_connection'),
                     _dropdown<TransportPolicy>(
                       label: s.get('transport'),
@@ -712,32 +756,35 @@ class _ScenarioEditorScreenState extends State<ScenarioEditorScreen> {
                         }
                       },
                     ),
-                    const SizedBox(height: 16),
-                    _dropdown<IpPolicy>(
-                      label: s.get('ip_policy'),
-                      value: _draft.ipPolicy,
-                      items: IpPolicy.values
-                          .map(
-                            (v) => DropdownMenuItem(
-                              value: v,
-                              child: Text(
-                                s.get(switch (v) {
-                                  IpPolicy.automatic => 'automatic',
-                                  IpPolicy.preferIpv4 => 'prefer_ipv4',
-                                  IpPolicy.preferIpv6 => 'prefer_ipv6',
-                                  IpPolicy.ipv4Only => 'ipv4_only',
-                                  IpPolicy.ipv6Only => 'ipv6_only',
-                                }),
+                    if (app.scenarios.catalog?.endpointEditing != true) ...[
+                      const SizedBox(height: 16),
+                      HintText(s.get('endpoint_unsupported')),
+                      _dropdown<IpPolicy>(
+                        label: s.get('ip_policy'),
+                        value: _draft.ipPolicy,
+                        items: IpPolicy.values
+                            .map(
+                              (v) => DropdownMenuItem(
+                                value: v,
+                                child: Text(
+                                  s.get(switch (v) {
+                                    IpPolicy.automatic => 'automatic',
+                                    IpPolicy.preferIpv4 => 'prefer_ipv4',
+                                    IpPolicy.preferIpv6 => 'prefer_ipv6',
+                                    IpPolicy.ipv4Only => 'ipv4_only',
+                                    IpPolicy.ipv6Only => 'ipv6_only',
+                                  }),
+                                ),
                               ),
-                            ),
-                          )
-                          .toList(),
-                      onChanged: (v) {
-                        if (v != null) {
-                          _edit(_draft.copyWith(ipPolicy: v), ['ip_policy']);
-                        }
-                      },
-                    ),
+                            )
+                            .toList(),
+                        onChanged: (v) {
+                          if (v != null) {
+                            _edit(_draft.copyWith(ipPolicy: v), ['ip_policy']);
+                          }
+                        },
+                      ),
+                    ],
                   ],
                 ),
               ),

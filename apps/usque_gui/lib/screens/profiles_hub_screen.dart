@@ -14,6 +14,7 @@ import '../state/app_controller.dart';
 import '../widgets/common.dart';
 import '../widgets/proton_vpn_panel.dart' show loadCachedProtonServers;
 import '../widgets/usque_dialog.dart';
+import '../widgets/zero_trust_endpoint_warning.dart';
 import 'profiles_screen.dart' show AccountsScreen, AddAccountButton;
 import 'scenario_editor_screen.dart';
 
@@ -152,6 +153,14 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
               jsonEncode(current.values[key]) !=
               jsonEncode(scene.settings.values[key]),
         )
+        .expand((key) {
+          if (key != 'endpoint') return [key];
+          final before = scenarioMap(scene.settings.values[key]);
+          final after = scenarioMap(current.values[key]);
+          return {...before.keys, ...after.keys}
+              .where((field) => before[field] != after[field])
+              .map((field) => 'endpoint.$field');
+        })
         .toList();
     final confirmed = await showDialog<bool>(
       context: context,
@@ -904,6 +913,14 @@ Future<bool> _previewAndUseScenario(
       ? await app.scenarios.previewRestore()
       : await app.scenarios.preview(scene);
   if (preview == null || !context.mounted || !canPresent()) return false;
+  if (preview.values['zero_trust_endpoint_warning'] == true) {
+    final acknowledged = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => ZeroTrustEndpointWarning(strings: app.strings),
+    );
+    if (acknowledged != true || !context.mounted || !canPresent()) return false;
+  }
   final strings = app.strings;
   final exitNames = await scenarioExitNames(
     app,
@@ -1065,7 +1082,7 @@ String scenarioFieldLabel(AppStrings strings, String field) =>
       'endpoint.port' => 'port',
       'endpoint.sni' => 'sni',
       'endpoint.selection' => 'endpoint_selection',
-      'endpoint.preset_region' => 'endpoint_section',
+      'endpoint.preset_region' => 'endpoint_preset_country',
       'ip_policy' => 'ip_policy',
       'mtu' => 'mtu',
       'allow_lan' => 'allow_lan',
@@ -1092,6 +1109,12 @@ String scenarioFieldLabel(AppStrings strings, String field) =>
     });
 
 const _managedScenarioFields = {
+  'endpoint.selection',
+  'endpoint.preset_region',
+  'endpoint.ipv4',
+  'endpoint.ipv6',
+  'endpoint.port',
+  'endpoint.sni',
   'frontends',
   'frontends.tunnel',
   'frontends.socks5',
@@ -1218,13 +1241,26 @@ String scenarioValueLabel(
   String field, {
   Map<String, String> exitNames = const {},
 }) {
+  if (field.startsWith('endpoint.') && settings['endpoint'] is! Map) return '—';
   Object? value;
   if (field.startsWith('proxy.')) {
     value = settings[field.replaceFirst('proxy.', 'proxy_')];
-  } else if (field.startsWith('frontends.')) {
-    value = scenarioMap(settings['frontends'])[field.split('.').last];
+  } else if (field.startsWith('frontends.') || field.startsWith('endpoint.')) {
+    value = scenarioMap(
+      settings[field.split('.').first],
+    )[field.split('.').last];
   } else {
     value = settings[field];
+  }
+  if (field == 'endpoint.preset_region') {
+    return value == null
+        ? strings.get('endpoint_manual')
+        : strings.get('endpoint_preset_$value');
+  }
+  if (field == 'endpoint.selection') {
+    return strings.get(
+      value == 'automatic' ? 'endpoint_automatic' : 'endpoint_custom',
+    );
   }
   if (value == null) return strings.get('not_available');
   if (value is bool) return strings.get(value ? 'on' : 'off');

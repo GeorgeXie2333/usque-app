@@ -12,6 +12,7 @@ import '../widgets/common.dart';
 import '../widgets/context_help_button.dart';
 import '../widgets/controller_selector.dart';
 import '../widgets/direct_dns_editor.dart';
+import '../widgets/endpoint_fields.dart';
 import '../widgets/save_changes_bar.dart';
 import '../widgets/unsaved_changes_guard.dart';
 import '../widgets/usque_dialog.dart';
@@ -140,53 +141,8 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
   bool get _ipv6PresetPolicy =>
       _ipPolicy == IpPolicy.ipv6Only || _ipPolicy == IpPolicy.preferIpv6;
 
-  Future<IpPolicy?> _choosePresetPolicy() async {
-    final strings = widget.controller.strings;
-    var selected = IpPolicy.ipv6Only;
-    return showDialog<IpPolicy>(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, update) => UsqueDialog(
-          icon: LucideIcons.globe,
-          title: strings.get('endpoint_preset_policy'),
-          content: RadioGroup<IpPolicy>(
-            groupValue: selected,
-            onChanged: (value) {
-              if (value != null) update(() => selected = value);
-            },
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                RadioListTile<IpPolicy>(
-                  value: IpPolicy.ipv6Only,
-                  title: Text(_ipPolicyLabel(IpPolicy.ipv6Only)),
-                  subtitle: Text(strings.get('endpoint_preset_only_hint')),
-                  contentPadding: EdgeInsets.zero,
-                  autofocus: true,
-                ),
-                RadioListTile<IpPolicy>(
-                  value: IpPolicy.preferIpv6,
-                  title: Text(_ipPolicyLabel(IpPolicy.preferIpv6)),
-                  subtitle: Text(strings.get('endpoint_preset_prefer_hint')),
-                  contentPadding: EdgeInsets.zero,
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text(strings.get('cancel')),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(context, selected),
-              child: Text(strings.get('continue')),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+  Future<IpPolicy?> _choosePresetPolicy() =>
+      chooseEndpointPresetPolicy(context, widget.controller.strings);
 
   Future<void> _setPresetMode(bool preset) async {
     if (_saving || preset == _presetMode) return;
@@ -528,7 +484,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
         ),
         if (_warpDns.mode == WarpDnsMode.plain) ...<Widget>[
           const SizedBox(height: 12),
-          _ResponsiveFields(
+          ResponsiveEndpointFields(
             children: <Widget>[
               TextFormField(
                 key: _fieldKeys[4],
@@ -559,269 +515,140 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
 
   Widget _endpointSection() {
     final strings = widget.controller.strings;
-    final automaticAvailable =
-        widget.controller.engineCapabilities?.automaticEndpoints ?? false;
     final managed = _zeroTrustEndpointIpsManaged;
-    final custom = managed || _endpointSelection == EndpointSelection.custom;
-    final addresses = custom && !_usingPreset;
-    return FormGroup(
-      title: strings.get('endpoint_section'),
-      children: <Widget>[
-        if (!managed) ...<Widget>[
-          LayoutBuilder(
-            // Two short choices fit side by side on a phone; only very
-            // narrow layouts and large text stack them.
-            builder: (context, constraints) => Semantics(
-              container: true,
-              label: strings.get('endpoint_selection'),
-              child: SegmentedButton<EndpointSelection>(
-                key: const ValueKey('endpoint-selection'),
-                direction:
-                    constraints.maxWidth < 300 ||
-                        MediaQuery.textScalerOf(context).scale(1) > 1.3
-                    ? Axis.vertical
-                    : Axis.horizontal,
-                segments: [
-                  ButtonSegment(
-                    value: EndpointSelection.automatic,
-                    label: Text(strings.get('endpoint_automatic')),
-                    enabled: automaticAvailable,
-                  ),
-                  ButtonSegment(
-                    value: EndpointSelection.custom,
-                    label: Text(strings.get('endpoint_custom')),
-                  ),
-                ],
-                selected: {_endpointSelection},
-                onSelectionChanged: _saving
-                    ? null
-                    : (values) {
-                        setState(() {
-                          _endpointSelection = values.first;
-                        });
-                        _edited();
-                      },
-                showSelectedIcon: false,
-              ),
-            ),
-          ),
-          if (!_usingPreset) ...[
-            const SizedBox(height: 8),
-            HintText(
-              automaticAvailable
-                  ? strings.get(
-                      _endpointSelection == EndpointSelection.automatic
-                          ? 'endpoint_automatic_help'
-                          : 'endpoint_custom_help',
-                    )
-                  : strings.get('endpoint_unsupported'),
-            ),
-          ],
-          const SizedBox(height: 16),
-        ],
-        if (custom) ...<Widget>[
-          LayoutBuilder(
-            builder: (context, constraints) => SegmentedButton<bool>(
-              key: const ValueKey('endpoint-custom-source'),
-              direction:
-                  constraints.maxWidth < 300 ||
-                      MediaQuery.textScalerOf(context).scale(1) > 1.3
-                  ? Axis.vertical
-                  : Axis.horizontal,
-              segments: [
-                ButtonSegment(
-                  value: false,
-                  label: Text(strings.get('endpoint_manual')),
-                ),
-                ButtonSegment(
-                  value: true,
-                  label: Text(strings.get('endpoint_presets')),
-                  enabled: _presetSupported && _presetHostname != null,
-                ),
-              ],
-              selected: {_presetMode},
-              onSelectionChanged: _saving
-                  ? null
-                  : (values) => _setPresetMode(values.first),
-              showSelectedIcon: false,
-            ),
-          ),
-          if (!_presetSupported || _presetHostname == null) ...[
-            const SizedBox(height: 8),
-            HintText(
-              strings.get(
-                !_presetSupported
-                    ? 'endpoint_preset_unsupported'
-                    : 'endpoint_preset_verify',
-              ),
-            ),
-          ],
-          if (_usingPreset) ...[
-            const SizedBox(height: 16),
-            DropdownButtonFormField<EndpointPresetRegion>(
-              key: const ValueKey('endpoint-preset-region'),
-              initialValue: _presetRegion,
-              style: FieldDropdown.valueStyle(context),
-              iconSize: FieldDropdown.iconSize,
-              isExpanded: true,
-              decoration: FieldDropdown.decoration(
-                context,
-                labelText: strings.get('endpoint_preset_country'),
-              ),
-              items: [
-                for (final region in EndpointPresetRegion.values)
-                  DropdownMenuItem(
-                    value: region,
-                    child: Text(strings.get('endpoint_preset_${region.name}')),
-                  ),
-              ],
-              onChanged: _saving
-                  ? null
-                  : (region) {
-                      if (region == null) return;
-                      setState(() => _presetRegion = region);
-                      _edited();
-                    },
-            ),
-            if (_presetHostname != null) ...[
-              const SizedBox(height: 8),
-              HintText(strings.get('ipv6_only')),
-            ],
-            const SizedBox(height: 16),
-          ],
-          if (!_usingPreset) const SizedBox(height: 16),
-        ],
-        if (managed && !_usingPreset && !_ztEndpointsUnlocked) ...<Widget>[
-          if (_ztEndpointEditingSupported && _ztRegisteredEndpointsAvailable)
-            Align(
-              alignment: AlignmentDirectional.centerStart,
-              child: OutlinedButton.icon(
-                key: const ValueKey('zt-endpoint-edit'),
-                onPressed: _saving ? null : _unlockZtEndpoints,
-                icon: const Icon(LucideIcons.pencil),
-                label: Text(strings.get('zero_trust_endpoint_edit')),
-              ),
-            ),
-          const SizedBox(height: 8),
-          HintText(
-            strings.get(
-              !_ztEndpointEditingSupported
-                  ? 'zero_trust_endpoint_unsupported'
-                  : !_ztRegisteredEndpointsAvailable
-                  ? 'zero_trust_metadata_missing'
-                  : 'zero_trust_endpoint_risk_locked',
-            ),
-          ),
-          const SizedBox(height: 16),
-        ],
-        _ResponsiveFields(
-          children: <Widget>[
-            if (_usingPreset)
-              TextFormField(
-                key: ValueKey(
-                  'endpoint-preset-fallback-${widget.controller.activeProfile.endpointIpv4}',
-                ),
-                initialValue: widget.controller.activeProfile.endpointIpv4,
-                readOnly: true,
-                decoration: InputDecoration(
-                  labelText: strings.get('endpoint_preset_fallback'),
-                ),
-              ),
-            if (addresses)
-              TextFormField(
-                key: _fieldKeys[0],
-                focusNode: _focus[0],
-                enabled: !_saving,
-                controller: _endpointV4,
-                onChanged: (_) => _edited(),
-                readOnly: managed && !_ztEndpointsUnlocked,
-                decoration: InputDecoration(
-                  labelText: strings.get('endpoint_ipv4'),
-                ),
-                validator: (value) =>
-                    _validateIp(value, InternetAddressType.IPv4),
-              ),
-            if (addresses)
-              TextFormField(
-                key: _fieldKeys[1],
-                focusNode: _focus[1],
-                enabled: !_saving,
-                controller: _endpointV6,
-                onChanged: (_) => _edited(),
-                readOnly: managed && !_ztEndpointsUnlocked,
-                decoration: InputDecoration(
-                  labelText: strings.get('endpoint_ipv6'),
-                ),
-                validator: (value) =>
-                    _validateIp(value, InternetAddressType.IPv6),
-              ),
+    final addresses =
+        (managed || _endpointSelection == EndpointSelection.custom) &&
+        !_usingPreset;
+    return EndpointFields(
+      strings: strings,
+      selection: _endpointSelection,
+      presetMode: _presetMode,
+      presetRegion: _presetRegion,
+      saving: _saving,
+      automaticAvailable:
+          widget.controller.engineCapabilities?.automaticEndpoints ?? false,
+      managed: managed,
+      presetSupported: _presetSupported,
+      presetVerified: _presetHostname != null,
+      ztEditingSupported: _ztEndpointEditingSupported,
+      ztRegistered: _ztRegisteredEndpointsAvailable,
+      ztUnlocked: _ztEndpointsUnlocked,
+      onSelection: (value) {
+        setState(() => _endpointSelection = value);
+        _edited();
+      },
+      onPresetMode: _setPresetMode,
+      onRegion: (value) {
+        setState(() => _presetRegion = value);
+        _edited();
+      },
+      onUnlock: _unlockZtEndpoints,
+      fields: ResponsiveEndpointFields(
+        children: <Widget>[
+          if (_usingPreset)
             TextFormField(
-              key: _fieldKeys[2],
-              focusNode: _focus[2],
-              enabled: !_saving,
-              controller: _port,
-              onChanged: (_) => _edited(),
-              keyboardType: TextInputType.number,
-              inputFormatters: <TextInputFormatter>[
-                FilteringTextInputFormatter.digitsOnly,
-              ],
-              decoration: InputDecoration(labelText: strings.get('port')),
-              validator: _validatePort,
-            ),
-            if (_dataPlane == DataPlaneMode.l4Proxy)
-              TextFormField(
-                key: ValueKey(managed),
-                initialValue: managed
-                    ? 'zt-masque-proxy.cloudflareclient.com'
-                    : 'consumer-masque-proxy.cloudflareclient.com',
-                readOnly: true,
-                decoration: InputDecoration(
-                  labelText: strings.get('sni'),
-                  helperText: strings.get('l4_sni_identity'),
-                  helperMaxLines: 6,
-                ),
-              )
-            else
-              TextFormField(
-                key: _fieldKeys[3],
-                focusNode: _focus[3],
-                enabled: !_saving,
-                controller: _sni,
-                onChanged: (_) => _edited(),
-                keyboardType: TextInputType.url,
-                decoration: InputDecoration(labelText: strings.get('sni')),
-                validator: _validateSni,
+              key: ValueKey(
+                'endpoint-preset-fallback-${widget.controller.activeProfile.endpointIpv4}',
               ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        DropdownButtonFormField<IpPolicy>(
-          style: FieldDropdown.valueStyle(context),
-          iconSize: FieldDropdown.iconSize,
-          key: ValueKey(_ipPolicy),
-          initialValue: _ipPolicy,
-          isExpanded: true,
-          decoration: FieldDropdown.decoration(
-            context,
-            labelText: strings.get('ip_policy'),
+              initialValue: widget.controller.activeProfile.endpointIpv4,
+              readOnly: true,
+              decoration: InputDecoration(
+                labelText: strings.get('endpoint_preset_fallback'),
+              ),
+            ),
+          if (addresses)
+            TextFormField(
+              key: _fieldKeys[0],
+              focusNode: _focus[0],
+              enabled: !_saving,
+              controller: _endpointV4,
+              onChanged: (_) => _edited(),
+              readOnly: managed && !_ztEndpointsUnlocked,
+              decoration: InputDecoration(
+                labelText: strings.get('endpoint_ipv4'),
+              ),
+              validator: (value) =>
+                  _validateIp(value, InternetAddressType.IPv4),
+            ),
+          if (addresses)
+            TextFormField(
+              key: _fieldKeys[1],
+              focusNode: _focus[1],
+              enabled: !_saving,
+              controller: _endpointV6,
+              onChanged: (_) => _edited(),
+              readOnly: managed && !_ztEndpointsUnlocked,
+              decoration: InputDecoration(
+                labelText: strings.get('endpoint_ipv6'),
+              ),
+              validator: (value) =>
+                  _validateIp(value, InternetAddressType.IPv6),
+            ),
+          TextFormField(
+            key: _fieldKeys[2],
+            focusNode: _focus[2],
+            enabled: !_saving,
+            controller: _port,
+            onChanged: (_) => _edited(),
+            keyboardType: TextInputType.number,
+            inputFormatters: <TextInputFormatter>[
+              FilteringTextInputFormatter.digitsOnly,
+            ],
+            decoration: InputDecoration(labelText: strings.get('port')),
+            validator: _validatePort,
           ),
-          items: IpPolicy.values
-              .map(
-                (value) => DropdownMenuItem<IpPolicy>(
-                  value: value,
-                  child: Text(_ipPolicyLabel(value)),
-                ),
-              )
-              .toList(growable: false),
-          onChanged: _saving
-              ? null
-              : (value) {
-                  if (value != null) {
-                    setState(() => _ipPolicy = value);
-                  }
-                },
+          if (_dataPlane == DataPlaneMode.l4Proxy)
+            TextFormField(
+              key: ValueKey(managed),
+              initialValue: managed
+                  ? 'zt-masque-proxy.cloudflareclient.com'
+                  : 'consumer-masque-proxy.cloudflareclient.com',
+              readOnly: true,
+              decoration: InputDecoration(
+                labelText: strings.get('sni'),
+                helperText: strings.get('l4_sni_identity'),
+                helperMaxLines: 6,
+              ),
+            )
+          else
+            TextFormField(
+              key: _fieldKeys[3],
+              focusNode: _focus[3],
+              enabled: !_saving,
+              controller: _sni,
+              onChanged: (_) => _edited(),
+              keyboardType: TextInputType.url,
+              decoration: InputDecoration(labelText: strings.get('sni')),
+              validator: _validateSni,
+            ),
+        ],
+      ),
+      ipPolicyField: DropdownButtonFormField<IpPolicy>(
+        style: FieldDropdown.valueStyle(context),
+        iconSize: FieldDropdown.iconSize,
+        key: ValueKey(_ipPolicy),
+        initialValue: _ipPolicy,
+        isExpanded: true,
+        decoration: FieldDropdown.decoration(
+          context,
+          labelText: strings.get('ip_policy'),
         ),
-      ],
+        items: IpPolicy.values
+            .map(
+              (value) => DropdownMenuItem<IpPolicy>(
+                value: value,
+                child: Text(_ipPolicyLabel(value)),
+              ),
+            )
+            .toList(growable: false),
+        onChanged: _saving
+            ? null
+            : (value) {
+                if (value != null) {
+                  setState(() => _ipPolicy = value);
+                }
+              },
+      ),
     );
   }
 
@@ -1064,7 +891,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _ResponsiveFields(children: [ccPicker, mtu]),
+          ResponsiveEndpointFields(children: [ccPicker, mtu]),
           const SizedBox(height: 8),
           Semantics(
             liveRegion: true,
@@ -1080,13 +907,8 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
     },
   );
 
-  String? _validateSni(String? value) {
-    final normalized = value?.trim() ?? '';
-    final valid = RegExp(
-      r'^(?=.{1,253}$)(?!-)(?:[a-zA-Z0-9-]{1,63}\.)+[a-zA-Z0-9-]{2,63}$',
-    ).hasMatch(normalized);
-    return valid ? null : widget.controller.strings.get('invalid_dns_name');
-  }
+  String? _validateSni(String? value) =>
+      validateEndpointSni(widget.controller.strings, value);
 
   Future<void> _save() async {
     if (_saving) return;
@@ -1328,29 +1150,5 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
       _validationError = null;
       _saveError = null;
     });
-  }
-}
-
-class _ResponsiveFields extends StatelessWidget {
-  const _ResponsiveFields({required this.children});
-
-  final List<Widget> children;
-
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final width = constraints.maxWidth >= 620
-            ? (constraints.maxWidth - 12) / 2
-            : constraints.maxWidth;
-        return Wrap(
-          spacing: 12,
-          runSpacing: 12,
-          children: children
-              .map((child) => SizedBox(width: width, child: child))
-              .toList(growable: false),
-        );
-      },
-    );
   }
 }

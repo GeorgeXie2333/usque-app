@@ -19,7 +19,7 @@ String _camel(String value) => value.replaceAllMapped(
 );
 
 /// The explicit non-secret scene field projection. Never serialize a whole
-/// profile: listener authentication and account-owned endpoints are global.
+/// profile: listener authentication and account credentials are excluded.
 @immutable
 class ScenarioSettings {
   ScenarioSettings(Map<String, Object?> value)
@@ -29,6 +29,14 @@ class ScenarioSettings {
 
   factory ScenarioSettings.fromProfile(UsqueProfile profile) =>
       ScenarioSettings({
+        'endpoint': {
+          'selection': profile.endpointSelection.name,
+          'preset_region': profile.endpointPresetRegion?.name,
+          'ipv4': profile.endpointIpv4,
+          'ipv6': profile.endpointIpv6,
+          'port': profile.endpointPort,
+          'sni': profile.sni,
+        },
         'frontends': profile.frontends.toMap(),
         'transport': profile.transport == TransportPolicy.automatic
             ? 'auto'
@@ -63,12 +71,27 @@ class ScenarioSettings {
   Map<String, Object?> toMap() => scenarioMap(jsonDecode(jsonEncode(values)));
 
   UsqueProfile toProfile(UsqueProfile base) {
+    final endpoint = scenarioMap(values['endpoint']);
     final dns = (values['dns_servers'] as List? ?? const []).cast<String>();
     final proxyDns = (values['proxy_dns_servers'] as List? ?? const [])
         .cast<String>();
     String address(List<String> ips, bool v6) =>
         ips.where((ip) => ip.contains(':') == v6).firstOrNull ?? '';
     return base.copyWith(
+      endpointSelection: endpoint.isEmpty
+          ? null
+          : endpoint['selection'] == 'automatic'
+          ? EndpointSelection.automatic
+          : EndpointSelection.custom,
+      endpointPresetRegion: endpoint.isEmpty
+          ? base.endpointPresetRegion
+          : EndpointPresetRegion.parse(endpoint['preset_region']),
+      clearEndpointPresetRegion:
+          endpoint.isNotEmpty && endpoint['preset_region'] == null,
+      endpointIpv4: endpoint['ipv4'] as String?,
+      endpointIpv6: endpoint['ipv6'] as String?,
+      endpointPort: endpoint['port'] as int?,
+      sni: endpoint['sni'] as String?,
       frontends: FrontendSettings.fromMap(scenarioMap(values['frontends'])),
       transport: TransportPolicy.values.firstWhere(
         (v) =>
@@ -158,6 +181,7 @@ class ScenarioCatalog {
              ),
            ),
        revision = value['catalogue_revision'] as String?,
+       endpointEditing = value['endpoint_editing'] == true,
        invalidIds = Set.unmodifiable(
          (value['invalid_scenario_ids'] as List? ?? const []).cast<String>(),
        ),
@@ -178,6 +202,7 @@ class ScenarioCatalog {
        lastOperationId = value['last_operation_id'] as String?;
   final List<ConnectionScenario> scenarios;
   final String? revision;
+  final bool endpointEditing;
 
   /// Templates whose saved settings fail the current validation rules.
   final Set<String> invalidIds;

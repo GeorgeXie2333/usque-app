@@ -10,6 +10,13 @@
       "1.1.1.1",
       "2606:4700:4700::1111"
     ],
+    "endpoint": {
+      "ipv4": "162.159.198.2",
+      "ipv6": "2606:4700:103::2",
+      "port": 443,
+      "selection": "automatic",
+      "sni": "speed.cloudflare.com"
+    },
     "frontends": {
       "http": true,
       "socks5": true,
@@ -52,6 +59,13 @@
       "1.1.1.1",
       "2606:4700:4700::1111"
     ],
+    "endpoint": {
+      "ipv4": "162.159.198.2",
+      "ipv6": "2606:4700:103::2",
+      "port": 443,
+      "selection": "automatic",
+      "sni": "speed.cloudflare.com"
+    },
     "frontends": {
       "http": false,
       "socks5": true,

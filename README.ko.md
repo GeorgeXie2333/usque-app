@@ -68,7 +68,7 @@ Linux는 일반 x86-64 및 ARM64용 AppImage/deb/rpm을 제공합니다. 설치 
 
 업그레이드, 제거, 복구, Android 개발자 인증에 관한 설명은 [설치 및 제거](docs/INSTALLATION.md)를, 공식 서명에 사용하는 인증서 정보는 [코드 서명](docs/CODE_SIGNING.md)을 참고하세요. 업데이트는 다운로드 전에 확인이 필요하며, 플랫폼 설치 프로그램으로 설치합니다. 사용자 확인 없이 자동으로 설치하지 않습니다.
 
-v0.3.1에서 업그레이드하면 구성 스키마가 24에서 27으로 바뀌며 v0.3.1 이하에서는 읽을 수 없습니다. 먼저 [구성 호환성](docs/INSTALLATION.md#configuration-compatibility-when-upgrading)을 확인하고 필요한 백업을 준비하세요. 이전 버전 재설치는 마이그레이션을 되돌리지 않습니다.
+v0.3.1에서 업그레이드하면 구성 스키마가 24에서 28으로 바뀌며 v0.3.1 이하에서는 읽을 수 없습니다. 먼저 [구성 호환성](docs/INSTALLATION.md#configuration-compatibility-when-upgrading)을 확인하고 필요한 백업을 준비하세요. 이전 버전 재설치는 마이그레이션을 되돌리지 않습니다.
 
 ## 첫 연결
 
@@ -94,6 +94,7 @@ VPN, SOCKS5, HTTP는 기본적으로 켜져 있고, Windows 시스템 프록시�
   같은 페이지에서 계정을 관리하고, 선택적으로 계정을 연결하며, 변경 내용을 확인한 뒤
   적용하거나 최근 전환을 복원할 수 있습니다. 템플릿 저장은 현재 연결을 바꾸지 않으며
   저장 상태와 적용 상태를 구분합니다.
+  고급 네트워크 설정과 같은 조작으로 엔드포인트도 시나리오에 저장할 수 있습니다.
 
 - 선택적으로 사용하는 [체인 프록시](docs/CHAIN_PROXY.md). **프록시 → 체인 프록시**에서
   **OpenVPN**, **WireGuard**, [**WARP via WireGuard**](docs/WARP_WIREGUARD.md),

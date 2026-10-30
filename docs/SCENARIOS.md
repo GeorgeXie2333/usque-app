@@ -19,14 +19,14 @@ without scenes show Accounts only, without the tab selector.
 2. Name the scene. Keep **Use the current account**, or choose an existing WARP
    account to bind to it.
 3. Edit the saved chain exit, outputs, routing, DNS (including the shared
-   local-proxy DNS), and connection preferences.
+   local-proxy DNS), endpoints, and connection preferences.
 4. While the scene has unsaved edits, the bottom bar offers **Save scene** and
    **Save and use**. **Save scene** updates the template without changing the
    running connection. **Save and use** saves it and opens a separate change
    preview; cancelling that preview keeps the saved template.
 
 选择 **新建场景**，填写名称并选择沿用当前账号或绑定一个已有 WARP 账号。
-编辑已有出口、输出、分流、DNS（含本地代理共享 DNS）及连接偏好后，底部栏提供
+编辑已有出口、输出、分流、DNS（含本地代理共享 DNS）、端点及连接偏好后，底部栏提供
 **保存场景** 与 **保存并使用**：**保存场景** 只保存模板；
 **保存并使用** 先保存，再显示切换预览。取消预览不会撤销模板保存。
 离开尚未保存的编辑器时，可以继续编辑或放弃修改。
@@ -34,14 +34,36 @@ without scenes show Accounts only, without the tab selector.
 Scenes contain the VPN/TUN, SOCKS5, HTTP and system-proxy switches; custom
 routing, Ads, country direct choices and LAN access; WARP, direct and shared
 local-proxy DNS; chain-exit references and Proton server preferences; transport
-and IP-family preferences. Listener addresses and credentials, Kill Switch,
+and IP-family preferences; endpoint selection, presets, addresses, port and SNI.
+Listener addresses and credentials, Kill Switch,
 auto-connect, Android per-app selection and advanced transport tuning remain
-device settings. Account-specific Zero Trust endpoints remain account-owned.
+device settings. Zero Trust registered endpoints remain account-owned; applying
+a manual scene updates only the target account's override, just like Advanced.
 The selected chain exit retains its own final DNS configuration.
 
 场景保存常用网络设置。监听地址与认证、Kill Switch、自动连接、Android 按应用
-选择及高级调优仍沿用设备设置；Zero Trust 专属端点由账号管理。链式出口的最终
+选择及高级调优仍沿用设备设置；Zero Trust 注册端点由账号管理，手动场景只更新目标
+账号的覆盖地址，与高级设置一致。链式出口的最终
 DNS 沿用所选出口配置，场景编辑不会修改出口库中的凭据或配置。
+
+The **Endpoint** group uses the same controls as **Advanced network settings**:
+Automatic or Custom, manual IPv4/IPv6 or a built-in IPv6 preset, port, SNI and
+endpoint IP policy. Automatic and presets retain the previously saved manual
+address pair. Presets require IPv6-only or prefer-IPv6; L4 shows its
+identity-derived SNI read-only. Editing manual Zero Trust addresses requires
+the existing fullscreen risk acknowledgement. Using a scene with a manual
+Zero Trust override also requires acknowledgement before the change preview.
+Automatic scenes inherit the target Zero Trust account's addresses; preset
+scenes retain that account's IPv4 fallback. Neither changes Consumer addresses.
+The preview includes endpoint differences and reconnect requirements, and
+Restore covers endpoints without overwriting later endpoint edits.
+
+**端点** 分组与 **高级网络设置** 共用控件：自动或自定义、手动 IPv4/IPv6 或内置
+IPv6 预设、端口、SNI 与端点 IP 策略。自动与预设保留此前保存的手动地址；预设要求
+仅 IPv6 或优先 IPv6，L4 的账号派生 SNI 只读。编辑 Zero Trust 手动地址仍需全屏风险
+确认；使用包含手动 Zero Trust 覆盖地址的场景时，在切换预览前再次确认。自动场景
+沿用目标 Zero Trust 账号的地址，预设沿用该账号的 IPv4 回退地址，均不改动 Consumer
+地址。预览列出端点差异及重连要求，恢复也包括端点，但不会覆盖后续端点修改。
 
 Choose an already saved and prepared exit in the editor. Import, generate,
 sign in to, and manage exits in **Proxy**. Required routing data must already
@@ -139,13 +161,17 @@ Kill Switch 开启而场景关闭 VPN 模式时，预览会提示切换后不再
 ## Compatibility and validation / 兼容与验证
 
 Schema 27 adds an empty scene library and no selected scene when upgrading;
-existing account and network choices are preserved. Older engines advertise no
+schema 28 adds optional scene endpoints. Existing scenes and selection snapshots
+without endpoints keep inheriting the current endpoints until explicitly edited.
+The catalogue's `endpoint_editing` capability gates the editor for older engines.
+Existing account and network choices are preserved. Older engines advertise no
 scene capability and retain account management. Scene references contain no
 account credentials, and scene values are excluded from logs and diagnostics.
 There is no scene synchronization, import/export or automatic network trigger.
 
-升级至 schema 27 时增加空场景库，保留原账号与网络设置。旧引擎仍可管理账号，
-不会假装支持场景。场景引用不含账号凭据，场景内容不进入日志或诊断。
+升级至 schema 27 时增加空场景库，保留原账号与网络设置。Schema 28 增加可选场景
+端点；旧场景及选择快照未编辑端点时继续沿用当前端点。旧引擎不显示场景端点编辑。
+旧引擎仍可管理账号，不会假装支持场景。场景引用不含账号凭据，场景内容不进入日志或诊断。
 本功能不包含同步、导入导出或网络条件自动切换。
 
 Deterministic core, owner and fake-engine UI tests cover configuration and

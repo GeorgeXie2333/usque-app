@@ -13,8 +13,8 @@ use crate::chain_exit::ChainExitSettings;
 use crate::network_settings::ApplyStatus;
 use crate::vpngate::{Selection, VpnGateSettings};
 use crate::{
-    AppConfig, DirectDnsSettings, DnsMode, FrontendSettings, IpPolicy, Profile, ProxyDnsMode,
-    RoutingSettings, SharedNetworkSettings, TransportPolicy, WarpDnsSettings,
+    AppConfig, DirectDnsSettings, DnsMode, EndpointSettings, FrontendSettings, IpPolicy, Profile,
+    ProxyDnsMode, RoutingSettings, SharedNetworkSettings, TransportPolicy, WarpDnsSettings,
 };
 
 pub const MAX_SCENARIOS: usize = 32;
@@ -24,11 +24,14 @@ pub const MAX_COMMAND_BYTES: usize = 256 * 1024;
 /// UTF-16 Android Binder strings can take twice their UTF-8 ASCII size.
 pub const MAX_RESPONSE_BYTES: usize = 384 * 1024;
 
-/// The complete v1 allowlist. Credentials, endpoints, listeners, Kill Switch,
+/// The complete allowlist. Credentials, listeners, Kill Switch,
 /// automatic connection and platform per-app settings cannot enter this DTO.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct ScenarioSettings {
+    /// Absent in schema 27 scenes: keep the target account's current endpoints.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub endpoint: Option<EndpointSettings>,
     pub frontends: FrontendSettings,
     pub transport: TransportPolicy,
     pub ip_policy: IpPolicy,
@@ -55,6 +58,7 @@ impl Default for ScenarioSettings {
 impl ScenarioSettings {
     pub fn from_network(network: &SharedNetworkSettings) -> Self {
         Self {
+            endpoint: Some(network.endpoint.clone()),
             frontends: network.frontends,
             transport: network.transport,
             ip_policy: network.ip_policy,
@@ -78,6 +82,9 @@ impl ScenarioSettings {
     }
 
     fn copy_into(&self, network: &mut SharedNetworkSettings) {
+        if let Some(endpoint) = &self.endpoint {
+            network.endpoint = endpoint.clone();
+        }
         network.frontends = self.frontends;
         network.transport = self.transport;
         network.ip_policy = self.ip_policy;
@@ -127,7 +134,11 @@ impl ScenarioSettings {
         profile
             .validate()
             .map_err(|_| ScenarioError::InvalidSettings)?;
-        Ok(Self::from_profile(&profile))
+        let mut normalized = Self::from_profile(&profile);
+        if self.endpoint.is_none() {
+            normalized.endpoint = None;
+        }
+        Ok(normalized)
     }
 
     pub fn apply_to(&self, network: &mut SharedNetworkSettings) -> Result<(), ScenarioError> {
@@ -148,6 +159,27 @@ impl ScenarioSettings {
             _ => false,
         }
     }
+
+    fn matches_profile(&self, config: &AppConfig, profile: &Profile) -> bool {
+        target_for(config, self, profile.id).is_ok_and(|target| {
+            Self::from_profile(&target).equivalent(&Self::from_profile(profile))
+        })
+    }
+
+    fn matches_snapshot(&self, other: &Self) -> bool {
+        let mut other = other.clone();
+        if self.endpoint.is_none() {
+            other.endpoint = None;
+        }
+        self.equivalent(&other)
+    }
+}
+
+fn current_settings(config: &AppConfig) -> ScenarioSettings {
+    config.active_profile().as_ref().map_or_else(
+        || ScenarioSettings::from_network(&config.network),
+        ScenarioSettings::from_profile,
+    )
 }
 
 fn semantic_routing(routing: &RoutingSettings) -> Result<RoutingSettings, ScenarioError> {
@@ -479,7 +511,7 @@ fn snapshot(config: &AppConfig) -> Result<ScenarioSnapshot, ScenarioError> {
         account_id: config
             .active_profile_id
             .ok_or(ScenarioError::AccountUnavailable)?,
-        settings: ScenarioSettings::from_network(&config.network).normalized()?,
+        settings: current_settings(config).normalized()?,
         selection: config.scenario_selection.clone(),
     })
 }
@@ -494,7 +526,7 @@ pub fn can_restore(config: &AppConfig) -> bool {
         && record
             .target
             .settings
-            .equivalent(&ScenarioSettings::from_network(&config.network))
+            .matches_snapshot(&current_settings(config))
         && config.scenario_selection == record.target.selection
 }
 
@@ -521,12 +553,65 @@ fn target_for(
     settings: &ScenarioSettings,
     account_id: Uuid,
 ) -> Result<Profile, ScenarioError> {
+    apply_settings(&mut config.clone(), settings, account_id)
+}
+
+/// Reuse Advanced's field merge so ZT overrides stay with the target account,
+/// while Consumer addresses and registered ZT addresses remain untouched.
+fn apply_settings(
+    config: &mut AppConfig,
+    settings: &ScenarioSettings,
+    account_id: Uuid,
+) -> Result<Profile, ScenarioError> {
     let account = config
         .account(account_id)
         .ok_or(ScenarioError::AccountUnavailable)?;
-    let mut network = config.network.clone();
-    settings.apply_to(&mut network)?;
-    let target = network.hydrate(account);
+    let managed =
+        account.managed_endpoint_ips.is_some() || config.is_zero_trust_account(account_id);
+    let previous_endpoint = config.network.endpoint.clone();
+    settings.apply_to(&mut config.network)?;
+    config.network.endpoint = previous_endpoint;
+    config.active_profile_id = Some(account_id);
+    let mut target = config
+        .active_profile()
+        .ok_or(ScenarioError::AccountUnavailable)?;
+    if let Some(endpoint) = &settings.endpoint {
+        let inherited = target.endpoint.clone();
+        target.endpoint = endpoint.clone();
+        if managed {
+            target.endpoint.selection = crate::EndpointSelection::Custom;
+            if endpoint.selection == crate::EndpointSelection::Automatic
+                || endpoint.preset_region.is_some()
+            {
+                target.endpoint.ipv4 = inherited.ipv4;
+                target.endpoint.ipv6 = inherited.ipv6;
+            }
+        }
+        let mut changed_fields = vec![
+            "endpoint.port".into(),
+            "endpoint.sni".into(),
+            "endpoint.preset_region".into(),
+        ];
+        if !managed {
+            changed_fields.push("endpoint.selection".into());
+        }
+        if !managed
+            || (endpoint.selection == crate::EndpointSelection::Custom
+                && endpoint.preset_region.is_none())
+        {
+            changed_fields.extend(["endpoint.ipv4".into(), "endpoint.ipv6".into()]);
+        }
+        target = crate::network_settings::merge_patch(
+            config,
+            &crate::network_settings::NetworkSettingsPatch {
+                operation_id: Uuid::nil(),
+                account_id,
+                values: target,
+                changed_fields,
+            },
+        )
+        .map_err(|_| ScenarioError::InvalidSettings)?;
+    }
     target
         .validate()
         .map_err(|_| ScenarioError::InvalidSettings)?;
@@ -629,6 +714,7 @@ fn preview_token(
     // payload. Bind inherited global settings and actual owner observations.
     digest(&json!({
         "network":config.network,"selected_account":config.active_profile_id,
+        "source_account":config.active_profile_id.and_then(|id|config.account(id)),
         "target_account":config.account(target.account_id),"target":target,
         "selection":config.scenario_selection,"last_operation":config.last_scenario_switch.as_ref().map(|r|r.operation_id),
         "source_epoch":context.source_epoch,"session_id":context.session_id,
@@ -645,6 +731,12 @@ pub fn managed_changed_fields(
     context: &ScenarioContext,
 ) -> Vec<String> {
     const FIELDS: &[&str] = &[
+        "endpoint.selection",
+        "endpoint.preset_region",
+        "endpoint.ipv4",
+        "endpoint.ipv6",
+        "endpoint.port",
+        "endpoint.sni",
         "frontends.tunnel",
         "frontends.socks5",
         "frontends.http",
@@ -681,11 +773,10 @@ pub fn managed_changed_fields(
 /// of the current transition. Equal settings in an unrelated template are not
 /// evidence that the user selected that template for the running connection.
 fn applied_scenario_id(config: &AppConfig, applied: &Profile) -> Option<Uuid> {
-    let applied_settings = ScenarioSettings::from_profile(applied);
     let matches = |selected: &ScenarioSelection, account_id: Uuid| {
         applied.id == account_id
             && selected.bound_account_id.is_none_or(|id| id == applied.id)
-            && selected.settings.equivalent(&applied_settings)
+            && selected.settings.matches_profile(config, applied)
             && config
                 .scenarios
                 .iter()
@@ -702,10 +793,7 @@ fn applied_scenario_id(config: &AppConfig, applied: &Profile) -> Option<Uuid> {
     // current target, not undo eligibility, to validate the transition source.
     if config.active_profile_id != Some(record.target.account_id)
         || config.scenario_selection != record.target.selection
-        || !record
-            .target
-            .settings
-            .equivalent(&ScenarioSettings::from_network(&config.network))
+        || !record.target.settings.equivalent(&current_settings(config))
     {
         return None;
     }
@@ -714,7 +802,7 @@ fn applied_scenario_id(config: &AppConfig, applied: &Profile) -> Option<Uuid> {
 }
 
 pub fn catalogue(config: &AppConfig, context: &ScenarioContext) -> Value {
-    let current = ScenarioSettings::from_network(&config.network);
+    let current = current_settings(config);
     let current_fits = encoded_size(&current).is_ok_and(|size| size <= MAX_SCENARIO_BYTES);
     let selection = config.scenario_selection.as_ref();
     let selection_metadata = selection.map(|selected| {
@@ -724,7 +812,9 @@ pub fn catalogue(config: &AppConfig, context: &ScenarioContext) -> Value {
         })
     });
     let modified = selection.is_some_and(|selected| {
-        !selected.settings.equivalent(&current)
+        !config
+            .active_profile()
+            .is_some_and(|profile| selected.settings.matches_profile(config, &profile))
             || selected
                 .bound_account_id
                 .is_some_and(|id| Some(id) != config.active_profile_id)
@@ -760,6 +850,7 @@ pub fn catalogue(config: &AppConfig, context: &ScenarioContext) -> Value {
         .map(|scene| scene.id)
         .collect();
     json!({
+        "endpoint_editing":true,
         "scenarios":config.scenarios,"selection":selection_metadata,
         "catalogue_revision":catalogue_revision(config).ok(),
         "invalid_scenario_ids":invalid,
@@ -968,7 +1059,7 @@ fn preview_value(
         .as_ref()
         .map(|applied| runtime_target(profile, applied));
     let profile = runtime_target.as_ref().unwrap_or(profile);
-    let before_settings = ScenarioSettings::from_network(&config.network);
+    let before_settings = current_settings(config);
     let before_fits = encoded_size(&before_settings)? <= MAX_SCENARIO_BYTES;
     let applied_settings = context
         .applied_profile
@@ -1012,7 +1103,11 @@ fn preview_value(
         "kill_switch_output_removed":kill_switch_output_removed(config,profile,context),
         "before_settings":before_fits.then_some(before_settings),
         "before_settings_omitted":!before_fits,
-        "target_settings":target.settings,
+        "target_settings":ScenarioSettings::from_profile(profile),
+        "zero_trust_endpoint_warning":config.is_zero_trust_account(profile.id)
+            && profile.endpoint.preset_region.is_none()
+            && config.account(profile.id).and_then(|a|a.managed_endpoint_ips.as_ref())
+                .is_some_and(|registered| *registered != crate::ManagedEndpointIps::from_endpoint(&profile.endpoint)),
         "applied_settings":if applied_fits{applied_settings}else{None},
         "applied_settings_omitted":!applied_fits
     }))
@@ -1036,7 +1131,7 @@ fn kill_switch_output_removed(
 
 fn commit_target(
     config: &mut AppConfig,
-    target: ScenarioSnapshot,
+    mut target: ScenarioSnapshot,
     context: &ScenarioContext,
     token: &str,
     operation_id: Uuid,
@@ -1057,8 +1152,8 @@ fn commit_target(
     }
     let profile = target_for(config, &target.settings, target.account_id)?;
     let source = snapshot(config)?;
-    target.settings.apply_to(&mut config.network)?;
-    config.active_profile_id = Some(target.account_id);
+    apply_settings(config, &target.settings, target.account_id)?;
+    target.settings = ScenarioSettings::from_profile(&profile);
     config.scenario_selection = target.selection.clone();
     config.last_scenario_switch = Some(Box::new(ScenarioSwitchRecord {
         operation_id,

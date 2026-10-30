@@ -27,6 +27,7 @@ Map<String, Object?> fixture({
   bool receipt = false,
   List<Map<String, Object?>>? scenes,
 }) => {
+  'endpoint_editing': true,
   'scenarios':
       scenes ??
       [
@@ -95,6 +96,9 @@ class SceneEngine extends WorkflowEngine {
       const EngineCapabilities(
         networkSettingsApplication: true,
         connectionScenarios: true,
+        automaticEndpoints: true,
+        endpointPresets: true,
+        zeroTrustEndpointEditing: true,
         tlsFingerprints: TlsFingerprint.values,
       );
   @override
@@ -755,43 +759,47 @@ void main() {
     },
   );
 
-  test('scene projection omits secrets, endpoints and device protection', () {
-    final profile = UsqueProfile.defaultProfile().copyWith(
-      killSwitch: false,
-      endpointIpv4: '192.0.2.1',
-      autoConnect: true,
-      proxy: const ProxySettings(authUsername: 'private-user'),
-    );
-    final map = ScenarioSettings.fromProfile(profile).toMap();
-    expect(
-      map.keys,
-      unorderedEquals([
-        'frontends',
-        'transport',
-        'ip_policy',
-        'allow_lan',
-        'routing',
-        'geo_direct_countries',
-        'direct_dns',
-        'warp_dns',
-        'dns_mode',
-        'dns_servers',
-        'proxy_system_proxy',
-        'proxy_dns_mode',
-        'proxy_dns_servers',
-        'vpn_gate',
-        'chain_exit',
-      ]),
-    );
-    expect(map['transport'], 'auto');
-    expect((map['direct_dns'] as Map)['mode'], 'physical_system');
-    expect(map.toString(), isNot(contains('private-user')));
-    expect(map.toString(), isNot(contains('192.0.2.1')));
-    final roundTrip = ScenarioSettings(map).toProfile(profile);
-    expect(roundTrip.directDns.mode, DirectDnsMode.physicalSystem);
-    expect(roundTrip.killSwitch, false);
-    expect(roundTrip.proxy.authUsername, 'private-user');
-  });
+  test(
+    'scene projection includes endpoints but omits secrets and device protection',
+    () {
+      final profile = UsqueProfile.defaultProfile().copyWith(
+        killSwitch: false,
+        endpointIpv4: '192.0.2.1',
+        autoConnect: true,
+        proxy: const ProxySettings(authUsername: 'private-user'),
+      );
+      final map = ScenarioSettings.fromProfile(profile).toMap();
+      expect(
+        map.keys,
+        unorderedEquals([
+          'endpoint',
+          'frontends',
+          'transport',
+          'ip_policy',
+          'allow_lan',
+          'routing',
+          'geo_direct_countries',
+          'direct_dns',
+          'warp_dns',
+          'dns_mode',
+          'dns_servers',
+          'proxy_system_proxy',
+          'proxy_dns_mode',
+          'proxy_dns_servers',
+          'vpn_gate',
+          'chain_exit',
+        ]),
+      );
+      expect(map['transport'], 'auto');
+      expect((map['direct_dns'] as Map)['mode'], 'physical_system');
+      expect(map.toString(), isNot(contains('private-user')));
+      expect((map['endpoint'] as Map)['ipv4'], '192.0.2.1');
+      final roundTrip = ScenarioSettings(map).toProfile(profile);
+      expect(roundTrip.directDns.mode, DirectDnsMode.physicalSystem);
+      expect(roundTrip.killSwitch, false);
+      expect(roundTrip.proxy.authUsername, 'private-user');
+    },
+  );
 
   test(
     'template save sends no activation and does not count missing ACK as saved',

@@ -561,6 +561,11 @@ fn migrate_app_config(config: &mut AppConfig) {
         config.last_scenario_switch = None;
         config.schema_version = 27;
     }
+    if config.schema_version < 28 {
+        // Missing scene endpoints keep inheriting the target's current values.
+        // Do not freeze today's endpoint into a previously saved scene.
+        config.schema_version = 28;
+    }
 }
 
 #[cfg(not(windows))]

@@ -33,6 +33,12 @@ same in the target language are not missing translations.
 
 ## Profiles and scene drafts
 
+The scene endpoint draft shares `EndpointFields` and preset-policy selection with
+Advanced. It never calls global save operations. Schema 28 scenes can include
+endpoint selection, presets, IPv4/IPv6, port and SNI; missing endpoints keep the
+old scene's inheritance semantics. Native previews and restore use effective
+account endpoints, and Zero Trust overrides follow Advanced's account-scoped merge.
+
 The second destination is **Profiles** (**配置** in Simplified Chinese), with
 **Scenes / Accounts** tabs. Its nested section navigator preserves desktop
 navigation and uses the normal leave guard; phones hide bottom navigation on
