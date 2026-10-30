@@ -396,7 +396,6 @@ const Map<String, String> kChainAr = <String, String>{
   'failure_protocol': 'بروتوكول',
   'failure_cleanup': 'تنظيف',
   'failure_reason': 'سبب الفشل: {reason}.',
-  'manage': 'إدارة',
   'dns_fallback': 'DNS النفق (قد يتفاوض OpenVPN على DNS)',
   'dns_unavailable_title': 'لا يوجد DNS عبر هذا المخرج',
   'dns_unavailable':

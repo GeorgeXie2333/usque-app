@@ -1,10 +1,16 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:usque/models/app_models.dart';
 import 'package:usque/screens/about_screen.dart';
+import 'package:usque/screens/advanced_settings_screen.dart';
+import 'package:usque/screens/geo_direct_settings_screen.dart';
 import 'package:usque/screens/profiles_screen.dart';
 import 'package:usque/screens/proxy_screen.dart';
+import 'package:usque/screens/settings_screen.dart';
 import 'package:usque/state/app_controller.dart';
+import 'package:usque/widgets/common.dart';
 
 import 'ui_workflow_test.dart' show WorkflowEngine, pumpWorkflow, workflowHost;
 
@@ -155,6 +161,123 @@ void main() {
       lefts.add(headingLeft(title));
     }
     expect(lefts.toSet(), hasLength(1), reason: '$lefts');
+  });
+
+  testWidgets('Proxy and Settings rows share icon, text and control columns', (
+    tester,
+  ) async {
+    final app = await pumpWorkflow(
+      tester,
+      WorkflowEngine(),
+      section: AppSection.settings,
+    );
+    // Icon left, title left and trailing control right of a switch row, and
+    // icon left and chevron right of a navigation row.
+    (double, double, double) switchColumns(Finder page, String title) {
+      final tile = find.descendant(
+        of: page,
+        matching: find.widgetWithText(SwitchListTile, title),
+      );
+      Finder inTile(Finder finder) =>
+          find.descendant(of: tile, matching: finder);
+      return (
+        tester.getTopLeft(inTile(find.byType(Icon)).first).dx,
+        tester.getTopLeft(inTile(find.text(title))).dx,
+        tester.getTopRight(inTile(find.byType(Switch))).dx,
+      );
+    }
+
+    (double, double) linkColumns(Finder row) => (
+      tester
+          .getTopLeft(
+            find.descendant(
+              of: row,
+              matching: find.byIcon(tester.widget<LinkRow>(row).icon),
+            ),
+          )
+          .dx,
+      tester
+          .getTopRight(
+            find.descendant(
+              of: row,
+              matching: find.byIcon(LucideIcons.chevronRightDir),
+            ),
+          )
+          .dx,
+    );
+
+    final settings = find.byType(SettingsScreen);
+    final settingsSwitch = switchColumns(
+      settings,
+      app.strings.get('kill_switch'),
+    );
+    final settingsLink = linkColumns(
+      find.descendant(of: settings, matching: find.byType(LinkRow)).first,
+    );
+    final settingsLabel = tester
+        .getTopLeft(find.text(app.strings.get('connection_protection_group')))
+        .dx;
+
+    app.selectSection(AppSection.proxy);
+    await tester.pumpAndSettle();
+    final proxy = find.byType(ProxyScreen);
+    for (final title in [
+      app.strings.tunnelOutputLabel(defaultTargetPlatform),
+      app.strings.get('socks_listener'),
+    ]) {
+      expect(switchColumns(proxy, title), settingsSwitch, reason: title);
+    }
+    expect(
+      linkColumns(find.byKey(const ValueKey('proxy-chain-proxy-entry'))),
+      settingsLink,
+    );
+    expect(
+      tester.getTopLeft(find.text(app.strings.get('proxy_exit_group'))).dx,
+      settingsLabel,
+    );
+
+    // Pages opened from Settings keep its columns too.
+    app.selectSection(AppSection.settings);
+    await tester.pumpAndSettle();
+    for (final (link, page, label, row) in <(String, Type, String, String)>[
+      ('advanced', AdvancedSettingsScreen, 'routing_protection', 'allow_lan'),
+      ('geo_direct', GeoDirectSettingsScreen, 'routing_rules', 'routing_ads'),
+    ]) {
+      await tester.tap(find.text(app.strings.get(link)));
+      await tester.pumpAndSettle();
+      final subpage = find.byType(page);
+      final switchRow = find.descendant(
+        of: subpage,
+        matching: find.widgetWithText(SwitchListTile, app.strings.get(row)),
+      );
+      await tester.ensureVisible(switchRow);
+      await tester.pumpAndSettle();
+      expect(
+        switchColumns(subpage, app.strings.get(row)),
+        settingsSwitch,
+        reason: row,
+      );
+      expect(
+        tester
+            .getTopLeft(
+              find
+                  .descendant(
+                    of: subpage,
+                    matching: find.text(app.strings.get(label)),
+                  )
+                  .first,
+            )
+            .dx,
+        settingsLabel,
+        reason: label,
+      );
+      tester
+          .state<NavigatorState>(
+            find.ancestor(of: subpage, matching: find.byType(Navigator)).first,
+          )
+          .pop();
+      await tester.pumpAndSettle();
+    }
   });
 
   testWidgets('Settings opens About with legal documents and licenses', (

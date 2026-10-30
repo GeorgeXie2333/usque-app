@@ -88,7 +88,6 @@ const kChainEn = <String, String>{
   'failure_protocol': 'a protocol error',
   'failure_cleanup': 'cleanup failed',
   'failure_reason': 'Reason: {reason}.',
-  'manage': 'Manage',
 
   'dns_fallback': 'Provided by the tunnel (OpenVPN servers may assign one)',
   'dns_unavailable_title': 'No DNS through this exit',
@@ -259,7 +258,6 @@ const kChainZhCn = <String, String>{
   'failure_protocol': '协议错误',
   'failure_cleanup': '清理失败',
   'failure_reason': '原因：{reason}。',
-  'manage': '管理',
 
   'dns_fallback': '由隧道提供（OpenVPN 服务器可能会下发）',
   'dns_unavailable_title': '此出口没有可用 DNS',

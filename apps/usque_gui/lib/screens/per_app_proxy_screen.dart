@@ -165,94 +165,102 @@ class _PerAppProxyScreenState extends State<PerAppProxyScreen> {
           ),
           PanelStack(
             children: <Widget>[
+              // Rows and fields use the shared row inset, so they line up
+              // with Settings, which opens this page.
               ContentSection(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: <Widget>[
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      secondary: const Icon(LucideIcons.layers3),
-                      title: Text(strings.get('per_app_proxy_enable')),
-                      subtitle: Text(strings.get('per_app_proxy_help')),
-                      value: _enabled,
-                      onChanged: _saving
-                          ? null
-                          : (value) => setState(() => _enabled = value),
-                    ),
-                    const SizedBox(height: 16),
-                    TextField(
-                      controller: _search,
-                      decoration: InputDecoration(
-                        labelText: strings.get('per_app_search'),
-                        prefixIcon: const Icon(LucideIcons.search),
+                padding: RowInsets.tile,
+                child: RowTileTheme(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: <Widget>[
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        secondary: const Icon(LucideIcons.layers3),
+                        title: Text(strings.get('per_app_proxy_enable')),
+                        subtitle: Text(strings.get('per_app_proxy_help')),
+                        value: _enabled,
+                        onChanged: _saving
+                            ? null
+                            : (value) => setState(() => _enabled = value),
                       ),
-                      onChanged: (_) => setState(() {}),
-                    ),
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: Text(strings.get('per_app_show_system')),
-                      value: _showSystem,
-                      onChanged: (value) => setState(() => _showSystem = value),
-                    ),
-                    const SizedBox(height: 4),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: <Widget>[
-                        Text(
-                          strings
-                              .get('per_app_selected_count')
-                              .replaceAll('{count}', '${_selected.length}'),
-                          style: Theme.of(context).textTheme.bodyMedium
-                              ?.copyWith(
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.onSurfaceVariant,
-                              ),
+                      const SizedBox(height: 16),
+                      TextField(
+                        controller: _search,
+                        decoration: InputDecoration(
+                          labelText: strings.get('per_app_search'),
+                          prefixIcon: const Icon(LucideIcons.search),
                         ),
-                        const SizedBox(height: 8),
-                        Wrap(
-                          spacing: 8,
-                          children: <Widget>[
-                            TextButton(
-                              onPressed: visible.isEmpty || _saving
-                                  ? null
-                                  : () => setState(() {
-                                      _selected.addAll(
-                                        visible.map((app) => app.packageName),
-                                      );
-                                    }),
-                              child: Text(
-                                strings.get('per_app_select_visible'),
+                        onChanged: (_) => setState(() {}),
+                      ),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(strings.get('per_app_show_system')),
+                        value: _showSystem,
+                        onChanged: (value) =>
+                            setState(() => _showSystem = value),
+                      ),
+                      const SizedBox(height: 4),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: <Widget>[
+                          Text(
+                            strings
+                                .get('per_app_selected_count')
+                                .replaceAll('{count}', '${_selected.length}'),
+                            style: Theme.of(context).textTheme.bodyMedium
+                                ?.copyWith(
+                                  color: Theme.of(
+                                    context,
+                                  ).colorScheme.onSurfaceVariant,
+                                ),
+                          ),
+                          const SizedBox(height: 8),
+                          Wrap(
+                            spacing: 8,
+                            children: <Widget>[
+                              TextButton(
+                                onPressed: visible.isEmpty || _saving
+                                    ? null
+                                    : () => setState(() {
+                                        _selected.addAll(
+                                          visible.map((app) => app.packageName),
+                                        );
+                                      }),
+                                child: Text(
+                                  strings.get('per_app_select_visible'),
+                                ),
                               ),
-                            ),
-                            TextButton(
-                              onPressed: visible.isEmpty || _saving
-                                  ? null
-                                  : () => setState(() {
-                                      _selected.removeAll(
-                                        visible.map((app) => app.packageName),
-                                      );
-                                    }),
-                              child: Text(strings.get('per_app_clear_visible')),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                    BannerSlot(
-                      spacing: 0,
-                      child: _enabled && !_canSave
-                          ? Padding(
-                              padding: const EdgeInsets.only(top: 12),
-                              child: WarningBanner(
-                                title: strings.get('per_app_proxy'),
-                                message: strings.get('per_app_need_one'),
-                                danger: true,
+                              TextButton(
+                                onPressed: visible.isEmpty || _saving
+                                    ? null
+                                    : () => setState(() {
+                                        _selected.removeAll(
+                                          visible.map((app) => app.packageName),
+                                        );
+                                      }),
+                                child: Text(
+                                  strings.get('per_app_clear_visible'),
+                                ),
                               ),
-                            )
-                          : null,
-                    ),
-                  ],
+                            ],
+                          ),
+                        ],
+                      ),
+                      BannerSlot(
+                        spacing: 0,
+                        child: _enabled && !_canSave
+                            ? Padding(
+                                padding: const EdgeInsets.only(top: 12),
+                                child: WarningBanner(
+                                  title: strings.get('per_app_proxy'),
+                                  message: strings.get('per_app_need_one'),
+                                  danger: true,
+                                ),
+                              )
+                            : null,
+                      ),
+                    ],
+                  ),
                 ),
               ),
               ContentSection(
@@ -306,7 +314,9 @@ class _PerAppProxyScreenState extends State<PerAppProxyScreen> {
         final app = visible[index];
         final icon = _icons[app.packageName];
         return CheckboxListTile(
-          contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: RowInsets.horizontal,
+          ),
           shape: const RoundedRectangleBorder(),
           value: _selected.contains(app.packageName),
           onChanged: _saving

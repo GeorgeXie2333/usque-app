@@ -498,6 +498,97 @@ class ContentList extends StatelessWidget {
   );
 }
 
+/// Insets shared by every list row, so icons, text and trailing controls keep
+/// one column on Settings, Proxy and their subpages. The horizontal inset also
+/// keeps row content clear of the ink and focus outline.
+abstract final class RowInsets {
+  static const double horizontal = 8;
+
+  /// A row's text column relative to its inset: a 20 px icon plus the 12 px
+  /// title gap. Content under a row's title (status, actions) starts here.
+  static const double textIndent = 32;
+
+  /// Rows whose own height supplies the touch target, such as Material list
+  /// tiles.
+  static const EdgeInsets tile = EdgeInsets.symmetric(
+    horizontal: horizontal,
+    vertical: 4,
+  );
+
+  /// Rows sized by their content, such as [LinkRow] and picker rows.
+  static const EdgeInsets row = EdgeInsets.symmetric(
+    horizontal: horizontal,
+    vertical: 12,
+  );
+}
+
+/// A group of rows under a quiet label, so groups never compete with the page
+/// title. An optional hint applies to every row in the group.
+class ContentGroup extends StatelessWidget {
+  const ContentGroup({
+    required this.title,
+    required this.children,
+    this.hint,
+    super.key,
+  });
+
+  final String title;
+  final String? hint;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: RowInsets.horizontal),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Semantics(
+                header: true,
+                child: Text(
+                  title,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+              if (hint != null) ...[const SizedBox(height: 2), HintText(hint!)],
+            ],
+          ),
+        ),
+        const SizedBox(height: 4),
+        ContentList(children: children),
+      ],
+    );
+  }
+}
+
+/// A [ContentGroup] holding one form entry, whose fields sit inside the row
+/// inset so their edges line up with neighbouring rows' controls.
+class FormGroup extends StatelessWidget {
+  const FormGroup({
+    required this.title,
+    required this.children,
+    this.hint,
+    super.key,
+  });
+
+  final String title;
+  final String? hint;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) => ContentGroup(
+    title: title,
+    hint: hint,
+    children: [ContentSection(padding: RowInsets.row, children: children)],
+  );
+}
+
 /// A navigation/action row, not an information card. Material activation
 /// handles touch, Enter/Space and D-pad; focus never changes layout bounds.
 class ActionRow extends StatefulWidget {
@@ -548,24 +639,32 @@ class _ActionRowState extends State<ActionRow> {
 
 /// A settings row that opens another page or system screen. The chevron always
 /// stays at the trailing edge; on narrow layouts or at large text the value
-/// moves under the summary instead of squeezing the title.
+/// or status moves under the summary instead of squeezing the title.
 class LinkRow extends StatelessWidget {
   const LinkRow({
     required this.icon,
     required this.title,
     required this.onTap,
     this.subtitle,
+    this.details,
     this.value,
     this.valueKey,
-    this.padding = const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+    this.status,
+    this.padding = RowInsets.row,
     super.key,
-  });
+  }) : assert(value == null || status == null);
 
   final IconData icon;
   final String title;
   final String? subtitle;
+
+  /// Rich summary text under the subtitle, in the subtitle's style.
+  final Widget? details;
   final String? value;
   final Key? valueKey;
+
+  /// A state such as [InlineStatus], placed where a [value] would be.
+  final Widget? status;
   final VoidCallback? onTap;
   final EdgeInsetsGeometry padding;
 
@@ -573,18 +672,22 @@ class LinkRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final muted = theme.colorScheme.onSurfaceVariant;
-    Widget valueText() => Text(
-      value!,
-      key: valueKey,
-      style: theme.textTheme.labelLarge?.copyWith(color: muted),
-    );
+    final summaryStyle = theme.textTheme.bodySmall?.copyWith(color: muted);
+    Widget valueText() =>
+        status ??
+        Text(
+          value!,
+          key: valueKey,
+          style: theme.textTheme.labelLarge?.copyWith(color: muted),
+        );
+    final hasValue = value != null || status != null;
     return ActionRow(
       padding: padding,
       onTap: onTap,
       child: LayoutBuilder(
         builder: (context, constraints) {
           final stacked =
-              value != null &&
+              hasValue &&
               (constraints.maxWidth < 480 ||
                   MediaQuery.textScalerOf(context).scale(14) > 21);
           return Row(
@@ -599,18 +702,20 @@ class LinkRow extends StatelessWidget {
                     Text(title, style: theme.textTheme.titleMedium),
                     if (subtitle != null) ...[
                       const SizedBox(height: 4),
-                      Text(
-                        subtitle!,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: muted,
-                        ),
+                      Text(subtitle!, style: summaryStyle),
+                    ],
+                    if (details != null) ...[
+                      const SizedBox(height: 4),
+                      DefaultTextStyle.merge(
+                        style: summaryStyle,
+                        child: details!,
                       ),
                     ],
                     if (stacked) ...[const SizedBox(height: 6), valueText()],
                   ],
                 ),
               ),
-              if (value != null && !stacked) ...[
+              if (hasValue && !stacked) ...[
                 const SizedBox(width: 16),
                 ConstrainedBox(
                   constraints: BoxConstraints(

@@ -430,6 +430,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
               _warpDnsSection(),
               DirectDnsEditor(
                 key: _directDnsKey,
+                grouped: true,
                 value: _directDns,
                 resetRevision: _dnsResetRevision,
                 enabled: !_saving,
@@ -456,15 +457,13 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
     final strings = widget.controller.strings;
     final quicBlocking =
         widget.controller.engineCapabilities?.applicationQuicBlocking == true;
-    return ContentSection(
-      icon: LucideIcons.shield,
-      title: strings.get('routing_protection'),
-      gap: 10,
-      child: RowTileTheme(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: <Widget>[
-            SwitchListTile(
+    return RowTileTheme(
+      child: ContentGroup(
+        title: strings.get('routing_protection'),
+        children: <Widget>[
+          ContentSection(
+            padding: RowInsets.tile,
+            child: SwitchListTile(
               contentPadding: EdgeInsets.zero,
               secondary: const Icon(LucideIcons.house),
               title: Text(strings.get('allow_lan')),
@@ -473,7 +472,10 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
                   ? null
                   : (value) => setState(() => _allowLan = value),
             ),
-            SwitchListTile(
+          ),
+          ContentSection(
+            padding: RowInsets.tile,
+            child: SwitchListTile(
               key: const ValueKey('disable-quic-switch'),
               focusNode: _focus[8],
               contentPadding: EdgeInsets.zero,
@@ -498,18 +500,16 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
                       _saveError = null;
                     }),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 
   Widget _warpDnsSection() {
     final strings = widget.controller.strings;
-    return ContentSection(
-      icon: LucideIcons.globeLock,
+    return FormGroup(
       title: strings.get('warp_dns_type'),
-      gap: 20,
       children: <Widget>[
         WarpDnsEditor(
           key: _warpDnsKey,
@@ -564,10 +564,8 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
     final managed = _zeroTrustEndpointIpsManaged;
     final custom = managed || _endpointSelection == EndpointSelection.custom;
     final addresses = custom && !_usingPreset;
-    return ContentSection(
-      icon: LucideIcons.mapPin,
+    return FormGroup(
       title: strings.get('endpoint_section'),
-      gap: 20,
       children: <Widget>[
         if (!managed) ...<Widget>[
           LayoutBuilder(
@@ -829,10 +827,8 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
 
   Widget _transportSection({required bool l4Available}) {
     final strings = widget.controller.strings;
-    return ContentSection(
-      icon: LucideIcons.cable,
+    return FormGroup(
       title: strings.get('transport'),
-      gap: 20,
       children: <Widget>[
         LayoutBuilder(
           builder: (context, constraints) => SegmentedButton<String>(

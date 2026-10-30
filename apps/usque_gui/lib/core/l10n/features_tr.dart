@@ -415,7 +415,6 @@ const Map<String, String> kChainTr = <String, String>{
   'failure_protocol': 'protokol',
   'failure_cleanup': 'temizleme',
   'failure_reason': 'Hata: {reason}.',
-  'manage': 'Yönet',
   'dns_fallback': 'Tünel DNS (OpenVPN DNS görüşebilir)',
   'dns_unavailable_title': 'Bu çıkışta DNS yok',
   'dns_unavailable':

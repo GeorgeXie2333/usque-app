@@ -359,8 +359,12 @@ void main() {
       FilledButton,
       app.strings.get('save_changes'),
     );
-    // The bar uses the form's 880 px column and page gutter.
-    expect(tester.getTopRight(apply).dx, tester.getTopRight(port).dx);
+    // The bar uses the form's 880 px column and page gutter; fields sit
+    // inside the shared row inset, like Settings' trailing controls.
+    expect(
+      tester.getTopRight(apply).dx - RowInsets.horizontal,
+      tester.getTopRight(port).dx,
+    );
     await tester.enterText(port, '1080');
     await tester.pumpAndSettle();
     expect(bar, findsNothing);
@@ -414,7 +418,10 @@ void main() {
       return app;
     }
 
-    Finder heading(String title) => find.widgetWithText(ContentHeading, title);
+    // A group's label is its first matching text; a field may repeat it.
+    Finder heading(String title) => find
+        .descendant(of: find.byType(ContentGroup), matching: find.text(title))
+        .first;
 
     testWidgets('sections run from protection to transport', (tester) async {
       final app = await pumpAdvanced(tester);
@@ -466,7 +473,7 @@ void main() {
       expect(ccRect.height, closeTo(mtuRect.height, 0.5));
       expect(mtuRect.left, greaterThan(ccRect.right));
       // A clean form has no apply bar; the first edit reveals it, lined up
-      // with the 880 px form column.
+      // with the 880 px form column; fields sit inside the row inset.
       expect(find.byType(SaveChangesBar), findsNothing);
       await tester.enterText(mtu, '1300');
       await tester.pumpAndSettle();
@@ -474,7 +481,10 @@ void main() {
         FilledButton,
         app.strings.get('save_changes'),
       );
-      expect(tester.getTopRight(apply).dx, closeTo(mtuRect.right, 0.5));
+      expect(
+        tester.getTopRight(apply).dx - RowInsets.horizontal,
+        closeTo(mtuRect.right, 0.5),
+      );
     });
 
     testWidgets('phone keeps endpoint choices side by side', (tester) async {
@@ -563,9 +573,12 @@ void main() {
       FilledButton,
       app.strings.get('save_changes'),
     );
-    expect(tester.getTopRight(apply).dx, tester.getTopRight(search).dx);
     expect(
-      find.widgetWithText(ContentHeading, app.strings.get('bypass_countries')),
+      tester.getTopRight(apply).dx - RowInsets.horizontal,
+      tester.getTopRight(search).dx,
+    );
+    expect(
+      find.widgetWithText(ContentGroup, app.strings.get('bypass_countries')),
       findsOneWidget,
     );
   });

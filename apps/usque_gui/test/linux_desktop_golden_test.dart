@@ -211,6 +211,8 @@ enum _Scene {
   protonNodes,
   protonProfile,
   profiles,
+  proxy,
+  proxyPhone,
   qualityGood,
   qualityDegraded,
   qualityDegradedPhone,
@@ -524,6 +526,22 @@ const _fixtures = <_Fixture>[
     scale: 1,
   ),
   (
+    scene: _Scene.proxy,
+    name: 'proxy_en_light',
+    size: Size(1280, 1500),
+    locale: LocalePreference.english,
+    dark: false,
+    scale: 1,
+  ),
+  (
+    scene: _Scene.proxyPhone,
+    name: 'proxy_zh_phone_dark',
+    size: Size(390, 1900),
+    locale: LocalePreference.simplifiedChinese,
+    dark: true,
+    scale: 1,
+  ),
+  (
     scene: _Scene.qualityGood,
     name: 'network_quality_good_en_light',
     size: Size(1280, 1500),
@@ -656,6 +674,9 @@ void _configure(
     case _Scene.serviceCancelled:
     case _Scene.trayUnavailable:
       app.section = AppSection.settings;
+    case _Scene.proxy:
+    case _Scene.proxyPhone:
+      app.section = AppSection.proxy;
     case _Scene.profiles:
       app.section = AppSection.profiles;
       final active = app.activeProfile;

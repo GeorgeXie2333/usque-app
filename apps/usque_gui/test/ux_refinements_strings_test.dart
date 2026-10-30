@@ -12,6 +12,8 @@ void main() {
     'ks_standby',
     'home_exit_unknown',
     'proxy_device_outputs',
+    'proxy_exit_group',
+    'proxy_listeners_group',
     'routing_action_direct',
     'routing_action_reject',
     'routing_action_proxy',

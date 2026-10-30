@@ -39,9 +39,14 @@ class RoutingRulesEditor extends StatelessWidget {
     this.errorIds = const [],
     this.errorMessage,
     this.overlapIds = const {},
+    this.grouped = false,
     super.key,
   });
   final RoutingSettings value;
+
+  /// Draws the rules as a Settings-style [ContentGroup] of inset rows;
+  /// otherwise they sit under a heading inside another form.
+  final bool grouped;
   final AppStrings strings;
   final ValueChanged<RoutingSettings>? onChanged;
   final List<String> errorIds;
@@ -194,81 +199,15 @@ class RoutingRulesEditor extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
+    final padding = grouped
+        ? const EdgeInsets.symmetric(horizontal: RowInsets.horizontal)
+        : EdgeInsets.zero;
+    // Specificity, not position, decides which rule wins, so rows carry no
+    // numbering.
+    final rows = [for (final rule in value.rules) _row(context, rule, padding)];
+    final actions = Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        ContentHeading(
-          icon: LucideIcons.listFilter,
-          title: strings.get('routing_rules'),
-          subtitle: strings.get('routing_priority'),
-        ),
-        const SizedBox(height: 12),
-        // Specificity, not position, decides which rule wins, so rows carry
-        // no numbering.
-        for (final rule in value.rules) ...[
-          ListTile(
-            key: ValueKey('routing-rule-${rule.id}'),
-            contentPadding: EdgeInsets.zero,
-            title: Text(
-              rule.target,
-              style: errorIds.contains(rule.id)
-                  ? TextStyle(color: Theme.of(context).colorScheme.error)
-                  : null,
-            ),
-            subtitle: Padding(
-              padding: const EdgeInsets.only(top: 4),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  routingActionStatus(strings, rule.action),
-                  if (errorIds.contains(rule.id)) ...[
-                    const SizedBox(height: 4),
-                    Text(
-                      errorMessage ?? strings.get('error_generic'),
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.error,
-                      ),
-                    ),
-                  ] else if (overlapIds.contains(rule.id)) ...[
-                    const SizedBox(height: 4),
-                    HintText(strings.get('routing_overlap')),
-                  ],
-                ],
-              ),
-            ),
-            onTap: onChanged == null
-                ? null
-                : () => _edit(context, existing: rule),
-            trailing: PopupMenuButton<String>(
-              enabled: onChanged != null,
-              tooltip: strings.get('edit'),
-              onSelected: (action) {
-                if (action == 'edit') {
-                  _edit(context, existing: rule);
-                } else {
-                  onChanged?.call(
-                    RoutingSettings(
-                      rules: [
-                        for (final other in value.rules)
-                          if (other.id != rule.id) other,
-                      ],
-                      adsEnabled: value.adsEnabled,
-                    ),
-                  );
-                }
-              },
-              itemBuilder: (_) => [
-                PopupMenuItem(value: 'edit', child: Text(strings.get('edit'))),
-                PopupMenuItem(
-                  value: 'delete',
-                  child: Text(strings.get('delete')),
-                ),
-              ],
-            ),
-          ),
-          const Divider(height: 1),
-        ],
-        const SizedBox(height: 12),
         Wrap(
           spacing: 12,
           runSpacing: 8,
@@ -295,5 +234,84 @@ class RoutingRulesEditor extends StatelessWidget {
           ),
       ],
     );
+    if (grouped) {
+      return ContentGroup(
+        title: strings.get('routing_rules'),
+        hint: strings.get('routing_priority'),
+        children: [
+          ...rows,
+          Padding(padding: RowInsets.row, child: actions),
+        ],
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        ContentHeading(
+          icon: LucideIcons.listFilter,
+          title: strings.get('routing_rules'),
+          subtitle: strings.get('routing_priority'),
+        ),
+        const SizedBox(height: 12),
+        for (final row in rows) ...[row, const Divider(height: 1)],
+        const SizedBox(height: 12),
+        actions,
+      ],
+    );
   }
+
+  Widget _row(BuildContext context, RoutingRule rule, EdgeInsets padding) =>
+      ListTile(
+        key: ValueKey('routing-rule-${rule.id}'),
+        contentPadding: padding,
+        title: Text(
+          rule.target,
+          style: errorIds.contains(rule.id)
+              ? TextStyle(color: Theme.of(context).colorScheme.error)
+              : null,
+        ),
+        subtitle: Padding(
+          padding: const EdgeInsets.only(top: 4),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              routingActionStatus(strings, rule.action),
+              if (errorIds.contains(rule.id)) ...[
+                const SizedBox(height: 4),
+                Text(
+                  errorMessage ?? strings.get('error_generic'),
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+              ] else if (overlapIds.contains(rule.id)) ...[
+                const SizedBox(height: 4),
+                HintText(strings.get('routing_overlap')),
+              ],
+            ],
+          ),
+        ),
+        onTap: onChanged == null ? null : () => _edit(context, existing: rule),
+        trailing: PopupMenuButton<String>(
+          enabled: onChanged != null,
+          tooltip: strings.get('edit'),
+          onSelected: (action) {
+            if (action == 'edit') {
+              _edit(context, existing: rule);
+            } else {
+              onChanged?.call(
+                RoutingSettings(
+                  rules: [
+                    for (final other in value.rules)
+                      if (other.id != rule.id) other,
+                  ],
+                  adsEnabled: value.adsEnabled,
+                ),
+              );
+            }
+          },
+          itemBuilder: (_) => [
+            PopupMenuItem(value: 'edit', child: Text(strings.get('edit'))),
+            PopupMenuItem(value: 'delete', child: Text(strings.get('delete'))),
+          ],
+        ),
+      );
 }

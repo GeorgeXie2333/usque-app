@@ -244,22 +244,26 @@ class _GeoDirectSettingsScreenState extends State<GeoDirectSettingsScreen> {
                         onDismiss: controller.clearNotice,
                       ),
               ),
-              ContentSection(
-                child: RoutingRulesEditor(
-                  value: _routing,
-                  strings: strings,
-                  errorIds: errorIds,
-                  errorMessage: errorKey == null ? null : strings.get(errorKey),
-                  overlapIds: overlapIds,
-                  onChanged: _customAvailable && !_saving ? _edited : null,
-                ),
+              RoutingRulesEditor(
+                grouped: true,
+                value: _routing,
+                strings: strings,
+                errorIds: errorIds,
+                errorMessage: errorKey == null ? null : strings.get(errorKey),
+                overlapIds: overlapIds,
+                onChanged: _customAvailable && !_saving ? _edited : null,
               ),
               for (final notice in listNotices)
                 Padding(
-                  padding: const EdgeInsets.only(top: 8),
+                  padding: const EdgeInsets.fromLTRB(
+                    RowInsets.horizontal,
+                    8,
+                    RowInsets.horizontal,
+                    0,
+                  ),
                   child: HintText(_issue(notice.key, notice.ids)),
                 ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 32),
               AdsRulesSection(
                 controller: controller,
                 enabled: _routing.adsEnabled,
@@ -272,12 +276,10 @@ class _GeoDirectSettingsScreenState extends State<GeoDirectSettingsScreen> {
                       )
                     : null,
               ),
-              const SizedBox(height: 24),
-              ContentSection(
-                icon: LucideIcons.earth,
+              const SizedBox(height: 32),
+              ContentGroup(
                 title: strings.get('bypass_countries'),
-                gap: 12,
-                child: _buildRulesPanel(context),
+                children: _countryEntries(context),
               ),
             ],
           ),
@@ -286,7 +288,9 @@ class _GeoDirectSettingsScreenState extends State<GeoDirectSettingsScreen> {
     },
   );
 
-  Widget _buildRulesPanel(BuildContext context) {
+  /// The data status and the country list are separate entries, so the
+  /// group's separator divides them like any other pair of rows.
+  List<Widget> _countryEntries(BuildContext context) {
     final controller = widget.controller;
     final strings = controller.strings;
     final progress = controller.geoProgress;
@@ -306,128 +310,143 @@ class _GeoDirectSettingsScreenState extends State<GeoDirectSettingsScreen> {
         })
         .toList(growable: false);
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: <Widget>[
-        Wrap(
-          spacing: 12,
-          runSpacing: 10,
-          crossAxisAlignment: WrapCrossAlignment.center,
-          alignment: WrapAlignment.spaceBetween,
-          children: <Widget>[
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text('GeoSite', style: Theme.of(context).textTheme.titleSmall),
-                const SizedBox(height: 3),
-                Text(
-                  _globalGeoSiteLabel(strings, controller.geoRules),
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+    return <Widget>[
+      ContentSection(
+        padding: RowInsets.row,
+        children: <Widget>[
+          Wrap(
+            spacing: 12,
+            runSpacing: 10,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            alignment: WrapAlignment.spaceBetween,
+            children: <Widget>[
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(
+                    'GeoSite',
+                    style: Theme.of(context).textTheme.titleSmall,
                   ),
+                  const SizedBox(height: 3),
+                  Text(
+                    _globalGeoSiteLabel(strings, controller.geoRules),
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+              FilledButton.tonalIcon(
+                onPressed: updating ? null : controller.updateAllGeoRules,
+                icon: const Icon(LucideIcons.refreshCw),
+                label: Text(
+                  updating && progress != null
+                      ? strings
+                            .get('geo_updating')
+                            .replaceAll('{current}', '${progress.completed}')
+                            .replaceAll('{total}', '${progress.total}')
+                      : strings.get('geo_update_all'),
                 ),
-              ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          _PrivacyNote(message: strings.get('geo_direct_help')),
+        ],
+      ),
+      ContentSection(
+        padding: const EdgeInsets.only(top: 18),
+        children: <Widget>[
+          Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: RowInsets.horizontal,
             ),
-            FilledButton.tonalIcon(
-              onPressed: updating ? null : controller.updateAllGeoRules,
-              icon: const Icon(LucideIcons.refreshCw),
-              label: Text(
-                updating && progress != null
-                    ? strings
-                          .get('geo_updating')
-                          .replaceAll('{current}', '${progress.completed}')
-                          .replaceAll('{total}', '${progress.total}')
-                    : strings.get('geo_update_all'),
+            child: TextField(
+              key: const ValueKey('bypass-country-search'),
+              controller: _search,
+              onChanged: (_) => setState(() {}),
+              decoration: InputDecoration(
+                labelText: strings.get('geo_search'),
+                prefixIcon: const Icon(LucideIcons.search),
               ),
             ),
-          ],
-        ),
-        const SizedBox(height: 14),
-        _PrivacyNote(message: strings.get('geo_direct_help')),
-        Padding(
-          padding: const EdgeInsets.symmetric(vertical: 18),
-          child: Divider(height: 1, color: UsqueTokens.of(context).hairline),
-        ),
-        TextField(
-          key: const ValueKey('bypass-country-search'),
-          controller: _search,
-          onChanged: (_) => setState(() {}),
-          decoration: InputDecoration(
-            labelText: strings.get('geo_search'),
-            prefixIcon: const Icon(LucideIcons.search),
           ),
-        ),
-        const SizedBox(height: 10),
-        ConstrainedBox(
-          constraints: const BoxConstraints(maxHeight: 480),
-          child: ListView.separated(
-            key: const ValueKey('bypass-country-list'),
-            shrinkWrap: true,
-            itemCount: countries.length,
-            separatorBuilder: (context, _) =>
-                Divider(height: 1, color: UsqueTokens.of(context).hairline),
-            itemBuilder: (context, index) {
-              final country = countries[index];
-              final entry = byCode[country.code];
-              final hasGeoip = entry?.hasGeoip ?? false;
-              final enabled = _enabled.contains(country.code);
-              final date = _entryDate(entry);
-              return ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: CountryFlag(countryCode: country.code),
-                title: Text(
-                  '${country.code}  ${strings.countryName(country.code)}',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                subtitle: Text(
-                  hasGeoip
-                      ? (date ?? strings.get('geo_downloaded'))
-                      : strings.get('geo_not_downloaded'),
-                ),
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    IconButton(
-                      tooltip: strings.get(
-                        hasGeoip ? 'geo_update' : 'geo_download',
+          const SizedBox(height: 10),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 480),
+            child: ListView.separated(
+              key: const ValueKey('bypass-country-list'),
+              shrinkWrap: true,
+              itemCount: countries.length,
+              separatorBuilder: (context, _) =>
+                  Divider(height: 1, color: UsqueTokens.of(context).hairline),
+              itemBuilder: (context, index) {
+                final country = countries[index];
+                final entry = byCode[country.code];
+                final hasGeoip = entry?.hasGeoip ?? false;
+                final enabled = _enabled.contains(country.code);
+                final date = _entryDate(entry);
+                return ListTile(
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: RowInsets.horizontal,
+                  ),
+                  leading: CountryFlag(countryCode: country.code),
+                  title: Text(
+                    '${country.code}  ${strings.countryName(country.code)}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  subtitle: Text(
+                    hasGeoip
+                        ? (date ?? strings.get('geo_downloaded'))
+                        : strings.get('geo_not_downloaded'),
+                  ),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      IconButton(
+                        tooltip: strings.get(
+                          hasGeoip ? 'geo_update' : 'geo_download',
+                        ),
+                        onPressed: updating
+                            ? null
+                            : () => controller.downloadGeoRules(country.code),
+                        icon: Icon(
+                          hasGeoip
+                              ? LucideIcons.refreshCw
+                              : LucideIcons.download,
+                        ),
                       ),
-                      onPressed: updating
-                          ? null
-                          : () => controller.downloadGeoRules(country.code),
-                      icon: Icon(
-                        hasGeoip ? LucideIcons.refreshCw : LucideIcons.download,
+                      const SizedBox(width: 8),
+                      Semantics(
+                        label: '${strings.get('geo_enable')} ${country.code}',
+                        child: Switch(
+                          key: ValueKey('routing-country-${country.code}'),
+                          value: enabled,
+                          onChanged: !_saving && (hasGeoip || enabled)
+                              ? (value) {
+                                  setState(() {
+                                    _saved = false;
+                                    _error = null;
+                                    if (value) {
+                                      _enabled.add(country.code);
+                                    } else {
+                                      _enabled.remove(country.code);
+                                    }
+                                  });
+                                }
+                              : null,
+                        ),
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    Semantics(
-                      label: '${strings.get('geo_enable')} ${country.code}',
-                      child: Switch(
-                        key: ValueKey('routing-country-${country.code}'),
-                        value: enabled,
-                        onChanged: !_saving && (hasGeoip || enabled)
-                            ? (value) {
-                                setState(() {
-                                  _saved = false;
-                                  _error = null;
-                                  if (value) {
-                                    _enabled.add(country.code);
-                                  } else {
-                                    _enabled.remove(country.code);
-                                  }
-                                });
-                              }
-                            : null,
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            },
+                    ],
+                  ),
+                );
+              },
+            ),
           ),
-        ),
-      ],
-    );
+        ],
+      ),
+    ];
   }
 
   String _globalGeoSiteLabel(AppStrings strings, GeoRulesList rules) {

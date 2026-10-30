@@ -261,7 +261,7 @@ void main() {
         if (section == AppSection.proxy) {
           final chain = find.byKey(const ValueKey('proxy-chain-proxy-section'));
           final entry = find.byKey(const ValueKey('proxy-chain-proxy-entry'));
-          expect(tester.widget<TextButton>(entry).onPressed, isNotNull);
+          expect(tester.widget<LinkRow>(entry).onTap, isNotNull);
           expect(
             find.descendant(of: chain, matching: find.text('Chain proxy')),
             findsOneWidget,

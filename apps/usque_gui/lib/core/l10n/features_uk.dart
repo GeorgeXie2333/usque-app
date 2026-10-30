@@ -437,7 +437,6 @@ const Map<String, String> kChainUk = <String, String>{
   'failure_protocol': 'протокол',
   'failure_cleanup': 'очищення',
   'failure_reason': 'Збій: {reason}.',
-  'manage': 'Керування',
   'dns_fallback': 'DNS тунелю (OpenVPN може узгодити DNS)',
   'dns_unavailable_title': 'Через цей вихід немає DNS',
   'dns_unavailable':

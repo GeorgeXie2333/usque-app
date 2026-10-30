@@ -25,76 +25,87 @@ class LocalProxyOutputs extends StatelessWidget {
     final profile = controller.activeProfile;
     final frontends = profile.frontends;
     final systemProxy = profile.proxy.systemProxy;
-    return ContentSection(
-      icon: LucideIcons.share2,
-      title: strings.get('proxy_device_outputs'),
-      subtitle: strings.get('proxy_switches_hint'),
-      gap: 10,
-      child: RowTileTheme(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              secondary: const Icon(LucideIcons.ethernetPort),
-              title: Text(strings.tunnelOutputLabel(defaultTargetPlatform)),
-              subtitle: Text(
-                strings.get(
-                  controller.tunnelOutputSupported
-                      ? 'home_tun_hint'
-                      : 'linux_output_unavailable',
+    return RowTileTheme(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          ContentGroup(
+            title: strings.get('proxy_device_outputs'),
+            hint: strings.get('proxy_switches_hint'),
+            children: [
+              ContentSection(
+                padding: RowInsets.tile,
+                child: SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  secondary: const Icon(LucideIcons.ethernetPort),
+                  title: Text(strings.tunnelOutputLabel(defaultTargetPlatform)),
+                  subtitle: Text(
+                    strings.get(
+                      controller.tunnelOutputSupported
+                          ? 'home_tun_hint'
+                          : 'linux_output_unavailable',
+                    ),
+                  ),
+                  value: frontends.tunnel,
+                  onChanged:
+                      !enabled ||
+                          !(controller.tunnelOutputSupported ||
+                              frontends.tunnel)
+                      ? null
+                      : (value) => controller.updateNetwork(
+                          profile.copyWith(
+                            frontends: frontends.copyWith(tunnel: value),
+                          ),
+                          changedFields: const ['frontends.tunnel'],
+                        ),
                 ),
               ),
-              value: frontends.tunnel,
-              onChanged:
-                  !enabled ||
-                      !(controller.tunnelOutputSupported || frontends.tunnel)
-                  ? null
-                  : (value) => controller.updateNetwork(
-                      profile.copyWith(
-                        frontends: frontends.copyWith(tunnel: value),
+              if (defaultTargetPlatform == TargetPlatform.windows ||
+                  defaultTargetPlatform == TargetPlatform.linux)
+                ContentSection(
+                  padding: RowInsets.tile,
+                  child: SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    secondary: const Icon(LucideIcons.monitorCog),
+                    title: Text(strings.get('home_system_proxy')),
+                    // Same rule and wording as Home: system proxy needs the
+                    // HTTP listener, but one that is already on can always be
+                    // turned off.
+                    subtitle: Text(
+                      strings.get(
+                        !controller.systemProxyOutputSupported
+                            ? 'linux_output_unavailable'
+                            : !frontends.http && !systemProxy
+                            ? 'home_system_proxy_requires_http'
+                            : 'home_system_proxy_hint',
                       ),
-                      changedFields: const ['frontends.tunnel'],
                     ),
-            ),
-            if (defaultTargetPlatform == TargetPlatform.windows ||
-                defaultTargetPlatform == TargetPlatform.linux)
-              SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                secondary: const Icon(LucideIcons.monitorCog),
-                title: Text(strings.get('home_system_proxy')),
-                // Same rule and wording as Home: system proxy needs the HTTP
-                // listener, but one that is already on can always be turned off.
-                subtitle: Text(
-                  strings.get(
-                    !controller.systemProxyOutputSupported
-                        ? 'linux_output_unavailable'
-                        : !frontends.http && !systemProxy
-                        ? 'home_system_proxy_requires_http'
-                        : 'home_system_proxy_hint',
+                    value: systemProxy,
+                    onChanged:
+                        !enabled ||
+                            !(controller.systemProxyOutputSupported ||
+                                systemProxy) ||
+                            !(frontends.http || systemProxy)
+                        ? null
+                        : (value) => controller.updateNetwork(
+                            profile.copyWith(
+                              proxy: profile.proxy.copyWith(systemProxy: value),
+                            ),
+                            changedFields: const ['proxy.system_proxy'],
+                          ),
                   ),
                 ),
-                value: systemProxy,
-                onChanged:
-                    !enabled ||
-                        !(controller.systemProxyOutputSupported ||
-                            systemProxy) ||
-                        !(frontends.http || systemProxy)
-                    ? null
-                    : (value) => controller.updateNetwork(
-                        profile.copyWith(
-                          proxy: profile.proxy.copyWith(systemProxy: value),
-                        ),
-                        changedFields: const ['proxy.system_proxy'],
-                      ),
-              ),
-            if (!frontends.any)
-              WarningBanner(
-                title: strings.get('channel_only'),
-                message: strings.get('channel_only_warning'),
-              ),
+            ],
+          ),
+          // A warning is not a row, so it stays outside the list's separators.
+          if (!frontends.any) ...[
+            const SizedBox(height: 12),
+            WarningBanner(
+              title: strings.get('channel_only'),
+              message: strings.get('channel_only_warning'),
+            ),
           ],
-        ),
+        ],
       ),
     );
   }

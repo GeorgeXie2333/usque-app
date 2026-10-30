@@ -52,11 +52,16 @@ class DirectDnsEditor extends StatefulWidget {
     required this.enabled,
     this.encryptedAvailable = true,
     this.resetRevision = 0,
+    this.grouped = false,
     required this.strings,
     required this.onChanged,
     super.key,
   });
   final DirectDnsSettings value;
+
+  /// Draws the editor as a Settings-style [FormGroup]; otherwise it is a
+  /// headed section inside another form, such as the scene editor.
+  final bool grouped;
   final bool enabled;
   final bool encryptedAvailable;
   final int resetRevision;
@@ -163,166 +168,172 @@ class DirectDnsEditorState extends State<DirectDnsEditor> {
     final s = widget.strings;
     final custom = _mode != DirectDnsMode.physicalSystem;
     final editable = widget.enabled && widget.encryptedAvailable;
+    final children = <Widget>[
+      DropdownButtonFormField<DirectDnsMode>(
+        style: FieldDropdown.valueStyle(context),
+        iconSize: FieldDropdown.iconSize,
+        key: ValueKey<DirectDnsMode>(_mode),
+        initialValue: _mode,
+        isExpanded: true,
+        decoration: FieldDropdown.decoration(
+          context,
+          labelText: s.get('nq_direct_dns'),
+        ),
+        items:
+            <DirectDnsMode>[
+                  DirectDnsMode.physicalSystem,
+                  DirectDnsMode.doh,
+                  DirectDnsMode.dot,
+                  if (_mode == DirectDnsMode.unknown) DirectDnsMode.unknown,
+                ]
+                .map(
+                  (mode) => DropdownMenuItem<DirectDnsMode>(
+                    value: mode,
+                    enabled:
+                        widget.encryptedAvailable ||
+                        mode == DirectDnsMode.physicalSystem,
+                    child: Text(
+                      s.get(switch (mode) {
+                        DirectDnsMode.physicalSystem => 'nq_system_dns',
+                        DirectDnsMode.doh => 'nq_doh',
+                        DirectDnsMode.dot => 'nq_dot',
+                        _ => 'nq_unsupported',
+                      }),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                )
+                .toList(growable: false),
+        onChanged: !widget.enabled
+            ? null
+            : (value) {
+                if (value == null ||
+                    !widget.encryptedAvailable &&
+                        value != DirectDnsMode.physicalSystem) {
+                  return;
+                }
+                setState(() {
+                  _bootstraps[_mode] = _bootstrap.text;
+                  _mode = value;
+                  _bootstrap.text =
+                      _bootstraps[_mode] ??
+                      cloudflareDnsBootstrapIps.join('\n');
+                });
+                _emit('');
+              },
+        validator: (value) => editable && value == DirectDnsMode.unknown
+            ? s.get('nq_dns_invalid_mode')
+            : null,
+      ),
+      const SizedBox(height: 8),
+      if (!widget.encryptedAvailable) HintText(s.get('nq_dns_no_capability')),
+      HintText(s.get(custom ? 'nq_dns_no_fallback' : 'nq_dns_system_privacy')),
+      if (custom) ...<Widget>[
+        const SizedBox(height: 20),
+        if (_mode != DirectDnsMode.doh)
+          TextFormField(
+            key: _keys[0],
+            focusNode: _focus[0],
+            controller: _server,
+            readOnly: !editable,
+            autocorrect: false,
+            enableSuggestions: false,
+            maxLength: 253,
+            decoration: InputDecoration(
+              labelText: s.get('nq_dns_server'),
+              hintText: cloudflareDotServer,
+              errorMaxLines: 6,
+            ),
+            onChanged: _emit,
+            validator: (value) => !editable || validDirectDnsName(value ?? '')
+                ? null
+                : s.get('nq_dns_invalid_name'),
+          ),
+        if (_mode != DirectDnsMode.doh) const SizedBox(height: 12),
+        if (_mode == DirectDnsMode.doh) ...<Widget>[
+          TextFormField(
+            key: _keys[1],
+            focusNode: _focus[1],
+            controller: _url,
+            readOnly: !editable,
+            autocorrect: false,
+            enableSuggestions: false,
+            keyboardType: TextInputType.url,
+            textDirection: TextDirection.ltr,
+            maxLength: 522,
+            decoration: InputDecoration(
+              labelText: s.get('dns_doh_url'),
+              hintText: cloudflareDohUrl,
+              counterText: '',
+              errorMaxLines: 6,
+            ),
+            onChanged: _emit,
+            validator: (value) =>
+                !editable || DohEndpoint.tryParse(value ?? '') != null
+                ? null
+                : s.get('dns_invalid_doh_url'),
+          ),
+          const SizedBox(height: 12),
+        ],
+        if (_mode != DirectDnsMode.doh)
+          TextFormField(
+            key: _keys[2],
+            focusNode: _focus[2],
+            controller: _port,
+            readOnly: !editable,
+            keyboardType: TextInputType.number,
+            inputFormatters: <TextInputFormatter>[
+              FilteringTextInputFormatter.digitsOnly,
+            ],
+            decoration: InputDecoration(labelText: s.get('nq_dns_port')),
+            onChanged: _emit,
+            validator: (value) {
+              final port = int.tryParse(value ?? '');
+              return !editable || port != null && port >= 0 && port <= 65535
+                  ? null
+                  : s.get('nq_dns_invalid_port');
+            },
+          ),
+        if (_mode != DirectDnsMode.doh) const SizedBox(height: 12),
+        TextFormField(
+          key: _keys[3],
+          focusNode: _focus[3],
+          controller: _bootstrap,
+          readOnly: !editable,
+          autocorrect: false,
+          enableSuggestions: false,
+          minLines: 2,
+          maxLines: 8,
+          maxLength: 512,
+          decoration: InputDecoration(
+            labelText: s.get('nq_dns_bootstrap'),
+            helperText: s.get('nq_dns_bootstrap_help'),
+            helperMaxLines: 6,
+            errorMaxLines: 6,
+          ),
+          onChanged: _emit,
+          validator: (value) {
+            if (!editable) return null;
+            final issue = directDnsBootstrapError(value ?? '');
+            return issue == null ? null : s.get(issue);
+          },
+        ),
+      ],
+    ];
+    if (widget.grouped) {
+      return FormGroup(
+        title: s.get('nq_direct_dns'),
+        hint: s.get('nq_dns_scope'),
+        children: children,
+      );
+    }
     // Direct DNS serves bypassed traffic, so it shares the Bypass route icon.
     return ContentSection(
       icon: LucideIcons.route,
       title: s.get('nq_direct_dns'),
       subtitle: s.get('nq_dns_scope'),
       gap: 20,
-      children: <Widget>[
-        DropdownButtonFormField<DirectDnsMode>(
-          style: FieldDropdown.valueStyle(context),
-          iconSize: FieldDropdown.iconSize,
-          key: ValueKey<DirectDnsMode>(_mode),
-          initialValue: _mode,
-          isExpanded: true,
-          decoration: FieldDropdown.decoration(
-            context,
-            labelText: s.get('nq_direct_dns'),
-          ),
-          items:
-              <DirectDnsMode>[
-                    DirectDnsMode.physicalSystem,
-                    DirectDnsMode.doh,
-                    DirectDnsMode.dot,
-                    if (_mode == DirectDnsMode.unknown) DirectDnsMode.unknown,
-                  ]
-                  .map(
-                    (mode) => DropdownMenuItem<DirectDnsMode>(
-                      value: mode,
-                      enabled:
-                          widget.encryptedAvailable ||
-                          mode == DirectDnsMode.physicalSystem,
-                      child: Text(
-                        s.get(switch (mode) {
-                          DirectDnsMode.physicalSystem => 'nq_system_dns',
-                          DirectDnsMode.doh => 'nq_doh',
-                          DirectDnsMode.dot => 'nq_dot',
-                          _ => 'nq_unsupported',
-                        }),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  )
-                  .toList(growable: false),
-          onChanged: !widget.enabled
-              ? null
-              : (value) {
-                  if (value == null ||
-                      !widget.encryptedAvailable &&
-                          value != DirectDnsMode.physicalSystem) {
-                    return;
-                  }
-                  setState(() {
-                    _bootstraps[_mode] = _bootstrap.text;
-                    _mode = value;
-                    _bootstrap.text =
-                        _bootstraps[_mode] ??
-                        cloudflareDnsBootstrapIps.join('\n');
-                  });
-                  _emit('');
-                },
-          validator: (value) => editable && value == DirectDnsMode.unknown
-              ? s.get('nq_dns_invalid_mode')
-              : null,
-        ),
-        const SizedBox(height: 8),
-        if (!widget.encryptedAvailable) HintText(s.get('nq_dns_no_capability')),
-        HintText(
-          s.get(custom ? 'nq_dns_no_fallback' : 'nq_dns_system_privacy'),
-        ),
-        if (custom) ...<Widget>[
-          const SizedBox(height: 20),
-          if (_mode != DirectDnsMode.doh)
-            TextFormField(
-              key: _keys[0],
-              focusNode: _focus[0],
-              controller: _server,
-              readOnly: !editable,
-              autocorrect: false,
-              enableSuggestions: false,
-              maxLength: 253,
-              decoration: InputDecoration(
-                labelText: s.get('nq_dns_server'),
-                hintText: cloudflareDotServer,
-                errorMaxLines: 6,
-              ),
-              onChanged: _emit,
-              validator: (value) => !editable || validDirectDnsName(value ?? '')
-                  ? null
-                  : s.get('nq_dns_invalid_name'),
-            ),
-          if (_mode != DirectDnsMode.doh) const SizedBox(height: 12),
-          if (_mode == DirectDnsMode.doh) ...<Widget>[
-            TextFormField(
-              key: _keys[1],
-              focusNode: _focus[1],
-              controller: _url,
-              readOnly: !editable,
-              autocorrect: false,
-              enableSuggestions: false,
-              keyboardType: TextInputType.url,
-              textDirection: TextDirection.ltr,
-              maxLength: 522,
-              decoration: InputDecoration(
-                labelText: s.get('dns_doh_url'),
-                hintText: cloudflareDohUrl,
-                counterText: '',
-                errorMaxLines: 6,
-              ),
-              onChanged: _emit,
-              validator: (value) =>
-                  !editable || DohEndpoint.tryParse(value ?? '') != null
-                  ? null
-                  : s.get('dns_invalid_doh_url'),
-            ),
-            const SizedBox(height: 12),
-          ],
-          if (_mode != DirectDnsMode.doh)
-            TextFormField(
-              key: _keys[2],
-              focusNode: _focus[2],
-              controller: _port,
-              readOnly: !editable,
-              keyboardType: TextInputType.number,
-              inputFormatters: <TextInputFormatter>[
-                FilteringTextInputFormatter.digitsOnly,
-              ],
-              decoration: InputDecoration(labelText: s.get('nq_dns_port')),
-              onChanged: _emit,
-              validator: (value) {
-                final port = int.tryParse(value ?? '');
-                return !editable || port != null && port >= 0 && port <= 65535
-                    ? null
-                    : s.get('nq_dns_invalid_port');
-              },
-            ),
-          if (_mode != DirectDnsMode.doh) const SizedBox(height: 12),
-          TextFormField(
-            key: _keys[3],
-            focusNode: _focus[3],
-            controller: _bootstrap,
-            readOnly: !editable,
-            autocorrect: false,
-            enableSuggestions: false,
-            minLines: 2,
-            maxLines: 8,
-            maxLength: 512,
-            decoration: InputDecoration(
-              labelText: s.get('nq_dns_bootstrap'),
-              helperText: s.get('nq_dns_bootstrap_help'),
-              helperMaxLines: 6,
-              errorMaxLines: 6,
-            ),
-            onChanged: _emit,
-            validator: (value) {
-              if (!editable) return null;
-              final issue = directDnsBootstrapError(value ?? '');
-              return issue == null ? null : s.get(issue);
-            },
-          ),
-        ],
-      ],
+      children: children,
     );
   }
 }
