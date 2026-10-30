@@ -50,6 +50,7 @@ class HomeScreen extends StatelessWidget {
     final bool compact =
         defaultTargetPlatform != TargetPlatform.windows &&
         defaultTargetPlatform != TargetPlatform.linux &&
+        defaultTargetPlatform != TargetPlatform.macOS &&
         (viewport.width < 760 ||
             defaultTargetPlatform == TargetPlatform.android &&
                 viewport.shortestSide < 600);

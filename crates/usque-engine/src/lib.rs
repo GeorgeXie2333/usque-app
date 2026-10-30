@@ -52,17 +52,19 @@ mod chain_dns_live_tests;
 mod chain_exit;
 mod connection_evidence;
 mod continuous_connection;
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+mod desktop_chain;
 pub mod diagnostics;
-#[cfg(any(windows, target_os = "linux", test))]
+#[cfg(any(windows, target_os = "macos", target_os = "linux", test))]
 mod event_stream;
 mod gui_startup;
 #[cfg(any(windows, target_os = "macos", target_os = "linux", test))]
 mod ipc_stream;
 #[cfg(target_os = "linux")]
-mod linux_chain;
-#[cfg(target_os = "linux")]
 mod linux_system_proxy;
 pub mod logging;
+#[cfg(all(test, target_os = "macos"))]
+mod macos_parity_tests;
 mod maintenance;
 mod network_quality;
 mod network_settings;
@@ -95,6 +97,10 @@ mod disconnect_cleanup;
 
 #[cfg(target_os = "macos")]
 pub mod macos_ipc;
+#[cfg(target_os = "macos")]
+pub mod macos_runtime;
+#[cfg(target_os = "macos")]
+mod macos_system_proxy;
 
 #[cfg(target_os = "linux")]
 pub mod linux_ipc;
@@ -137,6 +143,16 @@ pub struct ControlServiceState {
     pub(crate) mutation_lock: Arc<Mutex<()>>,
     vault: Arc<dyn SecretVault>,
     pub(crate) data_plane: Arc<Mutex<Option<ActiveDataPlane>>>,
+    #[cfg(target_os = "macos")]
+    macos_provider: RwLock<Arc<dyn macos_runtime::ProviderControl>>,
+    #[cfg(target_os = "macos")]
+    macos_reserved: Mutex<Option<usque_macos_runtime::protocol::SessionKey>>,
+    #[cfg(target_os = "macos")]
+    macos_proxy_recovery_error: Mutex<Option<macos_system_proxy::Error>>,
+    #[cfg(target_os = "macos")]
+    macos_proxy_context: macos_system_proxy::Context,
+    #[cfg(target_os = "macos")]
+    macos_detaching: Arc<std::sync::atomic::AtomicBool>,
     disconnect_cleanup: Mutex<Option<tokio::task::JoinHandle<Result<(), ControlServiceError>>>>,
     disconnect_owners: Arc<Mutex<std::collections::VecDeque<disconnect_cleanup::ShutdownOwner>>>,
     disconnect_cleanup_failed: std::sync::atomic::AtomicBool,
@@ -151,9 +167,15 @@ pub struct ControlServiceState {
     geo_progress_tx: tokio::sync::broadcast::Sender<v1::GeoRulesProgress>,
     gate_directory: usque_core::vpngate::DirectoryDownloader,
     gate_fetch_task: Mutex<Option<vpngate::FetchTask>>,
-    #[cfg(all(any(windows, target_os = "linux"), feature = "wireguard"))]
+    #[cfg(all(
+        any(windows, target_os = "macos", target_os = "linux"),
+        feature = "wireguard"
+    ))]
     warp_generator: Arc<usque_transport::warp_wireguard::Manager>,
-    #[cfg(all(any(windows, target_os = "linux"), feature = "wireguard"))]
+    #[cfg(all(
+        any(windows, target_os = "macos", target_os = "linux"),
+        feature = "wireguard"
+    ))]
     proton_manager: Arc<usque_transport::proton_vpn::Manager>,
     gate_status: watch::Sender<usque_core::vpngate::GateStatus>,
     gate_supervisor: Mutex<Option<AbortOnDropHandle<()>>>,
@@ -186,7 +208,7 @@ pub struct ControlServiceState {
     windows_recovery_stopping: std::sync::atomic::AtomicBool,
     #[cfg(all(test, windows))]
     test_windows_agent: Mutex<Option<windows_agent::WindowsAgentClient>>,
-    #[cfg(any(windows, target_os = "linux", test))]
+    #[cfg(any(windows, target_os = "macos", target_os = "linux", test))]
     event_sequence: AtomicU64,
     #[cfg(test)]
     remote_license_unbinds: Mutex<Vec<Uuid>>,
@@ -478,13 +500,13 @@ impl ControlService {
                     usque_core::chain_exit::store::WindowsProfileCipher,
                 ))
             }
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "macos", target_os = "linux"))]
             {
-                Some(Arc::new(linux_chain::LinuxProfileCipher::new(Arc::clone(
-                    &vault,
-                ))))
+                Some(Arc::new(desktop_chain::DesktopProfileCipher::new(
+                    Arc::clone(&vault),
+                )))
             }
-            #[cfg(not(any(windows, target_os = "linux")))]
+            #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
             {
                 None
             }
@@ -500,12 +522,18 @@ impl ControlService {
                 diagnostics: diagnostics::DiagnosticsManager::new(),
                 retained_connection_evidence: Arc::new(Mutex::new(None)),
                 diagnostics_lifecycle: Mutex::new(()),
-                #[cfg(all(any(windows, target_os = "linux"), feature = "wireguard"))]
+                #[cfg(all(
+                    any(windows, target_os = "macos", target_os = "linux"),
+                    feature = "wireguard"
+                ))]
                 warp_generator: Arc::new(usque_transport::warp_wireguard::Manager::new(
                     profile_dir.join("config.json"),
                     Arc::clone(chain_cipher.as_ref().expect("desktop cipher")),
                 )),
-                #[cfg(all(any(windows, target_os = "linux"), feature = "wireguard"))]
+                #[cfg(all(
+                    any(windows, target_os = "macos", target_os = "linux"),
+                    feature = "wireguard"
+                ))]
                 proton_manager: Arc::new(usque_transport::proton_vpn::Manager::new(
                     profile_dir.join("config.json"),
                     Arc::clone(chain_cipher.as_ref().expect("desktop cipher")),
@@ -516,6 +544,19 @@ impl ControlService {
                 mutation_lock: Arc::new(Mutex::new(())),
                 vault,
                 data_plane: Arc::new(Mutex::new(None)),
+                #[cfg(target_os = "macos")]
+                macos_provider: RwLock::new(Arc::new(macos_runtime::UnavailableProvider)),
+                #[cfg(target_os = "macos")]
+                macos_reserved: Mutex::new(None),
+                #[cfg(target_os = "macos")]
+                macos_proxy_recovery_error: Mutex::new(None),
+                #[cfg(target_os = "macos")]
+                macos_proxy_context: macos_system_proxy::Context::new(
+                    &profile_dir,
+                    Arc::clone(chain_cipher.as_ref().expect("desktop cipher")),
+                ),
+                #[cfg(target_os = "macos")]
+                macos_detaching: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                 disconnect_cleanup: Mutex::new(None),
                 disconnect_owners: Arc::default(),
                 disconnect_cleanup_failed: std::sync::atomic::AtomicBool::new(false),
@@ -558,7 +599,7 @@ impl ControlService {
                 windows_recovery_stopping: std::sync::atomic::AtomicBool::new(false),
                 #[cfg(all(test, windows))]
                 test_windows_agent: Mutex::new(None),
-                #[cfg(any(windows, target_os = "linux", test))]
+                #[cfg(any(windows, target_os = "macos", target_os = "linux", test))]
                 event_sequence: AtomicU64::new(0),
                 #[cfg(test)]
                 remote_license_unbinds: Mutex::new(Vec::new()),
@@ -596,11 +637,54 @@ impl ControlService {
             .map_err(|error| ControlServiceError::PlatformVpn(error.to_string()))
     }
 
+    #[cfg(target_os = "macos")]
+    pub async fn recover_macos_user_state(&self) -> Result<(), ControlServiceError> {
+        self.recover_macos_proxy(false).await
+    }
+
+    #[cfg(target_os = "macos")]
+    async fn recover_macos_proxy(&self, interactive: bool) -> Result<(), ControlServiceError> {
+        let result = self.macos_proxy_context.recover(interactive).await;
+        let previous = {
+            let mut pending = self.macos_proxy_recovery_error.lock().await;
+            let previous = *pending;
+            *pending = result.as_ref().err().copied();
+            previous
+        };
+        match result {
+            Ok(()) => {
+                if let Some(previous) = previous {
+                    let previous =
+                        connection_error_for(&ControlServiceError::MacSystemProxy(previous));
+                    let mut state = self.state.lock().await;
+                    if state.snapshot().error.as_ref() == Some(&previous) {
+                        let _ = state.transition(ConnectionPhase::Disconnected);
+                    }
+                }
+                Ok(())
+            }
+            Err(error) => {
+                let error = ControlServiceError::MacSystemProxy(error);
+                self.mark_connection_error(&error).await;
+                Err(error)
+            }
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    async fn retry_macos_proxy_recovery(&self) -> Result<(), ControlServiceError> {
+        let pending = self.macos_proxy_recovery_error.lock().await.is_some();
+        if pending {
+            self.recover_macos_proxy(true).await?;
+        }
+        Ok(())
+    }
+
     pub async fn config_snapshot(&self) -> AppConfig {
         self.config.read().await.clone()
     }
 
-    #[cfg(any(windows, target_os = "linux", test))]
+    #[cfg(any(windows, target_os = "macos", target_os = "linux", test))]
     pub(crate) fn subscribe_network_quality(
         &self,
     ) -> watch::Receiver<usque_transport::NetworkQualitySnapshot> {
@@ -826,6 +910,8 @@ impl ControlService {
     /// Stops forwarding immediately, then waits for privileged platform state
     /// to be restored before the Engine process is allowed to exit.
     pub async fn shutdown(&self) -> Result<(), ControlServiceError> {
+        #[cfg(target_os = "macos")]
+        self.macos_detaching.store(false, Ordering::Release);
         self.gate_startup_cancel.lock().await.cancel();
         self.retire_continuous_startup().await;
         self.cancel_warp_jobs().await?;
@@ -836,6 +922,8 @@ impl ControlService {
         #[cfg(windows)]
         self.clear_windows_connection_intent().await;
         let _mutation = self.mutation_lock.lock().await;
+        #[cfg(target_os = "macos")]
+        self.stop_reserved_macos().await?;
         let retry_cleanup = self.data_plane.lock().await.is_none();
         let disconnect = self.disconnect_locked().await;
         if retry_cleanup {
@@ -1039,6 +1127,8 @@ impl ControlService {
             }
             control_request::Payload::Connect(request) => {
                 let id = parse_profile_id(&request.profile_id)?;
+                #[cfg(target_os = "macos")]
+                self.retry_macos_proxy_recovery().await?;
                 let snapshot = if request.continuous {
                     self.connect_continuously(id).await?
                 } else {
@@ -1123,6 +1213,8 @@ impl ControlService {
                 Ok(control_response::Payload::Empty(v1::Empty {}))
             }
             control_request::Payload::Retry(request) => {
+                #[cfg(target_os = "macos")]
+                self.retry_macos_proxy_recovery().await?;
                 let snapshot = if request.continuous {
                     let id = self.config.read().await.active_profile_id.ok_or_else(|| {
                         ControlServiceError::InvalidRequest(
@@ -1487,27 +1579,42 @@ impl ControlService {
             self.project_linux_active_recovery(runtime.operation_id(), &mut snapshot)
                 .await;
         }
+        #[cfg(target_os = "macos")]
+        if let Some(error) = *self.macos_proxy_recovery_error.lock().await {
+            let error = connection_error_for(&ControlServiceError::MacSystemProxy(error));
+            snapshot.phase = ConnectionPhase::Error;
+            snapshot.error = Some(error.clone());
+            snapshot
+                .frontends
+                .retain(|frontend| frontend.kind != FrontendKind::SystemProxy);
+            snapshot.frontends.push(FrontendStatus {
+                kind: FrontendKind::SystemProxy,
+                phase: FrontendPhase::Error,
+                listeners: Vec::new(),
+                error: Some(error),
+            });
+        }
         snapshot
     }
 
-    #[cfg(any(windows, target_os = "linux", test))]
+    #[cfg(any(windows, target_os = "macos", target_os = "linux", test))]
     pub(crate) async fn event_snapshot(&self) -> v1::ConnectionSnapshot {
         self.snapshot_with_quality_to_proto(&self.status_snapshot().await)
     }
 
-    #[cfg(any(windows, target_os = "linux", test))]
+    #[cfg(any(windows, target_os = "macos", target_os = "linux", test))]
     pub(crate) fn next_event_sequence(&self) -> u64 {
         self.event_sequence.fetch_add(1, Ordering::Relaxed) + 1
     }
 
-    #[cfg(any(windows, target_os = "linux", test))]
+    #[cfg(any(windows, target_os = "macos", target_os = "linux", test))]
     pub(crate) fn subscribe_geo_progress(
         &self,
     ) -> tokio::sync::broadcast::Receiver<v1::GeoRulesProgress> {
         self.geo_progress_tx.subscribe()
     }
 
-    #[cfg(any(windows, target_os = "linux", test))]
+    #[cfg(any(windows, target_os = "macos", target_os = "linux", test))]
     pub(crate) fn subscribe_diagnostics(
         &self,
     ) -> tokio::sync::broadcast::Receiver<diagnostics::DiagnosticEvent> {
@@ -2159,6 +2266,16 @@ impl ControlService {
         }) {
             self.reset_proton_selection();
         }
+        #[cfg(target_os = "macos")]
+        if let Some(snapshot) = self
+            .replace_macos_target(profile_id, &startup_cancel)
+            .await?
+        {
+            return Ok(snapshot);
+        }
+        #[cfg(target_os = "macos")]
+        self.prepare_macos_mode_switch(profile_id, &startup_cancel)
+            .await?;
         #[cfg(any(windows, target_os = "linux"))]
         if let Some(snapshot) = self
             .retry_protected_target(profile_id, &startup_cancel, false)
@@ -2232,6 +2349,10 @@ impl ControlService {
     ) -> Result<ConnectionSnapshot, ControlServiceError> {
         if startup_cancel.is_cancelled() {
             return Ok(self.state.lock().await.snapshot().clone());
+        }
+        #[cfg(target_os = "macos")]
+        if let Some(error) = *self.macos_proxy_recovery_error.lock().await {
+            return Err(ControlServiceError::MacSystemProxy(error));
         }
         let connection_started = tokio::time::Instant::now();
         self.ensure_gate_supervisor().await;
@@ -2349,6 +2470,13 @@ impl ControlService {
                 "encrypted WARP DNS is unavailable in this build",
             ));
         }
+        #[cfg(target_os = "macos")]
+        if profile.frontends.tunnel
+            && !macos_runtime::provider_permitted(self.macos_provider.read().await.as_ref())
+        {
+            return Err(ControlServiceError::OperatingModeUnavailable(profile.mode));
+        }
+        #[cfg(not(target_os = "macos"))]
         if profile.frontends.tunnel && !cfg!(any(windows, target_os = "linux")) {
             return Err(ControlServiceError::OperatingModeUnavailable(profile.mode));
         }
@@ -2442,6 +2570,16 @@ impl ControlService {
                 Ok(Some(windows_agent::AutomaticRecoveryObservation::Clean)) | Ok(None) => {}
             }
         }
+        #[cfg(target_os = "macos")]
+        let macos_identity = if profile.frontends.tunnel {
+            Some(
+                warp_identity
+                    .to_portable_secret_json()
+                    .map_err(|_| ControlServiceError::InvalidStoredIdentity)?,
+            )
+        } else {
+            None
+        };
         let pin_refresher: Arc<dyn EndpointPinRefresher> = Arc::new(VaultEndpointPinRefresher {
             profile_id,
             vault: Arc::clone(&self.vault),
@@ -2613,7 +2751,41 @@ impl ControlService {
                     }
                 }
             }
-            #[cfg(not(any(windows, target_os = "linux")))]
+            #[cfg(target_os = "macos")]
+            {
+                let portable = macos_identity
+                    .as_ref()
+                    .ok_or(ControlServiceError::InvalidStoredIdentity)?;
+                let identity = usque_core::parse_manual_warp_secret(portable)
+                    .map_err(|_| ControlServiceError::InvalidStoredIdentity)?;
+                match macos_runtime::MacVpnRuntime::start(
+                    macos_runtime::ProviderStart {
+                        provider: Arc::clone(&*self.macos_provider.read().await),
+                        vault: Arc::clone(&self.vault),
+                        cache_dir: self.cache_dir.clone(),
+                        session: self.reserve_macos_start().await?,
+                        detaching: Arc::clone(&self.macos_detaching),
+                    },
+                    &profile,
+                    &identity,
+                    selected_gate,
+                    &startup_cancel,
+                )
+                .await
+                {
+                    Ok(runtime) => {
+                        *self.macos_reserved.lock().await = None;
+                        ActiveRuntime::MacVpn(Box::new(runtime))
+                    }
+                    Err(error) => {
+                        if !startup_cancel.is_cancelled() {
+                            self.mark_connection_error(&error).await;
+                        }
+                        return Err(error);
+                    }
+                }
+            }
+            #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
             {
                 unreachable!("unsupported VPN mode was rejected before identity loading")
             }
@@ -2717,12 +2889,43 @@ impl ControlService {
                     } else {
                         None
                     };
+                    #[cfg(target_os = "macos")]
+                    let system_proxy_context = self.macos_proxy_context.clone();
+                    #[cfg(target_os = "macos")]
+                    let system_proxy = if profile.frontends.http
+                        && profile.proxy.system_proxy
+                        && runtime.gate_status().stage != usque_core::vpngate::GateStage::Error
+                        && !startup_cancel.is_cancelled()
+                    {
+                        let listener = runtime
+                            .http_listeners()
+                            .iter()
+                            .copied()
+                            .find(|address| address.ip().is_loopback());
+                        let result = match listener {
+                            Some(listener) => system_proxy_context.start(listener).await,
+                            None => Err(macos_system_proxy::Error::InvalidListener),
+                        };
+                        match result {
+                            Ok(guard) => Some(guard),
+                            Err(error) => {
+                                runtime.shutdown().await;
+                                let error = ControlServiceError::MacSystemProxy(error);
+                                if !startup_cancel.is_cancelled() {
+                                    self.mark_connection_error(&error).await;
+                                }
+                                return Err(error);
+                            }
+                        }
+                    } else {
+                        None
+                    };
                     if runtime.gate_status().stage != usque_core::vpngate::GateStage::Error
                         && !startup_cancel.is_cancelled()
                         && let Err(error) = runtime.activate_final().await
                     {
                         runtime.shutdown().await;
-                        #[cfg(any(windows, target_os = "linux"))]
+                        #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
                         if let Some(mut guard) = system_proxy {
                             let _ = guard.shutdown().await;
                         }
@@ -2734,8 +2937,10 @@ impl ControlService {
                     }
                     ActiveRuntime::Proxy(Box::new(ActiveProxyRuntime {
                         runtime,
-                        #[cfg(any(windows, target_os = "linux"))]
+                        #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
                         system_proxy,
+                        #[cfg(target_os = "macos")]
+                        system_proxy_context,
                     }))
                 }
                 Err(_) if startup_cancel.is_cancelled() => {
@@ -2928,6 +3133,8 @@ impl ControlService {
     }
 
     async fn disconnect(&self) -> Result<ConnectionSnapshot, ControlServiceError> {
+        #[cfg(target_os = "macos")]
+        self.macos_detaching.store(false, Ordering::Release);
         // The startup owner must finish/retain its platform guard before the
         // serialized teardown runs. Signal it without waiting for that lock.
         self.gate_startup_cancel.lock().await.cancel();
@@ -2944,6 +3151,8 @@ impl ControlService {
         let _mutation = self.mutation_lock.lock().await;
         let _provider = usque_core::proton_vpn::lifecycle_lease(&self.profile_dir)
             .map_err(ControlServiceError::configuration)?;
+        #[cfg(target_os = "macos")]
+        self.stop_reserved_macos().await?;
         *self.session_congestion_control.lock().await = None;
         *self.session_profile.lock().await = None;
         let retry_cleanup = self.data_plane.lock().await.is_none();
@@ -3189,6 +3398,8 @@ impl ControlService {
         if !confirmed {
             return Err(ControlServiceError::ConfirmationRequired);
         }
+        #[cfg(target_os = "macos")]
+        self.retry_macos_proxy_recovery().await?;
         self.gate_startup_cancel.lock().await.cancel();
         self.retire_continuous_startup().await;
         self.update_config(|config| {
@@ -3239,9 +3450,9 @@ impl ControlService {
         .await?;
         usque_core::chain_exit::store::clear_library(&self.profile_dir)
             .map_err(ControlServiceError::configuration)?;
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "macos", target_os = "linux"))]
         self.vault
-            .delete(linux_chain::KEY_ID, SecretRecord::ChainEncryptionKey)
+            .delete(desktop_chain::KEY_ID, SecretRecord::ChainEncryptionKey)
             .await?;
         if let Some(cipher) = &self.chain_cipher {
             cipher.reset_session_key();
@@ -4875,6 +5086,14 @@ pub enum ControlServiceError {
     Transport(#[from] TransportError),
     #[error("the Windows platform VPN failed: {0}")]
     PlatformVpn(String),
+    #[cfg(target_os = "macos")]
+    #[error("{0}")]
+    MacSystemProxy(#[from] macos_system_proxy::Error),
+    #[cfg(target_os = "macos")]
+    #[error(
+        "Connect WARP before downloading VPN Gate servers on macOS; an unverified physical-network fallback is not allowed"
+    )]
+    MacWarpConnectionRequired,
     #[cfg(target_os = "linux")]
     #[error("Linux platform setup failed")]
     LinuxPlatform {
@@ -5012,6 +5231,10 @@ impl ControlServiceError {
             ) => ("PROXY_LISTENER_FAILED", false),
             Self::Transport(_) => ("DATA_PLANE_FAILED", true),
             Self::PlatformVpn(_) => ("PLATFORM_VPN_FAILED", true),
+            #[cfg(target_os = "macos")]
+            Self::MacSystemProxy(error) => (error.code(), error.retryable()),
+            #[cfg(target_os = "macos")]
+            Self::MacWarpConnectionRequired => ("MACOS_WARP_CONNECTION_REQUIRED", true),
             #[cfg(target_os = "linux")]
             Self::LinuxPlatform { retryable, .. } => ("LINUX_PLATFORM_FAILED", *retryable),
             Self::PlatformRecoveryPending { .. } => ("WINDOWS_RECOVERY_PENDING", true),
@@ -5128,6 +5351,8 @@ fn connection_error_for(error: &ControlServiceError) -> ConnectionError {
         ControlServiceError::Transport(TransportError::Http3DatagramUnavailable)
         | ControlServiceError::OperatingModeUnavailable(_) => ErrorCode::TransportUnavailable,
         ControlServiceError::PlatformVpn(_) => ErrorCode::PlatformSetupFailed,
+        #[cfg(target_os = "macos")]
+        ControlServiceError::MacSystemProxy(_) => ErrorCode::PlatformSetupFailed,
         #[cfg(target_os = "linux")]
         ControlServiceError::LinuxPlatform { .. } => ErrorCode::PlatformSetupFailed,
         ControlServiceError::PlatformRecoveryPending { .. } => ErrorCode::WindowsRecoveryFailed,
@@ -5276,9 +5501,14 @@ fn platform_vault() -> Arc<dyn SecretVault> {
     {
         Arc::new(usque_platform::WindowsCredentialVault)
     }
-    #[cfg(target_os = "macos")]
+    #[cfg(all(target_os = "macos", not(test)))]
     {
-        Arc::new(usque_platform::MacOsKeychainVault)
+        Arc::new(usque_platform::MacOsKeychainVault::default())
+    }
+    #[cfg(all(target_os = "macos", test))]
+    {
+        // Unit/integration fixtures must never read or modify the user's vault.
+        Arc::new(tests::MemoryVault::default())
     }
     #[cfg(all(target_os = "linux", not(test)))]
     {
@@ -5882,26 +6112,28 @@ fn current_capabilities() -> v1::Capabilities {
     v1::Capabilities {
         connection_scenarios: cfg!(any(windows, target_os = "linux")),
         continuous_connection: true,
-        chain_profile_import: cfg!(any(windows, target_os = "linux")),
-        chain_openvpn_udp: cfg!(any(windows, target_os = "linux")),
-        chain_wireguard: cfg!(any(windows, target_os = "linux")) && cfg!(feature = "wireguard"),
-        chain_warp_wireguard: cfg!(any(windows, target_os = "linux"))
+        chain_profile_import: cfg!(any(windows, target_os = "macos", target_os = "linux")),
+        chain_openvpn_udp: cfg!(any(windows, target_os = "macos", target_os = "linux")),
+        chain_wireguard: cfg!(any(windows, target_os = "macos", target_os = "linux"))
             && cfg!(feature = "wireguard"),
-        proton_account_warp_fallback: cfg!(any(windows, target_os = "linux"))
+        chain_warp_wireguard: cfg!(any(windows, target_os = "macos", target_os = "linux"))
             && cfg!(feature = "wireguard"),
-        proton_server_switching: cfg!(any(windows, target_os = "linux"))
+        proton_account_warp_fallback: cfg!(any(windows, target_os = "macos", target_os = "linux"))
             && cfg!(feature = "wireguard"),
-        chain_proton_vpn: cfg!(any(windows, target_os = "linux")) && cfg!(feature = "wireguard"),
-        chain_http_proxy: cfg!(any(windows, target_os = "linux")),
-        chain_socks5_proxy: cfg!(any(windows, target_os = "linux")),
-        chain_proxy_encrypted_dns: cfg!(any(windows, target_os = "linux")),
-        custom_bypass: cfg!(any(windows, target_os = "linux")),
+        proton_server_switching: cfg!(any(windows, target_os = "macos", target_os = "linux"))
+            && cfg!(feature = "wireguard"),
+        chain_proton_vpn: cfg!(any(windows, target_os = "macos", target_os = "linux"))
+            && cfg!(feature = "wireguard"),
+        chain_http_proxy: cfg!(any(windows, target_os = "macos", target_os = "linux")),
+        chain_socks5_proxy: cfg!(any(windows, target_os = "macos", target_os = "linux")),
+        chain_proxy_encrypted_dns: cfg!(any(windows, target_os = "macos", target_os = "linux")),
+        custom_bypass: cfg!(any(windows, target_os = "macos", target_os = "linux")),
         automatic_endpoints: true,
         endpoint_presets: true,
         zero_trust_endpoint_editing: true,
-        routing_rules: cfg!(any(windows, target_os = "linux")),
-        live_ads_rules: cfg!(any(windows, target_os = "linux")),
-        chain_openvpn_multi_endpoint: cfg!(any(windows, target_os = "linux")),
+        routing_rules: cfg!(any(windows, target_os = "macos", target_os = "linux")),
+        live_ads_rules: cfg!(any(windows, target_os = "macos", target_os = "linux")),
+        chain_openvpn_multi_endpoint: cfg!(any(windows, target_os = "macos", target_os = "linux")),
         vpn_gate_tcp: true,
         vpn_gate_pool_favorites: true,
         application_quic_blocking: true,
@@ -5922,7 +6154,7 @@ fn current_capabilities() -> v1::Capabilities {
         vpn: cfg!(windows),
         socks5: true,
         http_proxy: true,
-        system_proxy: cfg!(any(windows, target_os = "linux")),
+        system_proxy: cfg!(any(windows, target_os = "macos", target_os = "linux")),
         platform_lockdown: false,
         operating_system: std::env::consts::OS.to_owned(),
         architecture: std::env::consts::ARCH.to_owned(),
@@ -6108,6 +6340,12 @@ fn exit_probe_for_session(
     runtime: &ActiveRuntime,
     listener_auth: Option<&ProxyAuthCredentials>,
 ) -> Option<IpSbProbe> {
+    // Provider contract tests have no system VPN/filter. Even a diagnostic DNS
+    // lookup must not escape their loopback-only transport boundary.
+    #[cfg(all(test, target_os = "macos"))]
+    if matches!(runtime, ActiveRuntime::MacVpn(_)) {
+        return None;
+    }
     let loopback = runtime
         .listeners()
         .iter()
@@ -7500,7 +7738,7 @@ mod tests {
         assert!(capabilities.http_proxy);
         assert_eq!(
             capabilities.system_proxy,
-            cfg!(any(windows, target_os = "linux"))
+            cfg!(any(windows, target_os = "macos", target_os = "linux"))
         );
         assert!(!capabilities.platform_lockdown);
         assert!(capabilities.hot_reconfigure);

@@ -13,6 +13,8 @@ void main() {
   WidgetsFlutterBinding.ensureInitialized();
   if (!kIsWeb && Platform.isLinux) {
     LinuxPreferencesStore.register();
+  }
+  if (!kIsWeb && (Platform.isLinux || Platform.isMacOS)) {
     GuiStartupObservation.instance.start();
   }
   LicenseRegistry.addLicense(() async* {

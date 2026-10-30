@@ -26,6 +26,77 @@ Future<void> _chord(
 }
 
 void main() {
+  testWidgets(
+    'macOS uses Cmd navigation and native Settings respects drafts',
+    (tester) async {
+      final app = await pumpWorkflow(
+        tester,
+        WorkflowEngine(),
+        section: AppSection.home,
+      );
+      await _chord(
+        tester,
+        LogicalKeyboardKey.digit2,
+        modifier: LogicalKeyboardKey.metaLeft,
+      );
+      expect(app.section, AppSection.profiles);
+      await _chord(
+        tester,
+        LogicalKeyboardKey.digit1,
+        modifier: LogicalKeyboardKey.controlLeft,
+      );
+      expect(app.section, AppSection.profiles);
+      await _chord(
+        tester,
+        LogicalKeyboardKey.comma,
+        modifier: LogicalKeyboardKey.metaLeft,
+      );
+      expect(app.section, AppSection.settings);
+      await openSettingsRow(tester, app, 'advanced');
+      await tester.enterText(fieldWithLabel('SNI'), 'draft.example');
+      await tester.pumpAndSettle();
+      app.requestSettingsNavigation();
+      await tester.pumpAndSettle();
+      expect(
+        find.text(app.strings.get('discard_changes_title')),
+        findsOneWidget,
+      );
+      await tester.tap(find.text(app.strings.get('keep_editing')));
+      await tester.pumpAndSettle();
+      expect(find.byType(AdvancedSettingsScreen), findsOneWidget);
+      expect(find.text('draft.example'), findsOneWidget);
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.macOS),
+  );
+
+  testWidgets(
+    'Cmd+S applies the macOS draft once',
+    (tester) async {
+      final engine = WorkflowEngine();
+      final app = await pumpWorkflow(
+        tester,
+        engine,
+        section: AppSection.settings,
+      );
+      await openSettingsRow(tester, app, 'advanced');
+      await tester.enterText(fieldWithLabel('SNI'), 'mac.example');
+      await tester.pumpAndSettle();
+      await _chord(
+        tester,
+        LogicalKeyboardKey.keyS,
+        modifier: LogicalKeyboardKey.metaLeft,
+      );
+      expect(engine.writes, 1);
+      await _chord(
+        tester,
+        LogicalKeyboardKey.keyS,
+        modifier: LogicalKeyboardKey.metaLeft,
+      );
+      expect(engine.writes, 1);
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.macOS),
+  );
+
   testWidgets('Ctrl+1 to Ctrl+4 select the shell sections', (tester) async {
     final app = await pumpWorkflow(
       tester,

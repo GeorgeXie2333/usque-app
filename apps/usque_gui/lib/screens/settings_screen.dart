@@ -49,7 +49,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final bool android = defaultTargetPlatform == TargetPlatform.android;
     final bool desktop =
         defaultTargetPlatform == TargetPlatform.windows ||
-        defaultTargetPlatform == TargetPlatform.linux;
+        defaultTargetPlatform == TargetPlatform.linux ||
+        defaultTargetPlatform == TargetPlatform.macOS;
     return PageFrame(
       title: strings.get('settings'),
       contentWidth: 880,
@@ -110,6 +111,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           strings.get(
                             android
                                 ? 'kill_switch_help_android'
+                                : defaultTargetPlatform ==
+                                          TargetPlatform.macOS &&
+                                      !controller.tunnelOutputSupported
+                                ? 'macos_kill_switch_unavailable'
                                 : 'kill_switch_help',
                           ),
                         ),

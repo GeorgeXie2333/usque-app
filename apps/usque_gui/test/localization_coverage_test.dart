@@ -13,6 +13,7 @@ import 'package:usque/core/l10n/diagnostics.dart';
 import 'package:usque/core/l10n/endpoint_presets.dart';
 import 'package:usque/core/l10n/l4.dart';
 import 'package:usque/core/l10n/linux_desktop.dart';
+import 'package:usque/core/l10n/macos_desktop.dart';
 import 'package:usque/core/l10n/network_quality.dart';
 import 'package:usque/core/l10n/network_settings.dart';
 import 'package:usque/core/l10n/onboarding.dart';
@@ -63,6 +64,29 @@ AppStrings _strings(String id) {
 }
 
 void main() {
+  test('macOS Chinese catalogs resolve every key without English fallback', () {
+    expect(kMacDesktopCatalogs.keys.toSet(), {'en', 'zh_CN', 'zh_HK', 'zh_TW'});
+    for (final catalog in kMacDesktopCatalogs.entries) {
+      expect(catalog.value.keys.toSet(), kMacDesktopEn.keys.toSet());
+      for (final entry in catalog.value.entries) {
+        final label = '${catalog.key}.${entry.key}';
+        expect(entry.value.trim(), isNotEmpty, reason: label);
+        expect(
+          _placeholders(entry.value),
+          _placeholders(kMacDesktopEn[entry.key]!),
+        );
+        expect(
+          _strings(catalog.key).get(entry.key),
+          entry.value,
+          reason: label,
+        );
+        if (catalog.key.startsWith('zh_')) {
+          expect(entry.value, isNot(kMacDesktopEn[entry.key]), reason: label);
+        }
+      }
+    }
+  });
+
   test('all 249 country names resolve in each of the 21 locales', () {
     final codes = kIsoCountries.map((country) => country.code).toSet();
     expect(codes, hasLength(249));

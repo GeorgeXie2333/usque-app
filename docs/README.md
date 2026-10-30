@@ -2,7 +2,8 @@
 
 Choose a guide by task. Technical documents are mainly in English; the product
 overview is available in [English](../README.md),
-[简体中文](../README.zh-CN.md), [日本語](../README.ja.md),
+[简体中文](../README.zh-CN.md), [繁體中文](../README.zh-Hant.md),
+[日本語](../README.ja.md),
 [한국어](../README.ko.md), [Русский](../README.ru.md), and
 [فارسی](../README.fa.md).
 
@@ -44,6 +45,13 @@ Continuous connection behavior and control compatibility: [English / 简体中�
 | [Contributing](../CONTRIBUTING.md) | Toolchain setup and change-scoped checks / 工具链准备与检查矩阵 |
 | [Development-machine safety](../CONTRIBUTING.md#development-machines) | Workstation limits, isolation, and evidence requirements / 开发机安全边界与验证要求 |
 | [Implementation progress](IMPLEMENTATION.md) | Source-tree milestones, not proof of a test run / 源码实现进度，不等同于测试通过 |
+| [macOS network prototype](MACOS_NETWORK_PROTOTYPE.md) | Sole VPN owner, isolated contracts, dual-architecture developer builds and pending signed routing acceptance / 单会话 VPN 原型、隔离测试、双架构开发构建与待签名实机验收 |
+| [macOS parity matrix](MACOS_WINDOWS_PARITY.md) | Windows comparison, desktop and proxy implementation, and explicit unsigned/hardware limits / Windows 功能对照、桌面与代理进展及验收限制 |
+| [macOS development packages](MACOS_DEVELOPMENT_PACKAGING.md) | Separate arm64/Intel DMGs, bundled CEF/maintenance tools and disabled production installation / 双架构开发 DMG 与内嵌组件 |
+| [macOS background validation](MACOS_BACKGROUND_VALIDATION.json) | No-window follow-up evidence, fresh dual-architecture development images and deferred interactive acceptance / 无窗口验证记录与待完成的交互验收 |
+| [macOS Traditional Chinese validation](MACOS_TRADITIONAL_CHINESE_VALIDATION.json) | Hong Kong/Taiwan desktop language, live system-language regression and dual-architecture development images / 香港、台灣繁體介面與無視窗驗證記錄 |
+| [macOS test checklist and known issues](MACOS_QA_CHECKLIST.md) | VPN/proxy/chain tests, simulated Windows UI comparison, window sizing and account acceptance limits / VPN、代理、鏈式出口、介面與帳號測試及保留問題 |
+| [macOS checklist validation](MACOS_QA_VALIDATION.json) | Source-bound isolated results and checksums for the refreshed development packages / 本輪隔離結果與開發包校驗記錄 |
 | [Routing validation record](ROUTING_VALIDATION.md) | Workstation commands, results and unavailable isolated checks / 分流功能开发机验证与未运行的隔离检查 |
 | [GUI development](../apps/usque_gui/README.md) | Editing workflows and native UI conventions / 界面交互与布局约定 |
 | [Linux and WSL development](LINUX_DEVELOPMENT.md) | Native tools, debug UI preview, hot reload and checks / Linux 工具、模拟界面预览、热重载与检查 |

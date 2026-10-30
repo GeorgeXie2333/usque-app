@@ -14,10 +14,11 @@ import '../widgets/common.dart';
 class PlatformShellBridge {
   PlatformShellBridge(this._controller) {
     _channel.setMethodCallHandler(_handleMethod);
-    if (defaultTargetPlatform == TargetPlatform.windows) {
+    if (defaultTargetPlatform == TargetPlatform.windows ||
+        defaultTargetPlatform == TargetPlatform.macOS) {
       unawaited(_readWindowVisibility());
     }
-    if (Platform.isWindows || Platform.isLinux) {
+    if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
       _notices = ConnectionNoticeTracker(onNotice: _showNotice);
       _controller.addListener(_publishTrayState);
       _publishTrayState();
@@ -54,6 +55,10 @@ class PlatformShellBridge {
   }
 
   Future<Object?> _handleMethod(MethodCall call) async {
+    if (call.method == 'openSettings') {
+      _controller.requestSettingsNavigation();
+      return null;
+    }
     if (call.method == 'windowVisibilityChanged') {
       if (call.arguments is bool) {
         _visibilityRevision++;
@@ -115,11 +120,14 @@ class PlatformShellBridge {
     final showOutputs =
         _controller.initialized && _controller.networkSettings.supported;
     final state = <String, Object>{
+      'catalog_id': strings.catalogId,
       'phase': snapshot.phase.name,
       'status': status,
       'connected': connected,
       'badge': trayBadge(snapshot.phase),
       'open': strings.get('tray_open'),
+      'settings': strings.get('settings'),
+      'quit_failed': strings.get('macos_quit_failed'),
       'connect': strings.get('tray_connect_profile'),
       'disconnect': strings.get('tray_disconnect_profile'),
       'disconnect_exit': strings.get('tray_disconnect_exit'),
@@ -178,7 +186,7 @@ class PlatformShellBridge {
 
   void dispose() {
     _disposed = true;
-    if (Platform.isWindows || Platform.isLinux) {
+    if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
       _controller.removeListener(_publishTrayState);
     }
     if (Platform.isAndroid) _controller.removeListener(_publishAndroidLocale);

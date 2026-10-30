@@ -7,6 +7,8 @@
   ·
   简体中文
   ·
+  <a href="README.zh-Hant.md">繁體中文</a>
+  ·
   <a href="README.ja.md">日本語</a>
   ·
   <a href="README.ko.md">한국어</a>
@@ -148,8 +150,31 @@ Android 的“分应用代理”对所有账号生效。关闭时，所有应用
 ### 实验性功能与支持范围
 
 [Zero Trust 注册](docs/ZERO_TRUST_EXPERIMENTAL.md)仍属实验性功能：可以用组织身份建立 MASQUE 公网隧道，
-但不提供完整的 Cloudflare One™ Client 功能。仓库保留 macOS 源码，但不构建或发布；
+但不提供完整的 Cloudflare One™ Client 功能。macOS 提供独立的 arm64 和 x86_64
+[开发版 DMG 构建](docs/MACOS_DEVELOPMENT_PACKAGING.md)，桌面与代理功能仍在验证中。
+系统 VPN 和生产版本自动安装保持关闭，等待签名后的真机验收。
+已实现与待完成的功能请参阅 [macOS 功能对照表](docs/MACOS_WINDOWS_PARITY.md)。
 当前也不提供 iOS 版本、应用商店分发或公开命令行工具。
+
+### macOS 开发版测试与已知问题
+
+macOS 13+ **非官方 dev 预发布包**：
+[Apple Silicon（arm64）](https://github.com/JustinL330/usque-app/releases/download/macos-dev-v0.3.3-compact-12636756/usque-v0.3.3-macos-arm64.dmg)／
+[Intel（x86_64）](https://github.com/JustinL330/usque-app/releases/download/macos-dev-v0.3.3-compact-12636756/usque-v0.3.3-macos-x86_64.dmg)。
+安装包仅作临时签名，尚未公证，不是正式版本，系统 VPN 保持关闭。测试前请阅读
+[发布说明、校验值和清单](https://github.com/JustinL330/usque-app/releases/tag/macos-dev-v0.3.3-compact-12636756)。
+精简包下载量减少约 47%／43%，保留繁体中文、原有界面语言、CEF 验证元件和 sandbox。
+体积原因与验证结果见[macOS 安装包体积说明](docs/MACOS_PACKAGE_SIZE.md)。
+
+[macOS 测试清单](docs/MACOS_QA_CHECKLIST.md)分别记录隔离测试与真机验收。以下项目仍未完成：
+
+- **系统 VPN／虚拟网卡：** 开发包保持关闭，签名后的路由、DNS 和断网保护尚未通过真机验收。仅代理模式不提供系统级断网保护。
+- **系统代理与链式出口：** 隔离的配置、恢复和传输测试不能证明实网连接成功；真实授权及各类外部出口仍待验收。macOS 下载或刷新 VPN Gate 服务器前须先连接 WARP，不允许未经保护的网络引导。
+- **Zero Trust：** 回调校验及取消后重试使用模拟数据；真实组织登录与回调仍未验证。
+- **Proton 游客注册：** 官方人机验证和注册成功仍未验证。此前完整 CEF 代理失败测试未通过；新增适配器检查不代表该退出问题已解决。
+- **桌面与硬件：** 布局检查使用无窗口的 Windows／macOS 组件渲染；原生窗口交互、Intel 运行及 macOS 13 真机仍待测试。Mac 默认内容区域已与 Windows 统一为 1040×760，并适配可用屏幕、保留已保存的窗口位置和尺寸。
+
+本轮后台验证没有开启应用、浏览器或权限窗口，也不修改本机网络设置。开发包尚未公证。
 
 ## 默认网络设置
 

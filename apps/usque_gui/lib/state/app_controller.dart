@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
+import 'dart:ui' show Locale;
 
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -29,6 +30,12 @@ class _AdsRulesWork {
 }
 
 class AppController extends ChangeNotifier {
+  final settingsNavigationRequests = ValueNotifier<int>(0);
+
+  void requestSettingsNavigation() {
+    if (!_disposed) settingsNavigationRequests.value++;
+  }
+
   String? _lastProtonCompletedJob;
   Future<ProtonVpnResult> protonVpn(
     Map<String, Object?> command, {
@@ -361,12 +368,16 @@ class AppController extends ChangeNotifier {
     await _refreshCapabilities();
   }
 
-  bool get tunnelOutputSupported =>
-      defaultTargetPlatform != TargetPlatform.linux ||
-      engineCapabilities?.vpn == true;
-  bool get systemProxyOutputSupported =>
-      defaultTargetPlatform != TargetPlatform.linux ||
-      engineCapabilities?.systemProxy == true;
+  bool get tunnelOutputSupported => switch (defaultTargetPlatform) {
+    TargetPlatform.linux ||
+    TargetPlatform.macOS => engineCapabilities?.vpn == true,
+    _ => true,
+  };
+  bool get systemProxyOutputSupported => switch (defaultTargetPlatform) {
+    TargetPlatform.linux ||
+    TargetPlatform.macOS => engineCapabilities?.systemProxy == true,
+    _ => true,
+  };
   PerAppProxySettings perAppProxy = const PerAppProxySettings();
   int zeroTrustCallbackTicket = 0;
   Object? _zeroTrustCurrentOwner;
@@ -461,7 +472,18 @@ class AppController extends ChangeNotifier {
   Map<String, ProfileIdentityStatus> profileIdentityStatuses =
       <String, ProfileIdentityStatus>{};
 
-  AppStrings get strings => AppStrings(localePreference);
+  Locale? _systemLocale;
+  AppStrings get strings =>
+      AppStrings(localePreference, systemLocale: _systemLocale);
+
+  /// Keep system language changes in memory. The user's language preference
+  /// stays "system", and desktop integrations receive the same catalog as UI.
+  void noteSystemLocale(Locale locale) {
+    if (_disposed || _systemLocale == locale) return;
+    final previousCatalog = strings.catalogId;
+    _systemLocale = locale;
+    if (strings.catalogId != previousCatalog) _notifyListeners();
+  }
 
   double? get updateProgress => updateTotalBytes <= 0
       ? null
@@ -1540,6 +1562,7 @@ class AppController extends ChangeNotifier {
         snapshot = await _engine.disconnect();
         _notifyListeners();
       } on Object {
+        if (defaultTargetPlatform == TargetPlatform.macOS) rethrow;
         // The native disconnect path is fail-fast; exit must not leave the UI
         // alive indefinitely if the cleanup acknowledgement is unavailable.
       }
@@ -3235,6 +3258,7 @@ class AppController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    settingsNavigationRequests.dispose();
     _adsTimer?.cancel();
     _zeroTrustCurrentOwner = null;
     _onboardingPollTimer?.cancel();

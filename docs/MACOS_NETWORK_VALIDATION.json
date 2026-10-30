@@ -1,0 +1,99 @@
+{
+  "record_date": "2026-10-29",
+  "base_commit": "948de61c25800d6c5753f6c4bd2b2db35cfffa2e",
+  "full_regression_code_commit": "14b17a8c5e6617134a084353e4120c5e25699357",
+  "host": {
+    "architecture": "arm64",
+    "macos": "27.0",
+    "xcode": "27.1"
+  },
+  "workspace_tests": {
+    "passed": 1910,
+    "failed": 0,
+    "ignored": 3
+  },
+  "new_prototype_tests": {
+    "passed": 25
+  },
+  "native_contract_groups": {
+    "passed": 3
+  },
+  "format": "passed",
+  "workspace_clippy_strict": "passed",
+  "aggregate_source_checks": "passed",
+  "repository_policy_tracked_archive": "passed",
+  "artifacts": {
+    "arm64": {
+      "status": "development_build_verified",
+      "executables": 5,
+      "minimum_macos": "13.0",
+      "signature": "ad_hoc",
+      "notarized": false,
+      "provider_hardware_acceptance": false,
+      "helper_smoke_run": true
+    },
+    "x86_64": {
+      "status": "development_build_verified",
+      "executables": 5,
+      "minimum_macos": "13.0",
+      "signature": "ad_hoc",
+      "notarized": false,
+      "provider_hardware_acceptance": false,
+      "helper_smoke_run": false
+    }
+  },
+  "arm64_helper_status_smoke": "passed",
+  "system_extensions_activation": "not_run",
+  "real_network_acceptance": "not_run",
+  "macos_13_hardware": "not_run",
+  "intel_hardware": "not_run",
+  "production_capable": false,
+  "full_feature_version": false,
+  "test_boundary_code_commit": "0789dafacd912bc5049addf8708d333092eb3754",
+  "test_boundary_regression": {
+    "passed": 5,
+    "failed": 0
+  },
+  "main_merge": {
+    "commit": "39f31f2d7e49526b7e29b756cdfef27930b16441",
+    "pull_request": "https://github.com/JustinL330/usque-app/pull/1"
+  },
+  "control_recovery_followup": {
+    "code_commit": "8c4191499dd8d76df111377f819ce2688a6e682a",
+    "workspace_tests": {
+      "passed": 1919,
+      "failed": 0,
+      "ignored": 3
+    },
+    "prototype_rust_tests": {
+      "runtime": 19,
+      "engine": 10,
+      "system_proxy": 5,
+      "total": 34
+    },
+    "native_contract_groups": {
+      "passed": 7
+    },
+    "format": "passed",
+    "workspace_clippy_strict": "passed",
+    "aggregate_source_checks": "passed",
+    "repository_policy_tracked_archive": "passed",
+    "development_builds": {
+      "arm64": "development_build_verified",
+      "x86_64": "development_build_verified"
+    },
+    "arm64_helper_status_and_unsigned_preflight_rejection": "passed",
+    "production_capable": false,
+    "full_feature_version": false,
+    "signed_system_manager_teardown": "not_run",
+    "signed_network_acceptance": "not_run",
+    "pending": [
+      "filter_authority_restart_incarnation_fence",
+      "same_address_gateway_or_ssid_change_detection",
+      "unavailable_dns_peer_recovery_confirmation",
+      "signed_activation_and_xpc_positive_path",
+      "kernel_routing_and_physical_egress_fault_capture",
+      "macos_13_and_intel_hardware"
+    ]
+  }
+}

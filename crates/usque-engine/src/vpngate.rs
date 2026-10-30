@@ -220,6 +220,13 @@ impl ControlService {
             let policy = Arc::new(crate::load_geo_direct_policy(profile, &self.cache_dir)?);
             ads_revision = policy.ads_revision().unwrap_or_default().to_owned();
             match &mut active.runtime {
+                #[cfg(target_os = "macos")]
+                crate::active_runtime::ActiveRuntime::MacVpn(runtime) => {
+                    let identity = self.load_warp_identity(profile.id).await?;
+                    runtime
+                        .replace(profile, &identity, selected, startup_cancel)
+                        .await
+                }
                 crate::active_runtime::ActiveRuntime::Proxy(runtime) => {
                     runtime
                         .runtime
@@ -506,6 +513,35 @@ impl ControlService {
             .await
             .as_ref()
             .and_then(|active| active.runtime.internal_networks());
+        #[cfg(target_os = "macos")]
+        {
+            let cached_node = if let Some(request) = &node_request {
+                let store = CatalogueStore::new(&self.cache_dir);
+                let selection = request.selection();
+                tokio::task::spawn_blocking(move || {
+                    store.load_selection(&selection).is_ok()
+                        || store
+                            .load()
+                            .ok()
+                            .flatten()
+                            .is_some_and(|(catalogue, _, _)| catalogue.prepare(&selection).is_ok())
+                })
+                .await
+                .map_err(|_| error(DirectoryError::CacheIo))?
+            } else {
+                false
+            };
+            // Validated cached profiles can be prepared or favorited offline.
+            // If the cache changes before the job runs, allow_physical remains
+            // false below and the ordinary downloader fails closed.
+            if !cached_node {
+                require_catalogue_warp(
+                    networks
+                        .as_ref()
+                        .map(|(network, warp)| (network.health_snapshot(), warp.health_snapshot())),
+                )?;
+            }
+        }
         #[cfg(windows)]
         let allow_physical = networks.is_none()
             && crate::windows_agent::catalogue_physical_network_permitted().await;
@@ -513,7 +549,9 @@ impl ControlService {
         #[cfg(all(target_os = "linux", not(test)))]
         let allow_physical =
             networks.is_none() && crate::linux_observation::disconnected_probe_safe().await;
-        #[cfg(not(any(windows, all(target_os = "linux", not(test)))))]
+        #[cfg(target_os = "macos")]
+        let allow_physical = false;
+        #[cfg(not(any(windows, target_os = "macos", all(target_os = "linux", not(test)))))]
         let allow_physical = networks.is_none();
         let primary: Arc<dyn CatalogueHttp> = match &networks {
             Some((network, _))
@@ -561,7 +599,7 @@ impl ControlService {
         profile: &usque_core::Profile,
     ) -> Result<Option<(ServerSummary, PreparedProfile)>, ControlServiceError> {
         self.validate_chain_selection(profile)?;
-        #[cfg(any(windows, target_os = "linux"))]
+        #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
         if profile.custom_chain().is_some() {
             let mut selected = usque_core::chain_exit::prepare_selection(
                 &self.profile_dir,
@@ -628,6 +666,21 @@ impl ControlService {
         .await
         .map_err(|_| error(DirectoryError::CacheIo))?
         .map_err(error)
+    }
+}
+
+#[cfg(target_os = "macos")]
+pub(crate) fn require_catalogue_warp(
+    networks: Option<(RuntimeHealth, RuntimeHealth)>,
+) -> Result<(), ControlServiceError> {
+    // A reconnecting final exit must not hide the already connected WARP
+    // control handle used by WarpSource.existing. The primary exit is checked
+    // independently below; neither path may create a physical fallback or a
+    // second runtime. Missing Engine state also cannot release provider guards.
+    if networks.is_some_and(|(_, warp)| matches!(warp, RuntimeHealth::Connected { .. })) {
+        Ok(())
+    } else {
+        Err(ControlServiceError::MacWarpConnectionRequired)
     }
 }
 

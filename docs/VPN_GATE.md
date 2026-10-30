@@ -10,6 +10,11 @@ available in that editor.
 VPN Gate lets you choose a volunteer server as the final Internet exit on
 Windows, Android and Android TV. Usque reaches that server through the WARP tunnel.
 
+The macOS development build supports VPN Gate in proxy mode. Connect WARP with
+chain proxy disabled before refreshing the list, then choose a node and apply
+the chain configuration. System TUN remains unavailable in the ad-hoc build;
+see the [macOS follow-up and validation limits](MACOS_VPN_GATE_TUN_FOLLOWUP.md).
+
 ## Set up an exit
 
 1. Open **Proxy → Chain proxy**, select **VPN Gate**, and turn on the shared **Enable chain proxy**

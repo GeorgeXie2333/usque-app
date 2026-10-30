@@ -289,6 +289,8 @@ class ZeroTrustEnrollmentEditorState extends State<ZeroTrustEnrollmentEditor>
 
   Future<void> _beginZeroTrustLogin() async {
     if (_startingLogin || !widget.enabled) return;
+    final nativeAuthBrowser =
+        Theme.of(context).platform == TargetPlatform.macOS;
     final generation = ++_inputGeneration;
     final controller = widget.controller;
     final owner = _loginOwner;
@@ -316,10 +318,14 @@ class ZeroTrustEnrollmentEditorState extends State<ZeroTrustEnrollmentEditor>
         await controller.cancelZeroTrustLogin(owner: owner);
         return;
       }
-      final opened = await launchUrl(
-        Uri.parse(loginUrl),
-        mode: LaunchMode.externalApplication,
-      );
+      // macOS starts an ASWebAuthenticationSession in the native begin call;
+      // that session owns its callback without replacing another app's handler.
+      final opened =
+          nativeAuthBrowser ||
+          await launchUrl(
+            Uri.parse(loginUrl),
+            mode: LaunchMode.externalApplication,
+          );
       if (!_operationIsCurrent(generation, controller, owner)) {
         await controller.cancelZeroTrustLogin(owner: owner);
         return;

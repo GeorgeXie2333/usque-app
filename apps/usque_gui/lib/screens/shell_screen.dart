@@ -61,6 +61,7 @@ class _ShellScreenState extends State<ShellScreen> {
   @override
   void initState() {
     super.initState();
+    controller.settingsNavigationRequests.addListener(_openNativeSettings);
     if (desktopShortcutsSupported) {
       HardwareKeyboard.instance.addHandler(_handleShortcut);
     }
@@ -68,25 +69,54 @@ class _ShellScreenState extends State<ShellScreen> {
 
   @override
   void dispose() {
+    controller.settingsNavigationRequests.removeListener(_openNativeSettings);
     if (desktopShortcutsSupported) {
       HardwareKeyboard.instance.removeHandler(_handleShortcut);
     }
     super.dispose();
   }
 
-  /// Ctrl+1–4 select a section; Escape and Alt+Left leave a subpage.
+  @override
+  void didUpdateWidget(covariant ShellScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != controller) {
+      oldWidget.controller.settingsNavigationRequests.removeListener(
+        _openNativeSettings,
+      );
+      controller.settingsNavigationRequests.addListener(_openNativeSettings);
+    }
+  }
+
+  void _openNativeSettings() {
+    if (mounted && routeChainIsCurrent(context)) {
+      unawaited(_selectSection(AppSection.settings));
+    }
+  }
+
+  /// Cmd/Ctrl+1–4 select a section; Escape and Alt+Left leave a subpage.
   bool _handleShortcut(KeyEvent event) {
     if (event is! KeyDownEvent || !mounted || !routeChainIsCurrent(context)) {
       return false;
     }
     final keyboard = HardwareKeyboard.instance;
     final key = event.logicalKey;
+    final mac = Theme.of(context).platform == TargetPlatform.macOS;
+    final primary = mac
+        ? keyboard.isMetaPressed && !keyboard.isControlPressed
+        : keyboard.isControlPressed && !keyboard.isMetaPressed;
+    if (mac &&
+        primary &&
+        key == LogicalKeyboardKey.comma &&
+        !keyboard.isAltPressed &&
+        !keyboard.isShiftPressed) {
+      _openNativeSettings();
+      return true;
+    }
     final index = _sectionKeys.indexOf(key);
     if (index >= 0 &&
-        keyboard.isControlPressed &&
+        primary &&
         !keyboard.isAltPressed &&
-        !keyboard.isShiftPressed &&
-        !keyboard.isMetaPressed) {
+        !keyboard.isShiftPressed) {
       final sections = controller.availableSections;
       if (index >= sections.length) return false;
       unawaited(_selectSection(sections[index]));
@@ -334,6 +364,10 @@ class _ShellScreenState extends State<ShellScreen> {
                   ({
                     ThemePreference theme,
                     LocalePreference locale,
+                    bool startOnBoot,
+                    bool closeToTray,
+                    bool trayAvailable,
+                    bool tunnelOutputSupported,
                     bool networkQualitySupported,
                     bool updateChecksEnabled,
                     UpdateCheckResult? updateResult,
@@ -355,6 +389,10 @@ class _ShellScreenState extends State<ShellScreen> {
                   selector: (controller) => (
                     theme: controller.themePreference,
                     locale: controller.localePreference,
+                    startOnBoot: controller.startOnBoot,
+                    closeToTray: controller.closeToTray,
+                    trayAvailable: controller.trayAvailable,
+                    tunnelOutputSupported: controller.tunnelOutputSupported,
                     networkQualitySupported:
                         controller.engineCapabilities?.networkQuality ?? false,
                     updateChecksEnabled: controller.updateChecksEnabled,
