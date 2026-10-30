@@ -14,11 +14,13 @@ Future<AppController> _accounts(
   WidgetTester tester, {
   bool second = true,
   ConnectionPhase phase = ConnectionPhase.disconnected,
+  Size size = const Size(1280, 900),
 }) async {
   final app = await pumpWorkflow(
     tester,
     WorkflowEngine(),
     section: AppSection.profiles,
+    size: size,
   );
   app
     ..profiles = [UsqueProfile.defaultProfile(), if (second) _work]
@@ -87,6 +89,43 @@ void main() {
       ),
       findsOneWidget,
     );
+  });
+
+  testWidgets(
+    'narrow account rows keep the switch visible and label the rest in a menu',
+    (tester) async {
+      final app = await _accounts(tester, size: const Size(390, 844));
+      expect(find.text('Set active'), findsOneWidget);
+      expect(find.text('Rename'), findsNothing);
+      await tester.tap(find.byKey(const ValueKey('profile-menu-work')));
+      await tester.pumpAndSettle();
+      expect(find.text(app.strings.get('edit_profile')), findsOneWidget);
+      expect(find.text(app.strings.get('identity_and_license')), findsNothing);
+      await tester.tap(find.text(app.strings.get('edit_profile')));
+      await tester.pumpAndSettle();
+      expect(find.text(app.strings.get('profile_name')), findsOneWidget);
+    },
+  );
+
+  testWidgets('a narrow only account names why it cannot be deleted', (
+    tester,
+  ) async {
+    final app = await _accounts(
+      tester,
+      second: false,
+      size: const Size(390, 844),
+    );
+    await tester.tap(
+      find.byKey(ValueKey('profile-menu-${UsqueProfile.defaultProfileId}')),
+    );
+    await tester.pumpAndSettle();
+    final delete = tester.widget<PopupMenuItem<String>>(
+      find.byKey(
+        ValueKey('profile-menu-delete-${UsqueProfile.defaultProfileId}'),
+      ),
+    );
+    expect(delete.enabled, isFalse);
+    expect(find.text(app.strings.get('profile_required')), findsOneWidget);
   });
 
   testWidgets('Accounts, Proxy and Settings share one heading column', (

@@ -737,7 +737,8 @@ class InlineStatus extends StatelessWidget {
                   StatusTone.success => LucideIcons.circleCheck,
                   StatusTone.warning => LucideIcons.triangleAlert,
                   StatusTone.danger => LucideIcons.circleX,
-                  StatusTone.brand => LucideIcons.info,
+                  // Brand marks a choice or a step in progress, not a notice.
+                  StatusTone.brand => LucideIcons.circleDot,
                   StatusTone.neutral => LucideIcons.circleDot,
                 },
             size: 16,

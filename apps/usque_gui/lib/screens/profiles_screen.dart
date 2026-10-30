@@ -560,59 +560,115 @@ class _ProfileRow extends StatelessWidget {
               tone: identityReady ? null : tokens.caution,
               label: _accountIdentityLabel(identityStatus, strings),
             );
+            // A saved choice, not a confirmed connection: brand, no check.
             final activePill = active
                 ? InlineStatus(
-                    label: strings.get('active'),
-                    tone: StatusTone.success,
+                    label: strings.get('scenario_selected'),
+                    tone: StatusTone.brand,
+                    icon: LucideIcons.circleDot,
                   )
                 : null;
+            final primary = <Widget>[
+              // A switch action, not a completed state: no check mark.
+              if (!active)
+                TextButton.icon(
+                  onPressed: onActivate,
+                  icon: const Icon(LucideIcons.arrowLeftRight, size: 18),
+                  label: Text(strings.get('set_active')),
+                ),
+              if (identityState != ProfileIdentityState.ready)
+                TextButton.icon(
+                  onPressed: onConfigureIdentity,
+                  icon: const Icon(LucideIcons.keyRound, size: 18),
+                  label: Text(strings.get('configure_identity')),
+                ),
+            ];
+            Widget menuItem(IconData icon, String label) => Row(
+              children: <Widget>[
+                Icon(icon, size: 18),
+                const SizedBox(width: 12),
+                Flexible(child: Text(label)),
+              ],
+            );
+            // Narrow rows keep the primary action visible and move the rest
+            // into a labelled menu, so each account stays one block.
+            final menu = PopupMenuButton<String>(
+              key: ValueKey('profile-menu-${profile.id}'),
+              onSelected: (value) {
+                switch (value) {
+                  case 'license':
+                    onManageIdentity();
+                  case 'rename':
+                    onEdit();
+                  case 'delete':
+                    onDelete();
+                }
+              },
+              itemBuilder: (_) => <PopupMenuEntry<String>>[
+                if (identityState == ProfileIdentityState.ready)
+                  PopupMenuItem(
+                    value: 'license',
+                    child: menuItem(
+                      LucideIcons.keyRound,
+                      strings.get('identity_and_license'),
+                    ),
+                  ),
+                PopupMenuItem(
+                  value: 'rename',
+                  child: menuItem(
+                    LucideIcons.pencil,
+                    strings.get('edit_profile'),
+                  ),
+                ),
+                // The disabled entry names why, since it cannot be chosen.
+                PopupMenuItem(
+                  key: ValueKey('profile-menu-delete-${profile.id}'),
+                  value: 'delete',
+                  enabled: canDelete,
+                  child: menuItem(
+                    LucideIcons.trash2,
+                    strings.get(canDelete ? 'delete' : 'profile_required'),
+                  ),
+                ),
+              ],
+            );
             // Wrapped runs keep the trailing edge the actions are aligned to.
             final actions = Wrap(
               spacing: 6,
               alignment: WrapAlignment.end,
               crossAxisAlignment: WrapCrossAlignment.center,
-              children: <Widget>[
-                // A switch action, not a completed state: no check mark.
-                if (!active)
-                  TextButton.icon(
-                    onPressed: onActivate,
-                    icon: const Icon(LucideIcons.arrowLeftRight, size: 18),
-                    label: Text(strings.get('set_active')),
-                  ),
-                if (identityState != ProfileIdentityState.ready)
-                  TextButton.icon(
-                    onPressed: onConfigureIdentity,
-                    icon: const Icon(LucideIcons.keyRound, size: 18),
-                    label: Text(strings.get('configure_identity')),
-                  ),
-                // Labelled, because touch screens never show a tooltip; the
-                // tooltip keeps the full action name.
-                if (identityState == ProfileIdentityState.ready)
-                  Tooltip(
-                    message: strings.get('identity_and_license'),
-                    child: TextButton.icon(
-                      onPressed: onManageIdentity,
-                      icon: const Icon(LucideIcons.keyRound, size: 18),
-                      label: Text(strings.get('license')),
-                    ),
-                  ),
-                Tooltip(
-                  message: strings.get('edit_profile'),
-                  child: TextButton.icon(
-                    onPressed: onEdit,
-                    icon: const Icon(LucideIcons.pencil, size: 18),
-                    label: Text(strings.chain('rename')),
-                  ),
-                ),
-                IconButton(
-                  key: ValueKey('profile-delete-${profile.id}'),
-                  tooltip: strings.get(
-                    canDelete ? 'delete' : 'profile_required',
-                  ),
-                  onPressed: canDelete ? onDelete : null,
-                  icon: const Icon(LucideIcons.trash2),
-                ),
-              ],
+              children: compact
+                  ? <Widget>[...primary, menu]
+                  : <Widget>[
+                      ...primary,
+                      // Labelled, because touch screens never show a tooltip; the
+                      // tooltip keeps the full action name.
+                      if (identityState == ProfileIdentityState.ready)
+                        Tooltip(
+                          message: strings.get('identity_and_license'),
+                          child: TextButton.icon(
+                            onPressed: onManageIdentity,
+                            icon: const Icon(LucideIcons.keyRound, size: 18),
+                            label: Text(strings.get('license')),
+                          ),
+                        ),
+                      Tooltip(
+                        message: strings.get('edit_profile'),
+                        child: TextButton.icon(
+                          onPressed: onEdit,
+                          icon: const Icon(LucideIcons.pencil, size: 18),
+                          label: Text(strings.chain('rename')),
+                        ),
+                      ),
+                      IconButton(
+                        key: ValueKey('profile-delete-${profile.id}'),
+                        tooltip: strings.get(
+                          canDelete ? 'delete' : 'profile_required',
+                        ),
+                        onPressed: canDelete ? onDelete : null,
+                        icon: const Icon(LucideIcons.trash2),
+                      ),
+                    ],
             );
             final name = Text(
               profile.name,
@@ -626,9 +682,10 @@ class _ProfileRow extends StatelessWidget {
             final identity = Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                // Layers marks scenes; an account keeps a person glyph.
+                // Layers marks scenes; an account keeps a person glyph, and
+                // the selected one is marked by colour, wash and its tag.
                 Icon(
-                  active ? LucideIcons.circleCheck : LucideIcons.circleUser,
+                  LucideIcons.circleUser,
                   size: 24,
                   color: active
                       ? Theme.of(context).colorScheme.primary
@@ -654,7 +711,17 @@ class _ProfileRow extends StatelessWidget {
             return Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[
-                if (compact)
+                if (compact && primary.isEmpty)
+                  // Only the menu remains, so it joins the name's line
+                  // instead of taking a row of its own.
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Expanded(child: identity),
+                      menu,
+                    ],
+                  )
+                else if (compact)
                   identity
                 else
                   Row(
@@ -664,7 +731,7 @@ class _ProfileRow extends StatelessWidget {
                       actions,
                     ],
                   ),
-                if (compact) ...<Widget>[
+                if (compact && primary.isNotEmpty) ...<Widget>[
                   Padding(
                     padding: const EdgeInsets.symmetric(vertical: 14),
                     child: Divider(height: 1, color: tokens.hairline),
