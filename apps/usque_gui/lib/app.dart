@@ -15,6 +15,7 @@ import 'services/update_downloader.dart';
 import 'state/app_controller.dart';
 import 'state/window_frame.dart';
 import 'widgets/controller_selector.dart';
+import 'widgets/setup_handoff.dart';
 import 'widgets/window_titlebar.dart';
 
 typedef _BootstrapView = ({
@@ -200,9 +201,12 @@ class _UsqueBootstrapState extends State<UsqueBootstrap>
           },
           home: !view.initialized
               ? _LoadingScreen(controller: controller, error: view.startupError)
-              : view.onboardingComplete
-              ? ShellScreen(controller: controller)
-              : OnboardingScreen(controller: controller),
+              : SetupHandoff(
+                  complete: view.onboardingComplete,
+                  setup: (exit) =>
+                      OnboardingScreen(controller: controller, exit: exit),
+                  shell: ShellScreen(controller: controller),
+                ),
         );
       },
     );

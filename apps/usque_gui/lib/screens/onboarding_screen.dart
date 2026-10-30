@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:ui' show lerpDouble;
 
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -15,18 +16,26 @@ import '../widgets/common.dart';
 import '../widgets/controller_selector.dart';
 import '../widgets/external_link.dart';
 import '../widgets/linux_service_section.dart';
+import '../widgets/setup_handoff.dart';
 import '../widgets/usque_logo.dart';
 import '../widgets/zero_trust_enrollment_editor.dart';
+import 'shell_screen.dart';
 
 class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({
     required this.controller,
     this.externalLinkLauncher,
+    this.exit,
     super.key,
   });
 
   final AppController controller;
   final Future<bool> Function(Uri)? externalLinkLauncher;
+
+  /// Runs from 0 to 1 while completed setup hands over to the shell; see
+  /// [SetupHandoff]. Setup holds its last frame meanwhile, so the account's
+  /// new state never flashes on the way out.
+  final Animation<double>? exit;
 
   @override
   State<OnboardingScreen> createState() => _OnboardingScreenState();
@@ -61,6 +70,14 @@ class _OnboardingScreenState extends State<OnboardingScreen>
   bool _licenseVisible = false;
   bool _zeroTrustValid = false;
 
+  late final ProxyAnimation _exit = ProxyAnimation(
+    widget.exit ?? kAlwaysDismissedAnimation,
+  );
+
+  /// The last laid-out body and the layout it was built for, replayed while
+  /// [OnboardingScreen.exit] runs.
+  (_OnboardingLayout, Widget)? _body;
+
   AppStrings get strings => widget.controller.strings;
 
   @override
@@ -74,6 +91,14 @@ class _OnboardingScreenState extends State<OnboardingScreen>
     WidgetsBinding.instance.addObserver(this);
     if (widget.controller.requiresOnboardingPermissions) {
       unawaited(widget.controller.refreshOnboardingPermissions());
+    }
+  }
+
+  @override
+  void didUpdateWidget(OnboardingScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.exit != oldWidget.exit) {
+      _exit.parent = widget.exit ?? kAlwaysDismissedAnimation;
     }
   }
 
@@ -269,94 +294,170 @@ class _OnboardingScreenState extends State<OnboardingScreen>
 
   Widget _buildScreen(BuildContext context) {
     return Scaffold(
-      backgroundColor: UsqueTokens.of(context).canvas,
-      body: SafeArea(
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final wide =
-                constraints.maxWidth >= 820 &&
-                constraints.maxHeight >= 600 &&
-                MediaQuery.textScalerOf(context).scale(16) <= 24;
-            return Row(
-              children: <Widget>[
-                if (wide)
-                  Expanded(flex: 4, child: _BrandPane(strings: strings)),
-                Expanded(
-                  flex: 6,
-                  child: Center(
-                    child: SingleChildScrollView(
-                      padding: EdgeInsets.symmetric(
-                        horizontal: wide ? 64 : 24,
-                        vertical: 32,
-                      ),
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 620),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: <Widget>[
-                            if (!wide) ...<Widget>[
-                              Row(
-                                children: <Widget>[
-                                  const UsqueLogo(size: 42),
-                                  const SizedBox(width: 12),
-                                  Text(
-                                    'Usque',
-                                    style: Theme.of(
-                                      context,
-                                    ).textTheme.titleLarge,
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 34),
-                            ],
-                            _StepIndicator(
-                              step: _step,
-                              total: _stepCount,
-                              strings: strings,
-                            ),
-                            const SizedBox(height: 30),
-                            _OnboardingAnimatedSize(
-                              child: _StepTransition(
-                                step: _step,
-                                forward: _forward,
-                                child: _buildStep(context, wide: wide),
-                              ),
-                            ),
-                            const SizedBox(height: 20),
-                            BannerSlot(
-                              spacing: 0,
-                              child: widget.controller.lastError == null
-                                  ? null
-                                  : WarningBanner(
-                                      title: strings.get('setup_failed'),
-                                      message: widget.controller.lastError!,
-                                      danger: true,
-                                      onDismiss: widget.controller.clearError,
-                                    ),
-                            ),
-                            const SizedBox(height: 28),
-                            _buildActions(context),
-                            const SizedBox(height: 24),
-                            Text(
-                              strings.get('trademark_attribution'),
-                              style: Theme.of(context).textTheme.bodySmall
-                                  ?.copyWith(
-                                    color: Theme.of(
-                                      context,
-                                    ).colorScheme.onSurfaceVariant,
-                                    height: 1.5,
-                                  ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            );
-          },
+      // The canvas is its own layer so it can clear during the hand-off.
+      backgroundColor: Colors.transparent,
+      body: Stack(
+        fit: StackFit.expand,
+        children: <Widget>[
+          _ExitFade(
+            animation: _exit,
+            interval: SetupHandoffTiming.canvas,
+            child: ColoredBox(color: UsqueTokens.of(context).canvas),
+          ),
+          SafeArea(child: LayoutBuilder(builder: _layoutBody)),
+        ],
+      ),
+    );
+  }
+
+  Widget _layoutBody(BuildContext context, BoxConstraints constraints) {
+    final comfortableText = MediaQuery.textScalerOf(context).scale(16) <= 24;
+    final _OnboardingLayout layout = (
+      size: constraints.biggest,
+      wide:
+          constraints.maxWidth >= 820 &&
+          constraints.maxHeight >= 600 &&
+          comfortableText,
+      // Short windows and large text scroll the actions with the step.
+      pinned: constraints.maxHeight >= 560 && comfortableText,
+    );
+    if (widget.exit != null && _body?.$1 == layout) return _body!.$2;
+    final form = _buildForm(context, layout);
+    final Widget body;
+    if (layout.wide) {
+      final paneWidth = constraints.maxWidth * 0.4;
+      body = Stack(
+        children: <Widget>[
+          PositionedDirectional(
+            start: 0,
+            top: 0,
+            bottom: 0,
+            child: _BrandPane(
+              strings: strings,
+              width: paneWidth,
+              railWidth: ShellScreen.railExtent(constraints.maxWidth),
+              progress: (_step + 1) / (_stepCount + 1),
+              exit: _exit,
+            ),
+          ),
+          PositionedDirectional(
+            start: paneWidth,
+            top: 0,
+            end: 0,
+            bottom: 0,
+            child: form,
+          ),
+        ],
+      );
+    } else {
+      body = form;
+    }
+    if (widget.exit == null) _body = (layout, body);
+    return body;
+  }
+
+  Widget _buildForm(BuildContext context, _OnboardingLayout layout) {
+    final wide = layout.wide;
+    final double gutter = wide ? 64 : 24;
+    final EdgeInsets padding = EdgeInsets.fromLTRB(
+      gutter,
+      wide ? (layout.size.height * 0.1).clamp(32, 96) : 24,
+      gutter,
+      // The wide footer ends on the brand pane's baseline.
+      wide ? 48 : 24,
+    );
+    final theme = Theme.of(context);
+    Widget column(Widget child) => Align(
+      alignment: Alignment.topCenter,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 620),
+        child: child,
+      ),
+    );
+    final footer = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        _buildActions(context),
+        const SizedBox(height: 24),
+        Text(
+          strings.get('trademark_attribution'),
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+            height: 1.5,
+          ),
         ),
+      ],
+    );
+    final content = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        _ExitFade(
+          animation: _exit,
+          interval: SetupHandoffTiming.form,
+          lift: 12,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              if (!wide) ...<Widget>[
+                Row(
+                  children: <Widget>[
+                    const UsqueLogo(size: 40),
+                    const SizedBox(width: 12),
+                    Text('Usque', style: theme.textTheme.titleLarge),
+                  ],
+                ),
+                const SizedBox(height: 32),
+              ],
+              _StepIndicator(
+                step: _step,
+                total: _stepCount,
+                next: switch (_step) {
+                  0 => strings.get('permissions_title'),
+                  1 => strings.get('terms_title'),
+                  2 => strings.get('configure_identity'),
+                  _ => null,
+                },
+                strings: strings,
+              ),
+              const SizedBox(height: 30),
+              _OnboardingAnimatedSize(
+                child: _StepTransition(
+                  step: _step,
+                  forward: _forward,
+                  child: _buildStep(context, wide: wide),
+                ),
+              ),
+              const SizedBox(height: 20),
+              BannerSlot(
+                spacing: 0,
+                child: widget.controller.lastError == null
+                    ? null
+                    : WarningBanner(
+                        title: strings.get('setup_failed'),
+                        message: widget.controller.lastError!,
+                        danger: true,
+                        onDismiss: widget.controller.clearError,
+                      ),
+              ),
+              if (!layout.pinned) ...<Widget>[
+                const SizedBox(height: 28),
+                footer,
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+    if (!layout.pinned) {
+      return SingleChildScrollView(padding: padding, child: column(content));
+    }
+    return _PinnedFooterLayout(
+      padding: padding,
+      body: column(content),
+      footer: _ExitFade(
+        animation: _exit,
+        interval: SetupHandoffTiming.form,
+        child: column(footer),
       ),
     );
   }
@@ -442,7 +543,11 @@ class _OnboardingScreenState extends State<OnboardingScreen>
         ? 'onboarding_grant_continue'
         : 'continue';
     return OverflowBar(
-      alignment: MainAxisAlignment.spaceBetween,
+      // The primary action keeps the end edge on every step, including the
+      // first one, which has nothing to go back to.
+      alignment: _step > 0
+          ? MainAxisAlignment.spaceBetween
+          : MainAxisAlignment.end,
       overflowAlignment: OverflowBarAlignment.end,
       spacing: 12,
       overflowSpacing: 12,
@@ -500,6 +605,111 @@ class _OnboardingScreenState extends State<OnboardingScreen>
   }
 }
 
+/// Setup's layout decisions for one set of constraints.
+typedef _OnboardingLayout = ({Size size, bool wide, bool pinned});
+
+/// Clears [child] away over [interval] of the setup hand-off, optionally
+/// lifting it by [lift] pixels. At rest it draws [child] untouched.
+class _ExitFade extends StatelessWidget {
+  const _ExitFade({
+    required this.animation,
+    required this.interval,
+    required this.child,
+    this.lift = 0,
+  });
+
+  final Animation<double> animation;
+  final Curve interval;
+  final double lift;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: animation,
+    builder: (context, child) {
+      final t = interval.transform(animation.value);
+      return Opacity(
+        opacity: 1 - t,
+        child: Transform.translate(offset: Offset(0, -lift * t), child: child),
+      );
+    },
+    child: child,
+  );
+}
+
+/// Scrolls the step above actions that stay at the bottom edge, so the
+/// primary action never moves between steps. A hairline marks the edge only
+/// while the step continues below it.
+class _PinnedFooterLayout extends StatefulWidget {
+  const _PinnedFooterLayout({
+    required this.padding,
+    required this.body,
+    required this.footer,
+  });
+
+  final EdgeInsets padding;
+  final Widget body;
+  final Widget footer;
+
+  @override
+  State<_PinnedFooterLayout> createState() => _PinnedFooterLayoutState();
+}
+
+class _PinnedFooterLayoutState extends State<_PinnedFooterLayout> {
+  bool _continues = false;
+
+  bool _onScroll(Notification notification) {
+    final ScrollMetrics? metrics = switch (notification) {
+      ScrollMetricsNotification(:final metrics, depth: 0) => metrics,
+      ScrollNotification(:final metrics, depth: 0) => metrics,
+      _ => null,
+    };
+    if (metrics != null) {
+      final continues = metrics.extentAfter > 0.5;
+      if (continues != _continues) setState(() => _continues = continues);
+    }
+    return false;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final padding = widget.padding;
+    return Column(
+      children: <Widget>[
+        Expanded(
+          child: NotificationListener<Notification>(
+            onNotification: _onScroll,
+            child: SingleChildScrollView(
+              padding: padding.copyWith(bottom: UsqueSpace.l),
+              child: widget.body,
+            ),
+          ),
+        ),
+        Padding(
+          padding: EdgeInsets.symmetric(horizontal: padding.left),
+          child: Align(
+            alignment: Alignment.topCenter,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 620),
+              child: Opacity(
+                opacity: _continues ? 1 : 0,
+                child: Divider(
+                  height: 1,
+                  color: UsqueTokens.of(context).hairline,
+                ),
+              ),
+            ),
+          ),
+        ),
+        Padding(
+          padding: padding.copyWith(top: UsqueSpace.m),
+          child: widget.footer,
+        ),
+      ],
+    );
+  }
+}
+
 class _OnboardingAnimatedSize extends StatelessWidget {
   const _OnboardingAnimatedSize({required this.child});
 
@@ -549,81 +759,203 @@ class _StepTransition extends StatelessWidget {
   }
 }
 
-/// Left half of the setup window: the mark, a quiet instrument motif, and the
-/// one disclaimer every user should read before they connect.
+/// Left half of the setup window: the mark, a ring that closes as setup
+/// advances, and the one disclaimer every user should read before they
+/// connect. On completion the pane folds into the shell's rail and its mark
+/// lands on the rail's.
 class _BrandPane extends StatelessWidget {
-  const _BrandPane({required this.strings});
+  const _BrandPane({
+    required this.strings,
+    required this.width,
+    required this.railWidth,
+    required this.progress,
+    required this.exit,
+  });
 
   final AppStrings strings;
+
+  /// Width at rest; the content keeps this width while the pane folds.
+  final double width;
+
+  /// The shell rail this pane folds into.
+  final double railWidth;
+
+  /// Share of setup reached, from 0 to 1.
+  final double progress;
+  final Animation<double> exit;
+
+  static const double _inset = 48;
+  static const double _logoSize = 72;
 
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final UsqueTokens tokens = UsqueTokens.of(context);
     final bool dark = theme.brightness == Brightness.dark;
+    final bool rtl = Directionality.of(context) == TextDirection.rtl;
+    const Rect target = ShellScreen.railBrandLogo;
+    // Only the extended rail has a mark for this one to land on.
+    final bool landsOnRail = railWidth >= target.right;
 
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: dark
-              ? const <Color>[Color(0xFF1C120A), Color(0xFF121214)]
-              : const <Color>[Color(0xFFFFF3E8), Color(0xFFF7F5F0)],
-        ),
-        border: Border(right: BorderSide(color: tokens.hairline)),
-      ),
-      child: Stack(
-        fit: StackFit.expand,
-        children: <Widget>[
-          Positioned(
-            right: -170,
-            top: 90,
-            width: 460,
-            height: 460,
-            child: RepaintBoundary(
-              child: CustomPaint(
-                painter: _BrandMotifPainter(
-                  accent: tokens.brand,
-                  track: tokens.hairlineStrong,
-                ),
-              ),
+    final Widget surface = Stack(
+      fit: StackFit.expand,
+      children: <Widget>[
+        DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: dark
+                  ? const <Color>[Color(0xFF1C120A), Color(0xFF121214)]
+                  : const <Color>[Color(0xFFFFF3E8), Color(0xFFF7F5F0)],
             ),
           ),
-          LayoutBuilder(
-            builder: (context, constraints) => SingleChildScrollView(
-              child: ConstrainedBox(
-                constraints: BoxConstraints(minHeight: constraints.maxHeight),
-                child: IntrinsicHeight(
-                  child: Padding(
-                    padding: const EdgeInsets.all(48),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: <Widget>[
-                        const UsqueLogo(size: 72),
-                        const Spacer(),
-                        Text(
-                          'Usque',
-                          style: theme.textTheme.displayMedium?.copyWith(
-                            color: theme.colorScheme.onSurface,
-                          ),
-                        ),
-                        const SizedBox(height: 14),
-                        ConstrainedBox(
-                          constraints: const BoxConstraints(maxWidth: 320),
-                          child: Text(
-                            strings.get('unofficial'),
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: theme.colorScheme.onSurfaceVariant,
-                              height: 1.5,
-                            ),
-                          ),
-                        ),
-                      ],
+        ),
+        Positioned(
+          right: -170,
+          top: 90,
+          width: 460,
+          height: 460,
+          child: _ExitFade(
+            animation: exit,
+            interval: SetupHandoffTiming.motif,
+            child: RepaintBoundary(
+              child: TweenAnimationBuilder<double>(
+                tween: Tween<double>(end: progress),
+                duration: UsqueMotion.of(context, UsqueMotion.gentle),
+                curve: UsqueMotion.emphasized,
+                builder: (context, reached, _) => AnimatedBuilder(
+                  animation: exit,
+                  builder: (context, _) => CustomPaint(
+                    painter: _BrandMotifPainter(
+                      progress: lerpDouble(
+                        reached,
+                        1,
+                        SetupHandoffTiming.ringClose.transform(exit.value),
+                      )!,
+                      accent: tokens.brand,
+                      track: tokens.hairlineStrong,
                     ),
                   ),
                 ),
               ),
+            ),
+          ),
+        ),
+        LayoutBuilder(
+          builder: (context, constraints) => SingleChildScrollView(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minHeight: constraints.maxHeight),
+              child: IntrinsicHeight(
+                child: Padding(
+                  padding: const EdgeInsets.all(_inset),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      // The mark is drawn above the pane, so it can outlast it.
+                      const SizedBox(height: _logoSize),
+                      const Spacer(),
+                      _ExitFade(
+                        animation: exit,
+                        interval: SetupHandoffTiming.motif,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: <Widget>[
+                            Text(
+                              'Usque',
+                              style: theme.textTheme.displayMedium?.copyWith(
+                                color: theme.colorScheme.onSurface,
+                              ),
+                            ),
+                            const SizedBox(height: 14),
+                            ConstrainedBox(
+                              constraints: const BoxConstraints(maxWidth: 320),
+                              child: Text(
+                                strings.get('unofficial'),
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: theme.colorScheme.onSurfaceVariant,
+                                  height: 1.5,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+
+    return AnimatedBuilder(
+      animation: exit,
+      builder: (context, child) => SizedBox(
+        width: lerpDouble(
+          width,
+          railWidth,
+          SetupHandoffTiming.collapse.transform(exit.value),
+        ),
+        child: child,
+      ),
+      child: Stack(
+        fit: StackFit.expand,
+        children: <Widget>[
+          _ExitFade(
+            animation: exit,
+            interval: SetupHandoffTiming.pane,
+            child: DecoratedBox(
+              position: DecorationPosition.foreground,
+              decoration: BoxDecoration(
+                border: BorderDirectional(
+                  end: BorderSide(color: tokens.hairline),
+                ),
+              ),
+              // The content keeps its width and is clipped as the pane
+              // folds, rather than reflowing.
+              child: ClipRect(
+                child: OverflowBox(
+                  alignment: AlignmentDirectional.topStart,
+                  minWidth: width,
+                  maxWidth: width,
+                  child: surface,
+                ),
+              ),
+            ),
+          ),
+          PositionedDirectional(
+            start: _inset,
+            top: _inset,
+            child: AnimatedBuilder(
+              animation: exit,
+              builder: (context, child) {
+                final double travel = landsOnRail
+                    ? SetupHandoffTiming.collapse.transform(exit.value)
+                    : 0;
+                final double fade =
+                    (landsOnRail
+                            ? SetupHandoffTiming.mark
+                            : SetupHandoffTiming.pane)
+                        .transform(exit.value);
+                return Opacity(
+                  opacity: 1 - fade,
+                  child: Transform.translate(
+                    offset: Offset(
+                      (rtl ? -1 : 1) * (target.left - _inset) * travel,
+                      (target.top - _inset) * travel,
+                    ),
+                    child: Transform.scale(
+                      scale: lerpDouble(1, target.width / _logoSize, travel),
+                      alignment: AlignmentDirectional.topStart,
+                      child: child,
+                    ),
+                  ),
+                );
+              },
+              child: const UsqueLogo(size: _logoSize),
             ),
           ),
         ],
@@ -633,9 +965,15 @@ class _BrandPane extends StatelessWidget {
 }
 
 /// Concentric bezels, echoing the connection ring the user is about to meet.
+/// The inner arc grows with [progress] and closes as setup completes.
 class _BrandMotifPainter extends CustomPainter {
-  const _BrandMotifPainter({required this.accent, required this.track});
+  const _BrandMotifPainter({
+    required this.progress,
+    required this.accent,
+    required this.track,
+  });
 
+  final double progress;
   final Color accent;
   final Color track;
 
@@ -660,10 +998,12 @@ class _BrandMotifPainter extends CustomPainter {
         ..strokeWidth = 1.4
         ..color = accent.withValues(alpha: 0.28),
     );
+    // Counter-clockwise from the top, so the arc grows across the side of
+    // the ring that stays inside the pane.
     canvas.drawArc(
       Rect.fromCircle(center: center, radius: outer * 0.54),
       -math.pi / 2,
-      math.pi * 0.75,
+      -2 * math.pi * progress.clamp(0, 1),
       false,
       Paint()
         ..style = PaintingStyle.stroke
@@ -690,24 +1030,31 @@ class _BrandMotifPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _BrandMotifPainter oldDelegate) =>
-      oldDelegate.accent != accent || oldDelegate.track != track;
+      oldDelegate.progress != progress ||
+      oldDelegate.accent != accent ||
+      oldDelegate.track != track;
 }
 
 class _StepIndicator extends StatelessWidget {
   const _StepIndicator({
     required this.step,
     required this.total,
+    required this.next,
     required this.strings,
   });
 
   final int step;
   final int total;
+
+  /// Title of the step that follows, if any.
+  final String? next;
   final AppStrings strings;
 
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final UsqueTokens tokens = UsqueTokens.of(context);
+    final Color muted = theme.colorScheme.onSurfaceVariant;
     return Semantics(
       label: strings
           .get('setup_progress')
@@ -736,14 +1083,29 @@ class _StepIndicator extends StatelessWidget {
             }),
           ),
           const SizedBox(height: 12),
-          Text(
-            '${step + 1} / $total',
-            textDirection: TextDirection.ltr,
-            style: UsqueTheme.address(
-              context,
-              size: 12,
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
+            children: <Widget>[
+              Text(
+                '${step + 1} / $total',
+                textDirection: TextDirection.ltr,
+                style: UsqueTheme.address(context, size: 12, color: muted),
+              ),
+              if (next case final next?) ...<Widget>[
+                const SizedBox(width: 12),
+                Flexible(
+                  child: Text(
+                    strings
+                        .get('onboarding_up_next')
+                        .replaceAll('{step}', next),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.labelMedium?.copyWith(color: muted),
+                  ),
+                ),
+              ],
+            ],
           ),
         ],
       ),
@@ -764,8 +1126,21 @@ class _StepHeading extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        Icon(icon, color: theme.colorScheme.primary, size: 28),
-        const SizedBox(height: 24),
+        // The tinted tile Home and Settings use for a lit feature.
+        ExcludeSemantics(
+          child: Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: theme.colorScheme.primary.withValues(
+                alpha: UsqueTokens.of(context).tint,
+              ),
+              borderRadius: BorderRadius.circular(UsqueRadii.control),
+            ),
+            child: Icon(icon, color: theme.colorScheme.primary, size: 22),
+          ),
+        ),
+        const SizedBox(height: 20),
         Text(title, style: theme.textTheme.headlineMedium),
         if (body case final body?) ...<Widget>[
           const SizedBox(height: 12),
@@ -781,6 +1156,11 @@ class _StepHeading extends StatelessWidget {
   }
 }
 
+/// Icons shared by each step's heading and the welcome outline.
+const IconData _permissionsIcon = LucideIcons.shield;
+const IconData _termsIcon = LucideIcons.fileText;
+const IconData _identityIcon = LucideIcons.keyRound;
+
 class _IntroStep extends StatelessWidget {
   const _IntroStep({required this.strings, required this.showNotice});
 
@@ -789,10 +1169,55 @@ class _IntroStep extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _StepHeading(
-      icon: LucideIcons.sparkles,
-      title: strings.get('welcome_title'),
-      body: strings.get(showNotice ? 'unofficial' : 'welcome_body'),
+    final ThemeData theme = Theme.of(context);
+    final Color muted = theme.colorScheme.onSurfaceVariant;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        _StepHeading(
+          icon: LucideIcons.sparkles,
+          title: strings.get('welcome_title'),
+          body: strings.get(showNotice ? 'unofficial' : 'welcome_body'),
+        ),
+        const SizedBox(height: 22),
+        // An outline of what follows, in the order the steps run.
+        ContentList(
+          children: <Widget>[
+            for (final (index, (icon, key)) in const <(IconData, String)>[
+              (_permissionsIcon, 'permissions_title'),
+              (_termsIcon, 'terms_title'),
+              (_identityIcon, 'configure_identity'),
+            ].indexed)
+              Padding(
+                padding: RowInsets.row,
+                child: Row(
+                  children: <Widget>[
+                    ExcludeSemantics(child: Icon(icon, size: 20, color: muted)),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        strings.get(key),
+                        style: theme.textTheme.titleMedium,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    ExcludeSemantics(
+                      child: Text(
+                        '${index + 2}',
+                        textDirection: TextDirection.ltr,
+                        style: UsqueTheme.address(
+                          context,
+                          size: 12,
+                          color: muted,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ],
     );
   }
 }
@@ -805,11 +1230,12 @@ class _PermissionsStep extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final notification = controller.onboardingPermissions?.notification;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
         _StepHeading(
-          icon: LucideIcons.shield,
+          icon: _permissionsIcon,
           title: strings.get('permissions_title'),
           body: strings.get(
             controller.requiresOnboardingPermissions
@@ -818,21 +1244,34 @@ class _PermissionsStep extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 22),
-        if (controller.supportsLinuxServiceMaintenance)
+        if (controller.supportsLinuxServiceMaintenance) ...<Widget>[
           LinuxServiceSection(controller: controller),
+          const SizedBox(height: UsqueSpace.m),
+        ],
         if (controller.requiresOnboardingPermissions) ...[
-          InlineStatus(
-            label: strings.get(
-              switch (controller.onboardingPermissions?.notification) {
+          Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: RowInsets.horizontal,
+            ),
+            child: InlineStatus(
+              label: strings.get(switch (notification) {
                 OnboardingNotificationPermission.granted =>
                   'onboarding_notifications_granted',
                 OnboardingNotificationPermission.notGranted =>
                   'onboarding_notifications_denied',
                 _ => 'onboarding_notifications_optional',
+              }),
+              // Declining is a supported choice, not a warning.
+              tone: notification == OnboardingNotificationPermission.granted
+                  ? StatusTone.success
+                  : StatusTone.neutral,
+              icon: switch (notification) {
+                OnboardingNotificationPermission.granted => null,
+                OnboardingNotificationPermission.notGranted =>
+                  LucideIcons.bellOff,
+                _ => LucideIcons.bell,
               },
             ),
-            tone: StatusTone.neutral,
-            showIndicator: false,
           ),
         ] else
           WarningBanner(
@@ -862,36 +1301,44 @@ class _TermsStep extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
         _StepHeading(
-          icon: LucideIcons.fileText,
+          icon: _termsIcon,
           title: strings.get('terms_title'),
           body: strings.get('terms_body'),
         ),
         const SizedBox(height: 18),
-        Wrap(
-          spacing: 8,
-          runSpacing: 4,
-          children: [
-            for (final link in kCloudflareLegalLinks)
-              TextButton.icon(
-                onPressed: () => openExternalLink(
+        // The same rows About uses for these documents.
+        ContentList(
+          children: <Widget>[
+            for (final (index, (labelKey, url))
+                in kCloudflareLegalLinks.indexed)
+              LinkRow(
+                key: ValueKey<String>('onboarding-$labelKey'),
+                icon: const <IconData>[
+                  LucideIcons.fileText,
+                  LucideIcons.shieldCheck,
+                  LucideIcons.building2,
+                ][index],
+                title: strings.get(labelKey),
+                onTap: () => openExternalLink(
                   context,
                   strings,
-                  link.$2,
+                  url,
                   launcher: externalLinkLauncher,
                 ),
-                icon: const Icon(LucideIcons.externalLink),
-                label: Text(strings.get(link.$1)),
               ),
           ],
         ),
-        const SizedBox(height: 12),
-        ContentSection(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+        const SizedBox(height: 16),
+        // The box and its label share the link rows' icon and text columns.
+        ListTileTheme.merge(
+          horizontalTitleGap: 0,
           child: CheckboxListTile(
-            contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+            contentPadding: const EdgeInsetsDirectional.only(
+              end: RowInsets.horizontal,
+            ),
             controlAffinity: ListTileControlAffinity.leading,
             value: accepted,
             onChanged: enabled ? (value) => onChanged(value ?? false) : null,
@@ -948,7 +1395,7 @@ class _IdentityStep extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
         _StepHeading(
-          icon: LucideIcons.keyRound,
+          icon: _identityIcon,
           title: strings.get('configure_identity'),
         ),
         const SizedBox(height: 22),

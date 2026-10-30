@@ -14,6 +14,7 @@ import '../widgets/home/home_local_proxies.dart';
 import '../widgets/home/home_phone.dart';
 import '../widgets/home/home_traffic.dart';
 import '../widgets/home_desktop_controls.dart';
+import '../widgets/setup_handoff.dart';
 import 'chain_proxy_screen.dart';
 import 'diagnostics_screen.dart';
 import 'profiles_hub_screen.dart' show ScenarioHomeLink;
@@ -71,31 +72,33 @@ class HomeScreen extends StatelessWidget {
       return PageFrame(
         title: strings.get('home'),
         titleWidget: HomePhoneHeader(controller: controller),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: <Widget>[
-            notice,
-            ScenarioHomeLink(controller: controller),
-            HomeChainSummary(
-              controller: controller,
-              strings: strings,
-              onOpen: onOpenChainProxy ?? openChainProxy,
-            ),
-            HomeConnectionHero(
-              controller: controller,
-              strings: strings,
-              compact: true,
-              banner: errorSlot,
-            ),
-            SizedBox(height: UsqueSpace.xs + expansion * UsqueSpace.m),
-            HomeTrafficCard(
-              controller: controller,
-              compact: true,
-              chartHeight: 64 + expansion * 24,
-            ),
-            const SizedBox(height: UsqueSpace.m),
-            HomeStatusCard(controller: controller, strings: strings),
-          ],
+        child: SetupEntranceTransition(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              notice,
+              ScenarioHomeLink(controller: controller),
+              HomeChainSummary(
+                controller: controller,
+                strings: strings,
+                onOpen: onOpenChainProxy ?? openChainProxy,
+              ),
+              HomeConnectionHero(
+                controller: controller,
+                strings: strings,
+                compact: true,
+                banner: errorSlot,
+              ),
+              SizedBox(height: UsqueSpace.xs + expansion * UsqueSpace.m),
+              HomeTrafficCard(
+                controller: controller,
+                compact: true,
+                chartHeight: 64 + expansion * 24,
+              ),
+              const SizedBox(height: UsqueSpace.m),
+              HomeStatusCard(controller: controller, strings: strings),
+            ],
+          ),
         ),
       );
     }
@@ -103,15 +106,17 @@ class HomeScreen extends StatelessWidget {
       title: strings.get('home'),
       showHeading: defaultTargetPlatform != TargetPlatform.windows,
       fillViewport: true,
-      child: _DesktopHome(
-        controller: controller,
-        strings: strings,
-        header: [
-          notice,
-          errorSlot,
-          ScenarioHomeLink(controller: controller),
-        ],
-        onOpenChainProxy: onOpenChainProxy ?? openChainProxy,
+      child: SetupEntranceTransition(
+        child: _DesktopHome(
+          controller: controller,
+          strings: strings,
+          header: [
+            notice,
+            errorSlot,
+            ScenarioHomeLink(controller: controller),
+          ],
+          onOpenChainProxy: onOpenChainProxy ?? openChainProxy,
+        ),
       ),
     );
   }

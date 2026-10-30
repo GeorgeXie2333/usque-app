@@ -15,6 +15,7 @@ import '../controller_selector.dart';
 import '../country_flag.dart';
 import '../live_duration.dart';
 import '../profile_identity_dialog.dart';
+import '../setup_handoff.dart';
 import 'home_details.dart';
 
 typedef _HeroView = ({
@@ -122,19 +123,26 @@ class HomeConnectionHero extends StatelessWidget {
             view.phase == ConnectionPhase.reconnecting) &&
         view.phase != ConnectionPhase.disconnecting &&
         !recoveryBlocked;
-    Widget ring(double size) => ConnectionRing(
-      phase: view.phase,
-      presentation: chainStatus.drivesHome ? presentation : null,
-      busy: view.busy,
-      actionLabel: action,
-      semanticLabel: '${strings.get('connection_status')}: $status',
-      size: size,
-      compactControl: compact,
-      onPressed: !canAct
-          ? null
-          : primaryRetry
-          ? controller.retry
-          : () => _connectOrRepairIdentity(context),
+    // After first-run setup the ring settles into place inside the arriving
+    // page, picking up the ring that setup just closed.
+    Widget ring(double size) => SetupEntranceTransition(
+      lift: 0,
+      scale: 0.92,
+      fade: false,
+      child: ConnectionRing(
+        phase: view.phase,
+        presentation: chainStatus.drivesHome ? presentation : null,
+        busy: view.busy,
+        actionLabel: action,
+        semanticLabel: '${strings.get('connection_status')}: $status',
+        size: size,
+        compactControl: compact,
+        onPressed: !canAct
+            ? null
+            : primaryRetry
+            ? controller.retry
+            : () => _connectOrRepairIdentity(context),
+      ),
     );
     final headline = _StatusHeadline(
       status: status,

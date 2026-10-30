@@ -409,7 +409,7 @@ void main() {
         'onboarding_personal_privacy',
         'onboarding_zero_trust_privacy',
       ]) {
-        final link = find.widgetWithText(TextButton, app.strings.get(key));
+        final link = find.byKey(ValueKey<String>('onboarding-$key'));
         await tester.ensureVisible(link);
         await tester.tap(link);
         await tester.pumpAndSettle();

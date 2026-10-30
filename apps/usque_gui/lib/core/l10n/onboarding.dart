@@ -24,6 +24,7 @@ const Map<String, String> kOnboardingEn = <String, String>{
   'onboarding_continue_existing': 'Continue with saved account',
   'onboarding_retry_registration': 'Register again',
   'onboarding_grant_continue': 'Grant permissions and continue',
+  'onboarding_up_next': 'Next: {step}',
 };
 
 const Map<String, Map<String, String>>
@@ -52,6 +53,7 @@ kOnboardingCatalogs = <String, Map<String, String>>{
     'onboarding_continue_existing': '使用已保存的账号继续',
     'onboarding_retry_registration': '再次注册',
     'onboarding_grant_continue': '授权并继续',
+    'onboarding_up_next': '下一步：{step}',
   },
   'zh_HK': <String, String>{
     'onboarding_application_terms': 'Cloudflare 應用程式條款',
@@ -76,6 +78,7 @@ kOnboardingCatalogs = <String, Map<String, String>>{
     'onboarding_continue_existing': '使用已儲存的帳戶繼續',
     'onboarding_retry_registration': '再次註冊',
     'onboarding_grant_continue': '授權並繼續',
+    'onboarding_up_next': '下一步：{step}',
   },
   'zh_TW': <String, String>{
     'onboarding_application_terms': 'Cloudflare 應用程式條款',
@@ -100,6 +103,7 @@ kOnboardingCatalogs = <String, Map<String, String>>{
     'onboarding_continue_existing': '使用已儲存的帳號繼續',
     'onboarding_retry_registration': '再次註冊',
     'onboarding_grant_continue': '授權並繼續',
+    'onboarding_up_next': '下一步：{step}',
   },
   'ja': <String, String>{
     'onboarding_application_terms': 'Cloudflare アプリの利用規約',
@@ -125,6 +129,7 @@ kOnboardingCatalogs = <String, Map<String, String>>{
     'onboarding_continue_existing': '保存済みアカウントで続行',
     'onboarding_retry_registration': '再登録',
     'onboarding_grant_continue': '権限を付与して続行',
+    'onboarding_up_next': '次へ：{step}',
   },
   'ko': <String, String>{
     'onboarding_application_terms': 'Cloudflare 앱 이용 약관',
@@ -150,6 +155,7 @@ kOnboardingCatalogs = <String, Map<String, String>>{
     'onboarding_continue_existing': '저장된 계정으로 계속',
     'onboarding_retry_registration': '다시 등록',
     'onboarding_grant_continue': '권한을 허용하고 계속',
+    'onboarding_up_next': '다음: {step}',
   },
   'es': <String, String>{
     'onboarding_application_terms':
@@ -179,6 +185,7 @@ kOnboardingCatalogs = <String, Map<String, String>>{
     'onboarding_continue_existing': 'Continuar con la cuenta guardada',
     'onboarding_retry_registration': 'Registrarse de nuevo',
     'onboarding_grant_continue': 'Conceder permisos y continuar',
+    'onboarding_up_next': 'Siguiente: {step}',
   },
   'pt': <String, String>{
     'onboarding_application_terms': 'Termos do aplicativo Cloudflare',
@@ -207,6 +214,7 @@ kOnboardingCatalogs = <String, Map<String, String>>{
     'onboarding_continue_existing': 'Continuar com a conta salva',
     'onboarding_retry_registration': 'Registrar novamente',
     'onboarding_grant_continue': 'Conceder permissões e continuar',
+    'onboarding_up_next': 'Próximo: {step}',
   },
   'fr': <String, String>{
     'onboarding_application_terms': 'Conditions de l’application Cloudflare',
@@ -235,6 +243,7 @@ kOnboardingCatalogs = <String, Map<String, String>>{
     'onboarding_continue_existing': 'Continuer avec le compte enregistré',
     'onboarding_retry_registration': 'S’inscrire à nouveau',
     'onboarding_grant_continue': 'Autoriser et continuer',
+    'onboarding_up_next': 'Ensuite : {step}',
   },
   'nl': <String, String>{
     'onboarding_application_terms': 'Voorwaarden van de Cloudflare-app',
@@ -262,6 +271,7 @@ kOnboardingCatalogs = <String, Map<String, String>>{
     'onboarding_continue_existing': 'Doorgaan met opgeslagen account',
     'onboarding_retry_registration': 'Opnieuw registreren',
     'onboarding_grant_continue': 'Toestemming geven en doorgaan',
+    'onboarding_up_next': 'Volgende: {step}',
   },
   'tr': <String, String>{
     'onboarding_application_terms': 'Cloudflare uygulama koşulları',
@@ -290,6 +300,7 @@ kOnboardingCatalogs = <String, Map<String, String>>{
     'onboarding_continue_existing': 'Kayıtlı hesapla devam et',
     'onboarding_retry_registration': 'Yeniden kaydol',
     'onboarding_grant_continue': 'İzin ver ve devam et',
+    'onboarding_up_next': 'Sıradaki: {step}',
   },
   'ru': <String, String>{
     'onboarding_application_terms': 'Условия приложения Cloudflare',
@@ -318,6 +329,7 @@ kOnboardingCatalogs = <String, Map<String, String>>{
     'onboarding_continue_existing': 'Продолжить с сохранённым аккаунтом',
     'onboarding_retry_registration': 'Зарегистрировать снова',
     'onboarding_grant_continue': 'Разрешить и продолжить',
+    'onboarding_up_next': 'Далее: {step}',
   },
   'fa': <String, String>{
     'onboarding_application_terms': 'شرایط برنامهٔ Cloudflare',
@@ -346,6 +358,7 @@ kOnboardingCatalogs = <String, Map<String, String>>{
     'onboarding_continue_existing': 'ادامه با حساب ذخیره‌شده',
     'onboarding_retry_registration': 'ثبت‌نام دوباره',
     'onboarding_grant_continue': 'دادن مجوز و ادامه',
+    'onboarding_up_next': 'بعدی: {step}',
   },
   'ar': <String, String>{
     'onboarding_application_terms': 'شروط تطبيق Cloudflare',
@@ -371,6 +384,7 @@ kOnboardingCatalogs = <String, Map<String, String>>{
     'onboarding_continue_existing': 'المتابعة بالحساب المحفوظ',
     'onboarding_retry_registration': 'التسجيل مجددًا',
     'onboarding_grant_continue': 'منح الأذونات والمتابعة',
+    'onboarding_up_next': 'التالي: {step}',
   },
   'de': <String, String>{
     'onboarding_application_terms': 'Cloudflare-App-Bedingungen',
@@ -399,6 +413,7 @@ kOnboardingCatalogs = <String, Map<String, String>>{
     'onboarding_continue_existing': 'Mit gespeichertem Konto fortfahren',
     'onboarding_retry_registration': 'Erneut registrieren',
     'onboarding_grant_continue': 'Berechtigungen erteilen und fortfahren',
+    'onboarding_up_next': 'Als Nächstes: {step}',
   },
   'id': <String, String>{
     'onboarding_application_terms': 'Ketentuan aplikasi Cloudflare',
@@ -427,6 +442,7 @@ kOnboardingCatalogs = <String, Map<String, String>>{
     'onboarding_continue_existing': 'Lanjutkan dengan akun tersimpan',
     'onboarding_retry_registration': 'Daftar lagi',
     'onboarding_grant_continue': 'Berikan izin dan lanjutkan',
+    'onboarding_up_next': 'Berikutnya: {step}',
   },
   'it': <String, String>{
     'onboarding_application_terms': 'Termini dell’applicazione Cloudflare',
@@ -455,6 +471,7 @@ kOnboardingCatalogs = <String, Map<String, String>>{
     'onboarding_continue_existing': 'Continua con l’account salvato',
     'onboarding_retry_registration': 'Registrati di nuovo',
     'onboarding_grant_continue': 'Autorizza e continua',
+    'onboarding_up_next': 'Successivo: {step}',
   },
   'pl': <String, String>{
     'onboarding_application_terms': 'Warunki aplikacji Cloudflare',
@@ -483,6 +500,7 @@ kOnboardingCatalogs = <String, Map<String, String>>{
     'onboarding_continue_existing': 'Kontynuuj z zapisanym kontem',
     'onboarding_retry_registration': 'Zarejestruj ponownie',
     'onboarding_grant_continue': 'Przyznaj uprawnienia i kontynuuj',
+    'onboarding_up_next': 'Dalej: {step}',
   },
   'th': <String, String>{
     'onboarding_application_terms': 'ข้อกำหนดแอปพลิเคชัน Cloudflare',
@@ -510,6 +528,7 @@ kOnboardingCatalogs = <String, Map<String, String>>{
     'onboarding_continue_existing': 'ดำเนินการต่อด้วยบัญชีที่บันทึกไว้',
     'onboarding_retry_registration': 'ลงทะเบียนอีกครั้ง',
     'onboarding_grant_continue': 'ให้สิทธิ์และดำเนินการต่อ',
+    'onboarding_up_next': 'ถัดไป: {step}',
   },
   'uk': <String, String>{
     'onboarding_application_terms': 'Умови застосунку Cloudflare',
@@ -539,6 +558,7 @@ kOnboardingCatalogs = <String, Map<String, String>>{
         'Продовжити зі збереженим обліковим записом',
     'onboarding_retry_registration': 'Зареєструвати знову',
     'onboarding_grant_continue': 'Надати дозволи та продовжити',
+    'onboarding_up_next': 'Далі: {step}',
   },
   'vi': <String, String>{
     'onboarding_application_terms': 'Điều khoản ứng dụng Cloudflare',
@@ -566,5 +586,6 @@ kOnboardingCatalogs = <String, Map<String, String>>{
     'onboarding_continue_existing': 'Tiếp tục với tài khoản đã lưu',
     'onboarding_retry_registration': 'Đăng ký lại',
     'onboarding_grant_continue': 'Cấp quyền và tiếp tục',
+    'onboarding_up_next': 'Tiếp theo: {step}',
   },
 };

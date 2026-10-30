@@ -21,6 +21,18 @@ import 'settings_screen.dart';
 
 const double _railMinWidth = 78;
 const double _railMinExtendedWidth = 232;
+const double _railLogoSize = 30;
+
+/// The brand mark is centred in a compact-rail-wide column after the
+/// destination inset.
+const double _railLogoInset = 8 + (_railMinWidth - _railLogoSize) / 2;
+
+/// Padding above the brand row in the extended rail.
+const double _railBrandTop = 10;
+
+/// NavigationRail's spacer above [NavigationRail.leading] plus the brand
+/// row's own padding.
+const double _railLogoTop = 8 + _railBrandTop;
 
 /// Matches [NavigationRailDestination.padding] so the brand sits on the
 /// same vertical axis as the destination icons.
@@ -33,6 +45,33 @@ class ShellScreen extends StatefulWidget {
   const ShellScreen({required this.controller, super.key});
 
   final AppController controller;
+
+  /// Width at which the bottom bar gives way to the side rail.
+  static const double railBreakpoint = 760;
+
+  /// Width at which the rail can afford to show labels beside the icons.
+  /// The extended rail takes 249 px with its divider, so this leaves Home its
+  /// 860 px side-by-side width plus page gutters instead of stacking it.
+  static const double extendedBreakpoint = 1180;
+
+  /// Width of the side rail and its divider in a shell [width] wide, or zero
+  /// when the shell uses a bottom bar.
+  static double railExtent(double width) {
+    if (width < railBreakpoint) return 0;
+    return (width >= extendedBreakpoint
+            ? _railMinExtendedWidth + _destinationPadding.horizontal
+            : _railMinWidth) +
+        1;
+  }
+
+  /// The brand mark at the top of the extended rail, measured from the
+  /// shell's top-start corner, so first-run setup can hand its own mark over.
+  static const Rect railBrandLogo = Rect.fromLTWH(
+    _railLogoInset,
+    _railLogoTop,
+    _railLogoSize,
+    _railLogoSize,
+  );
 
   @override
   State<ShellScreen> createState() => _ShellScreenState();
@@ -210,14 +249,6 @@ class _ShellScreenState extends State<ShellScreen> {
     AppSection.settings: LucideIcons.settings,
   };
 
-  /// Width at which the bottom bar gives way to the side rail.
-  static const double _railBreakpoint = 760;
-
-  /// Width at which the rail can afford to show labels beside the icons.
-  /// The extended rail takes 249 px with its divider, so this leaves Home its
-  /// 860 px side-by-side width plus page gutters instead of stacking it.
-  static const double _extendedBreakpoint = 1180;
-
   KeyEventResult _handleNavigationKey(
     KeyEvent event, {
     required bool vertical,
@@ -380,8 +411,9 @@ class _ShellScreenState extends State<ShellScreen> {
 
         return LayoutBuilder(
           builder: (context, constraints) {
-            final useRail = constraints.maxWidth >= _railBreakpoint;
-            final extended = constraints.maxWidth >= _extendedBreakpoint;
+            final useRail = constraints.maxWidth >= ShellScreen.railBreakpoint;
+            final extended =
+                constraints.maxWidth >= ShellScreen.extendedBreakpoint;
             final scaffold = Scaffold(
               body: SafeArea(
                 bottom: false,
@@ -511,7 +543,7 @@ class _RailLeading extends StatelessWidget {
     return Padding(
       padding: EdgeInsets.fromLTRB(
         _destinationPadding.left,
-        10,
+        _railBrandTop,
         _destinationPadding.right,
         18,
       ),
@@ -521,7 +553,7 @@ class _RailLeading extends StatelessWidget {
           children: <Widget>[
             SizedBox(
               width: _railMinWidth,
-              child: Center(child: const UsqueLogo(size: 30)),
+              child: Center(child: const UsqueLogo(size: _railLogoSize)),
             ),
             Expanded(
               child: Text(
