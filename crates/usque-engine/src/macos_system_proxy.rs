@@ -106,12 +106,14 @@ trait Backend: Send + Sync {
 pub(crate) struct Context {
     path: PathBuf,
     cipher: Arc<dyn ProfileCipher>,
+    backend: Arc<native::NativeBackend>,
 }
 impl Context {
     pub(crate) fn new(directory: &Path, cipher: Arc<dyn ProfileCipher>) -> Self {
         Self {
             path: directory.join("macos-system-proxy-v1.sealed"),
             cipher,
+            backend: Arc::default(),
         }
     }
     pub(crate) async fn start(&self, listener: SocketAddr) -> Result<MacSystemProxyGuard> {
@@ -136,12 +138,7 @@ impl Context {
         }
         let context = self.clone();
         let transaction = tokio::task::spawn_blocking(move || {
-            Transaction::start(
-                context.path,
-                context.cipher,
-                Arc::new(native::NativeBackend::default()),
-                listener,
-            )
+            Transaction::start(context.path, context.cipher, context.backend, listener)
         })
         .await
         .map_err(|_| Error::Unavailable)??;
@@ -155,13 +152,9 @@ impl Context {
         }
         let context = self.clone();
         tokio::task::spawn_blocking(move || {
-            let mut transaction = Transaction::open(
-                context.path,
-                context.cipher,
-                Arc::new(native::NativeBackend::default()),
-            )?;
-            // Startup passes false and never creates an authorization object.
-            // Only an explicit retry may request the permission dialog.
+            let mut transaction = Transaction::open(context.path, context.cipher, context.backend)?;
+            // Startup passes false. Only an explicit retry may acquire rights;
+            // a live Engine can reuse the authorization from its connection.
             transaction.restore(interactive)
         })
         .await

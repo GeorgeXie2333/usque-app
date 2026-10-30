@@ -149,6 +149,8 @@ pub struct ControlServiceState {
     #[cfg(target_os = "macos")]
     macos_proxy_recovery_error: Mutex<Option<macos_system_proxy::Error>>,
     #[cfg(target_os = "macos")]
+    macos_proxy_context: macos_system_proxy::Context,
+    #[cfg(target_os = "macos")]
     macos_detaching: Arc<std::sync::atomic::AtomicBool>,
     disconnect_cleanup: Mutex<Option<tokio::task::JoinHandle<Result<(), ControlServiceError>>>>,
     disconnect_owners: Arc<Mutex<std::collections::VecDeque<disconnect_cleanup::ShutdownOwner>>>,
@@ -552,6 +554,11 @@ impl ControlService {
                 #[cfg(target_os = "macos")]
                 macos_proxy_recovery_error: Mutex::new(None),
                 #[cfg(target_os = "macos")]
+                macos_proxy_context: macos_system_proxy::Context::new(
+                    &profile_dir,
+                    Arc::clone(chain_cipher.as_ref().expect("desktop cipher")),
+                ),
+                #[cfg(target_os = "macos")]
                 macos_detaching: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                 disconnect_cleanup: Mutex::new(None),
                 disconnect_owners: Arc::default(),
@@ -638,13 +645,7 @@ impl ControlService {
 
     #[cfg(target_os = "macos")]
     async fn recover_macos_proxy(&self, interactive: bool) -> Result<(), ControlServiceError> {
-        let cipher = self
-            .chain_cipher
-            .clone()
-            .ok_or(macos_system_proxy::Error::Unavailable)?;
-        let result = macos_system_proxy::Context::new(&self.profile_dir, cipher)
-            .recover(interactive)
-            .await;
+        let result = self.macos_proxy_context.recover(interactive).await;
         let previous = {
             let mut pending = self.macos_proxy_recovery_error.lock().await;
             let previous = *pending;
@@ -2888,12 +2889,7 @@ impl ControlService {
                         None
                     };
                     #[cfg(target_os = "macos")]
-                    let system_proxy_context = macos_system_proxy::Context::new(
-                        &self.profile_dir,
-                        self.chain_cipher
-                            .clone()
-                            .ok_or(macos_system_proxy::Error::Unavailable)?,
-                    );
+                    let system_proxy_context = self.macos_proxy_context.clone();
                     #[cfg(target_os = "macos")]
                     let system_proxy = if profile.frontends.http
                         && profile.proxy.system_proxy
