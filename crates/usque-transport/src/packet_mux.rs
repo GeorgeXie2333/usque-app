@@ -41,6 +41,54 @@ struct FlowMapping {
     wire: WireKey,
     original_id: u16,
     last_seen: Instant,
+    tcp: TcpFlowState,
+}
+
+/// Keep retransmitted SYNs on their admitted path, but never let a later
+/// connection inherit that path just because it reuses the same five-tuple.
+/// Closing packets remain routable for FIN/ACK retransmission until a new SYN.
+#[derive(Debug, Clone, Default)]
+struct TcpFlowState {
+    initial_sequence: Option<u32>,
+    local_fin: bool,
+    remote_fin: bool,
+    reset: bool,
+}
+
+impl TcpFlowState {
+    fn replaces(&self, segment: TcpSegment) -> bool {
+        segment.initial_syn()
+            && (self.initial_sequence != Some(segment.sequence)
+                || self.reset
+                || self.local_fin && self.remote_fin)
+    }
+
+    fn observe(&mut self, segment: Option<TcpSegment>, direction: Direction) {
+        let Some(segment) = segment else { return };
+        if matches!(direction, Direction::Outgoing) && segment.initial_syn() {
+            self.initial_sequence = Some(segment.sequence);
+        }
+        if segment.flags & 0x01 != 0 {
+            match direction {
+                Direction::Outgoing => self.local_fin = true,
+                Direction::Incoming => self.remote_fin = true,
+            }
+        }
+        self.reset |= segment.flags & 0x04 != 0;
+    }
+}
+
+#[derive(Clone, Copy)]
+struct TcpSegment {
+    sequence: u32,
+    flags: u8,
+}
+
+impl TcpSegment {
+    fn initial_syn(self) -> bool {
+        // SYN without ACK, FIN or RST. ECN negotiation flags are independent.
+        self.flags & 0x17 == 0x02
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -150,6 +198,7 @@ impl PacketMuxTable {
         let parsed = ParsedPacket::parse(packet, Direction::Outgoing);
         let owned = match parsed.as_ref() {
             Some(ParsedPacket::Flow { tuple, .. }) => {
+                self.retire_previous_tcp(origin, *tuple, packet);
                 self.forward.contains_key(&flow_key(origin, *tuple))
             }
             Some(ParsedPacket::Fragment(fragment)) => {
@@ -164,6 +213,27 @@ impl PacketMuxTable {
             origin,
             parsed,
             owned,
+        }
+    }
+
+    fn retire_previous_tcp(&mut self, origin: PacketOrigin, tuple: PacketTuple, packet: &[u8]) {
+        let Some(segment) = tuple
+            .tcp_segment(packet)
+            .filter(|segment| segment.initial_syn())
+        else {
+            return;
+        };
+        let key = flow_key(origin, tuple);
+        if self
+            .forward
+            .get(&key)
+            .is_some_and(|flow| flow.tcp.replaces(segment))
+        {
+            let previous = self.forward.remove(&key).expect("observed TCP mapping");
+            self.reverse.remove(&previous.wire);
+            // Only replacement admission scans this bounded queue. Removing
+            // its old entry prevents tuple churn from growing scan tombstones.
+            self.flow_scan.retain(|candidate| candidate != &key);
         }
     }
 
@@ -210,6 +280,7 @@ impl PacketMuxTable {
             }
             return false;
         }
+        self.retire_previous_tcp(origin, tuple, packet);
         let flow = flow_key(origin, tuple);
         if !self.forward.contains_key(&flow) && self.forward.len() >= self.flow_limit {
             self.rejections[0] = self.rejections[0].saturating_add(1);
@@ -228,6 +299,9 @@ impl PacketMuxTable {
         let now = Instant::now();
         if let Some(mapping) = self.forward.get_mut(&flow) {
             mapping.last_seen = now;
+            mapping
+                .tcp
+                .observe(tuple.tcp_segment(packet), Direction::Outgoing);
             if mapping.wire.local_id != mapping.original_id {
                 rewrite_identifier(packet, &tuple, mapping.wire.local_id);
             }
@@ -252,12 +326,15 @@ impl PacketMuxTable {
             rewrite_identifier(packet, &tuple, translated);
         }
         self.flow_scan.push_back(flow.clone());
+        let mut tcp = TcpFlowState::default();
+        tcp.observe(tuple.tcp_segment(packet), Direction::Outgoing);
         self.forward.insert(
             flow.clone(),
             FlowMapping {
                 wire: wire.clone(),
                 original_id: tuple.local_id,
                 last_seen: now,
+                tcp,
             },
         );
         self.reverse.insert(wire, ReverseMapping { flow });
@@ -350,6 +427,9 @@ impl PacketMuxTable {
         });
         if let Some(forward) = self.forward.get_mut(&flow) {
             forward.last_seen = Instant::now();
+            forward
+                .tcp
+                .observe(tuple.tcp_segment(packet), Direction::Incoming);
         }
         if let Some(fragment) = fragment {
             self.record_incoming_fragment(fragment, flow.origin, Instant::now(), application_quic);
@@ -652,6 +732,19 @@ struct PacketTuple {
     identifier_offset: usize,
     checksum_offset: usize,
     checksum_optional: bool,
+}
+
+impl PacketTuple {
+    fn tcp_segment(self, packet: &[u8]) -> Option<TcpSegment> {
+        if self.protocol != 6 {
+            return None;
+        }
+        let offset = self.checksum_offset.checked_sub(16)?;
+        Some(TcpSegment {
+            sequence: read_u32(packet, offset + 4)?,
+            flags: *packet.get(offset + 13)?,
+        })
+    }
 }
 
 pub(crate) struct RoutedPacket {
@@ -1033,6 +1126,7 @@ fn write_u16(packet: &mut [u8], offset: usize, value: u16) {
 mod tests {
     use super::*;
     include!("packet_mux/ownership_tests.rs");
+    include!("packet_mux/tcp_lifetime_tests.rs");
 
     #[test]
     fn full_flow_table_preserves_packet_bytes_and_existing_routes() {

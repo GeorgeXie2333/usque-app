@@ -129,6 +129,7 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeCap
     with_jni_env(&mut environment, |environment| {
         let json = serde_json::json!({
             "network_settings_application": engine_ready(),
+            "connection_scenarios": engine_ready(),
             "account_metadata_mutations": engine_ready(),
             "shared_proxy_auth_application": engine_ready(),
             "l4_tcp": engine_ready(),
@@ -877,6 +878,7 @@ fn native_apply_profile_command(
 }
 
 mod network_settings;
+mod scenarios;
 mod vpngate;
 
 #[unsafe(no_mangle)]
@@ -981,6 +983,37 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeVpn
             Ok(value) => environment
                 .new_string(value)
                 .map_or(std::ptr::null_mut(), |v| v.into_raw()),
+            Err(error) => {
+                throw_io_error(environment, &error);
+                std::ptr::null_mut()
+            }
+        }
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeScenarioCommand<
+    'local,
+>(
+    mut environment: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    config_path: JString<'local>,
+    request_json: JString<'local>,
+) -> jstring {
+    with_jni_env(&mut environment, |environment| {
+        let result = (|| {
+            let path = config_path
+                .try_to_string(environment)
+                .map_err(|_| "SCENARIO_INVALID_REQUEST")?;
+            let request = request_json
+                .try_to_string(environment)
+                .map_err(|_| "SCENARIO_INVALID_REQUEST")?;
+            scenarios::command(&path, &request)
+        })();
+        match result {
+            Ok(value) => environment
+                .new_string(value)
+                .map_or(std::ptr::null_mut(), |value| value.into_raw()),
             Err(error) => {
                 throw_io_error(environment, &error);
                 std::ptr::null_mut()
@@ -2009,13 +2042,7 @@ fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String
         }
         store.save(&config).map_err(|error| error.to_string())?;
         if config.network.vpn_gate.selection != previous_gate.selection {
-            let mut retained: Vec<_> = config
-                .network
-                .vpn_gate
-                .selection
-                .clone()
-                .into_iter()
-                .collect();
+            let mut retained = usque_core::scenarios::retained_vpn_gate_selections(&config);
             if let Some(server) = engine_snapshot()
                 .vpn_gate
                 .and_then(|gate| gate.current_server)
@@ -2917,6 +2944,7 @@ fn network_quality_value(snapshot: &NetworkQualitySnapshot) -> serde_json::Value
             .map(|connection| connection.0.to_string())
             .unwrap_or_default(),
         "transport_performance": snapshot.transport_performance.as_ref().map(usque_transport::TransportPerformanceSnapshot::to_json),
+        "direct_gateway": snapshot.direct_gateway.as_ref().map(native_direct_gateway_value),
         "udp_socket_receive": snapshot.socket_receive.as_ref().map(|socket| serde_json::json!({
             "receive_buffer_bytes": socket.receive_buffer_bytes,
             "send_buffer_bytes": socket.send_buffer_bytes,
@@ -3047,6 +3075,42 @@ fn network_quality_value(snapshot: &NetworkQualitySnapshot) -> serde_json::Value
                 .unwrap_or_default(),
         },
     })
+}
+
+#[cfg(any(test, target_os = "android"))]
+fn native_direct_gateway_value(
+    snapshot: &usque_transport::DirectGatewaySnapshot,
+) -> serde_json::Value {
+    // Android's JSONObject/Messenger counters use signed 64-bit integers. Keep
+    // this fixed allowlist numeric and saturate before any JSON parser can
+    // round an oversized unsigned integer or wrap it into a negative value.
+    [
+        ("fallback_total", snapshot.fallback_total),
+        ("fallback_unavailable", snapshot.fallback_unavailable),
+        ("fallback_worker_failed", snapshot.fallback_worker_failed),
+        ("fallback_flow_capacity", snapshot.fallback_flow_capacity),
+        ("fallback_setup_failed", snapshot.fallback_setup_failed),
+        (
+            "fallback_unsupported_target",
+            snapshot.fallback_unsupported_target,
+        ),
+        ("fallback_rewrite_failed", snapshot.fallback_rewrite_failed),
+        ("flow_failures", snapshot.flow_failures),
+        (
+            "return_queue_drop_packets",
+            snapshot.return_queue_drop_packets,
+        ),
+        ("return_queue_drop_bytes", snapshot.return_queue_drop_bytes),
+    ]
+    .into_iter()
+    .map(|(key, value)| {
+        (
+            key.to_owned(),
+            serde_json::Value::from(value.min(i64::MAX as u64)),
+        )
+    })
+    .collect::<serde_json::Map<_, _>>()
+    .into()
 }
 
 #[cfg(any(test, target_os = "android"))]
@@ -3836,6 +3900,14 @@ mod tests {
             snapshot.active_listeners = vec!["127.0.0.1:1080".into()];
             snapshot.tunnel_ipv4_available = true;
             snapshot.download_bytes_per_second = 123;
+            let mut quality =
+                NetworkQualitySampler::new(NetworkQualityTelemetry::default()).sample();
+            quality.direct_gateway = Some(usque_transport::DirectGatewaySnapshot {
+                fallback_total: 1,
+                fallback_setup_failed: 1,
+                ..Default::default()
+            });
+            snapshot.network_quality = Some(network_quality_value(&quality));
             snapshot.finish_runtime(GateStatus {
                 stage: GateStage::Connected,
                 warp_stage: Some("connected".into()),
@@ -3845,6 +3917,7 @@ mod tests {
             let wire = serde_json::to_value(snapshot).unwrap();
             assert_eq!(wire["phase"], "error");
             assert_eq!(wire["warning"], "the original connection error");
+            assert!(wire.get("network_quality").is_none());
             assert_eq!(wire["vpn_gate"]["stage"], "error");
             assert_eq!(wire["vpn_gate"]["warp_stage"], "disconnected");
             assert_eq!(
@@ -4401,6 +4474,71 @@ mod tests {
     }
 
     #[test]
+    fn android_direct_gateway_projection_distinguishes_absent_zero_and_observed() {
+        use usque_transport::DirectGatewaySnapshot;
+
+        let mut sample = NetworkQualitySampler::new(NetworkQualityTelemetry::default()).sample();
+        assert!(network_quality_value(&sample)["direct_gateway"].is_null());
+
+        sample.direct_gateway = Some(DirectGatewaySnapshot::default());
+        let zero = network_quality_value(&sample);
+        let counters = zero["direct_gateway"].as_object().unwrap();
+        assert_eq!(counters.len(), 10);
+        assert!(counters.values().all(|value| value.as_u64() == Some(0)));
+
+        sample.direct_gateway = Some(DirectGatewaySnapshot {
+            fallback_total: 21,
+            fallback_unavailable: 1,
+            fallback_worker_failed: 2,
+            fallback_flow_capacity: 3,
+            fallback_setup_failed: 4,
+            fallback_unsupported_target: 5,
+            fallback_rewrite_failed: 6,
+            flow_failures: 7,
+            return_queue_drop_packets: 8,
+            return_queue_drop_bytes: 9,
+        });
+        let expected: serde_json::Value = serde_json::from_str(include_str!(
+            "../tests/fixtures/android_direct_gateway.json"
+        ))
+        .unwrap();
+        let observed = network_quality_value(&sample);
+        assert_eq!(observed["direct_gateway"], expected);
+
+        // Replacing an active source with no registered gateway cannot retain
+        // the previous source's counters or manufacture a zero measurement.
+        sample.direct_gateway = None;
+        assert!(network_quality_value(&sample)["direct_gateway"].is_null());
+        assert_eq!(observed["direct_gateway"], expected);
+    }
+
+    #[test]
+    fn android_direct_gateway_projection_saturates_all_unsigned_counters() {
+        let mut sample = NetworkQualitySampler::new(NetworkQualityTelemetry::default()).sample();
+        sample.direct_gateway = Some(usque_transport::DirectGatewaySnapshot {
+            fallback_total: u64::MAX,
+            fallback_unavailable: u64::MAX,
+            fallback_worker_failed: u64::MAX,
+            fallback_flow_capacity: u64::MAX,
+            fallback_setup_failed: u64::MAX,
+            fallback_unsupported_target: u64::MAX,
+            fallback_rewrite_failed: u64::MAX,
+            flow_failures: u64::MAX,
+            return_queue_drop_packets: u64::MAX,
+            return_queue_drop_bytes: u64::MAX,
+        });
+        let wire = network_quality_value(&sample).to_string();
+        let decoded: serde_json::Value = serde_json::from_str(&wire).unwrap();
+        let counters = decoded["direct_gateway"].as_object().unwrap();
+        assert_eq!(counters.len(), 10);
+        assert!(
+            counters
+                .values()
+                .all(|value| value.as_i64() == Some(i64::MAX))
+        );
+    }
+
+    #[test]
     fn android_quality_map_is_numeric_sanitized_and_explicit() {
         let telemetry = NetworkQualityTelemetry::default();
         telemetry.begin_connection(
@@ -4897,6 +5035,81 @@ mod tests {
             cleared["active_profile_id"],
             serde_json::json!("8c30b771-9ebd-457a-b67b-bbc74a1ddba6")
         );
+    }
+
+    #[test]
+    fn ordinary_settings_cleanup_retains_inactive_scene_and_restore_objects() {
+        use usque_core::scenarios::{
+            ConnectionScenario, ScenarioSettings, ScenarioSnapshot, ScenarioSwitchRecord,
+        };
+        use usque_core::vpngate::Selection;
+
+        let directory = tempfile::tempdir().unwrap();
+        let config_path = directory.path().join("profiles-v2.json");
+        let profile: serde_json::Value = serde_json::from_str(&valid_profile_json()).unwrap();
+        apply_profile_command(
+            config_path.to_str().unwrap(),
+            &serde_json::json!({"command": "upsert_profile", "profile": profile}).to_string(),
+        )
+        .unwrap();
+        let store = ConfigStore::new(&config_path);
+        let mut config = store.load().unwrap();
+        let account_id = config.active_profile_id.unwrap();
+        let target_settings = ScenarioSettings::from_network(&config.network);
+        let selection = |digit: &str| Selection {
+            server_id: format!("v1:{}", digit.repeat(64)),
+            config_sha256: digit.repeat(64),
+        };
+        config.network.vpn_gate.selection = Some(selection("a"));
+        let mut scene_settings = target_settings.clone();
+        scene_settings.vpn_gate.selection = Some(selection("b"));
+        config.scenarios.push(ConnectionScenario {
+            id: uuid::Uuid::new_v4(),
+            name: "Inactive saved scene".into(),
+            revision: uuid::Uuid::new_v4(),
+            bound_account_id: None,
+            settings: scene_settings,
+        });
+        let mut restore_settings = target_settings.clone();
+        restore_settings.vpn_gate.selection = Some(selection("c"));
+        config.last_scenario_switch = Some(Box::new(ScenarioSwitchRecord {
+            operation_id: uuid::Uuid::new_v4(),
+            source: ScenarioSnapshot {
+                account_id,
+                settings: restore_settings,
+                selection: None,
+            },
+            target: ScenarioSnapshot {
+                account_id,
+                settings: target_settings,
+                selection: None,
+            },
+            acknowledged: true,
+            restored: false,
+        }));
+        store.save(&config).unwrap();
+
+        // GC only needs object names; inert contents avoid certificates or VPN work.
+        let objects = directory.path().join("vpngate/objects");
+        std::fs::create_dir_all(&objects).unwrap();
+        for digit in ["a", "b", "c", "d"] {
+            std::fs::write(objects.join(format!("{}.json", digit.repeat(64))), b"{}").unwrap();
+        }
+        apply_profile_command(
+            config_path.to_str().unwrap(),
+            &serde_json::json!({"command": "reconfigure_active_profile", "profile": profile})
+                .to_string(),
+        )
+        .unwrap();
+        let saved = store.load().unwrap();
+        assert!(saved.network.vpn_gate.selection.is_none());
+        assert!(usque_core::scenarios::can_restore(&saved));
+        for digit in ["b", "c"] {
+            assert!(objects.join(format!("{}.json", digit.repeat(64))).is_file());
+        }
+        for digit in ["a", "d"] {
+            assert!(!objects.join(format!("{}.json", digit.repeat(64))).exists());
+        }
     }
 
     #[test]

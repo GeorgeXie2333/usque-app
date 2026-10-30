@@ -16,6 +16,70 @@ use crate::{AndroidProfile, android_profile_to_core, android_profile_value};
 
 static STATE: OnceLock<Mutex<NetworkSettingsState>> = OnceLock::new();
 
+#[cfg(test)]
+pub(crate) static TEST_STATE: Mutex<()> = Mutex::new(());
+
+pub(crate) fn scenario_snapshot() -> Result<NetworkSettingsState, String> {
+    STATE
+        .get_or_init(|| Mutex::new(NetworkSettingsState::default()))
+        .lock()
+        .map(|state| state.clone())
+        .map_err(|_| "SCENARIO_UNCONFIRMED".into())
+}
+
+pub(crate) fn record_scenario_commit(
+    config: &usque_core::AppConfig,
+    operation_id: Uuid,
+    apply_status: ApplyStatus,
+) -> Result<NetworkSettingsState, String> {
+    let mut state = STATE
+        .get_or_init(|| Mutex::new(NetworkSettingsState::default()))
+        .lock()
+        .map_err(|_| "SCENARIO_UNCONFIRMED")?;
+    state.operation_id = Some(operation_id);
+    state.persisted = Some(true);
+    state.record_persisted_operation(operation_id);
+    state.stored_profile = config.active_profile();
+    state.shared_network_profile = Some(
+        config
+            .network
+            .hydrate(&usque_core::Account::default_account()),
+    );
+    state.apply_status = apply_status;
+    state.error_code = None;
+    state.advance();
+    Ok(state.clone())
+}
+
+pub(crate) fn encode_scenario_state(state: &NetworkSettingsState) -> Result<Value, String> {
+    serde_json::from_str(&encode(state, None)?).map_err(|_| "SCENARIO_UNCONFIRMED".into())
+}
+
+pub(crate) fn record_scenario_uncertain(
+    config: &usque_core::AppConfig,
+    operation_id: Uuid,
+) -> Result<(), String> {
+    let mut state = STATE
+        .get_or_init(|| Mutex::new(NetworkSettingsState::default()))
+        .lock()
+        .map_err(|_| "SCENARIO_UNCONFIRMED")?;
+    state.operation_id = Some(operation_id);
+    state.persisted = None;
+    state.stored_profile = config.active_profile();
+    state.apply_status = ApplyStatus::Unknown;
+    state.error_code = Some("SCENARIO_COMMIT_UNCONFIRMED".into());
+    state.advance();
+    Ok(())
+}
+
+#[derive(Default, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+enum RuntimeFailureOutcome {
+    #[default]
+    Unconfirmed,
+    Rejected,
+}
+
 #[derive(Deserialize)]
 #[serde(tag = "command", rename_all = "snake_case")]
 enum Command {
@@ -40,6 +104,10 @@ enum Command {
     Failed {
         operation_id: Uuid,
         session_id: String,
+        #[serde(default)]
+        outcome: RuntimeFailureOutcome,
+        #[serde(default)]
+        confirmed_profile: Option<AndroidProfile>,
     },
 }
 
@@ -195,26 +263,53 @@ pub(crate) fn command(path: &str, request: &str) -> Result<String, String> {
             applying,
             unconfirmed,
         } => {
-            state.applied_profile = profile.map(android_profile_to_core).transpose()?;
+            let profile = profile.map(android_profile_to_core).transpose()?;
+            // Polling the unchanged session cannot turn a rejected application
+            // into a success. A new save or changed session/profile retires it.
+            let retain_rejection = !unconfirmed
+                && !applying
+                && profile.is_some()
+                && profile == state.applied_profile
+                && state.session_id.as_deref() == Some(session_id.as_str())
+                && state.apply_status == ApplyStatus::Failed
+                && state.error_code.as_deref() == Some("NETWORK_SETTINGS_APPLY_FAILED");
+            state.applied_profile = profile;
             state.session_id = Some(session_id);
             state.apply_status = if unconfirmed {
                 state.applied_profile = None;
                 ApplyStatus::Unknown
             } else if applying {
                 ApplyStatus::Applying
+            } else if retain_rejection {
+                ApplyStatus::Failed
             } else if state.applied_profile.is_some() {
                 ApplyStatus::Applied
             } else {
                 ApplyStatus::Deferred
             };
-            state.error_code = unconfirmed.then(|| "NETWORK_SETTINGS_RECOVERY_UNCONFIRMED".into());
+            if !retain_rejection {
+                state.error_code =
+                    unconfirmed.then(|| "NETWORK_SETTINGS_RECOVERY_UNCONFIRMED".into());
+            }
         }
         Command::Failed {
             operation_id,
             session_id,
+            outcome,
+            confirmed_profile,
         } => {
-            if state.session_id.as_deref() == Some(session_id.as_str()) {
-                state.applied_profile = None;
+            if state.session_id.as_deref() == Some(session_id.as_str())
+                && (outcome != RuntimeFailureOutcome::Rejected
+                    || state.operation_id == Some(operation_id))
+            {
+                let confirmed_profile =
+                    confirmed_profile.and_then(|profile| android_profile_to_core(profile).ok());
+                let retained = outcome == RuntimeFailureOutcome::Rejected
+                    && confirmed_profile.is_some()
+                    && confirmed_profile == state.applied_profile;
+                if !retained {
+                    state.applied_profile = None;
+                }
                 state.apply_status = if state.operation_id == Some(operation_id) {
                     ApplyStatus::Failed
                 } else {
@@ -282,8 +377,166 @@ fn encode(
 mod tests {
     use super::*;
 
+    // The JNI adapter owns one process-wide state even when fixtures use
+    // separate stores. Keep each command sequence under one test reservation.
+
+    #[test]
+    fn issue_138_confirmed_rejection_retains_runtime_and_allows_an_explicit_retry() {
+        let _test = TEST_STATE.lock().unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("profiles-v2.json");
+        let store = ConfigStore::new(&path);
+        let config = usque_core::AppConfig::default();
+        store.save(&config).unwrap();
+        let profile = config.active_profile().unwrap();
+        let request = |value: Value| -> Value {
+            serde_json::from_str(&command(path.to_str().unwrap(), &value.to_string()).unwrap())
+                .unwrap()
+        };
+        request(json!({"command":"reset"}));
+        let observation = json!({
+            "command":"observe", "profile":profile_value(&profile),
+            "session_id":"138", "applying":false
+        });
+        request(observation.clone());
+
+        // An unrelated deferred edit must not be pulled into the routing retry.
+        let mut desired = profile.clone();
+        desired.mtu = 1400;
+        request(json!({
+            "command":"save", "operation_id":Uuid::new_v4(), "account_id":profile.id,
+            "values":profile_value(&desired), "changed_fields":["mtu"],
+            "phase":"connected", "available":false, "session_id":"138"
+        }));
+        desired.routing.rules.push(usque_core::RoutingRule {
+            id: Uuid::new_v4(),
+            kind: usque_core::RoutingMatch::Domain,
+            target: "direct.test".into(),
+            action: usque_core::RoutingAction::Direct,
+        });
+        let operation = Uuid::new_v4();
+        let saving = |operation| {
+            json!({
+                "command":"save", "operation_id":operation, "account_id":profile.id,
+                "values":profile_value(&desired), "changed_fields":["routing"],
+                "phase":"connected", "available":true, "session_id":"138"
+            })
+        };
+        let saved = request(saving(operation));
+        assert_eq!(saved["persisted"], true);
+        assert_eq!(saved["apply_status"], "applying");
+        assert_eq!(saved["target"]["mtu"], profile.mtu);
+
+        // This is the existing failure callback path. The native rejection
+        // retained the old runtime and the host restored its recovery record.
+        let rejected = request(json!({
+            "command":"failed", "operation_id":operation, "session_id":"138",
+            "outcome":"rejected", "confirmed_profile":profile_value(&profile)
+        }));
+        assert_eq!(rejected["applied_profile"], profile_value(&profile));
+        assert_eq!(rejected["apply_status"], "failed");
+        assert_eq!(rejected["persisted"], true);
+        assert_eq!(
+            rejected["stored_profile"]["routing"],
+            saved["stored_profile"]["routing"]
+        );
+        assert!(
+            rejected["persisted_operation_ids"]
+                .as_array()
+                .unwrap()
+                .contains(&json!(operation))
+        );
+        assert_eq!(store.load().unwrap().network.routing, desired.routing);
+
+        let observed = request(observation);
+        assert_eq!(observed["applied_profile"], profile_value(&profile));
+        assert_eq!(observed["apply_status"], "failed");
+        let retry = request(saving(Uuid::new_v4()));
+        assert_eq!(retry["apply_status"], "applying");
+        assert_eq!(retry["target"]["routing"], saved["target"]["routing"]);
+        assert_eq!(retry["target"]["mtu"], profile.mtu);
+        assert_eq!(retry["stored_profile"]["mtu"], 1400);
+        assert!(retry["error_code"].is_null());
+        let late = request(json!({
+            "command":"failed", "operation_id":operation, "session_id":"138",
+            "outcome":"rejected", "confirmed_profile":profile_value(&profile)
+        }));
+        assert_eq!(late["operation_id"], retry["operation_id"]);
+        assert_eq!(late["apply_status"], "applying");
+        assert_eq!(late["applied_profile"], profile_value(&profile));
+        assert!(late["error_code"].is_null());
+        request(json!({
+            "command":"failed", "operation_id":retry["operation_id"], "session_id":"138",
+            "outcome":"rejected", "confirmed_profile":profile_value(&profile)
+        }));
+        let replacement = request(json!({
+            "command":"observe", "profile":profile_value(&profile),
+            "session_id":"139", "applying":false
+        }));
+        assert_eq!(replacement["apply_status"], "deferred");
+        assert!(replacement["error_code"].is_null());
+    }
+
+    #[test]
+    fn issue_138_rejection_requires_matching_confirmation_and_session() {
+        let _test = TEST_STATE.lock().unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("profiles-v2.json");
+        let store = ConfigStore::new(&path);
+        let config = usque_core::AppConfig::default();
+        store.save(&config).unwrap();
+        let profile = config.active_profile().unwrap();
+        let request = |value: Value| -> Value {
+            serde_json::from_str(&command(path.to_str().unwrap(), &value.to_string()).unwrap())
+                .unwrap()
+        };
+        for evidence in ["missing", "different", "unconfirmed", "old_session"] {
+            request(json!({"command":"reset"}));
+            request(json!({
+                "command":"observe", "profile":profile_value(&profile),
+                "session_id":"138", "applying":false
+            }));
+            let mut desired = profile.clone();
+            desired.disable_quic = !profile.disable_quic;
+            let operation = Uuid::new_v4();
+            request(json!({
+                "command":"save", "operation_id":operation, "account_id":profile.id,
+                "values":profile_value(&desired), "changed_fields":["disable_quic"],
+                "phase":"connected", "available":true, "session_id":"138"
+            }));
+            let mut failure = json!({
+                "command":"failed", "operation_id":operation, "session_id":"138",
+                "outcome":"rejected", "confirmed_profile":profile_value(&profile)
+            });
+            match evidence {
+                "missing" => failure["confirmed_profile"] = Value::Null,
+                "different" => failure["confirmed_profile"] = profile_value(&desired),
+                "unconfirmed" => {
+                    failure.as_object_mut().unwrap().remove("outcome");
+                }
+                "old_session" => failure["session_id"] = json!("137"),
+                _ => unreachable!(),
+            }
+            let result = request(failure);
+            assert_eq!(result["persisted"], true, "{evidence}");
+            assert_eq!(
+                result["stored_profile"]["disable_quic"],
+                desired.disable_quic
+            );
+            if evidence == "old_session" {
+                assert_eq!(result["applied_profile"], profile_value(&profile));
+                assert_eq!(result["apply_status"], "applying");
+                assert!(result["error_code"].is_null());
+            } else {
+                assert!(result["applied_profile"].is_null(), "{evidence}");
+                assert_eq!(result["apply_status"], "failed", "{evidence}");
+            }
+        }
+    }
+
     #[test]
     fn json_readback_retains_durable_save_receipts_after_later_saves() {
+        let _test = TEST_STATE.lock().unwrap();
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("profiles-v2.json");
         let store = ConfigStore::new(&path);
@@ -323,6 +576,7 @@ mod tests {
 
     #[test]
     fn routing_validation_errors_are_definitive_and_preserve_rule_ids() {
+        let _test = TEST_STATE.lock().unwrap();
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("profiles-v2.json");
         let store = ConfigStore::new(&path);
@@ -370,6 +624,7 @@ mod tests {
 
     #[test]
     fn host_uses_shared_policy_and_never_activates_an_earlier_deferred_edit() {
+        let _test = TEST_STATE.lock().unwrap();
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("profiles-v2.json");
         let store = ConfigStore::new(&path);

@@ -24,6 +24,16 @@ pub enum ReconfigureClass {
     HotVpnGate,
 }
 
+/// Apply native platform constraints to a logical reconfiguration plan. Keep
+/// preview and execution consistent even in tests without native networking.
+pub fn platform_class(class: ReconfigureClass) -> ReconfigureClass {
+    if cfg!(target_os = "linux") && class == ReconfigureClass::HotTunnelAttach {
+        ReconfigureClass::ColdReconnect
+    } else {
+        class
+    }
+}
+
 /// Decide how to apply `next` over the currently connected `previous` profile.
 pub fn classify_reconfigure(previous: &Profile, next: &Profile) -> ReconfigureClass {
     if previous.id != next.id {

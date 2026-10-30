@@ -143,6 +143,16 @@ fn listener() -> SocketAddr {
 }
 
 #[test]
+fn connection_and_recovery_context_clones_keep_the_same_native_backend() {
+    let (directory, _path, cipher, _backend) = fixture();
+    let context = Context::new(directory.path(), cipher);
+    let connection = context.clone();
+    let recovery = context.clone();
+    assert!(Arc::ptr_eq(&context.backend, &connection.backend));
+    assert!(Arc::ptr_eq(&context.backend, &recovery.backend));
+}
+
+#[test]
 fn owned_restore_preserves_external_edits_pac_socks_credentials_and_other_services() {
     let (_directory, path, cipher, backend) = fixture();
     let original = backend.state.lock().unwrap().services.clone();

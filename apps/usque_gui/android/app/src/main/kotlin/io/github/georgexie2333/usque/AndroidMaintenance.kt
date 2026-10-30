@@ -8,6 +8,7 @@ import androidx.core.content.edit
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
+import java.io.OutputStream
 import java.security.MessageDigest
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
@@ -70,6 +71,46 @@ internal object AndroidMaintenance {
     ) {
         val capturedLogs =
             logSnapshot?.let { AndroidLogStore.fromMap(it.toMap()) } ?: AndroidLogStore.readPersisted(context)
+        writeDiagnosticArchive(
+            snapshot,
+            diagnosticSession,
+            connectionTimeline,
+            capturedLogs,
+            metadata = {
+                DiagnosticArchiveMetadata(
+                    appVersion = context.packageManager.getPackageInfo(context.packageName, 0).versionName,
+                    appDebuggable =
+                        context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0,
+                    nativeBuild = NativeEngine.buildInfo(),
+                    sdk = Build.VERSION.SDK_INT,
+                    supportedAbis = Build.SUPPORTED_ABIS.toList(),
+                )
+            },
+            openOutput = {
+                context.contentResolver.openOutputStream(destination, "rwt")
+                    ?: throw IOException("The selected document provider returned no output stream.")
+            },
+        )
+    }
+
+    internal data class DiagnosticArchiveMetadata(
+        val appVersion: String?,
+        val appDebuggable: Boolean,
+        val nativeBuild: String?,
+        val sdk: Int,
+        val supportedAbis: List<String>,
+    )
+
+    /** Uses the captured inputs; platform metadata and the provider are read only
+     * after the payload has passed the existing export size and privacy checks. */
+    internal fun writeDiagnosticArchive(
+        snapshot: Map<String, Any?>,
+        diagnosticSession: Map<String, Any?>?,
+        connectionTimeline: Map<String, Any?>,
+        capturedLogs: AndroidLogStore.Snapshot,
+        metadata: () -> DiagnosticArchiveMetadata,
+        openOutput: () -> OutputStream,
+    ) {
         val logs = capturedLogs.lines
         val capture = DiagnosticMetadata.captureSummary(snapshot, connectionTimeline)
         val scopedTimeline =
@@ -128,20 +169,17 @@ internal object AndroidMaintenance {
         }
 
         val sessionState = sanitizedSession?.optString("state")
+        val platform = metadata()
         val manifest =
             JSONObject()
                 .put("schema_version", 2)
                 .put("created_at_unix_millis", System.currentTimeMillis())
-                .put(
-                    "app_version",
-                    context.packageManager.getPackageInfo(context.packageName, 0).versionName,
-                ).put("platform", "android")
-                .put(
-                    "app_debuggable",
-                    context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0,
-                ).put("native_build", L4StatusFields.buildInfo(NativeEngine.buildInfo()) ?: JSONObject.NULL)
-                .put("sdk", Build.VERSION.SDK_INT)
-                .put("supported_abis", Build.SUPPORTED_ABIS.joinToString(","))
+                .put("app_version", platform.appVersion)
+                .put("platform", "android")
+                .put("app_debuggable", platform.appDebuggable)
+                .put("native_build", L4StatusFields.buildInfo(platform.nativeBuild) ?: JSONObject.NULL)
+                .put("sdk", platform.sdk)
+                .put("supported_abis", platform.supportedAbis.joinToString(","))
                 .put("diagnostic_complete", sessionState == "completed")
                 .put("diagnostic_cancelled", sessionState == "cancelled")
                 .put("redaction_policy", "allowlist-v2")
@@ -168,10 +206,7 @@ internal object AndroidMaintenance {
                         "user filesystem paths",
                     ),
                 )
-        val output =
-            context.contentResolver.openOutputStream(destination, "rwt")
-                ?: throw IOException("The selected document provider returned no output stream.")
-        output.use { stream ->
+        openOutput().use { stream ->
             ZipOutputStream(stream.buffered()).use { archive ->
                 archive.writeEntry("manifest.json", manifest.toString(2).toByteArray())
                 payloads.forEach { (name, bytes) -> archive.writeEntry(name, bytes) }

@@ -182,14 +182,101 @@ pub(crate) fn command(
         .lock_exclusive()
         .map_err(|_| "Configuration is busy")?;
     let config = config_store.load().map_err(|_| "Invalid configuration")?;
-    let mut retained = Vec::new();
-    if let Some(id) = config.network.chain_exit.and_then(|s| s.profile_id) {
-        retained.push(id);
-    }
+    let mut retained = usque_core::scenarios::retained_chain_profiles(&config);
     if let Some(profile) = &status.current_profile {
         retained.push(profile.id);
     }
     let cipher = CIPHER.get().ok_or("Chain secure storage is unavailable")?;
     let result = usque_core::chain_exit::profile_command(parent, cipher, request, &retained);
     serde_json::to_string(&result).map_err(|_| "Chain response failed".into())
+}
+
+pub(crate) fn scenario_dependency_revision(
+    parent: &Path,
+    selection: &usque_core::chain_exit::ChainExitSettings,
+) -> Result<String, String> {
+    let cipher = CIPHER.get().ok_or("SCENARIO_DEPENDENCY_UNAVAILABLE")?;
+    selected_dependency_revision(
+        &usque_core::chain_exit::store::ChainProfileStore::new(parent, cipher),
+        selection,
+    )
+}
+
+fn selected_dependency_revision(
+    store: &usque_core::chain_exit::store::ChainProfileStore<'_>,
+    selection: &usque_core::chain_exit::ChainExitSettings,
+) -> Result<String, String> {
+    let (profile, _, _) = store
+        .load(selection)
+        .map_err(|_| "SCENARIO_DEPENDENCY_UNAVAILABLE")?;
+    let metadata = (profile.id, profile.revision, profile.edit_revision);
+    serde_json::to_string(&metadata).map_err(|_| "SCENARIO_DEPENDENCY_UNAVAILABLE".into())
+}
+
+#[cfg(test)]
+mod scenario_tests {
+    use super::*;
+    use usque_core::chain_exit::{ChainSource, ImportSecrets, store::ChainProfileStore};
+
+    struct Cipher {
+        unreadable: Option<Uuid>,
+    }
+    impl ProfileCipher for Cipher {
+        fn seal(&self, _: Uuid, value: &[u8]) -> Result<Vec<u8>, ImportError> {
+            Ok(value.to_vec())
+        }
+        fn open(&self, id: Uuid, value: &[u8]) -> Result<Zeroizing<Vec<u8>>, ImportError> {
+            if Some(id) == self.unreadable {
+                return Err(ImportError::new(0, "storage", "unreadable"));
+            }
+            Ok(Zeroizing::new(value.to_vec()))
+        }
+    }
+
+    #[test]
+    fn scene_dependency_ignores_unrelated_unreadable_exit_but_checks_selected_revision() {
+        let directory = tempfile::tempdir().unwrap();
+        let cipher = Cipher { unreadable: None };
+        let store = ChainProfileStore::new(directory.path(), &cipher);
+        let secrets = || ImportSecrets {
+            proxy: Some(
+                serde_json::from_value(serde_json::json!({
+                    "host":"proxy.example", "port":1080, "auth_mode":"none",
+                    "dns_servers":["1.1.1.1"], "dns_transport":"auto"
+                }))
+                .unwrap(),
+            ),
+            configuration: String::new(),
+            username: String::new(),
+            password: String::new(),
+            private_key_password: String::new(),
+        };
+        let selected = store
+            .import(ChainSource::HttpProxy, "Selected", secrets())
+            .unwrap();
+        let other = store
+            .import(ChainSource::HttpProxy, "Other", secrets())
+            .unwrap();
+        let expected = selected_dependency_revision(&store, &selected.selection()).unwrap();
+        let broken_other = Cipher {
+            unreadable: Some(other.id),
+        };
+        let partial = ChainProfileStore::new(directory.path(), &broken_other);
+        assert!(partial.list().is_err());
+        assert_eq!(
+            selected_dependency_revision(&partial, &selected.selection()).unwrap(),
+            expected
+        );
+        assert!(selected_dependency_revision(&partial, &other.selection()).is_err());
+        let renamed = store
+            .rename(selected.id, selected.edit_revision, "Changed")
+            .unwrap();
+        assert_ne!(
+            selected_dependency_revision(&store, &renamed.selection()).unwrap(),
+            expected
+        );
+        let mut stale = renamed.selection();
+        stale.revision = Some(Uuid::new_v4());
+        assert!(selected_dependency_revision(&store, &stale).is_err());
+    }
 }

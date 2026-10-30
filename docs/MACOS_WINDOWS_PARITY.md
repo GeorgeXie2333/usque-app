@@ -30,8 +30,8 @@ hardware. None of the isolated results establishes physical-egress safety.
 | Kill Switch and reconnect | Independent protection before tunnel admission, credential-less restart blocked; Engine loss is not Stop | Isolated lifecycle/fault contracts; actual provider crash, sleep and network-change protection pending |
 | Chain exits and account managers | macOS wires the shared HTTP, SOCKS, OpenVPN, WireGuard, WARP WireGuard, VPN Gate and Proton handlers; numeric WARP endpoint overrides survive the dedicated secret handoff | Engine preparation/DTO tests across all families; live service acceptance pending; existing experimental flags retained |
 | Account bootstrap protection | Existing connected WARP runtime can be reused; unprotected standalone physical bootstrap remains refused | No fallback that bypasses authenticated protection |
-| Credentials and configuration | User Engine owns Keychain and encrypted chain storage; dedicated secret transfer and durable refresh acknowledgement | In-memory test vault; no host credentials read or replaced by tests |
-| System proxy | Per-service SystemConfiguration transaction, authorization retry, encrypted ownership journal, compare-and-restore; pending recovery blocks new sessions and key deletion | Fake preferences/failure injection; real authorization cancellation and crash recovery pending; newly created services require reapply |
+| Credentials and configuration | User Engine owns Keychain and encrypted chain storage; bounded zeroizing cache reuses unlocked records across connection changes; dedicated secret transfer and durable refresh acknowledgement | Injected Keychain and in-memory test vault; no host credentials read or replaced by tests |
+| System proxy | Per-service SystemConfiguration transaction, Engine-lifetime network authorization reuse, silent rights preflight on cleanup, encrypted ownership journal, compare-and-restore; pending recovery blocks new sessions and key deletion | Fake preferences/authorization/failure injection; real authorization cancellation and crash recovery pending; newly created services require reapply |
 | Continuous desktop events | Authenticated per-user Unix control/events sockets; bounded, fragmented/coalesced frame decoder | Engine and Dart tests; hidden-window event loop is implemented |
 | Tray/background controls | Native menu bar status, connect/disconnect, VPN/proxy actions, hidden-window updates, explicit disconnect-and-quit | Native contract/type checks; real tray interaction pending |
 | Output availability | Home, Proxy, tray and shortcuts honor Engine VPN/proxy capabilities; unavailable saved outputs can still be turned off; Settings explains unavailable VPN protection | Headless capability/refresh contracts; unsigned VPN stays disabled |
@@ -46,6 +46,52 @@ hardware. None of the isolated results establishes physical-egress safety.
 | Update selection and recovery | Maintenance foundation verifies version, native hardware architecture, name, size, hash and signing; same-volume atomic swap, retained backup and durable, candidate-bound health receipts | Temporary injected-verifier tests including Intel-to-arm64 migration and confirmation retries across restarts; live health authentication is not integrated and production installation remains disabled |
 | Extension update and uninstall | Application transaction leaves extensions/user data separate; manual app removal preserves user data | Extension approval/restart orchestration and managed uninstall remain pending |
 | Signed production distribution | Development packages are explicitly ad-hoc and not notarized | Developer ID, notarization, Gatekeeper distribution and full two-architecture acceptance pending |
+
+## Keychain access
+
+The macOS vault retains successfully read credentials in zeroizing memory for
+the Engine lifetime, shared by its clones. Connecting, disconnecting and
+reconnecting can reuse those records without repeating the same native Keychain
+read. The cache holds at most 256 records of at most 2,560 bytes each; eviction
+and the last owner's exit drop and zeroize the values. Debug output omits both
+credentials and account identifiers.
+
+Explicit writes and deletes invalidate the cached record before native access,
+including failures. Writes still reach Keychain and subsequent reads still verify
+the stored value before caching it. Missing records, failed/cancelled reads and
+invalid sizes are not cached. Native operations and cache changes run under the
+same blocking-worker lock, including when an async caller is cancelled.
+
+The first read of each item, a new Engine, eviction, updates or a locked Keychain
+can still require macOS approval. This does not change Keychain ACLs, unlock the
+login Keychain automatically or grant another application access. Already loaded
+credentials remain usable for this Engine session, as with active transport
+credentials; external Keychain edits are observed after cache invalidation or
+Engine restart. Real Keychain password dialogs remain device-pending; tests use
+only a synthetic injected store.
+
+## System-proxy authorization
+
+Enabling the system proxy can require the macOS administrator dialog. Engine
+requests `system.services.systemconfiguration.network`, the right checked by
+[Apple's SCHelper](https://github.com/apple-oss-distributions/configd/blob/main/SystemConfiguration.fproj/helper/SCHelper_server.c),
+and retains that process-local authorization across disconnect, reconnect and
+recovery. It no longer requests the unrelated broad `system.preferences` right
+or discards its authorization after each connection. Passwords and authorization
+external forms are never stored or passed to another Usque process.
+
+Cleanup checks the network right without allowing interaction before opening an
+authorized preferences session. If the check fails, the encrypted recovery journal
+remains for an explicit retry. A fresh Engine's background recovery creates no
+authorization reference. This does not bypass macOS policy: the first enable,
+Engine restart, expired/revoked rights or managed-device policy can require new
+approval. SCHelper performs its own checks at lock/commit/apply, so a concurrent
+policy change after preflight remains subject to macOS behavior.
+
+The regression fixtures cover one authorization across connect/disconnect/reconnect,
+cancellation/retry, revoked-right preflight and shared context lifetime. They do not
+display a real password dialog or change host network preferences. Actual dialog
+counts, long-running sessions, cancellation and crash recovery remain device-pending.
 
 ## Earlier complete-suite checks
 

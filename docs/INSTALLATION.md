@@ -18,8 +18,9 @@ See [Upgrade](#upgrade) if that version cannot uninstall.
 ### Configuration compatibility when upgrading
 
 v0.3.1 uses configuration schema 24; v0.3.0 uses 23 and v0.2.9 uses 21.
-Current source uses schema 26: schema 25 adds the shared MASQUE TLS fingerprint
-and schema 26 adds optional IPv6 endpoint presets. Migrated and new
+Current source uses schema 27: schema 25 adds the shared MASQUE TLS fingerprint,
+schema 26 adds optional IPv6 endpoint presets, and schema 27 adds local
+[connection scenes](SCENARIOS.md) without changing existing network settings. Migrated and new
 configurations use the Chrome 155 fingerprint unless you had explicitly chosen
 another one; the original handshake is now labeled unsafe. Older configurations
 start without an IPv6 preset. Other settings migrate as before.
@@ -207,7 +208,7 @@ maximized state.
 
 | Shortcut | Action |
 | --- | --- |
-| **Ctrl+1**, **Ctrl+2**, **Ctrl+3**, **Ctrl+4** | Open Home, Accounts, Proxy or Settings. |
+| **Ctrl+1**, **Ctrl+2**, **Ctrl+3**, **Ctrl+4** | Open Home, Profiles, Proxy or Settings. |
 | **Esc** outside a text field, **Alt+Left**, mouse back button | Leave a subpage; unapplied changes still require a choice. |
 | **Ctrl+S** | Apply changes through the visible apply bar when available. |
 | **F5** | Refresh the VPN Gate list or diagnostics timeline on that page. |

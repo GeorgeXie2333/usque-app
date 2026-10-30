@@ -31,6 +31,24 @@ same in the target language are not missing translations.
 和城市名保留原数据。翻译覆盖测试检查目录、键、占位符和实际取词结果，Proton
 界面测试覆盖全部语言的 200% 字号及从右到左布局。
 
+## Profiles and scene drafts
+
+The second destination is **Profiles** (**配置** in Simplified Chinese), with
+**Scenes / Accounts** tabs. Its nested section navigator preserves desktop
+navigation and uses the normal leave guard; phones hide bottom navigation on
+editor subpages. Home account and existing account-launch targets open Accounts;
+the scene entry opens Scenes. Ordinary navigation remembers the tab for this run.
+
+Scene forms keep local drafts. Saving a template never calls the live network
+settings save path. Reuse the pure routing and DNS fields and prepared exit
+references; imports and authentication stay in Proxy. The native scene command
+owns preview, optional account binding, activation and recovery. Current and
+applied combinations are distinct, including uncertain replies and unavailable
+dependencies. See [Profiles and scenes](../../docs/SCENARIOS.md).
+
+配置页与首页都以引擎确认状态区分已选目标和当前连接。场景编辑保留独立草稿，
+账号默认沿用当前选择，也可绑定指定账号；保存模板不会改变连接。
+
 ## Linux desktop
 
 The production entry point is `lib/main.dart`; the Linux runner builds `usque`

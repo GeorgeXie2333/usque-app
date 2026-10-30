@@ -11,10 +11,9 @@ use core_foundation::{
     string::{CFString, CFStringRef},
 };
 use sha2::{Digest, Sha256};
-use std::{
-    ffi::{c_char, c_void},
-    ptr,
-};
+use std::{ffi::c_void, ptr};
+mod authorization;
+use authorization::Authorization;
 type Ref = *const c_void;
 #[link(name = "SystemConfiguration", kind = "framework")]
 unsafe extern "C" {
@@ -43,65 +42,6 @@ unsafe extern "C" {
     fn SCNetworkSetCopyCurrent(prefs: Ref) -> Ref;
     fn SCNetworkSetCopyServices(set: Ref) -> CFArrayRef;
     fn SCError() -> i32;
-}
-#[repr(C)]
-struct AuthorizationItem {
-    name: *const c_char,
-    length: usize,
-    value: *mut c_void,
-    flags: u32,
-}
-#[repr(C)]
-struct AuthorizationItems {
-    count: u32,
-    items: *mut AuthorizationItem,
-}
-#[link(name = "Security", kind = "framework")]
-unsafe extern "C" {
-    fn AuthorizationCreate(
-        rights: *const AuthorizationItems,
-        environment: *const AuthorizationItems,
-        flags: u32,
-        output: *mut *mut c_void,
-    ) -> i32;
-    fn AuthorizationFree(authorization: *mut c_void, flags: u32) -> i32;
-}
-struct Authorization(*mut c_void);
-// SAFETY: Authorization Services references are opaque process-wide handles.
-// Every access and release is serialized by NativeBackend.authorization; no
-// pointer is dereferenced by Rust or exposed to any client/provider process.
-unsafe impl Send for Authorization {}
-impl Authorization {
-    fn create() -> Result<Self> {
-        let mut right = AuthorizationItem {
-            name: c"system.preferences".as_ptr(),
-            length: 0,
-            value: ptr::null_mut(),
-            flags: 0,
-        };
-        let rights = AuthorizationItems {
-            count: 1,
-            items: &mut right,
-        };
-        let mut output = ptr::null_mut();
-        // SAFETY: the item set and output storage remain live through this call;
-        // only Authorization Services owns the permission dialog/credentials.
-        let status = unsafe { AuthorizationCreate(&rights, ptr::null(), 1 | 2, &mut output) };
-        match status {
-            0 if !output.is_null() => Ok(Self(output)),
-            -60006 => Err(Error::PermissionCancelled),
-            -60005 | -60007 => Err(Error::PermissionRequired),
-            _ => Err(Error::Unavailable),
-        }
-    }
-}
-impl Drop for Authorization {
-    fn drop(&mut self) {
-        // SAFETY: this sole owner releases the process-local authorization once.
-        unsafe {
-            AuthorizationFree(self.0, 0);
-        }
-    }
 }
 struct Owned(Ref);
 impl Owned {
@@ -145,17 +85,23 @@ impl Backend for NativeBackend {
         if interactive && authorization.is_none() {
             *authorization = Some(Authorization::create()?);
         }
+        // SCHelper can request rights again at lock/commit/apply. Acquire the
+        // exact right it checks, and reject expired rights before handing a
+        // reference to that helper during shutdown or background recovery.
+        if let Some(auth) = authorization.as_ref() {
+            auth.require_network_right(interactive)?;
+        }
         let name = CFString::new("Usque system proxy");
         // SAFETY: the CFString and optional authorization reference remain live
-        // while the owned preferences session is created. Startup has no auth
-        // reference and therefore cannot trigger an authorization dialog.
+        // while the owned preferences session is created. A fresh Engine's
+        // background recovery has no authorization reference or prompt.
         let prefs = Owned::new(unsafe {
             match authorization.as_ref() {
                 Some(auth) => SCPreferencesCreateWithAuthorization(
                     ptr::null(),
                     name.as_concrete_TypeRef(),
                     ptr::null(),
-                    auth.0,
+                    auth.as_ptr(),
                 ),
                 None => SCPreferencesCreate(ptr::null(), name.as_concrete_TypeRef(), ptr::null()),
             }

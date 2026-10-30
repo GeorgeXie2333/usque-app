@@ -18,6 +18,7 @@ internal class ProtectedAccountHandoff {
         mode: String?,
         runtimeProfile: String? = appliedProfile,
         phase: String = "connected",
+        requireProxyChain: Boolean = true,
     ): Long? {
         if (!tunnelOwned) return null
         if (!retained &&
@@ -33,7 +34,7 @@ internal class ProtectedAccountHandoff {
                         "reconnecting",
                         "error",
                     ) &&
-                    eligible(appliedProfile, runtimeProfile)
+                    eligible(appliedProfile, runtimeProfile, requireProxyChain)
             )
         ) {
             return null
@@ -84,12 +85,15 @@ internal class ProtectedAccountHandoff {
     private fun eligible(
         profile: String?,
         runtimeProfile: String?,
+        requireProxyChain: Boolean,
     ): Boolean =
         profile?.let {
             runCatching {
                 val source = JSONObject(it)
                 val runtime = JSONObject(requireNotNull(runtimeProfile))
-                VpnReconfigure.tunnelFrontendEnabled(source) && ChainProfileFields.proxy(source) &&
+                VpnReconfigure.tunnelFrontendEnabled(
+                    source,
+                ) && (!requireProxyChain || ChainProfileFields.proxy(source)) &&
                     source.optString("id").isNotEmpty() && source.optString("id") == runtime.optString("id") &&
                     ChainProfileFields.selection(source) == ChainProfileFields.selection(runtime)
             }.getOrDefault(false)

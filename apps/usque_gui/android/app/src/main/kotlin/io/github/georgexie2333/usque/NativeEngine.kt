@@ -42,6 +42,16 @@ internal object NativeEngine {
         request: String,
     ): String?
 
+    fun scenarioCommand(
+        path: String,
+        request: String,
+    ): String? = if (libraryLoaded) nativeScenarioCommand(path, request) else null
+
+    private external fun nativeScenarioCommand(
+        path: String,
+        request: String,
+    ): String?
+
     private val libraryLoaded: Boolean =
         try {
             System.loadLibrary("usque_android")

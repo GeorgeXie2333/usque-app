@@ -10,6 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../core/app_strings.dart';
 import '../core/user_facing_errors.dart';
 import '../models/app_models.dart';
+import '../models/scenarios.dart';
 import '../services/engine_client.dart';
 import '../services/gui_startup_observation.dart';
 import '../services/linux_preferences_store.dart';
@@ -17,6 +18,7 @@ import '../services/update_downloader.dart';
 import 'diagnostics_controller.dart';
 import 'network_quality_controller.dart';
 import 'network_settings_controller.dart';
+import 'scenarios_controller.dart';
 
 class _AdsRulesWork {
   _AdsRulesWork({required this.manual, required this.prepare});
@@ -147,6 +149,24 @@ class AppController extends ChangeNotifier {
        diagnostics = DiagnosticsController(engine),
        quality = qualityController ?? NetworkQualityController(engine),
        networkSettings = NetworkSettingsController(engine) {
+    scenarios = ScenariosController((command) {
+      final generation = _dataGeneration;
+      return networkSettings.enqueue(() {
+        if (_disposed || _clearing || generation != _dataGeneration) {
+          throw const EngineException(
+            'SCENARIO_CANCELLED',
+            'The scene operation was retired.',
+          );
+        }
+        return engine.scenarioCommand(command);
+      });
+    });
+    scenarios.addListener(_notifyListeners);
+    scenarios.afterActivation = () async {
+      await _refreshProfileCatalog();
+      await networkSettings.refresh();
+      if (!_disposed) _notifyListeners();
+    };
     diagnostics.resolveStrings = () => strings;
     networkSettings.addListener(_acceptNetworkSettings);
   }
@@ -165,6 +185,18 @@ class AppController extends ChangeNotifier {
   ];
 
   final EngineClient _engine;
+  late final ScenariosController scenarios;
+  ProfilesTab profilesTab = ProfilesTab.scenes;
+  void selectProfilesTab(ProfilesTab tab) {
+    profilesTab = tab;
+    _notifyListeners();
+  }
+
+  void openProfiles(ProfilesTab tab) {
+    profilesTab = tab;
+    selectSection(AppSection.profiles);
+  }
+
   @visibleForTesting
   final Future<bool> Function()? onboardingCompletionWriter;
   String newVpnGateOperationId() => _newUuidV4();
@@ -386,6 +418,12 @@ class AppController extends ChangeNotifier {
   EngineCapabilities? get engineCapabilities => _engineCapabilities;
   set engineCapabilities(EngineCapabilities? value) {
     _engineCapabilities = value;
+    scenarios.setSupported(value?.connectionScenarios ?? false);
+    scenarios.setVisible(
+      _uiVisible &&
+          _observationVisible &&
+          (section == AppSection.profiles || section == AppSection.home),
+    );
     quality.setEnabled(value?.networkQuality ?? false);
     final newlySupported =
         !networkSettings.supported &&
@@ -564,6 +602,7 @@ class AppController extends ChangeNotifier {
       return;
     }
     _acceptedSettings = state;
+    scenarios.invalidate();
     final accountProfile = state?.storedProfile;
     if (accountProfile != null &&
         state?.persisted == true &&
@@ -679,6 +718,7 @@ class AppController extends ChangeNotifier {
       final launchTarget = await _engine.consumeLaunchTarget();
       if (_disposed || dataGeneration != _dataGeneration) return;
       if (launchTarget == 'profiles') {
+        profilesTab = ProfilesTab.accounts;
         section = AppSection.profiles;
       }
     } on Object {
@@ -930,6 +970,11 @@ class AppController extends ChangeNotifier {
   void selectSection(AppSection value) {
     if (!availableSections.contains(value)) return;
     section = value;
+    scenarios.setVisible(
+      _uiVisible &&
+          _observationVisible &&
+          (value == AppSection.profiles || value == AppSection.home),
+    );
     _notifyListeners();
   }
 
@@ -1460,14 +1505,20 @@ class AppController extends ChangeNotifier {
     final success = await _run(() async {
       await _ensureConnectionInputs();
       if (intent != _connectionIntent) return;
+      await flushProfileWrites();
+      if (!await scenarios.synchronizeActivation()) {
+        throw EngineException(
+          'SCENARIO_RESULT_UNKNOWN',
+          strings.get('scenario_unknown'),
+        );
+      }
+      if (intent != _connectionIntent) return;
       if (identityState(activeProfile.id) != ProfileIdentityState.ready) {
         throw const EngineException(
           'IDENTITY_SETUP_REQUIRED',
           'This profile needs a valid Consumer WARP identity before it can connect.',
         );
       }
-      await flushProfileWrites();
-      if (intent != _connectionIntent) return;
       _requireDataPlaneCapability(activeProfile);
       final next = await _engine.connect(activeProfile);
       if (intent == _connectionIntent) snapshot = next;
@@ -1484,6 +1535,12 @@ class AppController extends ChangeNotifier {
     final success = await _run(() async {
       await _ensureConnectionInputs();
       await flushProfileWrites();
+      if (!await scenarios.synchronizeActivation()) {
+        throw EngineException(
+          'SCENARIO_RESULT_UNKNOWN',
+          strings.get('scenario_unknown'),
+        );
+      }
       if (intent != _connectionIntent) return;
       _requireDataPlaneCapability(activeProfile);
       final next = await _engine.retry();
@@ -1737,6 +1794,7 @@ class AppController extends ChangeNotifier {
     for (final apply in _pendingAccountViews) {
       apply();
     }
+    scenarios.invalidate();
   }
 
   void _rememberManagedAccounts() {
@@ -2196,6 +2254,7 @@ class AppController extends ChangeNotifier {
     _snapshotSubscription = null;
     diagnostics.suspendForReset();
     networkSettings.suspendForReset();
+    scenarios.reset();
     _updateOperationGeneration++;
     _updateCancellation?.cancel();
     String? cleanupWarning;
@@ -2246,6 +2305,7 @@ class AppController extends ChangeNotifier {
           profileIdentityStates = <String, ProfileIdentityState>{};
           profileIdentityStatuses = <String, ProfileIdentityStatus>{};
           networkSettings.reset();
+          scenarios.reset();
           diagnostics.reset();
           quality.reset();
           geoRules = const GeoRulesList();
@@ -2867,6 +2927,7 @@ class AppController extends ChangeNotifier {
     if (profiles.any((profile) => profile.id == id)) {
       _connectionIntent++;
       activeProfileId = id;
+      scenarios.invalidate();
       _notifyListeners();
       _queueProfileMutation(
         () => _engine.setActiveProfile(id),
@@ -2951,6 +3012,11 @@ class AppController extends ChangeNotifier {
   void setUiVisible(bool visible) {
     if (_disposed || visible == _uiVisible) return;
     _uiVisible = visible;
+    scenarios.setVisible(
+      visible &&
+          _observationVisible &&
+          (section == AppSection.profiles || section == AppSection.home),
+    );
     _uiObservationGeneration++;
     quality.setObservationVisible(visible && _observationVisible);
     diagnostics.setObservationVisible(visible && _observationVisible);
@@ -2968,6 +3034,11 @@ class AppController extends ChangeNotifier {
   void setObservationVisible(bool visible) {
     if (_disposed || visible == _observationVisible) return;
     _observationVisible = visible;
+    scenarios.setVisible(
+      visible &&
+          _uiVisible &&
+          (section == AppSection.profiles || section == AppSection.home),
+    );
     _observationGeneration++;
     _snapshotRevision++;
     quality.setObservationVisible(visible && _uiVisible);
@@ -3204,6 +3275,7 @@ class AppController extends ChangeNotifier {
     unawaited(_cancelSnapshotSubscription());
     diagnostics.dispose();
     quality.dispose();
+    scenarios.dispose();
     networkSettings.dispose();
     unawaited(networkSettings.flushed.whenComplete(_engine.dispose));
     super.dispose();

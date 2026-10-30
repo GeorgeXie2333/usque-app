@@ -11,60 +11,75 @@ import '../widgets/common.dart';
 import '../widgets/profile_identity_dialog.dart';
 import '../widgets/usque_dialog.dart';
 
-class ProfilesScreen extends StatelessWidget {
-  const ProfilesScreen({required this.controller, super.key});
+export 'profiles_hub_screen.dart' show ProfilesScreen;
+
+class AccountsScreen extends StatelessWidget {
+  const AccountsScreen({
+    required this.controller,
+    this.embedded = false,
+    super.key,
+  });
+
+  final bool embedded;
 
   final AppController controller;
 
   @override
   Widget build(BuildContext context) {
     final strings = controller.strings;
-    return PageFrame(
-      title: strings.get('profiles'),
-      // The same column as Proxy and Settings, so switching sections never
-      // moves the heading or the list edges.
-      contentWidth: 880,
-      subtitle: strings.get('profiles_subtitle'),
-      actions: <Widget>[
-        FilledButton.icon(
-          onPressed: controller.profileIdentitiesLoading
-              ? null
-              : () => _createProfile(context),
-          icon: const Icon(LucideIcons.plus),
-          label: Text(strings.get('new_profile')),
-        ),
-      ],
-      child: controller.profileIdentitiesLoading
-          ? const Center(child: CircularProgressIndicator())
-          : ContentList(
-              children: controller.profiles
-                  .map(
-                    (profile) => _ProfileRow(
+    final content = controller.profileIdentitiesLoading
+        ? const Center(child: CircularProgressIndicator())
+        : ContentList(
+            children: controller.profiles
+                .map(
+                  (profile) => _ProfileRow(
+                    profile: profile,
+                    active: profile.id == controller.activeProfileId,
+                    identityState: controller.identityState(profile.id),
+                    identityStatus: controller.identityStatus(profile.id),
+                    strings: strings,
+                    canDelete: controller.profiles.length > 1,
+                    onActivate: () =>
+                        _activateProfile(context, profile, strings),
+                    onConfigureIdentity: () => showProfileIdentityDialog(
+                      context,
+                      controller: controller,
                       profile: profile,
-                      active: profile.id == controller.activeProfileId,
-                      identityState: controller.identityState(profile.id),
-                      identityStatus: controller.identityStatus(profile.id),
-                      strings: strings,
-                      canDelete: controller.profiles.length > 1,
-                      onActivate: () =>
-                          _activateProfile(context, profile, strings),
-                      onConfigureIdentity: () => showProfileIdentityDialog(
-                        context,
-                        controller: controller,
-                        profile: profile,
-                      ),
-                      onEdit: () => _editProfile(context, profile, strings),
-                      onManageIdentity: () => _showIdentityManagement(
-                        context,
-                        profile,
-                        controller.identityStatus(profile.id),
-                        strings,
-                      ),
-                      onDelete: () => _deleteProfile(context, profile, strings),
                     ),
-                  )
-                  .toList(growable: false),
-            ),
+                    onEdit: () => _editProfile(context, profile, strings),
+                    onManageIdentity: () => _showIdentityManagement(
+                      context,
+                      profile,
+                      controller.identityStatus(profile.id),
+                      strings,
+                    ),
+                    onDelete: () => _deleteProfile(context, profile, strings),
+                  ),
+                )
+                .toList(growable: false),
+          );
+    final create = FilledButton.icon(
+      onPressed: controller.profileIdentitiesLoading
+          ? null
+          : () => _createProfile(context),
+      icon: const Icon(LucideIcons.plus),
+      label: Text(strings.get('new_profile')),
+    );
+    if (embedded) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Align(alignment: AlignmentDirectional.centerEnd, child: create),
+          const SizedBox(height: 16),
+          content,
+        ],
+      );
+    }
+    return PageFrame(
+      title: strings.get('scenario_accounts'),
+      contentWidth: 880,
+      actions: [create],
+      child: content,
     );
   }
 

@@ -154,7 +154,7 @@ void main() {
     expect(find.bySemanticsLabel('Loading Usque'), findsNothing);
     expect(engine.calls, isNot(contains('connect')));
     // Navigation and local application preferences remain usable.
-    await tester.tap(find.text('Accounts').first);
+    await tester.tap(find.text('Profiles').first);
     await tester.pump(const Duration(milliseconds: 300));
     expect(find.byType(ProfilesScreen), findsOneWidget);
     final create = tester.widget<FilledButton>(

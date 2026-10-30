@@ -2131,15 +2131,21 @@ async fn connect_remote_inner(
     target: &Target,
     port: u16,
 ) -> Result<RoutedTcpStream, ConnectFailure> {
+    let policy = context.geo_policy.freeze_routing();
+    let resolver = context
+        .resolver
+        .clone()
+        .with_routing(Arc::new(policy.clone()));
+    let resolver = &resolver;
     let geo_target = match target {
         Target::Address(address) => GeoTarget::Ip(*address),
         Target::Domain(name) => GeoTarget::Host(name),
     };
     connect_routed(
-        &context.geo_policy,
+        &policy,
         context.protector.as_ref(),
         Arc::clone(&context.counters),
-        (geo_target, port, Some(&context.resolver)),
+        (geo_target, port, Some(resolver)),
         (
             |reason| ConnectFailure {
                 reply: REPLY_HOST_UNREACHABLE,
@@ -2183,8 +2189,7 @@ async fn connect_remote_inner(
                                 Target::Address(address) => {
                                     CandidateResolution::from_addresses(vec![*address])
                                 }
-                                Target::Domain(name) => context
-                                    .resolver
+                                Target::Domain(name) => resolver
                                     .resolve_candidates(name, deadline)
                                     .map_err(|error| ConnectFailure {
                                         reply: REPLY_HOST_UNREACHABLE,
@@ -2334,6 +2339,18 @@ mod tests {
         Channel,
         Vec<JoinHandle<()>>,
     ) {
+        test_socks_context_with_dns(protector, Vec::new()).await
+    }
+
+    async fn test_socks_context_with_dns(
+        protector: Arc<dyn SocketProtector>,
+        dns_servers: Vec<IpAddr>,
+    ) -> (
+        SocksContext,
+        Arc<StackUdpSocket>,
+        Channel,
+        Vec<JoinHandle<()>>,
+    ) {
         let (client_stack, server_stack) = ts_netstack_smoltcp::piped_pair(Config::default());
         let channel = client_stack.command_channel();
         let server_channel = server_stack.command_channel();
@@ -2384,7 +2401,7 @@ mod tests {
                 channel,
                 assigned_ipv4,
                 Ipv6Addr::LOCALHOST,
-                Vec::new(),
+                dns_servers,
                 usque_core::ProxyDnsMode::Remote,
                 Arc::clone(&protector),
             ),
@@ -2398,6 +2415,105 @@ mod tests {
             auth: None,
         };
         (context, tunnel, server_channel, tasks)
+    }
+
+    #[tokio::test]
+    async fn issue_138_waiting_socks_connect_keeps_one_routing_revision_through_dns() {
+        use tokio_util::task::AbortOnDropHandle;
+        use usque_core::RoutingAction::{Proxy, Reject};
+
+        let (mut context, _udp, server, tasks) = test_socks_context_with_dns(
+            Arc::new(crate::socket::NoopSocketProtector),
+            vec!["10.0.0.2".parse().unwrap()],
+        )
+        .await;
+        let _tasks = tasks
+            .into_iter()
+            .map(AbortOnDropHandle::new)
+            .collect::<Vec<_>>();
+        server
+            .set_ips([
+                "10.0.0.2".parse::<IpAddr>().unwrap(),
+                "203.0.113.7".parse::<IpAddr>().unwrap(),
+            ])
+            .await
+            .unwrap();
+        let dns = server
+            .udp_bind("10.0.0.2:53".parse().unwrap())
+            .await
+            .unwrap();
+        let queries = Arc::new(AtomicUsize::new(0));
+        let answered = queries.clone();
+        let _answering = AbortOnDropHandle::new(tokio::spawn(async move {
+            while let Ok((peer, query)) = dns.recv_from_bytes().await {
+                answered.fetch_add(1, Ordering::SeqCst);
+                let response = crate::split_dns::test_cname_response(&query, &[]);
+                dns.send_to(peer, &response).await.unwrap();
+            }
+        }));
+        let origin = server
+            .tcp_listen("203.0.113.7:8080".parse().unwrap())
+            .await
+            .unwrap();
+        context.geo_policy = Arc::new(crate::geo_direct::routing_test_policy(&[(
+            "waiting.test",
+            Proxy,
+        )]));
+        context.resolver = context.resolver.with_routing(context.geo_policy.clone());
+        let connected = context.health.borrow().clone();
+        let (health, updates) = watch::channel(RuntimeHealth::Reconnecting {
+            last_path: connected.path(),
+            attempt: 1,
+            reconnect_count: 0,
+            reason: "test recovery".into(),
+            failure: TransportError::TunnelClosed.failure(None, None),
+        });
+        context.health = updates;
+        let target = Target::Domain("waiting.test".into());
+        let mut pending = Box::pin(connect_remote(&context, &target, 8080));
+        tokio::select! {
+            biased;
+            _ = &mut pending => panic!("SOCKS CONNECT did not wait for recovery"),
+            () = tokio::task::yield_now() => {}
+        }
+        assert_eq!(context.telemetry.snapshot().metrics.waiting_requests, 1);
+
+        // A healthy session can publish a hot edit before this already queued
+        // request is scheduled again. Its DNS must retain the captured route.
+        health.send_replace(connected);
+        let rejected = crate::geo_direct::routing_test_profile(&[("waiting.test", Reject)]);
+        context
+            .geo_policy
+            .publish_routing_update(
+                context
+                    .geo_policy
+                    .prepare_routing_update(&rejected)
+                    .unwrap(),
+            )
+            .unwrap();
+        let mut stream = match timeout(Duration::from_secs(3), pending).await.unwrap() {
+            Ok(stream) => stream,
+            Err(error) => panic!(
+                "queued SOCKS CONNECT lost its routing revision: {}",
+                error.message
+            ),
+        };
+        let mut accepted = origin.accept().await.unwrap();
+        stream.write_all(b"old request").await.unwrap();
+        let mut received = [0; 11];
+        timeout(Duration::from_secs(3), accepted.read_exact(&mut received))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(&received, b"old request");
+        let query_count = queries.load(Ordering::SeqCst);
+        assert!(query_count > 0);
+        let error = connect_remote(&context, &target, 8080)
+            .await
+            .err()
+            .expect("a new SOCKS CONNECT must use the rejecting revision");
+        assert_eq!(error.reply, REPLY_CONNECTION_NOT_ALLOWED);
+        assert_eq!(queries.load(Ordering::SeqCst), query_count);
     }
 
     #[tokio::test]

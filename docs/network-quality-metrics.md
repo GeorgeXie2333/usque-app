@@ -364,10 +364,22 @@ fairness tests do not establish real-time jitter or throughput on a native VPN.
 
 Desktop diagnostic exports add an optional `direct_gateway` section to
 `transport-performance.json`. It is separate from the H2/H3 attempt counters
-and the existing nine quality queues; it does not change the quality label or
-the protobuf/JNI UI payload. An absent gateway registration is `null`, not a
-measurement of zero. A new gateway starts a new counter lifetime, and retired
-gateway tasks cannot increment the replacement's counters.
+and the existing nine quality queues. Android also carries the ten fixed numeric
+counters through its allowlisted JNI quality snapshot and exports them as
+`direct_gateway` in `network-quality.json`. Android saturates these counters at
+the signed 64-bit maximum before JSON encoding and rejects non-integer, negative
+or out-of-range values at its bridge. Unknown keys and destination/error text
+are excluded. The quality label, desktop protobuf schema and visible UI remain
+unchanged.
+
+An absent gateway registration is `null`, not a measurement of zero. A new
+gateway starts a new counter lifetime, and retired gateway tasks cannot
+increment the replacement's counters. Android exports the currently captured
+runtime quality; these counters are not added to its retained terminal
+connection timeline. Capture diagnostics while that runtime is active. Existing
+runtime shutdown/reset clears the quality rather than carrying old DIRECT
+counters into a new session. This addition uses the existing sampling and
+capture paths and does not install a tracing subscriber or add a polling loop.
 
 `fallback_total` counts TUN TCP/UDP packets selected for DIRECT that instead return to
 the tunnel path. Fixed reason counters distinguish `fallback_unavailable`,

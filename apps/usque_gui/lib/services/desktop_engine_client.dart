@@ -154,6 +154,20 @@ class DesktopEngineClient
       ));
 
   @override
+  Future<Map<String, Object?>> scenarioCommand(Map<String, Object?> request) =>
+      _serialized(() async {
+        final payload = ControlPayloadWriter()..string(1, jsonEncode(request));
+        final result = (await _request(53, payload.takeBytes())).scenario;
+        if (result == null) {
+          throw const EngineException(
+            'SCENARIO_RESULT_UNKNOWN',
+            'The scenario result could not be confirmed.',
+          );
+        }
+        return result;
+      });
+
+  @override
   Future<Map<Object?, Object?>> warpWireguard(Map<String, Object?> request) =>
       _serialized(() async {
         final payload = ControlPayloadWriter()..string(1, jsonEncode(request));

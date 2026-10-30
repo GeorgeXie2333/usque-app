@@ -456,6 +456,64 @@ async fn conflicting_domain_hint_only_changes_new_udp_flows() {
 }
 
 #[tokio::test]
+async fn issue_135_conflicting_dns_answers_preserve_cidr_and_explicit_proxy_precedence() {
+    use usque_core::RoutingAction::{Direct, Proxy};
+
+    for (cidr, explicit_proxy, direct) in [
+        (None, false, false),
+        (Some(Direct), false, true),
+        (Some(Proxy), false, false),
+        (Some(Direct), true, false),
+    ] {
+        let mut fixture = Fixture::new(true, 60).await;
+        let mut rules = Vec::new();
+        if let Some(action) = cidr {
+            rules.push(("127.0.0.0/8", action));
+        }
+        if explicit_proxy {
+            rules.push(("tunnel.test", Proxy));
+        }
+        let profile = crate::geo_direct::routing_test_profile(&rules);
+        let policy = &fixture.services.geo_policy;
+        policy
+            .publish_routing_update(policy.prepare_routing_update(&profile).unwrap())
+            .unwrap();
+
+        // Exercise real Split DNS observation and TUN admission. Both DNS
+        // paths answer with the same loopback IP. With no CIDR, first prove
+        // the DIRECT hint exists, then use another flow after the conflict.
+        fixture.dns("direct.test").await;
+        let initial_direct = usize::from(cidr.is_none());
+        if cidr.is_none() {
+            fixture.udp_from(41999).await;
+            assert_eq!(fixture.direct_packets.load(Ordering::SeqCst), 1);
+            assert!(fixture.associations.sent.lock().unwrap().is_empty());
+        }
+        fixture.dns("tunnel.test").await;
+        fixture.udp().await;
+        assert_eq!(
+            fixture.direct_packets.load(Ordering::SeqCst),
+            initial_direct + usize::from(direct),
+            "CIDR {cidr:?}, explicit PROXY {explicit_proxy}"
+        );
+        assert_eq!(
+            fixture.protector.direct_attempts.load(Ordering::SeqCst),
+            initial_direct + usize::from(direct)
+        );
+        let tunneled = fixture.associations.sent.lock().unwrap().clone();
+        assert_eq!(
+            tunneled,
+            if direct {
+                Vec::new()
+            } else {
+                vec![TcpTarget::address(fixture.remote)]
+            }
+        );
+        fixture.shutdown().await;
+    }
+}
+
+#[tokio::test]
 async fn routing_revisions_preserve_admitted_udp_paths_and_apply_to_new_targets() {
     let mut fixture = Fixture::new(true, 60).await;
     fixture.udp().await;
@@ -514,6 +572,164 @@ async fn changed_generation_invalidates_domain_udp_hint_before_sending() {
         *fixture.associations.sent.lock().unwrap(),
         vec![TcpTarget::address(fixture.remote)]
     );
+    fixture.shutdown().await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn issue_138_expired_udp_target_observes_live_rules_before_the_next_sweep() {
+    let fixture = Fixture::new(true, 60).await;
+    let (sender, receiver) = mpsc::channel(16);
+    let (replies, mut received) = mpsc::channel(16);
+    let replies = super::super::performance::MeasuredSender::new(replies, Arc::default());
+    let rejector = super::super::tun_reject::UdpRejector::new(
+        replies.clone(),
+        fixture.metrics.clone(),
+        fixture.services.cancellation.clone(),
+    );
+    let services = fixture.services.clone();
+    let budget = fixture.budget.clone();
+    let cancellation = services.cancellation.child_token();
+    let cancel_worker = cancellation.clone();
+    let worker = AbortOnDropHandle::new(tokio::spawn(async move {
+        super::worker(
+            receiver,
+            services,
+            Arc::new(crate::split_dns::DnsRouteCache::default()),
+            replies,
+            rejector,
+            budget,
+            &cancellation,
+            Duration::from_secs(10),
+            1280,
+        )
+        .await;
+    }));
+    let source = "192.0.2.44:42001".parse().unwrap();
+    let seed = packet(source, "203.0.113.44:8443".parse().unwrap(), b"seed");
+    let target = packet(source, "203.0.113.45:8443".parse().unwrap(), b"target");
+    let started = Instant::now();
+    sender
+        .send((NatPacket::parse(&seed).unwrap(), seed))
+        .await
+        .unwrap();
+    received.recv().await.unwrap();
+    let available = fixture.budget.available();
+    fixture.associations.silent.store(true, Ordering::SeqCst);
+    tokio::time::advance(Duration::from_millis(100)).await;
+    sender
+        .send((NatPacket::parse(&target).unwrap(), target.clone()))
+        .await
+        .unwrap();
+    for _ in 0..256 {
+        if fixture.associations.sent.lock().unwrap().len() == 2 {
+            break;
+        }
+        tokio::task::yield_now().await;
+    }
+    assert_eq!(fixture.associations.sent.lock().unwrap().len(), 2);
+    assert_eq!(fixture.budget.available(), available - target.len());
+
+    // The worker's ticks start with the seed target. At t=10 its second
+    // target is only 9.9s old, so the sweep retains it until t=11.
+    tokio::time::advance(Duration::from_millis(9900)).await;
+    for _ in 0..32 {
+        tokio::task::yield_now().await;
+    }
+    tokio::time::advance(Duration::from_millis(200)).await;
+    let policy = &fixture.services.geo_policy;
+    let profile = crate::geo_direct::routing_test_profile(&[(
+        "203.0.113.45",
+        usque_core::RoutingAction::Reject,
+    )]);
+    policy
+        .publish_routing_update(policy.prepare_routing_update(&profile).unwrap())
+        .unwrap();
+    let meta = NatPacket::parse(&target).unwrap();
+    sender.send((meta, target.clone())).await.unwrap();
+    let response = timeout(Duration::from_secs(1), received.recv())
+        .await
+        .unwrap()
+        .unwrap()
+        .into_bytes();
+    assert_eq!(Instant::now() - started, Duration::from_millis(10200));
+    assert_eq!(
+        fixture.associations.sent.lock().unwrap().len(),
+        2,
+        "an expired target must not refresh its previous route before maintenance"
+    );
+    assert_eq!(
+        response,
+        super::super::tun_wire::udp_unreachable(&target, &meta).unwrap()
+    );
+    assert_eq!(fixture.metrics.snapshot().udp_rejected, 1);
+    assert_eq!(
+        fixture.budget.available(),
+        available,
+        "expiry must release the unanswered target's retained ICMP quote"
+    );
+    cancel_worker.cancel();
+    worker.await.unwrap();
+    fixture.shutdown().await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn issue_138_expired_direct_udp_target_releases_its_lease_before_the_next_sweep() {
+    let mut fixture = Fixture::new(true, 60).await;
+    let policy = fixture.services.geo_policy.clone();
+    let profile = crate::geo_direct::routing_test_profile(&[(
+        "127.0.0.1",
+        usque_core::RoutingAction::Direct,
+    )]);
+    policy
+        .publish_routing_update(policy.prepare_routing_update(&profile).unwrap())
+        .unwrap();
+    let source = "192.0.2.44:42001".parse().unwrap();
+    let started = Instant::now();
+    fixture
+        .io
+        .send_owned_packet(packet(
+            source,
+            "203.0.113.44:8443".parse().unwrap(),
+            b"seed",
+        ))
+        .await
+        .unwrap();
+    fixture.io.receive_packet().await.unwrap();
+    tokio::time::advance(Duration::from_millis(100)).await;
+    fixture.udp().await;
+    assert_eq!(Instant::now() - started, Duration::from_millis(100));
+    assert_eq!(fixture.protector.leases.load(Ordering::SeqCst), 1);
+
+    let idle = Duration::from_secs(u64::from(
+        Profile::default().proxy.udp_idle_timeout_seconds.max(1),
+    ));
+    tokio::time::advance(idle - Duration::from_millis(100)).await;
+    for _ in 0..32 {
+        tokio::task::yield_now().await;
+    }
+    tokio::time::advance(Duration::from_millis(200)).await;
+    let profile = crate::geo_direct::routing_test_profile(&[(
+        "127.0.0.1",
+        usque_core::RoutingAction::Reject,
+    )]);
+    policy
+        .publish_routing_update(policy.prepare_routing_update(&profile).unwrap())
+        .unwrap();
+    let request = packet(source, fixture.remote, b"expired");
+    let meta = NatPacket::parse(&request).unwrap();
+    fixture.io.send_owned_packet(request.clone()).await.unwrap();
+    let response = timeout(Duration::from_secs(1), fixture.io.receive_packet())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(Instant::now() - started, idle + Duration::from_millis(200));
+    assert_eq!(
+        response,
+        super::super::tun_wire::udp_unreachable(&request, &meta).unwrap()
+    );
+    assert_eq!(fixture.protector.leases.load(Ordering::SeqCst), 0);
+    assert_eq!(fixture.protector.direct_attempts.load(Ordering::SeqCst), 1);
+    assert_eq!(fixture.direct_packets.load(Ordering::SeqCst), 1);
     fixture.shutdown().await;
 }
 
