@@ -388,6 +388,7 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
             child: Text(p('forget_local')),
           ),
           FilledButton(
+            style: dangerButtonStyle(context),
             onPressed: () => Navigator.pop(context, 'logout'),
             child: Text(p('sign_out_remove')),
           ),

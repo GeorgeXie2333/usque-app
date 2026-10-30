@@ -14,13 +14,7 @@ import '../widgets/usque_dialog.dart';
 export 'profiles_hub_screen.dart' show ProfilesScreen;
 
 class AccountsScreen extends StatelessWidget {
-  const AccountsScreen({
-    required this.controller,
-    this.embedded = false,
-    super.key,
-  });
-
-  final bool embedded;
+  const AccountsScreen({required this.controller, super.key});
 
   final AppController controller;
 
@@ -58,14 +52,8 @@ class AccountsScreen extends StatelessWidget {
                 )
                 .toList(growable: false),
           );
-    // Profiles places the create action beside its tab selector.
-    if (embedded) return content;
-    return PageFrame(
-      title: strings.get('scenario_accounts'),
-      contentWidth: 880,
-      actions: [AddAccountButton(controller: controller)],
-      child: content,
-    );
+    // Profiles frames this list and places its create action.
+    return content;
   }
 
   /// Switching the account of a live session reconnects it, so that case
@@ -170,10 +158,7 @@ class AccountsScreen extends StatelessWidget {
             child: Text(strings.get('cancel')),
           ),
           FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: UsqueTokens.of(context).danger,
-              foregroundColor: Theme.of(context).colorScheme.onError,
-            ),
+            style: dangerButtonStyle(context),
             onPressed: () => Navigator.pop(context, true),
             child: Text(strings.get('delete')),
           ),

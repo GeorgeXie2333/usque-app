@@ -117,6 +117,7 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
         icon: LucideIcons.trash2,
         title: strings.get('scenario_delete_title'),
         subtitle: scene.name,
+        danger: true,
         content: Text(strings.get('scenario_delete_body')),
         actions: [
           TextButton(
@@ -124,6 +125,7 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
             child: Text(strings.get('cancel')),
           ),
           FilledButton(
+            style: dangerButtonStyle(context),
             onPressed: () => Navigator.pop(context, true),
             child: Text(strings.get('delete')),
           ),
@@ -711,7 +713,7 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
           ],
           const SizedBox(height: 16),
           if (selected == ProfilesTab.accounts)
-            AccountsScreen(controller: app, embedded: true)
+            AccountsScreen(controller: app)
           else
             _scenes(),
         ],

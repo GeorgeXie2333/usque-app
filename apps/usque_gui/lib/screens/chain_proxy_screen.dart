@@ -642,6 +642,7 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
             child: Text(strings.chain('cancel')),
           ),
           FilledButton(
+            style: action == 'remove' ? dangerButtonStyle(context) : null,
             onPressed: () => Navigator.pop(context, true),
             child: Text(strings.chain(action == 'remove' ? 'delete' : 'save')),
           ),

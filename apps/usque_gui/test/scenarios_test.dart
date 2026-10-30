@@ -1198,4 +1198,24 @@ void main() {
       expect(find.text(app.strings.get('new_profile')), findsOneWidget);
     },
   );
+
+  testWidgets('deleting a scene confirms with the destructive dialog style', (
+    tester,
+  ) async {
+    final engine = SceneEngine();
+    final app = await pumpWorkflow(
+      tester,
+      engine,
+      section: AppSection.profiles,
+    );
+    app.engineCapabilities = await engine.getCapabilities();
+    await app.scenarios.refresh();
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(PopupMenuButton<String>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(app.strings.get('delete')).last);
+    await tester.pumpAndSettle();
+    expect(tester.widget<UsqueDialog>(find.byType(UsqueDialog)).danger, isTrue);
+    expect(engine.sceneCalls.where((r) => r['action'] == 'delete'), isEmpty);
+  });
 }

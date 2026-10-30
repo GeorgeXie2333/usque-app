@@ -2,6 +2,12 @@ import 'package:flutter/material.dart';
 
 import '../core/usque_theme.dart';
 
+/// The confirm button of a destructive [UsqueDialog].
+ButtonStyle dangerButtonStyle(BuildContext context) => FilledButton.styleFrom(
+  backgroundColor: UsqueTokens.of(context).danger,
+  foregroundColor: Theme.of(context).colorScheme.onError,
+);
+
 /// The one dialog shape in the app.
 ///
 /// A quiet leading icon and aligned title keep the content primary. Destructive
