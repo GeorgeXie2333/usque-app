@@ -84,6 +84,8 @@ const kScenarioEn = <String, String>{
       "Kill Switch protection can't be kept during this switch. Disconnect, then switch again.",
   'scenario_confirm_before_connect':
       "The last scene switch is still being confirmed. Refresh Scenes, then connect again.",
+  'scenario_unsaved': 'Unsaved scene changes',
+  'scenario_inherited_changes': 'Other saved settings that also take effect',
 };
 
 const kScenarioZhCn = <String, String>{
@@ -151,6 +153,8 @@ const kScenarioZhCn = <String, String>{
   'scenario_settings_invalid': "此场景保存的设置已失效，请编辑后重新保存。",
   'protection_handoff_unavailable': "此次切换无法保持 Kill Switch 保护。请先断开连接，再重新切换。",
   'scenario_confirm_before_connect': "上次场景切换仍在确认中。请刷新场景后再连接。",
+  'scenario_unsaved': '场景有未保存的修改',
+  'scenario_inherited_changes': '同时生效的其他已保存设置',
 };
 
 const kScenarioCatalogs = <String, Map<String, String>>{

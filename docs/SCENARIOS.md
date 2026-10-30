@@ -4,23 +4,30 @@ Open **Profiles → Scenes** to save and reuse a local network setup. **Accounts
 is the second tab on the same page. Home's account entry opens Accounts; its
 scene entry opens Scenes. Ordinary navigation remembers the last tab for the
 current application run. The existing Ctrl+2 shortcut opens Profiles.
+The top of the page shows the selected scene and account and, while a session
+exists, the confirmed current connection, with a refresh button. Engines
+without scenes show Accounts only, without the tab selector.
 
 在 **配置 → 场景** 保存和使用本机网络方案；同一页面的 **账号** 标签保留账号管理。
 首页账号入口直接打开账号标签，场景入口打开场景标签。普通导航记住本次运行访问的
-标签，Ctrl+2 仍打开配置页。
+标签，Ctrl+2 仍打开配置页。页面顶部显示已选场景、已选账号；存在会话时还显示
+已确认的当前连接，旁边提供刷新按钮。不支持场景的引擎只显示账号，不显示标签切换。
 
 ## Create and edit / 创建与编辑
 
 1. Choose **New scene** to capture the current confirmed saved network settings.
 2. Name the scene. Keep **Use the current account**, or choose an existing WARP
    account to bind to it.
-3. Edit outputs, routing, DNS, the saved chain exit, and connection preferences.
-4. **Save scene** updates the template without changing the running connection.
-   **Save and use** saves it and opens a separate change preview; cancelling that
-   preview keeps the saved template.
+3. Edit the saved chain exit, outputs, routing, DNS (including the shared
+   local-proxy DNS), and connection preferences.
+4. While the scene has unsaved edits, the bottom bar offers **Save scene** and
+   **Save and use**. **Save scene** updates the template without changing the
+   running connection. **Save and use** saves it and opens a separate change
+   preview; cancelling that preview keeps the saved template.
 
 选择 **新建场景**，填写名称并选择沿用当前账号或绑定一个已有 WARP 账号。
-编辑输出、分流、DNS、已有出口及连接偏好后，**保存场景** 只保存模板；
+编辑已有出口、输出、分流、DNS（含本地代理共享 DNS）及连接偏好后，底部栏提供
+**保存场景** 与 **保存并使用**：**保存场景** 只保存模板；
 **保存并使用** 先保存，再显示切换预览。取消预览不会撤销模板保存。
 离开尚未保存的编辑器时，可以继续编辑或放弃修改。
 
@@ -55,13 +62,19 @@ as the Proxy page.
 ## Use a scene / 使用场景
 
 Choose **Use scene**, review the account and settings changes, then confirm.
+The preview states first whether the connection stays disconnected, applies to
+new connections or may reconnect, and shows any Kill Switch warning before the
+changed fields. A selected scene that differs from the current settings also
+offers **Update from current settings** in its row.
 The native owner submits the account and network settings together. When
 disconnected, selecting a scene leaves the connection disconnected. While
 connected, the preview identifies whether reconnection is needed. Hot routing
 updates apply to new connections; existing streams can retain their old paths.
 Reconnect when all connections need to adopt the new settings.
 
-选择 **使用场景**，检查账号和设置变更后确认。原生层一次提交账号和网络设置。
+选择 **使用场景**，检查账号和设置变更后确认。预览先说明保持断开、对新连接生效
+还是可能重连，并在变更字段前显示 Kill Switch 提示。已选场景与当前设置不同时，
+该行还提供 **用当前设置更新**。原生层一次提交账号和网络设置。
 未连接时选择场景保持断开；连接中会按差异应用或重连。规则热更新对新连接生效，
 已有连接可能保持原路径；需要统一切换时应重连。
 

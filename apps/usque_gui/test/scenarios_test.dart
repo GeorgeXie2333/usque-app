@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:usque/models/app_models.dart';
 import 'package:usque/models/scenarios.dart';
@@ -11,6 +12,8 @@ import 'package:usque/screens/scenario_editor_screen.dart';
 import 'package:usque/services/engine_client.dart';
 import 'package:usque/state/app_controller.dart';
 import 'package:usque/state/scenarios_controller.dart';
+import 'package:usque/widgets/common.dart';
+import 'package:usque/widgets/usque_dialog.dart';
 
 import 'ui_workflow_test.dart' show WorkflowEngine, pumpWorkflow;
 
@@ -405,8 +408,10 @@ void main() {
       app.engineCapabilities = await engine.getCapabilities();
       await app.scenarios.refresh();
       await tester.pumpAndSettle();
-      final edit = find.widgetWithText(TextButton, app.strings.get('edit'));
-      final editLabel = find.descendant(of: edit, matching: find.byType(Text));
+      final editLabel = find.descendant(
+        of: find.bySubtype<TextButton>(),
+        matching: find.text(app.strings.get('edit')),
+      );
       Focus.of(tester.element(editLabel)).requestFocus();
       await tester.pump();
       await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
@@ -548,24 +553,19 @@ void main() {
       app.engineCapabilities = await engine.getCapabilities();
       await app.scenarios.refresh();
       await tester.pumpAndSettle();
-      expect(
-        find.text('Current connection: Work account · Daily'),
-        findsOneWidget,
-      );
+      String? running() => tester
+          .widget<Text>(find.byKey(const ValueKey('profiles-running')))
+          .data;
+      expect(find.text('Current connection'), findsOneWidget);
+      expect(running(), 'Work account · Daily');
       engine.extraState['applied_scenario_id'] = null;
       await app.scenarios.refresh();
       await tester.pumpAndSettle();
-      expect(
-        find.text('Current connection: Work account · Custom'),
-        findsOneWidget,
-      );
+      expect(running(), 'Work account · Custom');
       engine.extraState['applied_scene_confirmed'] = false;
       await app.scenarios.refresh();
       await tester.pumpAndSettle();
-      expect(
-        find.text('Current connection: Work account · Result not confirmed'),
-        findsOneWidget,
-      );
+      expect(running(), 'Work account · Result not confirmed');
     },
   );
 
@@ -1064,4 +1064,138 @@ void main() {
     expect(save['settings'], engine.entries.single['settings']);
     expect(find.byKey(const ValueKey('scenario-rebind-scene-a')), findsNothing);
   });
+
+  testWidgets(
+    'scene states carry their own tone and a modified selection offers its update',
+    (tester) async {
+      final engine = SceneEngine()..selected = 'scene-a';
+      final app = await pumpWorkflow(
+        tester,
+        engine,
+        section: AppSection.profiles,
+      );
+      app.engineCapabilities = await engine.getCapabilities();
+      await app.scenarios.refresh();
+      await tester.pumpAndSettle();
+      InlineStatus status(String key) => tester.widget<InlineStatus>(
+        find.ancestor(
+          of: find.text(app.strings.get(key)),
+          matching: find.byType(InlineStatus),
+        ),
+      );
+      // Selection alone is neither a notice nor a success.
+      expect(status('scenario_selected').tone, StatusTone.brand);
+      expect(status('scenario_selected').icon, LucideIcons.circleDot);
+      expect(
+        find.byKey(const ValueKey('scenario-update-scene-a')),
+        findsNothing,
+      );
+
+      engine.extraState = {
+        'state': {'modified': true, 'apply_status': 'not_required'},
+      };
+      await app.scenarios.refresh();
+      await tester.pumpAndSettle();
+      expect(status('scenario_modified').tone, StatusTone.warning);
+      expect(
+        find.byKey(const ValueKey('scenario-update-scene-a')),
+        findsOneWidget,
+      );
+
+      engine.extraState = {
+        'state': {'modified': false, 'apply_status': 'failed'},
+      };
+      await app.scenarios.refresh();
+      await tester.pumpAndSettle();
+      expect(status('scenario_failed').tone, StatusTone.danger);
+      expect(
+        tester.widget<WarningBanner>(find.byType(WarningBanner)).danger,
+        isTrue,
+      );
+    },
+  );
+
+  testWidgets(
+    'the scene editor reports unsaved template edits and saves and uses from its bar',
+    (tester) async {
+      final engine = SceneEngine();
+      final app = await pumpWorkflow(
+        tester,
+        engine,
+        section: AppSection.profiles,
+      );
+      app.engineCapabilities = await engine.getCapabilities();
+      await app.scenarios.refresh();
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('scenario-create')));
+      await tester.pumpAndSettle();
+      // A template save never applies, so the bar does not say it would.
+      expect(find.text(app.strings.get('scenario_unsaved')), findsOneWidget);
+      expect(find.text(app.strings.get('unsaved_changes')), findsNothing);
+      await tester.enterText(
+        find.byKey(const ValueKey('scenario-name')),
+        'Work',
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('scenario-save-use')));
+      await tester.pumpAndSettle();
+      expect(
+        engine.sceneCalls.where((r) => r['action'] == 'save'),
+        hasLength(1),
+      );
+      expect(
+        find.byKey(const ValueKey('scenario-confirm-use')),
+        findsOneWidget,
+      );
+      expect(
+        engine.sceneCalls.where((r) => r['action'] == 'activate'),
+        isEmpty,
+      );
+      expect(engine.writes, 0);
+    },
+  );
+
+  testWidgets('scene preview states its effect before the field changes', (
+    tester,
+  ) async {
+    final engine = SceneEngine()
+      ..previewExtra = {'apply_kind': 'hot', 'needs_reconnect': true};
+    final app = await pumpWorkflow(
+      tester,
+      engine,
+      section: AppSection.profiles,
+    );
+    app.engineCapabilities = await engine.getCapabilities();
+    await app.scenarios.refresh();
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('scenario-use-scene-a')));
+    await tester.pumpAndSettle();
+    Finder inDialog(String text) => find.descendant(
+      of: find.byType(UsqueDialog),
+      matching: find.text(text),
+    );
+    final note = inDialog(app.strings.get('scenario_will_reconnect'));
+    final field = inDialog(scenarioFieldLabel(app.strings, 'frontends.http'));
+    expect(note, findsOneWidget);
+    expect(field, findsOneWidget);
+    expect(tester.getTopLeft(note).dy, lessThan(tester.getTopLeft(field).dy));
+  });
+
+  testWidgets(
+    'an Engine without scenes shows Accounts without a tab selector',
+    (tester) async {
+      final app = await pumpWorkflow(
+        tester,
+        WorkflowEngine(),
+        section: AppSection.profiles,
+      );
+      await tester.pumpAndSettle();
+      expect(find.byType(SegmentedButton<ProfilesTab>), findsNothing);
+      expect(
+        find.text(app.strings.get('scenario_unsupported')),
+        findsOneWidget,
+      );
+      expect(find.text(app.strings.get('new_profile')), findsOneWidget);
+    },
+  );
 }

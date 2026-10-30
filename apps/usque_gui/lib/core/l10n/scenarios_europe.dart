@@ -68,6 +68,8 @@ const kScenarioJa = <String, String>{
   'protection_handoff_unavailable':
       "この切り替えでは Kill Switch の保護を維持できません。接続を切断してから切り替えてください。",
   'scenario_confirm_before_connect': "前回のシーン切り替えを確認中です。シーンを更新してから接続してください。",
+  'scenario_unsaved': 'シーンに未保存の変更があります',
+  'scenario_inherited_changes': 'あわせて適用されるその他の保存済み設定',
 };
 
 const kScenarioKo = <String, String>{
@@ -142,6 +144,8 @@ const kScenarioKo = <String, String>{
       "이번 전환에서는 Kill Switch 보호를 유지할 수 없습니다. 연결을 끊은 뒤 다시 전환하세요.",
   'scenario_confirm_before_connect':
       "이전 시나리오 전환을 아직 확인하는 중입니다. 시나리오를 새로 고친 뒤 다시 연결하세요.",
+  'scenario_unsaved': '저장하지 않은 시나리오 변경 사항',
+  'scenario_inherited_changes': '함께 적용되는 기타 저장된 설정',
 };
 
 const kScenarioEs = <String, String>{
@@ -227,6 +231,9 @@ const kScenarioEs = <String, String>{
       "No se puede mantener la protección de Kill Switch durante este cambio. Desconéctate y vuelve a cambiar.",
   'scenario_confirm_before_connect':
       "El último cambio de escenario aún se está confirmando. Actualiza Escenarios y vuelve a conectar.",
+  'scenario_unsaved': 'Cambios del escenario sin guardar',
+  'scenario_inherited_changes':
+      'Otros ajustes guardados que también se aplican',
 };
 
 const kScenarioPt = <String, String>{
@@ -312,6 +319,9 @@ const kScenarioPt = <String, String>{
       "Não é possível manter a proteção do Kill Switch durante esta mudança. Desligue e volte a mudar.",
   'scenario_confirm_before_connect':
       "A última mudança de cenário ainda está a ser confirmada. Atualize Cenários e volte a ligar.",
+  'scenario_unsaved': 'Alterações do cenário por guardar',
+  'scenario_inherited_changes':
+      'Outras definições guardadas que também são aplicadas',
 };
 
 const kScenarioFr = <String, String>{
@@ -397,6 +407,9 @@ const kScenarioFr = <String, String>{
       "La protection Kill Switch ne peut pas être maintenue pendant ce changement. Déconnectez-vous, puis changez à nouveau.",
   'scenario_confirm_before_connect':
       "Le dernier changement de scénario est encore en cours de confirmation. Actualisez Scénarios, puis reconnectez-vous.",
+  'scenario_unsaved': 'Modifications du scénario non enregistrées',
+  'scenario_inherited_changes':
+      'Autres paramètres enregistrés également appliqués',
 };
 
 const kScenarioNl = <String, String>{
@@ -482,6 +495,9 @@ const kScenarioNl = <String, String>{
       "De Kill Switch-bescherming kan tijdens deze wissel niet behouden blijven. Verbreek de verbinding en wissel opnieuw.",
   'scenario_confirm_before_connect':
       "De laatste scenariowissel wordt nog bevestigd. Vernieuw Scenario's en maak opnieuw verbinding.",
+  'scenario_unsaved': 'Niet-opgeslagen scenariowijzigingen',
+  'scenario_inherited_changes':
+      'Andere opgeslagen instellingen die ook worden toegepast',
 };
 
 const kScenarioTr = <String, String>{
@@ -566,6 +582,8 @@ const kScenarioTr = <String, String>{
       "Bu geçiş sırasında Kill Switch koruması korunamıyor. Bağlantıyı kesip yeniden geçiş yapın.",
   'scenario_confirm_before_connect':
       "Son senaryo geçişi hâlâ doğrulanıyor. Senaryoları yenileyip yeniden bağlanın.",
+  'scenario_unsaved': 'Kaydedilmemiş senaryo değişiklikleri',
+  'scenario_inherited_changes': 'Ayrıca uygulanacak diğer kayıtlı ayarlar',
 };
 
 const kScenarioRu = <String, String>{
@@ -651,6 +669,9 @@ const kScenarioRu = <String, String>{
       "Во время этого переключения нельзя сохранить защиту Kill Switch. Отключитесь и переключитесь снова.",
   'scenario_confirm_before_connect':
       "Последнее переключение сценария ещё подтверждается. Обновите сценарии и подключитесь снова.",
+  'scenario_unsaved': 'Несохранённые изменения сценария',
+  'scenario_inherited_changes':
+      'Другие сохранённые настройки, которые также применятся',
 };
 
 const kScenarioDe = <String, String>{
@@ -737,6 +758,9 @@ const kScenarioDe = <String, String>{
       "Der Kill-Switch-Schutz kann bei diesem Wechsel nicht aufrechterhalten werden. Trennen Sie die Verbindung und wechseln Sie erneut.",
   'scenario_confirm_before_connect':
       "Der letzte Szenariowechsel wird noch bestätigt. Aktualisieren Sie die Szenarien und verbinden Sie sich erneut.",
+  'scenario_unsaved': 'Nicht gespeicherte Szenarioänderungen',
+  'scenario_inherited_changes':
+      'Weitere gespeicherte Einstellungen, die ebenfalls gelten',
 };
 
 const kScenarioIt = <String, String>{
@@ -822,6 +846,8 @@ const kScenarioIt = <String, String>{
       "Durante questo cambio non è possibile mantenere la protezione Kill Switch. Disconnettiti e cambia di nuovo.",
   'scenario_confirm_before_connect':
       "L’ultimo cambio di scenario è ancora in fase di conferma. Aggiorna Scenari e riconnettiti.",
+  'scenario_unsaved': 'Modifiche allo scenario non salvate',
+  'scenario_inherited_changes': 'Altre impostazioni salvate applicate insieme',
 };
 
 const kScenarioPl = <String, String>{
@@ -907,4 +933,7 @@ const kScenarioPl = <String, String>{
       "Podczas tego przełączenia nie można utrzymać ochrony Kill Switch. Rozłącz się i przełącz ponownie.",
   'scenario_confirm_before_connect':
       "Ostatnie przełączenie scenariusza jest nadal potwierdzane. Odśwież scenariusze i połącz się ponownie.",
+  'scenario_unsaved': 'Niezapisane zmiany scenariusza',
+  'scenario_inherited_changes':
+      'Inne zapisane ustawienia, które również zostaną zastosowane',
 };

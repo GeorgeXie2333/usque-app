@@ -58,27 +58,12 @@ class AccountsScreen extends StatelessWidget {
                 )
                 .toList(growable: false),
           );
-    final create = FilledButton.icon(
-      onPressed: controller.profileIdentitiesLoading
-          ? null
-          : () => _createProfile(context),
-      icon: const Icon(LucideIcons.plus),
-      label: Text(strings.get('new_profile')),
-    );
-    if (embedded) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Align(alignment: AlignmentDirectional.centerEnd, child: create),
-          const SizedBox(height: 16),
-          content,
-        ],
-      );
-    }
+    // Profiles places the create action beside its tab selector.
+    if (embedded) return content;
     return PageFrame(
       title: strings.get('scenario_accounts'),
       contentWidth: 880,
-      actions: [create],
+      actions: [AddAccountButton(controller: controller)],
       child: content,
     );
   }
@@ -116,10 +101,6 @@ class AccountsScreen extends StatelessWidget {
       if (!(confirmed ?? false)) return;
     }
     controller.setActiveProfile(profile.id);
-  }
-
-  Future<void> _createProfile(BuildContext context) async {
-    await showProfileIdentityDialog(context, controller: controller);
   }
 
   Future<void> _editProfile(
@@ -203,6 +184,22 @@ class AccountsScreen extends StatelessWidget {
       controller.deleteProfile(profile.id);
     }
   }
+}
+
+/// Starts adding a WARP account; shared by Accounts and the Profiles tabs.
+class AddAccountButton extends StatelessWidget {
+  const AddAccountButton({required this.controller, super.key});
+
+  final AppController controller;
+
+  @override
+  Widget build(BuildContext context) => FilledButton.icon(
+    onPressed: controller.profileIdentitiesLoading
+        ? null
+        : () => showProfileIdentityDialog(context, controller: controller),
+    icon: const Icon(LucideIcons.plus),
+    label: Text(controller.strings.get('new_profile')),
+  );
 }
 
 class _ProfileEditDialog extends StatefulWidget {
@@ -629,8 +626,9 @@ class _ProfileRow extends StatelessWidget {
             final identity = Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
+                // Layers marks scenes; an account keeps a person glyph.
                 Icon(
-                  active ? LucideIcons.circleCheck : LucideIcons.layers3,
+                  active ? LucideIcons.circleCheck : LucideIcons.circleUser,
                   size: 24,
                   color: active
                       ? Theme.of(context).colorScheme.primary

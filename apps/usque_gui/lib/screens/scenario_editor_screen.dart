@@ -496,6 +496,32 @@ class _ScenarioEditorScreenState extends State<ScenarioEditorScreen> {
                         _dirty = true;
                       }),
                     ),
+                    const SizedBox(height: 12),
+                    HintText(s.get('scenario_global_hint')),
+                    _heading('scenario_exit'),
+                    if (_loading) const LinearProgressIndicator(),
+                    _dropdown<String>(
+                      label: s.get('scenario_exit'),
+                      value: _exitKey,
+                      items: exitItems,
+                      onChanged: _chooseExit,
+                    ),
+                    const SizedBox(height: 8),
+                    HintText(s.get('scenario_library_hint')),
+                    Align(
+                      alignment: AlignmentDirectional.centerStart,
+                      child: TextButton.icon(
+                        onPressed: _saving || _loading ? null : _loadExits,
+                        icon: const Icon(LucideIcons.refreshCw),
+                        label: Text(s.get('settings_refresh')),
+                      ),
+                    ),
+                    if (_draft.chainSource == ChainSource.protonVpn &&
+                        _draft.chainEnabled)
+                      TextButton(
+                        onPressed: _saving ? null : _chooseProtonServer,
+                        child: Text(s.proton('choose_server')),
+                      ),
                     _heading('scenario_output'),
                     _switch(
                       defaultTargetPlatform == TargetPlatform.android
@@ -621,27 +647,7 @@ class _ScenarioEditorScreenState extends State<ScenarioEditorScreen> {
                       onChanged: (v) =>
                           _edit(_draft.copyWith(directDns: v), ['direct_dns']),
                     ),
-                    _heading('scenario_exit'),
-                    if (_loading) const LinearProgressIndicator(),
-                    _dropdown<String>(
-                      label: s.get('scenario_exit'),
-                      value: _exitKey,
-                      items: exitItems,
-                      onChanged: _chooseExit,
-                    ),
-                    const SizedBox(height: 8),
-                    HintText(s.get('scenario_library_hint')),
-                    TextButton.icon(
-                      onPressed: _saving || _loading ? null : _loadExits,
-                      icon: const Icon(LucideIcons.refreshCw),
-                      label: Text(s.get('settings_refresh')),
-                    ),
-                    if (_draft.chainSource == ChainSource.protonVpn &&
-                        _draft.chainEnabled)
-                      TextButton(
-                        onPressed: _saving ? null : _chooseProtonServer,
-                        child: Text(s.proton('choose_server')),
-                      ),
+                    const SizedBox(height: 16),
                     _dropdown<ProxyDnsMode>(
                       label: s.get('proxy_dns_mode'),
                       value: _draft.proxy.dnsMode,
@@ -732,13 +738,6 @@ class _ScenarioEditorScreenState extends State<ScenarioEditorScreen> {
                         }
                       },
                     ),
-                    const SizedBox(height: 20),
-                    HintText(s.get('scenario_global_hint')),
-                    const SizedBox(height: 16),
-                    TextButton(
-                      onPressed: _saving ? null : () => _save(use: true),
-                      child: Text(s.get('scenario_save_use')),
-                    ),
                   ],
                 ),
               ),
@@ -752,6 +751,16 @@ class _ScenarioEditorScreenState extends State<ScenarioEditorScreen> {
               error: _error,
               onSave: () => _save(),
               saveLabel: s.get('scenario_save'),
+              // Saving a template never applies it, so the generic
+              // unapplied-changes status would misdescribe this form.
+              statusLabel: _dirty && !_saving && _error == null
+                  ? s.get('scenario_unsaved')
+                  : null,
+              secondaryAction: OutlinedButton(
+                key: const ValueKey('scenario-save-use'),
+                onPressed: _saving ? null : () => _save(use: true),
+                child: Text(s.get('scenario_save_use')),
+              ),
               contentWidth: 880,
               matchPageGutter: true,
             ),

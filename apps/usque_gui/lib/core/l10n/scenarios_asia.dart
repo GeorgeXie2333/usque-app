@@ -64,6 +64,8 @@ const kScenarioZhTw = <String, String>{
   'scenario_settings_invalid': "此情境儲存的設定已失效，請編輯後重新儲存。",
   'protection_handoff_unavailable': "此次切換無法維持 Kill Switch 保護。請先中斷連線，再重新切換。",
   'scenario_confirm_before_connect': "上次情境切換仍在確認中。請重新整理情境後再連線。",
+  'scenario_unsaved': '情境有未儲存的變更',
+  'scenario_inherited_changes': '同時生效的其他已儲存設定',
 };
 
 const kScenarioAr = <String, String>{
@@ -147,6 +149,8 @@ const kScenarioAr = <String, String>{
       "لا يمكن الحفاظ على حماية Kill Switch أثناء هذا التبديل. اقطع الاتصال ثم بدّل مرة أخرى.",
   'scenario_confirm_before_connect':
       "لا يزال آخر تبديل للمشهد قيد التأكيد. حدّث المشاهد ثم اتصل مرة أخرى.",
+  'scenario_unsaved': 'تغييرات غير محفوظة في المشهد',
+  'scenario_inherited_changes': 'إعدادات محفوظة أخرى ستُطبَّق أيضًا',
 };
 
 const kScenarioFa = <String, String>{
@@ -231,6 +235,9 @@ const kScenarioFa = <String, String>{
       "در این تغییر نمی‌توان محافظت Kill Switch را حفظ کرد. اتصال را قطع کنید و دوباره تغییر دهید.",
   'scenario_confirm_before_connect':
       "آخرین تغییر سناریو هنوز در حال تأیید است. سناریوها را تازه کنید و دوباره وصل شوید.",
+  'scenario_unsaved': 'تغییرات ذخیره‌نشدهٔ سناریو',
+  'scenario_inherited_changes':
+      'سایر تنظیمات ذخیره‌شده که همزمان اعمال می‌شوند',
 };
 
 const kScenarioId = <String, String>{
@@ -316,6 +323,9 @@ const kScenarioId = <String, String>{
       "Perlindungan Kill Switch tidak dapat dipertahankan selama peralihan ini. Putuskan koneksi, lalu beralih lagi.",
   'scenario_confirm_before_connect':
       "Peralihan skenario terakhir masih dikonfirmasi. Muat ulang Skenario, lalu sambungkan lagi.",
+  'scenario_unsaved': 'Perubahan skenario belum disimpan',
+  'scenario_inherited_changes':
+      'Pengaturan tersimpan lain yang juga diterapkan',
 };
 
 const kScenarioTh = <String, String>{
@@ -399,6 +409,8 @@ const kScenarioTh = <String, String>{
       "ไม่สามารถคงการป้องกันของ Kill Switch ระหว่างการสลับครั้งนี้ได้ โปรดตัดการเชื่อมต่อแล้วสลับอีกครั้ง",
   'scenario_confirm_before_connect':
       "ยังยืนยันการสลับสถานการณ์ครั้งล่าสุดอยู่ โปรดรีเฟรชสถานการณ์แล้วเชื่อมต่ออีกครั้ง",
+  'scenario_unsaved': 'มีการเปลี่ยนแปลงสถานการณ์ที่ยังไม่ได้บันทึก',
+  'scenario_inherited_changes': 'การตั้งค่าที่บันทึกไว้อื่น ๆ ที่จะมีผลด้วย',
 };
 
 const kScenarioUk = <String, String>{
@@ -484,6 +496,9 @@ const kScenarioUk = <String, String>{
       "Під час цього перемикання неможливо зберегти захист Kill Switch. Від’єднайтеся та перемкніть знову.",
   'scenario_confirm_before_connect':
       "Останнє перемикання сценарію ще підтверджується. Оновіть сценарії та підключіться знову.",
+  'scenario_unsaved': 'Незбережені зміни сценарію',
+  'scenario_inherited_changes':
+      'Інші збережені налаштування, які також застосуються',
 };
 
 const kScenarioVi = <String, String>{
@@ -569,6 +584,8 @@ const kScenarioVi = <String, String>{
       "Không thể duy trì bảo vệ Kill Switch trong lần chuyển này. Hãy ngắt kết nối rồi chuyển lại.",
   'scenario_confirm_before_connect':
       "Lần chuyển kịch bản gần nhất vẫn đang được xác nhận. Hãy làm mới Kịch bản rồi kết nối lại.",
+  'scenario_unsaved': 'Thay đổi kịch bản chưa lưu',
+  'scenario_inherited_changes': 'Các cài đặt đã lưu khác cũng được áp dụng',
 };
 
 const kScenarioZhHk = <String, String>{
@@ -636,4 +653,6 @@ const kScenarioZhHk = <String, String>{
   'scenario_settings_invalid': "此情境儲存的設定已失效，請編輯後重新儲存。",
   'protection_handoff_unavailable': "此次切換無法維持 Kill Switch 保護。請先中斷連線，再重新切換。",
   'scenario_confirm_before_connect': "上次情境切換仍在確認中。請重新整理情境後再連線。",
+  'scenario_unsaved': '情境有未儲存的變更',
+  'scenario_inherited_changes': '同時生效的其他已儲存設定',
 };

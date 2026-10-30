@@ -7,13 +7,14 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../core/app_strings.dart';
 import '../core/chain_strings.dart';
 import '../core/proton_strings.dart';
+import '../core/usque_theme.dart';
 import '../models/app_models.dart';
 import '../models/scenarios.dart';
 import '../state/app_controller.dart';
 import '../widgets/common.dart';
 import '../widgets/proton_vpn_panel.dart' show loadCachedProtonServers;
 import '../widgets/usque_dialog.dart';
-import 'profiles_screen.dart' show AccountsScreen;
+import 'profiles_screen.dart' show AccountsScreen, AddAccountButton;
 import 'scenario_editor_screen.dart';
 
 class ProfilesScreen extends StatefulWidget {
@@ -161,18 +162,31 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text(
-                binding == null
-                    ? strings.get('scenario_follow_account')
-                    : '${strings.get('scenario_bound_account')}: ${account(scene.boundAccountId)} → ${account(binding)}',
-              ),
-              for (final field in fields)
-                Padding(
-                  padding: const EdgeInsets.only(top: 12),
-                  child: Text(
-                    '${scenarioFieldLabel(strings, field)}: ${scenarioValueLabel(strings, scene.settings.values, field)} → ${scenarioValueLabel(strings, current.values, field)}',
-                  ),
+              if (binding == null)
+                Text(strings.get('scenario_follow_account'))
+              else
+                _SceneChange(
+                  label: strings.get('scenario_bound_account'),
+                  from: account(scene.boundAccountId),
+                  to: account(binding),
                 ),
+              if (fields.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                ContentList(
+                  children: [
+                    for (final field in fields)
+                      _SceneChange(
+                        label: scenarioFieldLabel(strings, field),
+                        from: scenarioValueLabel(
+                          strings,
+                          scene.settings.values,
+                          field,
+                        ),
+                        to: scenarioValueLabel(strings, current.values, field),
+                      ),
+                  ],
+                ),
+              ],
             ],
           ),
         ),
@@ -199,7 +213,10 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
 
   Widget _scene(ConnectionScenario scene) {
     final strings = app.strings;
+    final theme = Theme.of(context);
+    final tokens = UsqueTokens.of(context);
     final state = app.scenarios.catalog;
+    final busy = app.scenarios.busy;
     final selected = state?.selectedId == scene.id;
     final profile = scene.settings.toProfile(app.activeProfile);
     final account = app.profiles
@@ -207,45 +224,112 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
         .firstOrNull;
     final invalid = state?.invalidIds.contains(scene.id) == true;
     final bindingMissing = scene.boundAccountId != null && account == null;
-    final summary = [
-      if (profile.frontends.tunnel)
-        strings.tunnelOutputLabel(Theme.of(context).platform),
+    final outputs = [
+      if (profile.frontends.tunnel) strings.tunnelOutputLabel(theme.platform),
       if (profile.frontends.socks5) 'SOCKS5',
       if (profile.frontends.http) 'HTTP',
-      profile.chainEnabled
-          ? scenarioValueLabel(
-              strings,
-              scene.settings.values,
-              profile.chainSource == ChainSource.vpnGate
-                  ? 'vpn_gate'
-                  : 'chain_exit',
-              exitNames: _exitNames,
-            )
-          : 'WARP',
     ].join(' · ');
-    final actions = Wrap(
-      spacing: 4,
-      runSpacing: 4,
+    final exit = profile.chainEnabled
+        ? scenarioValueLabel(
+            strings,
+            scene.settings.values,
+            profile.chainSource == ChainSource.vpnGate
+                ? 'vpn_gate'
+                : 'chain_exit',
+            exitNames: _exitNames,
+          )
+        : 'WARP';
+    final status = selected ? scenarioStatus(app) : null;
+    // States that need attention; the plain facts follow in a quieter line.
+    final tags = <Widget>[
+      if (status != null)
+        InlineStatus(
+          label: strings.get(status.key),
+          tone: status.tone,
+          icon: status.icon,
+        ),
+      if (selected && state?.templateUpdated == true)
+        InlineStatus(
+          label: strings.get('scenario_template_updated'),
+          tone: StatusTone.warning,
+          icon: LucideIcons.refreshCcw,
+        ),
+      if (selected &&
+          scene.boundAccountId != null &&
+          !bindingMissing &&
+          scene.boundAccountId != state?.currentAccountId)
+        InlineStatus(
+          label: strings.get('scenario_binding_modified'),
+          tone: StatusTone.warning,
+        ),
+      if (bindingMissing)
+        InlineStatus(
+          label: strings.get('scenario_reference_missing'),
+          tone: StatusTone.warning,
+        ),
+      if (invalid)
+        InlineStatus(
+          label: strings.get('scenario_settings_invalid'),
+          tone: StatusTone.warning,
+        ),
+    ];
+    final facts = Wrap(
+      spacing: 16,
+      runSpacing: 6,
       children: [
-        TextButton(
-          onPressed: app.scenarios.busy ? null : () => _edit(scene: scene),
-          child: Text(strings.get('edit')),
+        _SceneFact(
+          icon: profile.chainEnabled ? LucideIcons.route : LucideIcons.globe,
+          label: exit,
+        ),
+        if (outputs.isNotEmpty)
+          _SceneFact(icon: LucideIcons.monitorSmartphone, label: outputs),
+        _SceneFact(
+          icon: scene.boundAccountId == null
+              ? LucideIcons.user
+              : LucideIcons.link,
+          label: scene.boundAccountId == null
+              ? strings.get('scenario_follow_account')
+              : '${strings.get('scenario_bound_account')}: ${account?.name ?? strings.get('not_available')}',
+        ),
+      ],
+    );
+    // Edit stays directly before Use so D-pad focus moves between them.
+    final actions = Wrap(
+      spacing: 6,
+      alignment: WrapAlignment.end,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        TextButton.icon(
+          onPressed: busy ? null : () => _edit(scene: scene),
+          icon: const Icon(LucideIcons.pencil, size: 18),
+          label: Text(strings.get('edit')),
         ),
         if (bindingMissing)
-          TextButton(
+          TextButton.icon(
             key: ValueKey('scenario-rebind-${scene.id}'),
-            onPressed: app.scenarios.busy ? null : () => _unbind(scene),
-            child: Text(strings.get('scenario_follow_account')),
+            onPressed: busy ? null : () => _unbind(scene),
+            icon: const Icon(LucideIcons.user, size: 18),
+            label: Text(strings.get('scenario_follow_account')),
           ),
-        TextButton(
+        // A switch action, not a completed state: no check mark.
+        TextButton.icon(
           key: ValueKey('scenario-use-${scene.id}'),
-          onPressed: app.scenarios.busy || invalid || bindingMissing
+          onPressed: busy || invalid || bindingMissing
               ? null
               : () => previewAndUseScenario(context, app, scene),
-          child: Text(strings.get('scenario_use')),
+          icon: const Icon(LucideIcons.arrowLeftRight, size: 18),
+          label: Text(strings.get('scenario_use')),
         ),
+        // The template's most likely next step once live settings diverge.
+        if (selected && state?.modified == true)
+          TextButton.icon(
+            key: ValueKey('scenario-update-${scene.id}'),
+            onPressed: busy ? null : () => _update(scene),
+            icon: const Icon(LucideIcons.save, size: 18),
+            label: Text(strings.get('scenario_update_current')),
+          ),
         PopupMenuButton<String>(
-          enabled: !app.scenarios.busy,
+          enabled: !busy,
           onSelected: (value) {
             switch (value) {
               case 'duplicate':
@@ -270,71 +354,89 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
         ),
       ],
     );
-    final details = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Wrap(
-          spacing: 8,
-          runSpacing: 4,
-          crossAxisAlignment: WrapCrossAlignment.center,
-          children: [
-            Text(scene.name, style: Theme.of(context).textTheme.titleMedium),
-            if (selected)
-              InlineStatus(
-                label: strings.get(scenarioStateKey(app)),
-                tone: state?.modified == true
-                    ? StatusTone.warning
-                    : StatusTone.brand,
-              ),
-            if (selected && state?.templateUpdated == true)
-              InlineStatus(
-                label: strings.get('scenario_template_updated'),
-                tone: StatusTone.warning,
-              ),
-          ],
+    // Rows share the Accounts grammar: selection wash and start marker, the
+    // name above its tags, actions beside the block or under a hairline.
+    return Semantics(
+      selected: selected,
+      container: true,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+        decoration: BoxDecoration(
+          color: selected
+              ? theme.colorScheme.primary.withValues(alpha: tokens.tint * 0.55)
+              : null,
+          border: BorderDirectional(
+            start: BorderSide(
+              width: 3,
+              color: selected ? theme.colorScheme.primary : Colors.transparent,
+            ),
+          ),
         ),
-        const SizedBox(height: 6),
-        Text(summary),
-        HintText(
-          scene.boundAccountId == null
-              ? strings.get('scenario_follow_account')
-              : '${strings.get('scenario_bound_account')}: ${account?.name ?? strings.get('scenario_reference_missing')}',
-        ),
-        if (selected &&
-            scene.boundAccountId != null &&
-            scene.boundAccountId != state?.currentAccountId)
-          HintText(strings.get('scenario_binding_modified')),
-        if (invalid) HintText(strings.get('scenario_settings_invalid')),
-      ],
-    );
-    return Material(
-      color: selected
-          ? Theme.of(context).colorScheme.primaryContainer.withValues(alpha: .3)
-          : Colors.transparent,
-      borderRadius: BorderRadius.circular(12),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
         child: LayoutBuilder(
           builder: (context, constraints) {
-            if (constraints.maxWidth < 560 ||
-                MediaQuery.textScalerOf(context).scale(14) > 21) {
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
+            final compact =
+                constraints.maxWidth < 620 ||
+                MediaQuery.textScalerOf(context).scale(14) > 21;
+            final details = Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Selection is not application, so no check mark here.
+                Icon(
+                  LucideIcons.layers3,
+                  size: 24,
+                  color: selected
+                      ? theme.colorScheme.primary
+                      : theme.colorScheme.onSurfaceVariant,
+                ),
+                const SizedBox(width: 13),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        scene.name,
+                        maxLines: compact ? 2 : 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.titleLarge,
+                      ),
+                      if (tags.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        Wrap(spacing: 12, runSpacing: 6, children: tags),
+                      ],
+                      const SizedBox(height: 8),
+                      facts,
+                    ],
+                  ),
+                ),
+              ],
+            );
+            if (!compact) {
+              // Extra contextual actions wrap instead of squeezing the name.
+              return Row(
                 children: [
-                  details,
-                  const SizedBox(height: 8),
-                  Align(
-                    alignment: AlignmentDirectional.centerEnd,
+                  Expanded(child: details),
+                  const SizedBox(width: 16),
+                  ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxWidth: constraints.maxWidth * 0.55,
+                    ),
                     child: actions,
                   ),
                 ],
               );
             }
-            return Row(
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Expanded(child: details),
-                const SizedBox(width: 12),
-                actions,
+                details,
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  child: Divider(height: 1, color: tokens.hairline),
+                ),
+                Align(
+                  alignment: AlignmentDirectional.centerEnd,
+                  child: actions,
+                ),
               ],
             );
           },
@@ -343,38 +445,248 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
     );
   }
 
+  /// The saved choices beside the confirmed running combination, which can
+  /// differ until a switch is applied.
   Widget _summary() {
     final strings = app.strings, state = app.scenarios.catalog;
+    final theme = Theme.of(context);
     final accountId = state?.currentAccountId ?? app.activeProfileId;
     final account = app.profiles.where((a) => a.id == accountId).firstOrNull;
-    final appliedAccountId = state?.appliedAccountId;
-    return Wrap(
-      spacing: 20,
-      runSpacing: 4,
+    final appliedAccount = app.profiles
+        .where((a) => a.id == state?.appliedAccountId)
+        .firstOrNull;
+    final appliedScene = state?.appliedSceneConfirmed == true
+        ? state?.scenarios
+                  .where((scene) => scene.id == state.appliedScenarioId)
+                  .firstOrNull
+                  ?.name ??
+              strings.get('scenario_custom')
+        : strings.get('scenario_unknown');
+    Widget item(IconData icon, String label, String value, {Key? key}) =>
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, size: 16, color: theme.colorScheme.onSurfaceVariant),
+                const SizedBox(width: 6),
+                Flexible(
+                  child: Text(
+                    label,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(value, key: key, style: theme.textTheme.titleSmall),
+          ],
+        );
+    final facts = Wrap(
+      spacing: 40,
+      runSpacing: 12,
       children: [
-        TextButton(
-          onPressed: () => app.selectProfilesTab(ProfilesTab.accounts),
-          child: Text(
-            '${strings.get('scenario_current_account')}: ${account?.name ?? strings.get('not_available')}',
-          ),
+        item(
+          LucideIcons.layers3,
+          strings.get('scenario_current'),
+          state?.selected?.name ?? strings.get('scenario_custom'),
         ),
-        TextButton(
-          onPressed: () => app.selectProfilesTab(ProfilesTab.scenes),
-          child: Text(
-            '${strings.get('scenario_current')}: ${state?.selected?.name ?? strings.get('scenario_custom')}',
-          ),
+        item(
+          LucideIcons.user,
+          strings.get('scenario_current_account'),
+          account?.name ?? strings.get('not_available'),
         ),
         if (state?.sessionId != null || app.snapshot.isConnected)
-          Text(
-            '${strings.chain('current')}: ${app.profiles.where((a) => a.id == appliedAccountId).firstOrNull?.name ?? strings.get('not_available')} · ${state?.appliedSceneConfirmed == true ? state?.scenarios.where((scene) => scene.id == state.appliedScenarioId).firstOrNull?.name ?? strings.get('scenario_custom') : strings.get('scenario_unknown')}',
+          item(
+            LucideIcons.activity,
+            strings.chain('current'),
+            '${appliedAccount?.name ?? strings.get('not_available')} · $appliedScene',
+            key: const ValueKey('profiles-running'),
           ),
+      ],
+    );
+    // Refresh stays beside the facts at every width; it is small, and an
+    // uncertain switch is resolved by refreshing before anything else.
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(child: facts),
+            const SizedBox(width: 16),
+            IconButton(
+              tooltip: strings.get('settings_refresh'),
+              onPressed: app.scenarios.busy ? null : app.scenarios.refresh,
+              icon: const Icon(LucideIcons.refreshCw),
+            ),
+          ],
+        ),
+        if (state?.canRestore == true) ...[
+          const SizedBox(height: 8),
+          Align(
+            alignment: AlignmentDirectional.centerStart,
+            child: TextButton.icon(
+              onPressed: app.scenarios.busy
+                  ? null
+                  : () => previewAndUseScenario(context, app, null),
+              icon: const Icon(LucideIcons.history, size: 18),
+              label: Text(strings.get('scenario_restore')),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  /// Engine and switch problems, above the content they concern.
+  Widget? _banner() {
+    final strings = app.strings, scenes = app.scenarios, state = scenes.catalog;
+    final failed = !scenes.unconfirmed && state?.applyStatus == 'failed';
+    final banners = [
+      if (state?.currentSettingsError != null)
+        WarningBanner(
+          title: null,
+          message: strings.get(scenarioErrorKey(state!.currentSettingsError)),
+        ),
+      if (scenes.errorCode != null || scenes.unconfirmed || failed)
+        WarningBanner(
+          title: null,
+          danger: failed,
+          message: strings.get(
+            scenes.unconfirmed
+                ? 'scenario_unknown'
+                : failed
+                ? 'scenario_failed'
+                : scenarioErrorKey(scenes.errorCode),
+          ),
+        ),
+    ];
+    if (banners.isEmpty) return null;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (var i = 0; i < banners.length; i++) ...[
+          if (i > 0) const SizedBox(height: 8),
+          banners[i],
+        ],
+      ],
+    );
+  }
+
+  /// The tab selector shares a row with the visible tab's create action.
+  Widget _toolbar(ProfilesTab selected) {
+    final strings = app.strings, scenes = app.scenarios;
+    final tabs = SegmentedButton<ProfilesTab>(
+      segments: [
+        ButtonSegment(
+          value: ProfilesTab.scenes,
+          label: Text(strings.get('scenario_scenes')),
+        ),
+        ButtonSegment(
+          value: ProfilesTab.accounts,
+          label: Text(strings.get('scenario_accounts')),
+        ),
+      ],
+      selected: {selected},
+      onSelectionChanged: (values) => app.selectProfilesTab(values.first),
+    );
+    final create = selected == ProfilesTab.accounts
+        ? AddAccountButton(controller: app)
+        : FilledButton.icon(
+            key: const ValueKey('scenario-create'),
+            onPressed: scenes.busy || scenes.catalog?.currentSettings == null
+                ? null
+                : () => _edit(),
+            icon: const Icon(LucideIcons.plus),
+            label: Text(strings.get('scenario_create')),
+          );
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth < 560 ||
+            MediaQuery.textScalerOf(context).scale(14) > 21) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              tabs,
+              const SizedBox(height: 16),
+              Align(alignment: AlignmentDirectional.centerEnd, child: create),
+            ],
+          );
+        }
+        return Row(
+          children: [
+            ConstrainedBox(
+              constraints: const BoxConstraints(minWidth: 280),
+              child: tabs,
+            ),
+            const Spacer(),
+            const SizedBox(width: 16),
+            create,
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _scenes() {
+    final strings = app.strings, scenes = app.scenarios, state = scenes.catalog;
+    final theme = Theme.of(context);
+    if (state == null) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 32),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // A fixed slot, so a running operation never shifts the list.
+        SizedBox(
+          height: 4,
+          child: scenes.busy ? const LinearProgressIndicator() : null,
+        ),
+        const SizedBox(height: 12),
+        if (state.scenarios.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 16),
+            child: Column(
+              children: [
+                Icon(
+                  LucideIcons.layers3,
+                  size: 40,
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  strings.get('scenario_empty'),
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.titleLarge,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  strings.get('scenario_empty_hint'),
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          )
+        else
+          ContentList(children: state.scenarios.map(_scene).toList()),
       ],
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    final strings = app.strings, scenes = app.scenarios, state = scenes.catalog;
+    final strings = app.strings, scenes = app.scenarios;
     final selected = scenes.supported ? app.profilesTab : ProfilesTab.accounts;
     return PageFrame(
       title: strings.get('profiles'),
@@ -383,104 +695,168 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          if (scenes.supported) _summary(),
-          const SizedBox(height: 8),
-          SegmentedButton<ProfilesTab>(
-            segments: [
-              ButtonSegment(
-                value: ProfilesTab.scenes,
-                label: Text(strings.get('scenario_scenes')),
-                enabled: scenes.supported,
-              ),
-              ButtonSegment(
-                value: ProfilesTab.accounts,
-                label: Text(strings.get('scenario_accounts')),
-              ),
-            ],
-            selected: {selected},
-            onSelectionChanged: (values) => app.selectProfilesTab(values.first),
-          ),
-          const SizedBox(height: 20),
-          if (!scenes.supported)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 16),
-              child: HintText(strings.get('scenario_unsupported')),
+          BannerSlot(child: _banner()),
+          if (scenes.supported) ...[
+            _summary(),
+            const SizedBox(height: 24),
+            _toolbar(selected),
+          ] else ...[
+            // Without scenes there is nothing to switch to, only Accounts.
+            HintText(strings.get('scenario_unsupported')),
+            const SizedBox(height: 16),
+            Align(
+              alignment: AlignmentDirectional.centerEnd,
+              child: AddAccountButton(controller: app),
             ),
-          if (state?.currentSettingsError != null)
-            WarningBanner(
-              title: null,
-              message: strings.get(
-                scenarioErrorKey(state!.currentSettingsError),
-              ),
-            ),
+          ],
+          const SizedBox(height: 16),
           if (selected == ProfilesTab.accounts)
             AccountsScreen(controller: app, embedded: true)
-          else ...[
-            if (scenes.errorCode != null ||
-                scenes.unconfirmed ||
-                state?.applyStatus == 'failed')
-              WarningBanner(
-                title: null,
-                message: strings.get(
-                  scenes.unconfirmed
-                      ? 'scenario_unknown'
-                      : state?.applyStatus == 'failed'
-                      ? 'scenario_failed'
-                      : scenarioErrorKey(scenes.errorCode),
-                ),
-              ),
-            Wrap(
-              alignment: WrapAlignment.end,
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                IconButton(
-                  tooltip: strings.get('settings_refresh'),
-                  onPressed: scenes.busy ? null : scenes.refresh,
-                  icon: const Icon(LucideIcons.refreshCw),
-                ),
-                if (state?.canRestore == true)
-                  TextButton(
-                    onPressed: scenes.busy
-                        ? null
-                        : () => previewAndUseScenario(context, app, null),
-                    child: Text(strings.get('scenario_restore')),
-                  ),
-                FilledButton.icon(
-                  key: const ValueKey('scenario-create'),
-                  onPressed: scenes.busy || state?.currentSettings == null
-                      ? null
-                      : () => _edit(),
-                  icon: const Icon(LucideIcons.plus),
-                  label: Text(strings.get('scenario_create')),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            if (state == null)
-              const Center(child: CircularProgressIndicator())
-            else if (state.scenarios.isEmpty)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 32),
-                child: Column(
-                  children: [
-                    Text(
-                      strings.get('scenario_empty'),
-                      style: Theme.of(context).textTheme.titleLarge,
-                    ),
-                    const SizedBox(height: 8),
-                    Text(strings.get('scenario_empty_hint')),
-                  ],
-                ),
-              )
-            else
-              ContentList(children: state.scenarios.map(_scene).toList()),
-            if (scenes.busy) const LinearProgressIndicator(),
-          ],
+          else
+            _scenes(),
         ],
       ),
     );
   }
+}
+
+/// One plain fact about a scene, quieter than its status tags.
+class _SceneFact extends StatelessWidget {
+  const _SceneFact({required this.icon, required this.label});
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final color = theme.colorScheme.onSurfaceVariant;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        ExcludeSemantics(child: Icon(icon, size: 16, color: color)),
+        const SizedBox(width: 6),
+        Flexible(
+          child: Text(
+            label,
+            style: theme.textTheme.bodyMedium?.copyWith(color: color),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// A settings difference: the field, then its old value leading to the new.
+class _SceneChange extends StatelessWidget {
+  const _SceneChange({
+    required this.label,
+    required this.from,
+    required this.to,
+  });
+  final String label, from, to;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final muted = theme.colorScheme.onSurfaceVariant;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: theme.textTheme.titleSmall),
+          const SizedBox(height: 4),
+          Text.rich(
+            TextSpan(
+              children: [
+                TextSpan(
+                  text: from,
+                  style: TextStyle(color: muted),
+                ),
+                TextSpan(
+                  text: '  →  ',
+                  style: TextStyle(color: muted),
+                ),
+                TextSpan(
+                  text: to,
+                  style: TextStyle(
+                    color: theme.colorScheme.onSurface,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+            style: theme.textTheme.bodyMedium,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// A short statement of what applying the preview will do.
+class _SceneNote extends StatelessWidget {
+  const _SceneNote({
+    required this.icon,
+    required this.message,
+    required this.tone,
+  });
+  final IconData icon;
+  final String message;
+  final StatusTone tone;
+
+  @override
+  Widget build(BuildContext context) => Row(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Padding(
+        padding: const EdgeInsets.only(top: 2),
+        child: ExcludeSemantics(
+          child: Icon(icon, size: 18, color: statusToneColor(context, tone)),
+        ),
+      ),
+      const SizedBox(width: 10),
+      Expanded(
+        child: Text(message, style: Theme.of(context).textTheme.bodyMedium),
+      ),
+    ],
+  );
+}
+
+typedef SceneStatus = ({String key, StatusTone tone, IconData icon});
+
+/// The selected scene's state with a tone and glyph that match its meaning:
+/// selection alone is neither success nor a notice.
+SceneStatus scenarioStatus(AppController app) {
+  final key = scenarioStateKey(app);
+  return switch (key) {
+    'scenario_applied' => (
+      key: key,
+      tone: StatusTone.success,
+      icon: LucideIcons.circleCheck,
+    ),
+    'scenario_failed' => (
+      key: key,
+      tone: StatusTone.danger,
+      icon: LucideIcons.circleX,
+    ),
+    'scenario_modified' => (
+      key: key,
+      tone: StatusTone.warning,
+      icon: LucideIcons.pencilLine,
+    ),
+    'scenario_unknown' => (
+      key: key,
+      tone: StatusTone.warning,
+      icon: LucideIcons.circleQuestionMark,
+    ),
+    'scenario_pending' => (
+      key: key,
+      tone: StatusTone.neutral,
+      icon: LucideIcons.clock,
+    ),
+    _ => (key: key, tone: StatusTone.brand, icon: LucideIcons.circleDot),
+  };
 }
 
 String scenarioStateKey(AppController app) {
@@ -545,6 +921,25 @@ Future<bool> _previewAndUseScenario(
   String account(String? id) =>
       app.profiles.where((a) => a.id == id).firstOrNull?.name ??
       strings.get('scenario_reference_missing');
+  final impact = switch (preview.applyKind == 'select'
+      ? 'scenario_disconnected_hint'
+      : preview.needsReconnect == null
+      ? 'scenario_unknown'
+      : preview.needsReconnect == true
+      ? 'scenario_will_reconnect'
+      : 'scenario_new_flows') {
+    'scenario_will_reconnect' => (
+      key: 'scenario_will_reconnect',
+      tone: StatusTone.warning,
+      icon: LucideIcons.refreshCw,
+    ),
+    'scenario_unknown' => (
+      key: 'scenario_unknown',
+      tone: StatusTone.warning,
+      icon: LucideIcons.circleQuestionMark,
+    ),
+    final key => (key: key, tone: StatusTone.neutral, icon: LucideIcons.info),
+  };
   final confirmed = await showDialog<bool>(
     context: context,
     builder: (context) => UsqueDialog(
@@ -558,28 +953,56 @@ Future<bool> _previewAndUseScenario(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(
-              preview.accountChanged
-                  ? '${strings.get('scenario_account_change')}: ${account(preview.previousAccountId)} → ${account(preview.accountId)}'
-                  : strings.get('scenario_keep_account'),
+            // What applying does comes first; the field details follow.
+            _SceneNote(
+              icon: impact.icon,
+              tone: impact.tone,
+              message: strings.get(impact.key),
             ),
-            const SizedBox(height: 16),
-            if (managedFields.isEmpty && globalFields.isEmpty)
-              Text(strings.get('scenario_no_changes')),
-            for (final field in managedFields)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 5),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(scenarioFieldLabel(strings, field)),
-                    Text(
-                      '${scenarioValueLabel(strings, preview.appliedSettings ?? preview.beforeSettings, field, exitNames: exitNames)} → ${scenarioValueLabel(strings, preview.targetSettings, field, exitNames: exitNames)}',
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  ],
-                ),
+            if (preview.killSwitchOutputRemoved) ...[
+              const SizedBox(height: 12),
+              WarningBanner(
+                key: const ValueKey('scenario-kill-switch-warning'),
+                title: null,
+                message: strings.get('scenario_kill_switch_output'),
               ),
+            ],
+            const SizedBox(height: 16),
+            if (preview.accountChanged)
+              _SceneChange(
+                label: strings.get('scenario_account_change'),
+                from: account(preview.previousAccountId),
+                to: account(preview.accountId),
+              )
+            else
+              Text(strings.get('scenario_keep_account')),
+            if (managedFields.isEmpty && globalFields.isEmpty) ...[
+              const SizedBox(height: 12),
+              Text(strings.get('scenario_no_changes')),
+            ],
+            if (managedFields.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              ContentList(
+                children: [
+                  for (final field in managedFields)
+                    _SceneChange(
+                      label: scenarioFieldLabel(strings, field),
+                      from: scenarioValueLabel(
+                        strings,
+                        preview.appliedSettings ?? preview.beforeSettings,
+                        field,
+                        exitNames: exitNames,
+                      ),
+                      to: scenarioValueLabel(
+                        strings,
+                        preview.targetSettings,
+                        field,
+                        exitNames: exitNames,
+                      ),
+                    ),
+                ],
+              ),
+            ],
             if (scenarioMap(preview.targetSettings['chain_exit'])['source'] ==
                     'proton_vpn' &&
                 scenarioMap(
@@ -589,38 +1012,22 @@ Future<bool> _previewAndUseScenario(
                     scenarioMap(
                       preview.targetSettings['chain_exit'],
                     )['proton_server_id'])
-              Text(
-                '${strings.proton('selected_server')} · ${strings.get('scenario_modified')}',
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(
+                  '${strings.proton('selected_server')} · ${strings.get('scenario_modified')}',
+                ),
               ),
             if (globalFields.isNotEmpty) ...[
-              const SizedBox(height: 16),
-              ContentHeading(title: strings.get('advanced')),
+              const SizedBox(height: 20),
+              ContentHeading(title: strings.get('scenario_inherited_changes')),
+              const SizedBox(height: 4),
               for (final field in globalFields)
                 Padding(
                   padding: const EdgeInsets.symmetric(vertical: 6),
                   child: Text(scenarioFieldLabel(strings, field)),
                 ),
             ],
-            if (preview.killSwitchOutputRemoved) ...[
-              const SizedBox(height: 16),
-              WarningBanner(
-                key: const ValueKey('scenario-kill-switch-warning'),
-                title: null,
-                message: strings.get('scenario_kill_switch_output'),
-              ),
-            ],
-            const SizedBox(height: 16),
-            HintText(
-              strings.get(
-                preview.applyKind == 'select'
-                    ? 'scenario_disconnected_hint'
-                    : preview.needsReconnect == null
-                    ? 'scenario_unknown'
-                    : preview.needsReconnect == true
-                    ? 'scenario_will_reconnect'
-                    : 'scenario_new_flows',
-              ),
-            ),
           ],
         ),
       ),
