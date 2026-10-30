@@ -1278,27 +1278,3 @@ String scenarioValueLabel(
     _ => value.toString(),
   };
 }
-
-class ScenarioHomeLink extends StatelessWidget {
-  const ScenarioHomeLink({required this.controller, super.key});
-  final AppController controller;
-  @override
-  Widget build(BuildContext context) => ListenableBuilder(
-    listenable: controller.scenarios,
-    builder: (context, _) {
-      if (!controller.scenarios.supported) return const SizedBox.shrink();
-      final strings = controller.strings;
-      return Align(
-        alignment: AlignmentDirectional.centerStart,
-        child: TextButton.icon(
-          key: const ValueKey('home-scene-link'),
-          onPressed: () => controller.openProfiles(ProfilesTab.scenes),
-          icon: const Icon(LucideIcons.layers3, size: 18),
-          label: Text(
-            '${strings.get('scenario_current')}: ${controller.scenarios.catalog?.selected?.name ?? strings.get('scenario_custom')}',
-          ),
-        ),
-      );
-    },
-  );
-}

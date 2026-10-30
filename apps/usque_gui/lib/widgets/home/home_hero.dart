@@ -17,6 +17,7 @@ import '../live_duration.dart';
 import '../profile_identity_dialog.dart';
 import '../setup_handoff.dart';
 import 'home_details.dart';
+import 'home_scenario.dart';
 
 typedef _HeroView = ({
   ConnectionPhase phase,
@@ -496,6 +497,7 @@ class _DesktopSessionReadout extends StatelessWidget {
             ],
           ),
           const SizedBox(height: UsqueSpace.l - 4),
+          ScenarioHomeLink(controller: controller),
           HomeProtectionLine(
             killKey: view.killKey,
             alwaysOn: view.alwaysOn,

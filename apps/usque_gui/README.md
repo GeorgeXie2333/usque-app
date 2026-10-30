@@ -38,6 +38,8 @@ The second destination is **Profiles** (**配置** in Simplified Chinese), with
 navigation and uses the normal leave guard; phones hide bottom navigation on
 editor subpages. Home account and existing account-launch targets open Accounts;
 the scene entry opens Scenes. Ordinary navigation remembers the tab for this run.
+Home shows the selected scene directly above Kill Switch at the same visual level:
+in the desktop session card and the phone status card. The row opens Scenes.
 
 Scene forms keep local drafts. Saving a template never calls the live network
 settings save path. Reuse the pure routing and DNS fields and prepared exit
@@ -48,6 +50,8 @@ dependencies. See [Profiles and scenes](../../docs/SCENARIOS.md).
 
 配置页与首页都以引擎确认状态区分已选目标和当前连接。场景编辑保留独立草稿，
 账号默认沿用当前选择，也可绑定指定账号；保存模板不会改变连接。
+首页将所选场景放在 Kill Switch 正上方，以同级状态行展示：桌面端位于会话卡内，
+手机端位于状态卡内；点击该行进入场景配置。
 
 ## Linux desktop
 

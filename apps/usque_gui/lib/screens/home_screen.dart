@@ -17,7 +17,6 @@ import '../widgets/home_desktop_controls.dart';
 import '../widgets/setup_handoff.dart';
 import 'chain_proxy_screen.dart';
 import 'diagnostics_screen.dart';
-import 'profiles_hub_screen.dart' show ScenarioHomeLink;
 
 export '../widgets/home/home_details.dart' show killSwitchStatusKey;
 
@@ -77,7 +76,6 @@ class HomeScreen extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
               notice,
-              ScenarioHomeLink(controller: controller),
               HomeChainSummary(
                 controller: controller,
                 strings: strings,
@@ -110,11 +108,7 @@ class HomeScreen extends StatelessWidget {
         child: _DesktopHome(
           controller: controller,
           strings: strings,
-          header: [
-            notice,
-            errorSlot,
-            ScenarioHomeLink(controller: controller),
-          ],
+          header: [notice, errorSlot],
           onOpenChainProxy: onOpenChainProxy ?? openChainProxy,
         ),
       ),
