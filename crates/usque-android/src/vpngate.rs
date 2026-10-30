@@ -181,7 +181,7 @@ pub(crate) fn command(
         let config = ConfigStore::new(path)
             .load()
             .map_err(|_| "VPN_GATE_UNAVAILABLE")?;
-        let mut retained: Vec<_> = config.network.vpn_gate.selection.into_iter().collect();
+        let mut retained = usque_core::scenarios::retained_vpn_gate_selections(&config);
         if let Some(server) = &status.current_server {
             retained.push(Selection {
                 server_id: server.id.clone(),
@@ -211,14 +211,10 @@ pub(crate) fn command(
                 controller
                     .downloader
                     .cancel_node_for(&request.node.server_id);
-                let mut retained: Vec<_> = ConfigStore::new(path)
+                let config = ConfigStore::new(path)
                     .load()
-                    .map_err(|_| "VPN_GATE_UNAVAILABLE")?
-                    .network
-                    .vpn_gate
-                    .selection
-                    .into_iter()
-                    .collect();
+                    .map_err(|_| "VPN_GATE_UNAVAILABLE")?;
+                let mut retained = usque_core::scenarios::retained_vpn_gate_selections(&config);
                 if let Some(server) = &status.current_server {
                     retained.push(Selection {
                         server_id: server.id.clone(),

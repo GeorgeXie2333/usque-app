@@ -117,6 +117,7 @@ internal class VpnControlClient(
         val json: String?,
         val result: MethodChannel.Result,
         var sent: Boolean = false,
+        val scenario: Boolean = false,
     )
 
     private val pendingSettings = mutableMapOf<Int, SettingsRequest>()
@@ -312,13 +313,14 @@ internal class VpnControlClient(
     fun requestNetworkSettings(
         json: String?,
         result: MethodChannel.Result,
+        scenario: Boolean = false,
     ) {
         if (destroyed) {
             result.error("ENGINE_IPC_CLOSED", "The settings service is unavailable.", null)
             return
         }
         val id = allocateRequestId()
-        pendingSettings[id] = SettingsRequest(json, result)
+        pendingSettings[id] = SettingsRequest(json, result, scenario = scenario)
         scheduler.postDelayed(10_000L, "settings-$id") {
             pendingSettings.remove(id)?.result?.error(
                 "NETWORK_SETTINGS_UNCONFIRMED",
@@ -330,13 +332,20 @@ internal class VpnControlClient(
         flushSettings()
     }
 
+    fun requestScenarios(
+        json: String,
+        result: MethodChannel.Result,
+    ) = requestNetworkSettings(json, result, scenario = true)
+
     private fun flushSettings() {
         val service = endpoint ?: return
         pendingSettings.toMap().forEach { (id, request) ->
             if (!request.sent) {
                 request.sent = true
                 val what =
-                    if (request.json ==
+                    if (request.scenario) {
+                        UsqueVpnService.MSG_SCENARIOS
+                    } else if (request.json ==
                         null
                     ) {
                         UsqueVpnService.MSG_GET_SETTINGS
@@ -361,8 +370,14 @@ internal class VpnControlClient(
         error: String? = null,
     ) {
         scheduler.cancel("settings-$id")
-        pendingSettings.remove(id)?.result?.let { result ->
-            val parsed = json?.let { runCatching { NetworkSettingsFields.decode(it) }.getOrNull() }
+        pendingSettings.remove(id)?.let { request ->
+            val result = request.result
+            val parsed =
+                json?.let {
+                    runCatching {
+                        if (request.scenario) ScenarioFields.decode(it) else NetworkSettingsFields.decode(it)
+                    }.getOrNull()
+                }
             if (parsed == null) {
                 val routing = RoutingSettingsError.fromWire(error)
                 result.error(
@@ -1362,7 +1377,7 @@ internal class VpnControlClient(
                 true
             }
 
-            UsqueVpnService.MSG_SAVE_SETTINGS, UsqueVpnService.MSG_GET_SETTINGS -> {
+            UsqueVpnService.MSG_SAVE_SETTINGS, UsqueVpnService.MSG_GET_SETTINGS, UsqueVpnService.MSG_SCENARIOS -> {
                 deliverSettingsReply(arg1, data.getString("network_settings"), data.getString("settings_error"))
                 true
             }

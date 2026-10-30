@@ -1,0 +1,12 @@
+{
+  "fallback_total": 21,
+  "fallback_unavailable": 1,
+  "fallback_worker_failed": 2,
+  "fallback_flow_capacity": 3,
+  "fallback_setup_failed": 4,
+  "fallback_unsupported_target": 5,
+  "fallback_rewrite_failed": 6,
+  "flow_failures": 7,
+  "return_queue_drop_packets": 8,
+  "return_queue_drop_bytes": 9
+}

@@ -107,7 +107,7 @@ void main() {
         .dx;
     final lefts = <double>[];
     for (final (section, title) in [
-      (AppSection.profiles, 'Accounts'),
+      (AppSection.profiles, 'Profiles'),
       (AppSection.proxy, 'Proxy'),
       (AppSection.settings, 'Settings'),
     ]) {

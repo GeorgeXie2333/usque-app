@@ -42,6 +42,7 @@ class _ShellScreenState extends State<ShellScreen> {
   AppController get controller => widget.controller;
   final _proxySection = GlobalKey<ProxySectionState>();
   final _sectionNavigators = <AppSection, GlobalKey<SectionNavigatorState>>{
+    AppSection.profiles: GlobalKey<SectionNavigatorState>(),
     AppSection.proxy: GlobalKey<SectionNavigatorState>(),
     AppSection.settings: GlobalKey<SectionNavigatorState>(),
   };
@@ -338,24 +339,13 @@ class _ShellScreenState extends State<ShellScreen> {
             onOpenChainProxy: () => unawaited(_openChainProxy()),
             onOpenDiagnostics: () => unawaited(_openDiagnostics()),
           ),
-          ControllerSelector<
-            ({
-              List<UsqueProfile> profiles,
-              String activeProfileId,
-              Map<String, ProfileIdentityState> identityStates,
-              Map<String, ProfileIdentityStatus> identityStatuses,
-            })
-          >(
-            key: const ValueKey<String>('profiles-controller-selector'),
-            controller: controller,
-            active: (controller) => controller.section == AppSection.profiles,
-            selector: (controller) => (
-              profiles: controller.profiles,
-              activeProfileId: controller.activeProfileId,
-              identityStates: controller.profileIdentityStates,
-              identityStatuses: controller.profileIdentityStatuses,
-            ),
-            builder: (context, _) => ProfilesScreen(controller: controller),
+          SectionNavigator(
+            key: _sectionNavigators[AppSection.profiles],
+            active: section == AppSection.profiles,
+            rootName: '/profiles',
+            onSubpageChanged: _onSubpageChanged(AppSection.profiles),
+            builder: (context) =>
+                ProfilesScreen(controller: controller, gateObservation: true),
           ),
           ProxySection(
             key: _proxySection,

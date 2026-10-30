@@ -15,6 +15,7 @@ pub mod reconfigure;
 pub mod recovery;
 pub mod redaction;
 pub mod registration;
+pub mod scenarios;
 pub mod state;
 pub mod storage;
 pub mod update;

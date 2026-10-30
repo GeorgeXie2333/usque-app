@@ -294,6 +294,16 @@ message WarpWireguardResponse {
   string metadata_json = 1;
 }
 
+// Bounded, non-secret scene commands shared with the Android owner process.
+// Settings and references are private local configuration, never diagnostic data.
+message ScenarioRequest {
+  string command_json = 1;
+}
+
+message ScenarioResponse {
+  string metadata_json = 1;
+}
+
 // Only command metadata may be serialized for diagnostics. Authentication and
 // human-verification inputs stay in a separate bounded, ephemeral byte field.
 message ProtonVpnRequest {
@@ -533,6 +543,7 @@ message Capabilities {
   bool continuous_connection = 51;
   bool proton_account_warp_fallback = 52;
   bool proton_server_switching = 53;
+  bool connection_scenarios = 54;
 }
 
 message FrontendStatus {
@@ -1376,6 +1387,7 @@ message ControlRequest {
     GetInitialIdentityStateRequest get_initial_identity_state = 50;
     UpdateAdsRulesRequest update_ads_rules = 51;
     ProtonVpnRequest proton_vpn = 52;
+    ScenarioRequest scenario = 53;
   }
 }
 
@@ -1436,6 +1448,7 @@ message ControlResponse {
     InitialIdentityState initial_identity_state = 26;
     SensitiveClipboardValue sensitive_clipboard = 27;
     ProtonVpnResponse proton_vpn = 28;
+    ScenarioResponse scenario = 29;
   }
 }
 

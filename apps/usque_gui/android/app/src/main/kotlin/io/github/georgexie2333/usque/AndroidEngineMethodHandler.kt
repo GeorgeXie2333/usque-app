@@ -402,6 +402,10 @@ internal class AndroidEngineMethodHandler(
                 controlClient.requestVpnGate(flutterValueToJson(values), result)
             }
 
+            "scenarioCommand" -> {
+                controlClient.requestScenarios(flutterValueToJson(call.arguments), result)
+            }
+
             "saveNetworkSettings", "getNetworkSettingsState" -> {
                 val request =
                     if (call.method == "saveNetworkSettings") {
@@ -419,6 +423,17 @@ internal class AndroidEngineMethodHandler(
                         mapOf(
                             "h3_congestion_control_algorithms" to CongestionControlSettings.capabilities(native),
                             "tls_fingerprints" to TlsFingerprintSettings.capabilities(native),
+                            "connection_scenarios" to
+                                (
+                                    native?.let {
+                                        runCatching {
+                                            JSONObject(
+                                                it,
+                                            ).optBoolean("connection_scenarios")
+                                        }.getOrDefault(false)
+                                    }
+                                        ?: false
+                                ),
                             "network_settings_application" to
                                 (
                                     native?.let {

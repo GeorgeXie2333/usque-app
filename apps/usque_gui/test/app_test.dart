@@ -43,6 +43,13 @@ class FakeEngineClient
         EngineClient,
         InitialIdentityClient,
         OnboardingPermissionsClient {
+  @override
+  Future<Map<String, Object?>> scenarioCommand(
+    Map<String, Object?> command,
+  ) async {
+    throw const EngineException('SCENARIOS_UNSUPPORTED', 'Scenes unavailable.');
+  }
+
   InitialIdentityState? initialSetupState;
   OnboardingPermissionState permissionState = const OnboardingPermissionState(
     notification: OnboardingNotificationPermission.notRequired,
@@ -1587,7 +1594,7 @@ void main() {
 
   test('compact navigation labels keep reviewed short translations', () {
     expect(AppStrings(LocalePreference.arabic).get('nav_home'), 'رئيسية');
-    expect(AppStrings(LocalePreference.arabic).get('nav_profiles'), 'حسابات');
+    expect(AppStrings(LocalePreference.arabic).get('nav_profiles'), 'ملفات');
     expect(AppStrings(LocalePreference.arabic).get('nav_proxy'), 'وكيل');
     expect(AppStrings(LocalePreference.arabic).get('nav_settings'), 'إعدادات');
     expect(AppStrings(LocalePreference.german).get('nav_settings'), 'Optionen');
@@ -1597,7 +1604,7 @@ void main() {
       'Setelan',
     );
     expect(AppStrings(LocalePreference.italian).get('nav_settings'), 'Opzioni');
-    expect(AppStrings(LocalePreference.japanese).get('nav_profiles'), 'アカウント');
+    expect(AppStrings(LocalePreference.japanese).get('nav_profiles'), '構成');
     expect(AppStrings(LocalePreference.dutch).get('nav_settings'), 'Opties');
     expect(AppStrings(LocalePreference.polish).get('nav_settings'), 'Opcje');
     expect(
@@ -2707,7 +2714,7 @@ void main() {
     await tester.tap(
       find.descendant(
         of: find.byType(NavigationRail),
-        matching: find.text('Accounts'),
+        matching: find.text('Profiles'),
       ),
     );
     await tester.pumpAndSettle();
@@ -2755,7 +2762,7 @@ void main() {
     await tester.tap(
       find.descendant(
         of: find.byType(NavigationRail),
-        matching: find.text('Accounts'),
+        matching: find.text('Profiles'),
       ),
     );
     await tester.pumpAndSettle();
@@ -3635,7 +3642,7 @@ void main() {
         bar.destinations.cast<NavigationDestination>().map(
           (destination) => destination.label,
         ),
-        <String>['Home', 'Accounts', 'Proxy', 'Settings'],
+        <String>['Home', 'Profiles', 'Proxy', 'Settings'],
       );
 
       final homeLabel = find.descendant(
@@ -3686,7 +3693,7 @@ void main() {
       await tester.tap(
         find.descendant(
           of: find.byType(NavigationRail),
-          matching: find.text('Accounts'),
+          matching: find.text('Profiles'),
         ),
       );
       await tester.pumpAndSettle();
@@ -3767,7 +3774,7 @@ void main() {
       final context = tester.element(find.byType(Scaffold).first);
       expect(Theme.of(context).brightness, Brightness.dark);
 
-      await tester.tap(find.text('账号').first);
+      await tester.tap(find.text('配置').first);
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
       expect(find.text('添加账号'), findsOneWidget);
@@ -3804,7 +3811,7 @@ void main() {
       rail.destinations.map(
         (destination) => (destination.label as Tooltip).message,
       ),
-      <String>['Home', 'Accounts', 'Proxy', 'Settings'],
+      <String>['Home', 'Profiles', 'Proxy', 'Settings'],
     );
     final homeLabel = find.descendant(
       of: railFinder,
@@ -5054,7 +5061,7 @@ void main() {
     await tester.tap(
       find.descendant(
         of: find.byType(NavigationRail),
-        matching: find.text('Accounts'),
+        matching: find.text('Profiles'),
       ),
     );
     await tester.pumpAndSettle();
@@ -5140,7 +5147,7 @@ void main() {
     await tester.tap(
       find.descendant(
         of: find.byType(NavigationRail),
-        matching: find.text('Accounts'),
+        matching: find.text('Profiles'),
       ),
     );
     await tester.pumpAndSettle();
@@ -5174,7 +5181,7 @@ void main() {
     await tester.tap(
       find.descendant(
         of: find.byType(NavigationRail),
-        matching: find.text('Accounts'),
+        matching: find.text('Profiles'),
       ),
     );
     await tester.pumpAndSettle();
@@ -5209,7 +5216,7 @@ void main() {
 
       await tester.pumpWidget(UsqueBootstrap(engine: engine));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Accounts').last);
+      await tester.tap(find.text('Profiles').last);
       await tester.pumpAndSettle();
 
       expect(tester.takeException(), isNull);

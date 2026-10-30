@@ -27,6 +27,11 @@ An outstanding lookup from a retired revision returns SERVFAIL and cannot
 publish hints for the replacement. Applications may still retain their own DNS
 answers. Preparation and publication validate resources and network generation;
 failure preserves the previous live rules and reports that application failed.
+When rejection confirms that the same healthy session kept its previous
+configuration, that configuration remains available for later hot edits. The
+saved rule change stays unapplied until explicitly retried or used by a later
+manual connection; applying a different setting does not silently retry it. An
+unconfirmed runtime or failed rollback still requires recovery confirmation.
 
 **Advanced network settings → Routing & protection → Allow local network** applies to every output:
 VPN/TUN, HTTP forwarding and CONNECT (including Windows system proxy), and

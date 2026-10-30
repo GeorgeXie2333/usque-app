@@ -74,6 +74,7 @@ mod protected_chain_tests;
 mod proton_vpn;
 mod proxy_network;
 mod routing;
+mod scenarios;
 mod sensitive_output;
 mod vpngate;
 #[cfg(test)]
@@ -192,6 +193,8 @@ pub struct ControlServiceState {
     settings_intent: AtomicU64,
     settings_submission: Mutex<()>,
     settings_applying: std::sync::atomic::AtomicBool,
+    scenario_applying: std::sync::atomic::AtomicBool,
+    scenario_unconfirmed_operation: Mutex<Option<Uuid>>,
     system_proxy_applications: Mutex<network_settings::SystemProxyApplications>,
     #[cfg(target_os = "linux")]
     linux_platform: Mutex<Option<diagnostics::LinuxPlatformObservation>>,
@@ -508,13 +511,7 @@ impl ControlService {
                 None
             }
         };
-        let retained: Vec<_> = config
-            .network
-            .vpn_gate
-            .selection
-            .clone()
-            .into_iter()
-            .collect();
+        let retained = usque_core::scenarios::retained_vpn_gate_selections(&config);
         let _ = usque_core::vpngate::CatalogueStore::new(&cache_dir).recover_references(&retained);
         let (geo_progress_tx, _) = tokio::sync::broadcast::channel(16);
         let (network_quality_tx, _) = watch::channel(network_quality::disconnected_snapshot());
@@ -587,6 +584,8 @@ impl ControlService {
                 settings_intent: AtomicU64::new(0),
                 settings_submission: Mutex::new(()),
                 settings_applying: std::sync::atomic::AtomicBool::new(false),
+                scenario_applying: std::sync::atomic::AtomicBool::new(false),
+                scenario_unconfirmed_operation: Mutex::new(None),
                 system_proxy_applications: Mutex::new(Default::default()),
                 #[cfg(target_os = "linux")]
                 linux_platform: Mutex::new(None),
@@ -986,7 +985,6 @@ impl ControlService {
         let _provider_lease = if matches!(
             &payload,
             control_request::Payload::Connect(_)
-                | control_request::Payload::Disconnect(_)
                 | control_request::Payload::Retry(_)
                 | control_request::Payload::SetActiveProfile(_)
                 | control_request::Payload::DeleteProfile(_)
@@ -1010,6 +1008,9 @@ impl ControlService {
             None
         };
         match payload {
+            control_request::Payload::Scenario(request) => Ok(control_response::Payload::Scenario(
+                Box::pin(self.scenario_command(request)).await?,
+            )),
             control_request::Payload::ProtonVpn(request) => {
                 Ok(control_response::Payload::ProtonVpn(
                     Box::pin(self.proton_vpn_command(request)).await?,
@@ -3141,7 +3142,15 @@ impl ControlService {
         self.settings_intent.fetch_add(1, Ordering::SeqCst);
         #[cfg(windows)]
         self.clear_windows_connection_intent().await;
+        // Disconnect signals the current owner before waiting for its leases.
+        // A scene worker holds both lifecycle and provider ownership until its
+        // cancelled runtime has finished; acquiring the provider lease in RPC
+        // dispatch would reject this safety operation before cancellation.
+        self.cancel_warp_jobs().await?;
+        self.cancel_gate_refresh().await;
         let _mutation = self.mutation_lock.lock().await;
+        let _provider = usque_core::proton_vpn::lifecycle_lease(&self.profile_dir)
+            .map_err(ControlServiceError::configuration)?;
         #[cfg(target_os = "macos")]
         self.stop_reserved_macos().await?;
         *self.session_congestion_control.lock().await = None;
@@ -3230,16 +3239,8 @@ impl ControlService {
             .transition(ConnectionPhase::Disconnected)?
             .clone();
         self.publish_settings_runtime(None, None).await;
-        let retained: Vec<_> = self
-            .config
-            .read()
-            .await
-            .network
-            .vpn_gate
-            .selection
-            .clone()
-            .into_iter()
-            .collect();
+        let retained =
+            usque_core::scenarios::retained_vpn_gate_selections(&*self.config.read().await);
         let store = usque_core::vpngate::CatalogueStore::new(&self.cache_dir);
         let _ = tokio::task::spawn_blocking(move || store.retain_selections(&retained)).await;
         // Error paths finish publishing their original failure first, then
@@ -4770,7 +4771,7 @@ impl ControlService {
     }
 
     async fn set_active_profile(&self, id: Uuid) -> Result<(), ControlServiceError> {
-        self.settings_intent.fetch_add(1, Ordering::SeqCst);
+        let intent = self.settings_intent.fetch_add(1, Ordering::SeqCst) + 1;
         if !self
             .config
             .read()
@@ -4786,17 +4787,54 @@ impl ControlService {
         #[cfg(windows)]
         self.clear_windows_connection_intent().await;
         let _mutation = self.mutation_lock.lock().await;
+        let previous = self
+            .data_plane
+            .lock()
+            .await
+            .as_ref()
+            .map(|active| active.profile.clone());
         let mut next = self.config.read().await.clone();
         if !next.profiles.iter().any(|profile| profile.id == id) {
             return Err(ControlServiceError::ProfileNotFound(id));
+        }
+        if let Some(previous) = previous.as_ref().filter(|previous| previous.id != id)
+            && previous.frontends.tunnel
+            && previous.kill_switch
+            && next.network.frontends.tunnel
+            && !self.protected_chain_present().await
+        {
+            return Err(ControlServiceError::ScenarioUnavailable(
+                "SCENARIO_PROTECTION_UNAVAILABLE",
+            ));
         }
         next.active_profile_id = Some(id);
         self.persist(next).await?;
         #[cfg(any(windows, target_os = "linux"))]
         if !cancellation.is_cancelled() {
-            self.retry_protected_target(id, &cancellation, false)
+            let handed_off = self
+                .retry_protected_target(id, &cancellation, false)
                 .await?;
+            if handed_off.is_none()
+                && let Some(previous) = previous.filter(|previous| previous.id != id)
+            {
+                let mut target = self
+                    .config
+                    .read()
+                    .await
+                    .runtime_profile(id)
+                    .ok_or(ControlServiceError::ProfileNotFound(id))?;
+                self.attach_proxy_auth(&mut target).await?;
+                Box::pin(self.execute_settings_plan(
+                    &target,
+                    &previous,
+                    usque_core::ReconfigureClass::ColdReconnect,
+                    intent,
+                ))
+                .await?;
+            }
         }
+        #[cfg(not(any(windows, target_os = "linux")))]
+        let _ = (intent, previous);
         Ok(())
     }
 
@@ -4994,13 +5032,7 @@ impl ControlService {
         let gate_changed = next.network.vpn_gate.selection != config.network.vpn_gate.selection;
         *config = next;
         if gate_changed {
-            let mut retained: Vec<_> = config
-                .network
-                .vpn_gate
-                .selection
-                .clone()
-                .into_iter()
-                .collect();
+            let mut retained = usque_core::scenarios::retained_vpn_gate_selections(&config);
             if let Some(server) = &self.gate_status.borrow().current_server {
                 retained.push(usque_core::vpngate::Selection {
                     server_id: server.id.clone(),
@@ -5016,6 +5048,10 @@ impl ControlService {
 
 #[derive(Debug, Error)]
 pub enum ControlServiceError {
+    #[error("{0}")]
+    Scenario(#[from] usque_core::scenarios::ScenarioError),
+    #[error("{0}")]
+    ScenarioUnavailable(&'static str),
     #[error("{0}")]
     VpnGate(usque_core::vpngate::DirectoryError),
     #[error("invalid request: {0}")]
@@ -5160,6 +5196,8 @@ impl ControlServiceError {
             }
         }
         let (code, retryable) = match self {
+            Self::Scenario(error) => (error.code(), false),
+            Self::ScenarioUnavailable(code) => (*code, true),
             Self::InvalidRequest(_) | Self::InvalidConfiguration(_) => ("INVALID_ARGUMENT", false),
             Self::InvalidDirectDnsConfiguration { code, .. } => (*code, false),
             Self::InvalidWarpDnsConfiguration { code, .. } => (*code, false),
@@ -6072,6 +6110,7 @@ async fn runtime_capabilities() -> v1::Capabilities {
 
 fn current_capabilities() -> v1::Capabilities {
     v1::Capabilities {
+        connection_scenarios: cfg!(any(windows, target_os = "linux")),
         continuous_connection: true,
         chain_profile_import: cfg!(any(windows, target_os = "macos", target_os = "linux")),
         chain_openvpn_udp: cfg!(any(windows, target_os = "macos", target_os = "linux")),

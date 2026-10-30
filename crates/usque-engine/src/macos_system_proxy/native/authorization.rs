@@ -162,8 +162,10 @@ mod tests {
         assert_eq!(rights.count, 1);
         // SAFETY: the single item and its static C string remain live.
         let item = unsafe { &*rights.items };
+        // SAFETY: the right name is the static, NUL-terminated NETWORK_RIGHT.
+        let name = unsafe { CStr::from_ptr(item.name) };
         assert_eq!(
-            unsafe { CStr::from_ptr(item.name) }.to_bytes(),
+            name.to_bytes(),
             b"system.services.systemconfiguration.network"
         );
         assert_eq!(item.length, 0);

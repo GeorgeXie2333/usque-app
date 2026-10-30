@@ -22,6 +22,7 @@ Continuous connection behavior and control compatibility: [English / 简体中�
 | Document | Read it for / 用途 |
 | --- | --- |
 | [Installation and removal](INSTALLATION.md) | Package verification, upgrades, uninstall, recovery, and version applicability / 校验、升级、卸载、恢复与适用版本 |
+| [Profiles and scenes](SCENARIOS.md) | Save, bind, preview, use and restore local network scenes / 保存、绑定、预览、使用与恢复本机场景 |
 | [Linux desktop](LINUX_DESKTOP.md) | Linux packages, keyring, service installation, recovery and validation limits / Linux 安装包、钥匙串、后台服务、恢复与验证范围 |
 | [Network Doctor](network-doctor.md) | Run checks, read results, and export a local report / 运行检查、理解结果与导出诊断 |
 | [Routing and Ads](ROUTING.md) | Configure DIRECT, REJECT, PROXY, exceptions and Ads / 配置分流动作、例外与广告拦截 |

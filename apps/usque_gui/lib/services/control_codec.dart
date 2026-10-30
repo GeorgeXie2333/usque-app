@@ -201,6 +201,7 @@ class ControlCodec {
       VpnGateDirectory? vpnGateDirectory;
       ChainProfileResult? chainProfiles;
       Map<String, Object?>? warpWireguard;
+      Map<String, Object?>? scenario;
       ProtonVpnResult? protonVpn;
       InitialIdentityState? initialIdentityState;
       SensitiveClipboardValue? sensitiveClipboard;
@@ -243,6 +244,8 @@ class ControlCodec {
             );
           case 28:
             protonVpn = _decodeProtonVpn(reader.message(field));
+          case 29:
+            scenario = _decodeChainJson(reader.message(field));
           case 24:
             chainProfiles = ChainProfileResult.fromMap(
               _decodeChainJson(reader.message(field)),
@@ -284,6 +287,7 @@ class ControlCodec {
         vpnGateDirectory: vpnGateDirectory,
         chainProfiles: chainProfiles,
         warpWireguard: warpWireguard,
+        scenario: scenario,
         protonVpn: protonVpn,
         initialIdentityState: initialIdentityState,
         sensitiveClipboard: sensitiveClipboard,
@@ -430,6 +434,7 @@ class ControlResponse {
     this.vpnGateDirectory,
     this.chainProfiles,
     this.warpWireguard,
+    this.scenario,
     this.protonVpn,
     this.initialIdentityState,
     this.sensitiveClipboard,
@@ -448,6 +453,7 @@ class ControlResponse {
   final VpnGateDirectory? vpnGateDirectory;
   final ChainProfileResult? chainProfiles;
   final Map<String, Object?>? warpWireguard;
+  final Map<String, Object?>? scenario;
   final ProtonVpnResult? protonVpn;
   final InitialIdentityState? initialIdentityState;
   final SensitiveClipboardValue? sensitiveClipboard;
@@ -1887,6 +1893,7 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
   var continuousConnection = false;
   var protonAccountWarpFallback = false;
   var protonServerSwitching = false;
+  var connectionScenarios = false;
   var vpnGatePoolFavorites = false;
   final congestionAlgorithms = <CongestionControlAlgorithm>[];
   final tlsFingerprints = <TlsFingerprint>[];
@@ -1935,6 +1942,8 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
         protonAccountWarpFallback = reader.varint(field) != 0;
       case 53:
         protonServerSwitching = reader.varint(field) != 0;
+      case 54:
+        connectionScenarios = reader.varint(field) != 0;
       case 47:
         liveAdsRules = reader.varint(field) != 0;
       case 48:
@@ -2028,6 +2037,7 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
     continuousConnection: continuousConnection,
     protonAccountWarpFallback: protonAccountWarpFallback,
     protonServerSwitching: protonServerSwitching,
+    connectionScenarios: connectionScenarios,
     chainOpenvpnMultiEndpoint: chainOpenvpnMultiEndpoint,
     vpnGatePoolFavorites: vpnGatePoolFavorites,
     h3CongestionControlAlgorithms: List.unmodifiable(congestionAlgorithms),

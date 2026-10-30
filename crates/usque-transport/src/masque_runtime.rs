@@ -1049,6 +1049,7 @@ async fn run_packet_mux(
     // ingress remains ordered and bounded while both return paths and proxy
     // traffic continue to make progress during physical authorization.
     let mut pending_direct = std::pin::pin!(None);
+    let mut pending_direct_attachment: Option<CancellationToken> = None;
     loop {
         let can_send = pending_send.as_ref().get_ref().is_none();
         let can_route = direct_router.is_some();
@@ -1066,7 +1067,18 @@ async fn run_packet_mux(
                     packet = incoming.recv(), if direct_incoming_open => MuxEvent::Direct(packet),
                     result = wait_mux_pending(pending_send.as_mut()) => MuxEvent::Sent(result),
                     () = wait_mux_pending(pending_proxy.as_mut()) => MuxEvent::Delivered,
-                    result = wait_mux_pending(pending_direct.as_mut()), if can_send => MuxEvent::Routed(result),
+                    result = async {
+                        // A fallback needs the send slot, but attachment
+                        // cancellation must still release DIRECT setup while
+                        // an unrelated proxy packet waits for capacity.
+                        if !can_send {
+                            match &pending_direct_attachment {
+                                Some(attachment) => attachment.cancelled().await,
+                                None => std::future::pending().await,
+                            }
+                        }
+                        wait_mux_pending(pending_direct.as_mut()).await
+                    } => MuxEvent::Routed(result),
                 }
             } => event,
         };
@@ -1087,6 +1099,7 @@ async fn run_packet_mux(
             MuxEvent::Delivered => pending_proxy.set(None),
             MuxEvent::Routed(result) => {
                 pending_direct.set(None);
+                pending_direct_attachment = None;
                 direct_router = Some(result.router);
                 if let Some(RoutedTunPacket {
                     mut packet,
@@ -1118,6 +1131,7 @@ async fn run_packet_mux(
                     let router = direct_router
                         .take()
                         .expect("one owned direct route at a time");
+                    pending_direct_attachment = Some(attachment.clone());
                     pending_direct.set(Some(route_mux_direct_packet(
                         router,
                         RoutedTunPacket {
@@ -1457,6 +1471,10 @@ impl FrontendSpec {
 mod mux_progress_tests;
 
 #[cfg(test)]
+#[path = "masque_runtime/mux_routing_tests.rs"]
+mod mux_routing_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::queue_metrics::QueueMetrics;
@@ -1470,14 +1488,24 @@ mod tests {
 
     struct BlockedDirectProtector {
         calls: std::sync::atomic::AtomicUsize,
+        pending: std::sync::atomic::AtomicUsize,
         fail: std::sync::atomic::AtomicBool,
         release: tokio::sync::Semaphore,
+    }
+
+    struct PendingDirectAuthorization<'a>(&'a std::sync::atomic::AtomicUsize);
+
+    impl Drop for PendingDirectAuthorization<'_> {
+        fn drop(&mut self) {
+            self.0.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+        }
     }
 
     impl BlockedDirectProtector {
         fn new() -> Self {
             Self {
                 calls: std::sync::atomic::AtomicUsize::new(0),
+                pending: std::sync::atomic::AtomicUsize::new(0),
                 fail: std::sync::atomic::AtomicBool::new(false),
                 release: tokio::sync::Semaphore::new(0),
             }
@@ -1509,6 +1537,9 @@ mod tests {
             _: crate::DirectProtocol,
         ) -> Result<crate::DirectEgressLease, String> {
             self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            self.pending
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let _authorization = PendingDirectAuthorization(&self.pending);
             self.release.acquire().await.unwrap().forget();
             if self.fail.load(std::sync::atomic::Ordering::SeqCst) {
                 Err("synthetic authorization failure".into())
@@ -1520,6 +1551,8 @@ mod tests {
 
     struct PendingDirectHarness {
         io: MasqueTunIo,
+        transport_sender: crate::netstack::ManagedTunnelSender,
+        transport_quality: NetworkQualityTelemetry,
         inner_rx: TrackedReceiver<OutboundPacket>,
         managed_incoming: TrackedSender<PacketBatch>,
         direct_tx: mpsc::Sender<Bytes>,
@@ -1534,6 +1567,8 @@ mod tests {
         async fn start() -> Self {
             let (mut tunnel, inner_rx, managed_incoming) =
                 ManagedTunnelRuntime::packet_mux_test_channels(8);
+            let transport_sender = tunnel.packet_sender().unwrap();
+            let transport_quality = tunnel.monitor().network_quality_telemetry();
             let (io, raw_rx, incoming) = test_tun_io(8, 8);
             let (tun_sink, _watch) = watch::channel(Some(incoming));
             let (proxy_pipe, proxy) = WakingPipe::bounded(4);
@@ -1572,6 +1607,8 @@ mod tests {
             });
             Self {
                 io,
+                transport_sender,
+                transport_quality,
                 inner_rx,
                 managed_incoming,
                 direct_tx,
@@ -1581,6 +1618,40 @@ mod tests {
                 cancellation,
                 task,
             }
+        }
+
+        async fn block_proxy_behind_direct(&mut self) -> Vec<Bytes> {
+            let queued = (51_100..51_108).map(mux_udp_packet).collect::<Vec<_>>();
+            for packet in &queued {
+                self.transport_sender
+                    .send_owned_packet(packet.clone())
+                    .await
+                    .unwrap();
+            }
+            self.io
+                .send_owned_packet(mux_direct_packet(51_108))
+                .await
+                .unwrap();
+            self.protector.wait_for_calls(1).await;
+            self.proxy.tx.send_async(&mux_udp_packet(51_109)).await;
+            let queue = self
+                .transport_quality
+                .queue(QueueKind::TransportOutgoingPackets);
+            timeout(Duration::from_secs(1), async {
+                while queue
+                    .snapshot(tokio::time::Instant::now())
+                    .backpressure
+                    .unwrap()
+                    .active
+                    != 1
+                {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .expect("proxy packet did not reach transport backpressure");
+            assert_eq!(queue.snapshot(tokio::time::Instant::now()).current_items, 8);
+            queued
         }
 
         async fn stop(&mut self) {
@@ -1737,6 +1808,95 @@ mod tests {
             2,
             "a flow already owned by MASQUE must not attempt DIRECT again"
         );
+        harness.stop().await;
+    }
+
+    #[tokio::test]
+    async fn issue_136_detaching_tun_cancels_direct_authorization_under_proxy_backpressure() {
+        let mut harness = PendingDirectHarness::start().await;
+        let queued = harness.block_proxy_behind_direct().await;
+        let queue = harness
+            .transport_quality
+            .queue(QueueKind::TransportOutgoingPackets);
+        harness.io.cancellation.cancel();
+        timeout(Duration::from_millis(250), async {
+            while harness
+                .protector
+                .pending
+                .load(std::sync::atomic::Ordering::SeqCst)
+                != 0
+            {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("TUN detach retained DIRECT authorization behind a blocked proxy packet");
+
+        // The transport is still full: cancellation must not require draining
+        // another flow's queue, nor discard that flow's pending packet.
+        let blocked = queue.snapshot(tokio::time::Instant::now());
+        assert_eq!(blocked.current_items, 8);
+        assert_eq!(blocked.backpressure.unwrap().active, 1);
+        assert_eq!(harness.protector.release.available_permits(), 0);
+        for expected in queued {
+            assert_eq!(harness.inner_rx.recv().await.unwrap().freeze(), expected);
+        }
+        let proxy = timeout(Duration::from_secs(1), harness.inner_rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            crate::direct_gateway::NatPacket::parse(&proxy)
+                .unwrap()
+                .destination,
+            "198.51.100.1".parse::<IpAddr>().unwrap()
+        );
+        let drained = queue.snapshot(tokio::time::Instant::now());
+        assert_eq!(drained.enqueue_count, 9);
+        assert_eq!(drained.dequeue_count, 9);
+        assert_eq!(drained.current_items, 0);
+        assert_eq!(drained.drop_items, 0);
+        harness.stop().await;
+    }
+
+    #[tokio::test]
+    async fn issue_136_direct_fallback_does_not_replace_a_backpressured_proxy_packet() {
+        let mut harness = PendingDirectHarness::start().await;
+        let queued = harness.block_proxy_behind_direct().await;
+        let queue = harness
+            .transport_quality
+            .queue(QueueKind::TransportOutgoingPackets);
+        harness
+            .protector
+            .fail
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        harness.protector.release.add_permits(1);
+        // Give the mux a chance to process DIRECT completion while the
+        // proxy packet is still blocked; it must retain that packet.
+        for _ in 0..32 {
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(queue.snapshot(tokio::time::Instant::now()).current_items, 8);
+        for expected in queued {
+            assert_eq!(harness.inner_rx.recv().await.unwrap().freeze(), expected);
+        }
+        for expected in ["198.51.100.1", "198.51.100.2"] {
+            let sent = timeout(Duration::from_secs(1), harness.inner_rx.recv())
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                crate::direct_gateway::NatPacket::parse(&sent)
+                    .unwrap()
+                    .destination,
+                expected.parse::<IpAddr>().unwrap()
+            );
+        }
+        let drained = queue.snapshot(tokio::time::Instant::now());
+        assert_eq!(drained.enqueue_count, 10);
+        assert_eq!(drained.dequeue_count, 10);
+        assert_eq!(drained.current_items, 0);
+        assert_eq!(drained.drop_items, 0);
         harness.stop().await;
     }
 

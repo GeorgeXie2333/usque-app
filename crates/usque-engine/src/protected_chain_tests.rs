@@ -350,7 +350,7 @@ async fn deferred_kill_switch_off_cannot_release_old_applied_guard_but_retry_can
 }
 
 #[tokio::test]
-async fn account_activation_switches_only_the_existing_protected_vpn_boundary() {
+async fn account_activation_hands_off_vpn_and_attempts_a_proxy_cold_start() {
     for source in [ChainSource::HttpProxy, ChainSource::Socks5Proxy] {
         for vpn in [false, true] {
             for kill_switch in [false, true] {
@@ -369,21 +369,25 @@ async fn account_activation_switches_only_the_existing_protected_vpn_boundary() 
                     ..a.clone()
                 };
                 service.upsert_profile(b.clone()).await.unwrap();
-                service.set_active_profile(b.id).await.unwrap();
+                let activation = service.set_active_profile(b.id).await;
                 assert_eq!(
                     service.config_snapshot().await.active_profile_id,
                     Some(b.id)
                 );
-                {
+                if vpn {
+                    activation.unwrap();
                     let active = service.data_plane.lock().await;
                     let active = active.as_ref().unwrap();
-                    if vpn {
-                        assert_eq!(active.profile_id, b.id);
-                        assert!(active.session_generation > generation_a);
-                    } else {
-                        assert_eq!(active.profile_id, a.id);
-                        assert_eq!(active.session_generation, generation_a);
-                    }
+                    assert_eq!(active.profile_id, b.id);
+                    assert!(active.session_generation > generation_a);
+                } else {
+                    // The empty vault makes the new cold start fail before
+                    // any network or native Agent access. The old proxy must
+                    // stop instead of pretending the selected account is live.
+                    assert!(activation.is_err());
+                    assert!(service.data_plane.lock().await.is_none());
+                    assert!(stopped.is_cancelled());
+                    continue;
                 }
                 assert!(!stopped.is_cancelled());
                 assert_explicit_disconnect_releases(&service, &stopped).await;

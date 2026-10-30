@@ -269,6 +269,13 @@ impl DataPlaneRuntime {
         {
             return Err(TransportError::TunnelClosed);
         }
+        self.prepare_routing_policy(profile)
+    }
+
+    fn prepare_routing_policy(
+        &self,
+        profile: &Profile,
+    ) -> Result<PreparedTrafficPolicyUpdate, TransportError> {
         let routing = self
             .ads_policy()
             .prepare_routing_update(profile)
@@ -297,6 +304,13 @@ impl DataPlaneRuntime {
         {
             return Err(TransportError::TunnelClosed);
         }
+        self.publish_routing_policy(prepared)
+    }
+
+    fn publish_routing_policy(
+        &self,
+        prepared: PreparedTrafficPolicyUpdate,
+    ) -> Result<(), TransportError> {
         let (protector, cancellation) = self.diagnostic_dns_context();
         if cancellation.is_cancelled() {
             return Err(TransportError::TunnelClosed);
@@ -1051,10 +1065,23 @@ impl DataPlaneRuntime {
             ));
         }
         if let Some(profile) = self.pending_frontends.take() {
-            let result = match &mut self.inner {
-                RuntimeInner::ConnectIp(runtime) => runtime.reconfigure_frontends(&profile).await,
-                RuntimeInner::L4(runtime) => runtime.reconfigure_frontends(&profile).await,
-            };
+            let result = async {
+                // Returning from a chain reuses WARP's original policy owner.
+                // The removed exit may have received independent hot updates.
+                // Publish the confirmed rules before reopening any frontend;
+                // public hot updates still reject this blocked handoff state.
+                let prepared = self.prepare_routing_policy(&profile)?;
+                self.publish_routing_policy(prepared)?;
+                self.update_ads_enabled(profile.routing.ads_enabled);
+                self.update_traffic_policy(profile.disable_quic);
+                match &mut self.inner {
+                    RuntimeInner::ConnectIp(runtime) => {
+                        runtime.reconfigure_frontends(&profile).await
+                    }
+                    RuntimeInner::L4(runtime) => runtime.reconfigure_frontends(&profile).await,
+                }
+            }
+            .await;
             if let Err(error) = result {
                 self.fail_gate(GateFailure::Transport).await;
                 return Err(error);
@@ -2218,6 +2245,111 @@ mod tests {
         assert!(!channels.cancellation.is_cancelled());
         runtime.shutdown().await;
         assert_eq!(warp.control_generation(), None);
+    }
+
+    #[tokio::test]
+    async fn returning_to_warp_publishes_confirmed_rules_before_frontends_reopen() {
+        for tun in [false, true] {
+            let (mut runtime, _packets) = memory_warp().await;
+            let old_policy = runtime.ads_policy().clone();
+            let mut profile = DataPlaneRuntime::headless_profile(&Profile::default());
+            profile.frontends.tunnel = tun;
+            profile.frontends.socks5 = true;
+            profile.proxy.socks5_listeners = vec!["127.0.0.1:0".parse().unwrap()];
+            profile.routing.rules = crate::geo_direct::routing_test_profile(&[
+                ("blocked.test", usque_core::RoutingAction::Reject),
+                ("192.0.2.7", usque_core::RoutingAction::Reject),
+            ])
+            .routing
+            .rules;
+            let mut previous = profile.clone();
+            previous.vpn_gate.enabled = true;
+            assert_eq!(
+                usque_core::classify_reconfigure(&previous, &profile),
+                usque_core::ReconfigureClass::HotVpnGate
+            );
+            // A switched exit owns a distinct policy. Its rules cannot be
+            // assumed to have reached the retained WARP runtime.
+            let policy = Arc::new(
+                GeoDirectPolicy::disabled()
+                    .with_custom_rules(&profile)
+                    .unwrap(),
+            );
+            runtime
+                .replace_gate(
+                    &profile,
+                    None,
+                    policy,
+                    watch::channel(GateStatus::default()).0,
+                    &CancellationToken::new(),
+                )
+                .await
+                .unwrap();
+            let _tun = tun.then(|| runtime.attach_tun().unwrap());
+            runtime.reconfigure_frontends(&profile).await.unwrap();
+            assert!(runtime.final_blocked);
+            assert!(runtime.listeners().is_empty());
+            assert_eq!(
+                old_policy.route_host("blocked.test"),
+                crate::GeoRoute::Tunnel
+            );
+            assert!(runtime.prepare_routing_update(&profile).is_err());
+            runtime.activate_final().await.unwrap();
+            assert!(!runtime.final_blocked);
+            assert_eq!(runtime.socks5_listeners().len(), 1);
+            assert_eq!(
+                old_policy.route_host("blocked.test"),
+                crate::GeoRoute::Reject
+            );
+            assert_eq!(
+                runtime.ads_policy().route_ip("192.0.2.7".parse().unwrap()),
+                crate::GeoRoute::Reject
+            );
+            runtime.shutdown().await;
+        }
+    }
+
+    #[tokio::test]
+    async fn failed_warp_routing_restoration_never_reopens_frontends() {
+        let (mut runtime, _packets) = memory_warp().await;
+        let old_policy = runtime.ads_policy().clone();
+        let mut profile = DataPlaneRuntime::headless_profile(&Profile::default());
+        profile.frontends.tunnel = true;
+        profile.frontends.socks5 = true;
+        profile.proxy.socks5_listeners = vec!["127.0.0.1:0".parse().unwrap()];
+        profile.routing.rules = crate::geo_direct::routing_test_profile(&[(
+            "direct.test",
+            usque_core::RoutingAction::Direct,
+        )])
+        .routing
+        .rules;
+        let policy = Arc::new(
+            GeoDirectPolicy::disabled()
+                .with_custom_rules(&profile)
+                .unwrap(),
+        );
+        runtime
+            .replace_gate(
+                &profile,
+                None,
+                policy,
+                watch::channel(GateStatus::default()).0,
+                &CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        let _tun = runtime.attach_tun().unwrap();
+        // The memory protector has no TUN bypass authorization or physical DNS.
+        assert!(runtime.activate_final().await.is_err());
+        assert!(runtime.final_blocked);
+        assert!(runtime.listeners().is_empty());
+        assert_eq!(runtime.gate_status().stage, GateStage::Error);
+        assert_eq!(
+            old_policy.route_host("direct.test"),
+            crate::GeoRoute::Tunnel
+        );
+        assert!(runtime.prepare_routing_update(&profile).is_err());
+        runtime.shutdown().await;
     }
 
     #[tokio::test]

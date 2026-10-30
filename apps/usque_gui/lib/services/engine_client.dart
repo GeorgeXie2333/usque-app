@@ -109,6 +109,8 @@ abstract interface class EngineClient {
   );
 
   Future<NetworkSettingsState> getNetworkSettingsState();
+
+  Future<Map<String, Object?>> scenarioCommand(Map<String, Object?> request);
   bool get supportsSnapshotEvents;
 
   Stream<EngineSnapshotEvent> get snapshotEvents;
@@ -432,6 +434,23 @@ class MethodChannelEngineClient
   ) async =>
       await _invoke<Map<Object?, Object?>>('warpWireguard', request) ??
       const {};
+
+  @override
+  Future<Map<String, Object?>> scenarioCommand(
+    Map<String, Object?> request,
+  ) async {
+    final value = await _invoke<Map<Object?, Object?>>(
+      'scenarioCommand',
+      request,
+    );
+    if (value == null) {
+      throw const EngineException(
+        'SCENARIO_RESULT_UNKNOWN',
+        'The scenario result could not be confirmed.',
+      );
+    }
+    return Map<String, Object?>.from(value);
+  }
 
   @override
   Future<ProtonVpnResult> protonVpn(
