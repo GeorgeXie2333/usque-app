@@ -231,6 +231,51 @@ void main() {
       });
     }
 
+    testWidgets('D-pad focus shows a halo without moving the layout', (
+      tester,
+    ) async {
+      var taps = 0;
+      await tester.pumpWidget(
+        _host(
+          Center(
+            child: ConnectionRing(
+              phase: ConnectionPhase.disconnected,
+              busy: false,
+              actionLabel: 'Connect',
+              onPressed: () => taps += 1,
+            ),
+          ),
+        ),
+      );
+      double haloOpacity() => tester
+          .widget<AnimatedOpacity>(
+            find.byKey(const ValueKey<String>('power-focus-ring')),
+          )
+          .opacity;
+      final Finder control = find.descendant(
+        of: find.byType(ConnectionRing),
+        matching: find.byType(InkWell),
+      );
+      final Rect before = tester.getRect(control);
+      expect(haloOpacity(), 0);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.pumpAndSettle();
+      expect(haloOpacity(), 1);
+      expect(tester.getSize(find.byType(ConnectionRing)), const Size(232, 232));
+      final Offset center = tester.getRect(control).center;
+      expect(center.dx, closeTo(before.center.dx, 0.01));
+      expect(center.dy, closeTo(before.center.dy, 0.01));
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.select);
+      await tester.pump();
+      await tester.sendKeyEvent(LogicalKeyboardKey.gameButtonA);
+      await tester.pump();
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pump();
+      expect(taps, 3);
+    });
+
     testWidgets('settles once the tunnel is up', (tester) async {
       await tester.pumpWidget(
         _host(
