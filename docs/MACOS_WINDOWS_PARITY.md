@@ -30,7 +30,7 @@ hardware. None of the isolated results establishes physical-egress safety.
 | Kill Switch and reconnect | Independent protection before tunnel admission, credential-less restart blocked; Engine loss is not Stop | Isolated lifecycle/fault contracts; actual provider crash, sleep and network-change protection pending |
 | Chain exits and account managers | macOS wires the shared HTTP, SOCKS, OpenVPN, WireGuard, WARP WireGuard, VPN Gate and Proton handlers; numeric WARP endpoint overrides survive the dedicated secret handoff | Engine preparation/DTO tests across all families; live service acceptance pending; existing experimental flags retained |
 | Account bootstrap protection | Existing connected WARP runtime can be reused; unprotected standalone physical bootstrap remains refused | No fallback that bypasses authenticated protection |
-| Credentials and configuration | User Engine owns Keychain and encrypted chain storage; dedicated secret transfer and durable refresh acknowledgement | In-memory test vault; no host credentials read or replaced by tests |
+| Credentials and configuration | User Engine owns Keychain and encrypted chain storage; bounded zeroizing cache reuses unlocked records across connection changes; dedicated secret transfer and durable refresh acknowledgement | Injected Keychain and in-memory test vault; no host credentials read or replaced by tests |
 | System proxy | Per-service SystemConfiguration transaction, Engine-lifetime network authorization reuse, silent rights preflight on cleanup, encrypted ownership journal, compare-and-restore; pending recovery blocks new sessions and key deletion | Fake preferences/authorization/failure injection; real authorization cancellation and crash recovery pending; newly created services require reapply |
 | Continuous desktop events | Authenticated per-user Unix control/events sockets; bounded, fragmented/coalesced frame decoder | Engine and Dart tests; hidden-window event loop is implemented |
 | Tray/background controls | Native menu bar status, connect/disconnect, VPN/proxy actions, hidden-window updates, explicit disconnect-and-quit | Native contract/type checks; real tray interaction pending |
@@ -46,6 +46,29 @@ hardware. None of the isolated results establishes physical-egress safety.
 | Update selection and recovery | Maintenance foundation verifies version, native hardware architecture, name, size, hash and signing; same-volume atomic swap, retained backup and durable, candidate-bound health receipts | Temporary injected-verifier tests including Intel-to-arm64 migration and confirmation retries across restarts; live health authentication is not integrated and production installation remains disabled |
 | Extension update and uninstall | Application transaction leaves extensions/user data separate; manual app removal preserves user data | Extension approval/restart orchestration and managed uninstall remain pending |
 | Signed production distribution | Development packages are explicitly ad-hoc and not notarized | Developer ID, notarization, Gatekeeper distribution and full two-architecture acceptance pending |
+
+## Keychain access
+
+The macOS vault retains successfully read credentials in zeroizing memory for
+the Engine lifetime, shared by its clones. Connecting, disconnecting and
+reconnecting can reuse those records without repeating the same native Keychain
+read. The cache holds at most 256 records of at most 2,560 bytes each; eviction
+and the last owner's exit drop and zeroize the values. Debug output omits both
+credentials and account identifiers.
+
+Explicit writes and deletes invalidate the cached record before native access,
+including failures. Writes still reach Keychain and subsequent reads still verify
+the stored value before caching it. Missing records, failed/cancelled reads and
+invalid sizes are not cached. Native operations and cache changes run under the
+same blocking-worker lock, including when an async caller is cancelled.
+
+The first read of each item, a new Engine, eviction, updates or a locked Keychain
+can still require macOS approval. This does not change Keychain ACLs, unlock the
+login Keychain automatically or grant another application access. Already loaded
+credentials remain usable for this Engine session, as with active transport
+credentials; external Keychain edits are observed after cache invalidation or
+Engine restart. Real Keychain password dialogs remain device-pending; tests use
+only a synthetic injected store.
 
 ## System-proxy authorization
 

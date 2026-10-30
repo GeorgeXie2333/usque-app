@@ -5503,7 +5503,7 @@ fn platform_vault() -> Arc<dyn SecretVault> {
     }
     #[cfg(all(target_os = "macos", not(test)))]
     {
-        Arc::new(usque_platform::MacOsKeychainVault)
+        Arc::new(usque_platform::MacOsKeychainVault::default())
     }
     #[cfg(all(target_os = "macos", test))]
     {
