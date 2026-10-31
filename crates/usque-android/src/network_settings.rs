@@ -27,6 +27,22 @@ pub(crate) fn scenario_snapshot() -> Result<NetworkSettingsState, String> {
         .map_err(|_| "SCENARIO_UNCONFIRMED".into())
 }
 
+/// Hold a scene resource action against the owner that prepared its reference.
+/// Reset changes the epoch under this same lock, so cache cleanup and worker
+/// admission cannot cross into a replacement owner's settings state.
+pub(crate) fn vpn_gate_epoch_guard(
+    expected: Uuid,
+) -> Result<std::sync::MutexGuard<'static, NetworkSettingsState>, String> {
+    let state = STATE
+        .get_or_init(|| Mutex::new(NetworkSettingsState::default()))
+        .lock()
+        .map_err(|_| "VPN_GATE_UNAVAILABLE")?;
+    if state.source_epoch != expected {
+        return Err("VPN_GATE_OWNER_STALE".into());
+    }
+    Ok(state)
+}
+
 pub(crate) fn record_scenario_commit(
     config: &usque_core::AppConfig,
     operation_id: Uuid,
@@ -241,6 +257,12 @@ pub(crate) fn command(path: &str, request: &str) -> Result<String, String> {
             }
         }
         Command::Reset => {
+            // A node request may have been admitted after the service's first
+            // stop barrier. Join it under the same epoch lock before replacing
+            // the owner, so its async preparation cannot publish into that owner.
+            if !crate::vpngate::cancel_refresh() {
+                return Err("VPN_GATE_CLEANUP_PENDING".into());
+            }
             *state = NetworkSettingsState::default();
         }
         Command::Get => {

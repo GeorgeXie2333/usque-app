@@ -6,6 +6,7 @@ import '../core/app_strings.dart';
 import '../core/user_facing_errors.dart';
 import '../models/app_models.dart';
 import '../state/app_controller.dart';
+import '../state/scenario_gate_leases.dart';
 import '../widgets/chain_editor_layout.dart';
 import '../widgets/common.dart';
 import '../widgets/controller_selector.dart';
@@ -39,6 +40,12 @@ class VpnGateChainEditor extends StatefulWidget {
     this.initialEnabled,
     this.onDraftChanged,
     this.otherPending = false,
+    this.draftProfile,
+    this.onDraftSelected,
+    this.preparedGateDraft,
+    this.onDraftGateLease,
+    this.retainedGateDraft,
+    this.onRetainPreparedGate,
     super.key,
   });
   final AppController controller;
@@ -63,6 +70,12 @@ class VpnGateChainEditor extends StatefulWidget {
   /// Whether another source on the chain page holds an unapplied draft, so
   /// leaving the page still asks before discarding it.
   final bool otherPending;
+  final UsqueProfile? draftProfile;
+  final ValueChanged<UsqueProfile>? onDraftSelected;
+  final ScenarioGateLease? preparedGateDraft;
+  final ValueChanged<ScenarioGateLease?>? onDraftGateLease;
+  final ScenarioGateLease? retainedGateDraft;
+  final ValueChanged<ScenarioGateLease>? onRetainPreparedGate;
 
   /// Whether [draft] would change what is stored, seen from the chain page.
   static bool chainPending(UsqueProfile profile, VpnGateSettings draft) =>
@@ -86,6 +99,7 @@ class _VpnGateChainEditorState extends State<VpnGateChainEditor>
   late VpnGateSettings _draft, _baseline;
   VpnGateServer? _draftServer;
   VpnGateSettings? _preparedDraft;
+  ScenarioGateLease? _scenePreparedDraft;
   VpnGateDirectory _directory = const VpnGateDirectory();
   // Directory text needs no persisted scroll offset. A storage boundary with
   // no descendant PageStorageKeys keeps its internal scrollables from sharing
@@ -95,6 +109,7 @@ class _VpnGateChainEditorState extends State<VpnGateChainEditor>
   String _country = 'ALL';
   bool _favoritesOnly = false;
   String? _nodeOperation, _nodeError;
+  String _nodeEpoch = '';
   int _offset = 0, _query = 0;
   int _refreshGeneration = 0;
   Future<void>? _refreshRequest;
@@ -105,9 +120,29 @@ class _VpnGateChainEditorState extends State<VpnGateChainEditor>
       _ownsRefresh = false,
       _appResumed = true;
   bool get _foreground => _appResumed && widget.active;
+  bool _accepted = false;
+  bool get _sceneDraft => widget.draftProfile != null;
+  UsqueProfile get _profile => widget.draftProfile ?? _controller.activeProfile;
+  ScenarioGateLease? _borrowedReference(VpnGateSettings selection) {
+    if (!_sceneDraft || !selection.hasSelection) return null;
+    final references = [
+      widget.preparedGateDraft,
+      widget.retainedGateDraft,
+    ].whereType<ScenarioGateLease>().where((value) => value.matches(selection));
+    return references
+            .where(
+              (value) =>
+                  value.sourceEpoch ==
+                  _controller.networkSettings.state?.sourceEpoch,
+            )
+            .firstOrNull ??
+        references.firstOrNull;
+  }
+
+  bool _borrowed(VpnGateSettings selection) =>
+      _borrowedReference(selection) != null;
   String? _fetchError, _saveError;
-  VpnGateSettings get _stored =>
-      VpnGateChainEditor.chainBaseline(_controller.activeProfile);
+  VpnGateSettings get _stored => VpnGateChainEditor.chainBaseline(_profile);
   // A new settings snapshot can refresh a clean draft; it is not an edit.
   bool get _dirty => _draft != _baseline;
   AppController get _controller => widget.controller;
@@ -204,6 +239,13 @@ class _VpnGateChainEditorState extends State<VpnGateChainEditor>
     _poll?.cancel();
     _ageTick?.cancel();
     if (_nodeOperation != null) unawaited(_cancelNode(rebuild: false));
+    if (_scenePreparedDraft case final prepared?
+        when widget.onRetainPreparedGate != null) {
+      // The chain page retains this source's draft while another source is
+      // shown. Its temporary configuration reference must survive with it.
+      widget.onRetainPreparedGate!(prepared);
+      _scenePreparedDraft = null;
+    }
     unawaited(_releaseDraft());
     _abandonRefresh(_controller);
     super.dispose();
@@ -375,6 +417,7 @@ class _VpnGateChainEditorState extends State<VpnGateChainEditor>
   }
 
   Future<void> _save() async {
+    if (_saving || _accepted) return;
     setState(() {
       _saving = true;
       _saveError = null;
@@ -382,8 +425,10 @@ class _VpnGateChainEditorState extends State<VpnGateChainEditor>
     final target = _draft;
     final account = _controller.activeProfile.id;
     final intent = _controller.connectionIntent;
-    if (target.enabled &&
-        !await _runNode('prepare', target.serverId, target.configSha256)) {
+    if ((target.enabled || _sceneDraft && target.hasSelection) &&
+        !await (_sceneDraft
+            ? _prepareSceneSelection(target)
+            : _runNode('prepare', target.serverId, target.configSha256))) {
       if (mounted) setState(() => _saving = false);
       return;
     }
@@ -394,18 +439,34 @@ class _VpnGateChainEditorState extends State<VpnGateChainEditor>
       if (mounted) setState(() => _saving = false);
       return;
     }
-    final stored = _controller.activeProfile.vpnGate;
-    final saved = await _controller.saveNetwork(
-      _controller.activeProfile.copyWith(
-        // Disabling from the chain page keeps the last VPN Gate server.
-        vpnGate: target.hasSelection
-            ? target
-            : stored.copyWith(enabled: target.enabled),
-        chainExit: ChainExitSettings(
-          enabled: target.enabled,
-          source: ChainSource.vpnGate,
-        ),
+    final stored = _profile.vpnGate;
+    final selected = _profile.copyWith(
+      vpnGate: target.hasSelection
+          ? target
+          : stored.copyWith(enabled: target.enabled),
+      chainExit: ChainExitSettings(
+        enabled: target.enabled,
+        source: ChainSource.vpnGate,
       ),
+    );
+    if (_sceneDraft) {
+      setState(() {
+        _saving = false;
+        _accepted = true;
+      });
+      await WidgetsBinding.instance.endOfFrame;
+      if (!mounted) return;
+      // The parent scene now owns this prepared reference until it is saved or
+      // discarded. Releasing it while popping this subpage could collect the
+      // chosen configuration before the scene transaction retains it.
+      final lease = _scenePreparedDraft ?? _borrowedReference(target);
+      widget.onDraftGateLease?.call(lease);
+      _scenePreparedDraft = null;
+      widget.onDraftSelected!(selected);
+      return;
+    }
+    final saved = await _controller.saveNetwork(
+      selected,
       changedFields: ['vpn_gate', 'chain_exit'],
     );
     if (!mounted) return;
@@ -442,9 +503,14 @@ class _VpnGateChainEditorState extends State<VpnGateChainEditor>
   }
 
   Future<void> _releaseDraft() async {
+    final sceneLease = _scenePreparedDraft;
+    _scenePreparedDraft = null;
+    if (sceneLease != null) {
+      await ScenarioGateLeases.of(_controller).release(sceneLease);
+    }
     final selection = _preparedDraft;
     _preparedDraft = null;
-    if (selection == null) return;
+    if (selection == null || _borrowed(selection)) return;
     try {
       await _controller.vpnGateNode(
         VpnGateNodeRequest(
@@ -459,14 +525,57 @@ class _VpnGateChainEditorState extends State<VpnGateChainEditor>
     }
   }
 
+  Future<bool> _prepareSceneSelection(VpnGateSettings selection) async {
+    final previous = _scenePreparedDraft;
+    final borrowed = _borrowedReference(selection);
+    final lease = await ScenarioGateLeases.of(_controller).ensure(
+      selection,
+      existing: previous?.matches(selection) == true ? previous : borrowed,
+      isCurrent: () =>
+          mounted &&
+          _foreground &&
+          selection.serverId == _draft.serverId &&
+          selection.configSha256 == _draft.configSha256,
+      prepare: (epoch) => _runNode(
+        'prepare',
+        selection.serverId,
+        selection.configSha256,
+        expectedSourceEpoch: epoch,
+      ),
+    );
+    if (!mounted) {
+      if (lease != null &&
+          !identical(lease, borrowed) &&
+          !identical(lease, previous)) {
+        unawaited(ScenarioGateLeases.of(_controller).release(lease));
+      }
+      return false;
+    }
+    if (lease == null) {
+      setState(() => _saveError = 'gate_prepare_error');
+      return false;
+    }
+    _scenePreparedDraft = identical(lease, borrowed) ? null : lease;
+    if (previous != null && !identical(previous, lease)) {
+      unawaited(ScenarioGateLeases.of(_controller).release(previous));
+    }
+    return true;
+  }
+
   Future<void> _cancelNode({bool rebuild = true}) async {
     final operation = _nodeOperation;
+    final epoch = _nodeEpoch;
     _nodeOperation = null;
+    _nodeEpoch = '';
     if (operation == null) return;
     if (mounted && rebuild) setState(() {});
     try {
       await _controller.vpnGateNode(
-        VpnGateNodeRequest(operationId: operation, action: 'cancel'),
+        VpnGateNodeRequest(
+          operationId: operation,
+          action: 'cancel',
+          expectedSourceEpoch: epoch,
+        ),
       );
     } on Object {
       /* A disconnected service cannot complete a UI apply. */
@@ -478,6 +587,7 @@ class _VpnGateChainEditorState extends State<VpnGateChainEditor>
     String id,
     String hash, {
     String expectedHash = '',
+    String expectedSourceEpoch = '',
   }) async {
     if (_nodeOperation != null) return false;
     final operation = _controller.newVpnGateOperationId();
@@ -485,6 +595,7 @@ class _VpnGateChainEditorState extends State<VpnGateChainEditor>
     final intent = _controller.connectionIntent;
     setState(() {
       _nodeOperation = operation;
+      _nodeEpoch = expectedSourceEpoch;
       _nodeError = null;
       _saveError = null;
     });
@@ -496,6 +607,7 @@ class _VpnGateChainEditorState extends State<VpnGateChainEditor>
           serverId: id,
           configSha256: hash,
           expectedFavoriteHash: expectedHash,
+          expectedSourceEpoch: expectedSourceEpoch,
         ),
       );
       while (mounted && _nodeOperation == operation && _foreground) {
@@ -513,7 +625,7 @@ class _VpnGateChainEditorState extends State<VpnGateChainEditor>
           throw StateError('The node operation was replaced.');
         }
         if (progress.stage == 'complete') {
-          if (action == 'prepare') {
+          if (action == 'prepare' && !_sceneDraft) {
             _preparedDraft = VpnGateSettings(serverId: id, configSha256: hash);
           }
           return true;
@@ -536,7 +648,10 @@ class _VpnGateChainEditorState extends State<VpnGateChainEditor>
       return false;
     } finally {
       if (mounted && _nodeOperation == operation) {
-        setState(() => _nodeOperation = null);
+        setState(() {
+          _nodeOperation = null;
+          _nodeEpoch = '';
+        });
       }
       if (mounted) unawaited(_load());
     }
@@ -548,10 +663,14 @@ class _VpnGateChainEditorState extends State<VpnGateChainEditor>
     if (favorite != null &&
         selected.serverId == server.id &&
         selected.configSha256 == favorite.configSha256 &&
-        _preparedDraft != selected &&
+        (_sceneDraft || !_borrowed(selected) && _preparedDraft != selected) &&
         _nodeOperation == null) {
       // Retain the user's exact local draft before its favorite is changed.
-      if (!await _runNode('prepare', server.id, favorite.configSha256)) return;
+      if (!await (_sceneDraft
+          ? _prepareSceneSelection(selected)
+          : _runNode('prepare', server.id, favorite.configSha256))) {
+        return;
+      }
     }
     if (favorite != null && !update) {
       try {
@@ -607,15 +726,17 @@ class _VpnGateChainEditorState extends State<VpnGateChainEditor>
               () =>
                   _updateDraft(_draft.copyWith(enabled: enabled), _draftServer),
             );
-      final statusLabel =
-          !_dirty ||
-              _controller.networkSettings.unconfirmed ||
-              _controller.networkSettings.saveError != null
+      final statusLabel = _sceneDraft
+          ? null
+          : !_dirty ||
+                _controller.networkSettings.unconfirmed ||
+                _controller.networkSettings.saveError != null
           ? _controller.networkSettingsMessage
           : null;
       // With nothing to apply or report, the bar would only hold a disabled
       // button, so it appears with the first edit, save or status instead.
       final showBar =
+          _sceneDraft ||
           _dirty ||
           _saving ||
           _nodeOperation != null ||
@@ -625,26 +746,27 @@ class _VpnGateChainEditorState extends State<VpnGateChainEditor>
           _controller.networkSettings.canRefresh;
       final bottomBar = VpnGateSelectionBar(
         strings: strings,
-        onRefresh: _controller.networkSettings.canRefresh
+        onRefresh: !_sceneDraft && _controller.networkSettings.canRefresh
             ? _controller.networkSettings.refresh
             : null,
         refreshing: _controller.networkSettings.refreshing,
         statusLabel: statusLabel,
         draft: _draft,
         savedEnabled: _baseline.enabled,
-        dirty: _dirty,
+        dirty: _sceneDraft || _dirty,
         connected: snapshot.isConnected,
         saving: _saving,
         preparing: _nodeOperation != null,
         server: _draftServer,
         saveError: _saveError,
         nodeError: _nodeError,
+        saveLabel: _sceneDraft ? strings.get('scenario_choose_exit') : null,
         onCancel: _cancelNode,
         onApply:
             _saving ||
                 _nodeOperation != null ||
-                !_dirty ||
-                snapshot.isTransitional ||
+                !_sceneDraft && !_dirty ||
+                !_sceneDraft && snapshot.isTransitional ||
                 _draft.enabled && (!_draft.hasSelection || !supported)
             ? null
             : _save,
@@ -906,7 +1028,7 @@ class _VpnGateChainEditorState extends State<VpnGateChainEditor>
       return UnsavedChangesGuard(
         key: widget.leaveGuardKey,
         strings: strings,
-        dirty: _dirty || widget.otherPending,
+        dirty: !_accepted && (_dirty || widget.otherPending),
         saving: _saving,
         child: RadioGroup<(String, String)>(
           groupValue: (_draft.serverId, _draft.configSha256),
@@ -938,7 +1060,7 @@ class _VpnGateChainEditorState extends State<VpnGateChainEditor>
       selected: selected,
       chainLayout: true,
       saved:
-          _controller.activeProfile.chainSource == ChainSource.vpnGate &&
+          _profile.chainSource == ChainSource.vpnGate &&
           _baseline.enabled &&
           server.matches(_baseline),
       current:

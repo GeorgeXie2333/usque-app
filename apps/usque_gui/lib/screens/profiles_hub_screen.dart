@@ -235,11 +235,6 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
         .firstOrNull;
     final invalid = state?.invalidIds.contains(scene.id) == true;
     final bindingMissing = scene.boundAccountId != null && account == null;
-    final outputs = [
-      if (profile.frontends.tunnel) strings.tunnelOutputLabel(theme.platform),
-      if (profile.frontends.socks5) 'SOCKS5',
-      if (profile.frontends.http) 'HTTP',
-    ].join(' · ');
     final exit = profile.chainEnabled
         ? scenarioValueLabel(
             strings,
@@ -292,8 +287,6 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
           icon: profile.chainEnabled ? LucideIcons.route : LucideIcons.globe,
           label: exit,
         ),
-        if (outputs.isNotEmpty)
-          _SceneFact(icon: LucideIcons.monitorSmartphone, label: outputs),
         _SceneFact(
           icon: scene.boundAccountId == null
               ? LucideIcons.user
@@ -463,10 +456,14 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
     final theme = Theme.of(context);
     final accountId = state?.currentAccountId ?? app.activeProfileId;
     final account = app.profiles.where((a) => a.id == accountId).firstOrNull;
-    final appliedAccount = app.profiles
-        .where((a) => a.id == state?.appliedAccountId)
-        .firstOrNull;
-    final appliedScene = state?.appliedSceneConfirmed == true
+    final accountUnconfirmed =
+        app.scenarios.queryUnconfirmed && accountId != app.activeProfileId;
+    final runtimeConfirmed =
+        app.scenarios.runtimeConfirmed && state?.appliedSceneConfirmed == true;
+    final appliedAccount = runtimeConfirmed
+        ? app.profiles.where((a) => a.id == state?.appliedAccountId).firstOrNull
+        : null;
+    final appliedScene = runtimeConfirmed
         ? state?.scenarios
                   .where((scene) => scene.id == state.appliedScenarioId)
                   .firstOrNull
@@ -509,13 +506,18 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
         item(
           LucideIcons.user,
           strings.get('scenario_current_account'),
-          account?.name ?? strings.get('not_available'),
+          accountUnconfirmed
+              ? strings.get('scenario_unknown')
+              : account?.name ?? strings.get('not_available'),
+          key: const ValueKey('profiles-selected-account'),
         ),
         if (state?.sessionId != null || app.snapshot.isConnected)
           item(
             LucideIcons.activity,
             strings.chain('current'),
-            '${appliedAccount?.name ?? strings.get('not_available')} · $appliedScene',
+            runtimeConfirmed
+                ? '${appliedAccount?.name ?? strings.get('not_available')} · $appliedScene'
+                : strings.get('scenario_unknown'),
             key: const ValueKey('profiles-running'),
           ),
       ],
@@ -557,7 +559,7 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
   /// Engine and switch problems, above the content they concern.
   Widget? _banner() {
     final strings = app.strings, scenes = app.scenarios, state = scenes.catalog;
-    final failed = !scenes.unconfirmed && state?.applyStatus == 'failed';
+    final failed = scenes.runtimeConfirmed && state?.applyStatus == 'failed';
     final banners = [
       if (state?.currentSettingsError != null)
         WarningBanner(
@@ -698,7 +700,8 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
   @override
   Widget build(BuildContext context) {
     final strings = app.strings, scenes = app.scenarios;
-    final selected = scenes.supported ? app.profilesTab : ProfilesTab.accounts;
+    final available = scenes.supported && scenes.settingsSupported;
+    final selected = available ? app.profilesTab : ProfilesTab.accounts;
     return PageFrame(
       title: strings.get('profiles'),
       subtitle: strings.get('profiles_subtitle'),
@@ -707,7 +710,7 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           BannerSlot(child: _banner()),
-          if (scenes.supported) ...[
+          if (available) ...[
             _summary(),
             const SizedBox(height: 24),
             _toolbar(selected),
@@ -873,8 +876,12 @@ SceneStatus scenarioStatus(AppController app) {
 String scenarioStateKey(AppController app) {
   final state = app.scenarios.catalog;
   if (app.scenarios.unconfirmed) return 'scenario_unknown';
+  if (state != null && !app.scenarios.runtimeConfirmed) {
+    return 'scenario_unknown';
+  }
   if (state?.modified == true) return 'scenario_modified';
   if (state?.applyStatus == 'failed') return 'scenario_failed';
+  if (state?.applyStatus == 'unknown') return 'scenario_unknown';
   if (state?.appliedMatches == true) return 'scenario_applied';
   if (state?.applyStatus == 'applying' || state?.applyStatus == 'deferred') {
     return 'scenario_pending';
@@ -1115,25 +1122,8 @@ const _managedScenarioFields = {
   'endpoint.ipv6',
   'endpoint.port',
   'endpoint.sni',
-  'frontends',
-  'frontends.tunnel',
-  'frontends.socks5',
-  'frontends.http',
   'transport',
   'ip_policy',
-  'allow_lan',
-  'routing',
-  'geo_direct_countries',
-  'direct_dns',
-  'warp_dns',
-  'dns_mode',
-  'dns_servers',
-  'proxy_system_proxy',
-  'proxy_dns_mode',
-  'proxy_dns_servers',
-  'proxy.system_proxy',
-  'proxy.dns_mode',
-  'proxy.dns_servers',
   'vpn_gate',
   'chain_exit',
 };
@@ -1243,9 +1233,7 @@ String scenarioValueLabel(
 }) {
   if (field.startsWith('endpoint.') && settings['endpoint'] is! Map) return '—';
   Object? value;
-  if (field.startsWith('proxy.')) {
-    value = settings[field.replaceFirst('proxy.', 'proxy_')];
-  } else if (field.startsWith('frontends.') || field.startsWith('endpoint.')) {
+  if (field.startsWith('endpoint.')) {
     value = scenarioMap(
       settings[field.split('.').first],
     )[field.split('.').last];
@@ -1266,9 +1254,6 @@ String scenarioValueLabel(
   if (value is bool) return strings.get(value ? 'on' : 'off');
   if (value is List) return value.isEmpty ? '—' : value.join(', ');
   if (value is Map) {
-    if (field == 'routing') {
-      return '${strings.get('scenario_rules_count').replaceAll('{count}', '${(value['rules'] as List? ?? []).length}')} · ${strings.get('routing_ads')}: ${strings.get(value['ads_enabled'] == true ? 'on' : 'off')}';
-    }
     if (field == 'chain_exit' || field == 'vpn_gate') {
       if (value['enabled'] != true) return strings.get('off');
       if (field == 'vpn_gate') return 'VPN Gate';
@@ -1291,13 +1276,7 @@ String scenarioValueLabel(
       }
       return base;
     }
-    if (value.containsKey('mode')) {
-      return [
-        value['mode'],
-        value['server_name'],
-      ].whereType<String>().where((v) => v.isNotEmpty).join(' · ');
-    }
-    return strings.get('scenario_output');
+    return strings.get('not_available');
   }
   return switch (value) {
     'auto' => strings.get('automatic'),
@@ -1305,10 +1284,6 @@ String scenarioValueLabel(
     'prefer_ipv6' => strings.get('prefer_ipv6'),
     'ipv4_only' => strings.get('ipv4_only'),
     'ipv6_only' => strings.get('ipv6_only'),
-    'tunnel' || 'remote' => strings.get('proxy_dns_remote'),
-    'local_configured' => strings.get('proxy_dns_configured'),
-    'system' => strings.get('proxy_dns_system'),
-    'edge_resolved' => strings.get('proxy_dns_edge_resolved'),
     'http3' => strings.get('http3'),
     'http2' => strings.get('http2'),
     _ => value.toString(),

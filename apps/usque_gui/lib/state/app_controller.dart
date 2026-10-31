@@ -584,6 +584,7 @@ class AppController extends ChangeNotifier {
       return;
     }
     _acceptedSettings = state;
+    scenarios.observeRuntime(state);
     scenarios.invalidate();
     final accountProfile = state?.storedProfile;
     if (accountProfile != null &&

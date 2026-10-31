@@ -137,6 +137,7 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeCap
             "l4_dns_conversion": engine_ready(),
             "vpn_gate_tcp": engine_ready(),
             "vpn_gate_pool_favorites": engine_ready(),
+            "vpn_gate_epoch_requests": engine_ready(),
             "chain_profile_import": engine_ready(),
             "chain_openvpn_udp": engine_ready(),
             "chain_wireguard": engine_ready() && cfg!(feature = "wireguard"),
@@ -1589,6 +1590,7 @@ fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String
     }
     let _lock = store.lock_exclusive().map_err(|error| error.to_string())?;
     let mut config = store.load_or_default().map_err(|error| error.to_string())?;
+    let before = config.clone();
     let previous_gate = config.network.vpn_gate.clone();
     let mut changed = false;
 
@@ -2026,6 +2028,7 @@ fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String
         }
     }
 
+    usque_core::scenarios::retire_restore_after_change(&before, &mut config);
     config.validate().map_err(|error| error.to_string())?;
     if changed {
         if let Some(active) = config.active_profile()
@@ -5038,7 +5041,7 @@ mod tests {
     }
 
     #[test]
-    fn ordinary_settings_cleanup_retains_inactive_scene_and_restore_objects() {
+    fn ordinary_settings_cleanup_retains_scenes_but_does_not_revive_obsolete_restore() {
         use usque_core::scenarios::{
             ConnectionScenario, ScenarioSettings, ScenarioSnapshot, ScenarioSwitchRecord,
         };
@@ -5103,13 +5106,66 @@ mod tests {
         .unwrap();
         let saved = store.load().unwrap();
         assert!(saved.network.vpn_gate.selection.is_none());
-        assert!(usque_core::scenarios::can_restore(&saved));
-        for digit in ["b", "c"] {
-            assert!(objects.join(format!("{}.json", digit.repeat(64))).is_file());
-        }
-        for digit in ["a", "d"] {
+        // Returning to an older target does not revive the undo whose settings
+        // were changed in the meantime. Only the inactive template retains B.
+        assert!(!usque_core::scenarios::can_restore(&saved));
+        assert!(saved.last_scenario_switch.as_ref().unwrap().restored);
+        assert!(objects.join(format!("{}.json", "b".repeat(64))).is_file());
+        for digit in ["a", "c", "d"] {
             assert!(!objects.join(format!("{}.json", digit.repeat(64))).exists());
         }
+    }
+
+    #[test]
+    fn manual_account_round_trip_permanently_retires_restore_without_losing_receipt() {
+        use usque_core::scenarios::{ScenarioSettings, ScenarioSnapshot, ScenarioSwitchRecord};
+        let directory = tempfile::tempdir().unwrap();
+        let config_path = directory.path().join("profiles-v2.json");
+        let store = ConfigStore::new(&config_path);
+        let mut config = AppConfig::default();
+        let target = config.active_profile_id.unwrap();
+        let source = uuid::Uuid::new_v4();
+        config
+            .profiles
+            .push(usque_core::Account::new(source, "Source account"));
+        let settings = ScenarioSettings::from_network(&config.network);
+        let record = ScenarioSwitchRecord {
+            operation_id: uuid::Uuid::new_v4(),
+            source: ScenarioSnapshot {
+                account_id: source,
+                settings: settings.clone(),
+                selection: None,
+            },
+            target: ScenarioSnapshot {
+                account_id: target,
+                settings,
+                selection: None,
+            },
+            acknowledged: true,
+            restored: false,
+        };
+        config.last_scenario_switch = Some(Box::new(record.clone()));
+        store.save(&config).unwrap();
+        assert!(usque_core::scenarios::can_restore(&store.load().unwrap()));
+        for id in [source, target] {
+            apply_profile_command(
+                config_path.to_str().unwrap(),
+                &serde_json::json!({
+                    "command":"set_active_profile", "profile_id":id,
+                })
+                .to_string(),
+            )
+            .unwrap();
+        }
+        let stored = store.load().unwrap();
+        assert_eq!(stored.active_profile_id, Some(target));
+        assert!(!usque_core::scenarios::can_restore(&stored));
+        let retired = stored.last_scenario_switch.as_ref().unwrap();
+        assert!(retired.restored);
+        assert!(retired.acknowledged);
+        assert_eq!(retired.operation_id, record.operation_id);
+        assert_eq!(retired.source, record.source);
+        assert_eq!(retired.target, record.target);
     }
 
     #[test]

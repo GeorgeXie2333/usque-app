@@ -22,9 +22,23 @@ String _camel(String value) => value.replaceAllMapped(
 /// profile: listener authentication and account credentials are excluded.
 @immutable
 class ScenarioSettings {
+  static const managedFields = {
+    'endpoint',
+    'transport',
+    'ip_policy',
+    'vpn_gate',
+    'chain_exit',
+  };
   ScenarioSettings(Map<String, Object?> value)
     : values = Map<String, Object?>.unmodifiable(
-        scenarioMap(jsonDecode(jsonEncode(value))),
+        scenarioMap(
+          jsonDecode(
+            jsonEncode({
+              for (final entry in value.entries)
+                if (managedFields.contains(entry.key)) entry.key: entry.value,
+            }),
+          ),
+        ),
       );
 
   factory ScenarioSettings.fromProfile(UsqueProfile profile) =>
@@ -37,32 +51,12 @@ class ScenarioSettings {
           'port': profile.endpointPort,
           'sni': profile.sni,
         },
-        'frontends': profile.frontends.toMap(),
         'transport': profile.transport == TransportPolicy.automatic
             ? 'auto'
             : profile.transport.name,
         'ip_policy': profile.ipPolicy == IpPolicy.automatic
             ? 'auto'
             : _snake(profile.ipPolicy.name),
-        'allow_lan': profile.allowLan,
-        'routing': profile.routing.toMap(),
-        'geo_direct_countries': profile.geoDirectCountries,
-        'direct_dns': {
-          ...profile.directDns.toMap(),
-          'mode': _snake(profile.directDns.mode.name),
-        },
-        'warp_dns': profile.warpDns.toMap(),
-        'dns_mode': _snake(profile.dnsMode.name),
-        'dns_servers': [
-          profile.dnsIpv4,
-          profile.dnsIpv6,
-        ].where((s) => s.isNotEmpty).toList(),
-        'proxy_system_proxy': profile.proxy.systemProxy,
-        'proxy_dns_mode': _snake(profile.proxy.dnsMode.name),
-        'proxy_dns_servers': [
-          profile.proxy.dnsIpv4,
-          profile.proxy.dnsIpv6,
-        ].where((s) => s.isNotEmpty).toList(),
         'vpn_gate': profile.vpnGate.toMap(),
         'chain_exit': profile.chainExit?.toMap(),
       });
@@ -72,11 +66,6 @@ class ScenarioSettings {
 
   UsqueProfile toProfile(UsqueProfile base) {
     final endpoint = scenarioMap(values['endpoint']);
-    final dns = (values['dns_servers'] as List? ?? const []).cast<String>();
-    final proxyDns = (values['proxy_dns_servers'] as List? ?? const [])
-        .cast<String>();
-    String address(List<String> ips, bool v6) =>
-        ips.where((ip) => ip.contains(':') == v6).firstOrNull ?? '';
     return base.copyWith(
       endpointSelection: endpoint.isEmpty
           ? null
@@ -92,7 +81,6 @@ class ScenarioSettings {
       endpointIpv6: endpoint['ipv6'] as String?,
       endpointPort: endpoint['port'] as int?,
       sni: endpoint['sni'] as String?,
-      frontends: FrontendSettings.fromMap(scenarioMap(values['frontends'])),
       transport: TransportPolicy.values.firstWhere(
         (v) =>
             v.name ==
@@ -106,34 +94,6 @@ class ScenarioSettings {
                 ? 'automatic'
                 : _camel(values['ip_policy'] as String? ?? 'auto')),
         orElse: () => base.ipPolicy,
-      ),
-      allowLan: values['allow_lan'] == true,
-      routing: RoutingSettings.fromMap(scenarioMap(values['routing'])),
-      geoDirectCountries: (values['geo_direct_countries'] as List? ?? const [])
-          .cast<String>(),
-      directDns: DirectDnsSettings.fromMap({
-        ...scenarioMap(values['direct_dns']),
-        'mode': _camel(
-          scenarioMap(values['direct_dns'])['mode'] as String? ??
-              'physical_system',
-        ),
-      }),
-      warpDns: WarpDnsSettings.fromMap(scenarioMap(values['warp_dns'])),
-      dnsMode: DnsMode.values.firstWhere(
-        (v) => v.name == _camel(values['dns_mode'] as String? ?? 'tunnel'),
-        orElse: () => base.dnsMode,
-      ),
-      dnsIpv4: address(dns, false),
-      dnsIpv6: address(dns, true),
-      proxy: base.proxy.copyWith(
-        systemProxy: values['proxy_system_proxy'] == true,
-        dnsMode: ProxyDnsMode.values.firstWhere(
-          (v) =>
-              v.name == _camel(values['proxy_dns_mode'] as String? ?? 'remote'),
-          orElse: () => base.proxy.dnsMode,
-        ),
-        dnsIpv4: address(proxyDns, false),
-        dnsIpv6: address(proxyDns, true),
       ),
       vpnGate: VpnGateSettings.fromMap(scenarioMap(values['vpn_gate'])),
       chainExit: values['chain_exit'] is Map
@@ -181,6 +141,7 @@ class ScenarioCatalog {
              ),
            ),
        revision = value['catalogue_revision'] as String?,
+       settingsVersion = value['settings_version'] as int? ?? 1,
        endpointEditing = value['endpoint_editing'] == true,
        invalidIds = Set.unmodifiable(
          (value['invalid_scenario_ids'] as List? ?? const []).cast<String>(),
@@ -196,12 +157,17 @@ class ScenarioCatalog {
        appliedAccountId = value['applied_account_id'] as String?,
        appliedScenarioId = value['applied_scenario_id'] as String?,
        appliedSceneConfirmed = value['applied_scene_confirmed'] == true,
+       sourceEpoch = value['source_epoch'] as String?,
        sessionId = value['session_id'] as String?,
+       observationSessionId = value.containsKey('observation_session_id')
+           ? value['observation_session_id'] as String?
+           : value['session_id'] as String?,
        state = scenarioMap(value['state']),
        canRestore = value['can_restore'] == true,
        lastOperationId = value['last_operation_id'] as String?;
   final List<ConnectionScenario> scenarios;
   final String? revision;
+  final int settingsVersion;
   final bool endpointEditing;
 
   /// Templates whose saved settings fail the current validation rules.
@@ -214,7 +180,11 @@ class ScenarioCatalog {
       currentSettingsError;
   final Map<String, Object?> state;
   final bool canRestore;
-  final String? appliedScenarioId, sessionId;
+  final String? appliedScenarioId, sourceEpoch, sessionId;
+
+  /// Native settings observation identity. Android keeps its generation even
+  /// when the public scene session is absent after disconnecting.
+  final String? observationSessionId;
   final bool appliedSceneConfirmed;
   String? get selectedId => selection?['scenario_id'] as String?;
   ConnectionScenario? get selected =>

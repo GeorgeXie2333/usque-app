@@ -80,18 +80,22 @@ class VpnGateNodeRequest {
     this.serverId = '',
     this.configSha256 = '',
     this.expectedFavoriteHash = '',
+    this.expectedSourceEpoch = '',
   });
   final String operationId,
       action,
       serverId,
       configSha256,
-      expectedFavoriteHash;
+      expectedFavoriteHash,
+      expectedSourceEpoch;
   Map<String, Object?> toMap() => {
     'operation_id': operationId,
     'action': action,
     'server_id': serverId,
     'config_sha256': configSha256,
     'expected_favorite_hash': expectedFavoriteHash,
+    if (expectedSourceEpoch.isNotEmpty)
+      'expected_source_epoch': expectedSourceEpoch,
   };
 }
 

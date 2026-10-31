@@ -73,7 +73,7 @@ async fn template_crud_and_preview_do_not_change_selected_network_or_connect() {
     let (_directory, service) = fixture().await;
     let before = service.config_snapshot().await;
     let mut settings = ScenarioSettings::from_network(&before.network);
-    settings.frontends.http = false;
+    settings.transport = usque_core::TransportPolicy::Http2;
     let scene = save_scene(&service, settings, None).await;
     let after_save = service.config_snapshot().await;
     assert_eq!(after_save.network, before.network);
@@ -115,7 +115,7 @@ async fn disconnected_activation_commits_bound_account_and_settings_without_star
         .unwrap();
     let before = service.config_snapshot().await;
     let mut settings = ScenarioSettings::from_network(&before.network);
-    settings.frontends.http = false;
+    settings.transport = usque_core::TransportPolicy::Http2;
     let scene = save_scene(&service, settings, Some(bound)).await;
     let plan = preview(&service, &scene).await;
     assert_eq!(plan["preview"]["account_changed"], true);
@@ -129,7 +129,7 @@ async fn disconnected_activation_commits_bound_account_and_settings_without_star
     assert!(response["state"]["applied_matches"].is_null());
     let saved = service.store.load().unwrap();
     assert_eq!(saved.active_profile_id, Some(bound));
-    assert!(!saved.network.frontends.http);
+    assert_eq!(saved.network.transport, usque_core::TransportPolicy::Http2);
     assert_eq!(saved.network.kill_switch, before.network.kill_switch);
     assert_eq!(saved.last_scenario_switch.unwrap().operation_id, operation);
     assert!(service.data_plane.lock().await.is_none());
@@ -311,8 +311,10 @@ async fn unknown_running_owner_is_rejected_before_scene_commit() {
 #[tokio::test]
 async fn restore_is_a_new_explicit_commit_and_preserves_new_global_preferences() {
     let (_directory, service) = fixture().await;
-    let mut settings = ScenarioSettings::default();
-    settings.frontends.http = false;
+    let settings = ScenarioSettings {
+        transport: usque_core::TransportPolicy::Http2,
+        ..Default::default()
+    };
     let scene = save_scene(&service, settings, None).await;
     let plan = preview(&service, &scene).await;
     request(&service, activate_request(&scene, &plan, Uuid::new_v4()))
@@ -331,7 +333,7 @@ async fn restore_is_a_new_explicit_commit_and_preserves_new_global_preferences()
     let operation = Uuid::new_v4();
     request(&service,json!({"action":"restore","preview_token":restore["preview"]["preview_token"],"operation_id":operation})).await.unwrap();
     let saved = service.store.load().unwrap();
-    assert!(saved.network.frontends.http);
+    assert_eq!(saved.network.transport, usque_core::TransportPolicy::Auto);
     assert!(saved.network.auto_connect);
     assert!(saved.last_scenario_switch.unwrap().restored);
     assert!(service.data_plane.lock().await.is_none());
@@ -355,17 +357,23 @@ async fn hot_scene_changes_publish_confirmed_profile_and_keep_actual_session_alg
             })
             .await
             .unwrap();
-        let mut settings = ScenarioSettings::from_profile(&profile);
-        if change_rules {
-            settings.routing.rules.push(usque_core::RoutingRule {
-                id: Uuid::new_v4(),
-                kind: usque_core::RoutingMatch::Domain,
-                target: "blocked.example".into(),
-                action: usque_core::RoutingAction::Reject,
-            });
-        } else {
-            settings.frontends.http = false;
-        }
+        let settings = ScenarioSettings::from_profile(&profile);
+        service
+            .update_config(move |config| {
+                if change_rules {
+                    config.network.routing.rules.push(usque_core::RoutingRule {
+                        id: Uuid::new_v4(),
+                        kind: usque_core::RoutingMatch::Domain,
+                        target: "blocked.example".into(),
+                        action: usque_core::RoutingAction::Reject,
+                    });
+                } else {
+                    config.network.frontends.http = false;
+                }
+                Ok(())
+            })
+            .await
+            .unwrap();
         let expected = settings.clone();
         let scene = save_scene(&service, settings, None).await;
         let plan = preview(&service, &scene).await;
@@ -397,6 +405,11 @@ async fn hot_scene_changes_publish_confirmed_profile_and_keep_actual_session_alg
         let active = service.data_plane.lock().await;
         let active = active.as_ref().unwrap();
         assert!(expected.equivalent(&ScenarioSettings::from_profile(&active.profile)));
+        if change_rules {
+            assert_eq!(active.profile.routing.rules[0].target, "blocked.example");
+        } else {
+            assert!(!active.profile.frontends.http);
+        }
         assert_eq!(active.profile.congestion_control, running_algorithm);
         let crate::ActiveRuntime::Harness(runtime) = &active.runtime else {
             panic!("fixture must stay inert");
@@ -430,14 +443,20 @@ async fn session_only_preferences_do_not_require_a_protected_scene_handoff() {
             })
             .await
             .unwrap();
-        let mut settings = ScenarioSettings::from_profile(&profile);
+        let settings = ScenarioSettings::from_profile(&profile);
         if change_rules {
-            settings.routing.rules.push(usque_core::RoutingRule {
-                id: Uuid::new_v4(),
-                kind: usque_core::RoutingMatch::Domain,
-                target: "blocked.example".into(),
-                action: usque_core::RoutingAction::Reject,
-            });
+            service
+                .update_config(|config| {
+                    config.network.routing.rules.push(usque_core::RoutingRule {
+                        id: Uuid::new_v4(),
+                        kind: usque_core::RoutingMatch::Domain,
+                        target: "blocked.example".into(),
+                        action: usque_core::RoutingAction::Reject,
+                    });
+                    Ok(())
+                })
+                .await
+                .unwrap();
         }
         let scene = save_scene(&service, settings.clone(), None).await;
         let plan = preview(&service, &scene).await;
@@ -546,9 +565,15 @@ async fn scene_noop_and_failed_hot_rollback_keep_private_listener_authentication
         runtime.fail_routing_publish = true;
     }
     for change_output in [false, true] {
-        let mut settings = ScenarioSettings::from_profile(&profile);
+        let settings = ScenarioSettings::from_profile(&profile);
         if change_output {
-            settings.frontends.http = false;
+            service
+                .update_config(|config| {
+                    config.network.frontends.http = false;
+                    Ok(())
+                })
+                .await
+                .unwrap();
         }
         let scene = save_scene(&service, settings, None).await;
         let plan = preview(&service, &scene).await;

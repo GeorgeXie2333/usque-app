@@ -13,6 +13,7 @@ Map<String, Object?> _catalog({
   String revision = 'catalogue-1',
   bool unchanged = false,
 }) => {
+  'settings_version': 2,
   if (!unchanged)
     'scenarios': [
       {

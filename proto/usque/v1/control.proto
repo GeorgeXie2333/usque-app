@@ -366,6 +366,7 @@ message VpnGateNodeRequest {
   string server_id = 3;
   string config_sha256 = 4;
   string expected_favorite_hash = 5;
+  string expected_source_epoch = 6;
 }
 
 message VpnGateNodeProgress {
@@ -544,6 +545,7 @@ message Capabilities {
   bool proton_account_warp_fallback = 52;
   bool proton_server_switching = 53;
   bool connection_scenarios = 54;
+  bool vpn_gate_epoch_requests = 55;
 }
 
 message FrontendStatus {

@@ -5,7 +5,7 @@ const kScenarioEn = <String, String>{
   'scenario_platform_unsupported':
       'This scene contains a setting unavailable on this device.',
   'scenario_limit':
-      'The scene or scene library exceeds its limit. Reduce the rules or remove an unused scene.',
+      "The scene library exceeds its limit. Remove an unused scene.",
   'profiles': 'Profiles',
   'nav_profiles': 'Profiles',
   'profiles_subtitle': 'Choose your account and network scene.',
@@ -43,7 +43,7 @@ const kScenarioEn = <String, String>{
   'scenario_reference_missing':
       'An account or exit required by this scene is unavailable.',
   'scenario_global_hint':
-      'Kill Switch, proxy addresses and authentication, advanced tuning, and per-app selection use device settings.',
+      "Outputs, LAN access, ad blocking, routing and DNS use device settings.",
   'scenario_output': 'Outputs',
   'scenario_exit': 'Exit',
   'scenario_connection': 'Connection preferences',
@@ -61,7 +61,7 @@ const kScenarioEn = <String, String>{
   'scenario_keep_account': 'The current account is kept.',
   'scenario_account_change': 'Account change',
   'scenario_library_hint':
-      'Choose an existing exit. Manage imports and sign-in in Proxy.',
+      "Create, import or manage nodes here. Your selection returns to the scene draft.",
   'scenario_saved': 'Scene saved',
   'scenario_country_hint':
       'Country codes, separated by commas (for example CN, JP). Required rule data must be available before use.',
@@ -77,7 +77,7 @@ const kScenarioEn = <String, String>{
   'scenario_not_applied':
       "The scene was not applied. Current settings are unchanged.",
   'scenario_kill_switch_output':
-      "Kill Switch is on, but this scene turns off {tunnel}. System-wide protection stops after the switch.",
+      "Kill Switch is on, but saved device settings turn off {tunnel}. System-wide protection stops after the switch.",
   'scenario_settings_invalid':
       "This scene's saved settings are no longer valid. Edit and save it again.",
   'protection_handoff_unavailable':
@@ -86,11 +86,13 @@ const kScenarioEn = <String, String>{
       "The last scene switch is still being confirmed. Refresh Scenes, then connect again.",
   'scenario_unsaved': 'Unsaved scene changes',
   'scenario_inherited_changes': 'Other saved settings that also take effect',
+  'scenario_choose_exit': "Use this selection",
+  'scenario_choose_account': "Bind to scene",
 };
 
 const kScenarioZhCn = <String, String>{
   'scenario_platform_unsupported': '此场景包含当前设备不支持的设置。',
-  'scenario_limit': '场景或场景库超过限制，请减少规则或删除不再使用的场景。',
+  'scenario_limit': "场景库超过限制，请删除不再使用的场景。",
   'profiles': '配置',
   'nav_profiles': '配置',
   'profiles_subtitle': '选择账号与网络场景。',
@@ -123,7 +125,7 @@ const kScenarioZhCn = <String, String>{
   'scenario_unsupported': '当前引擎不支持场景，仍可管理账号。',
   'scenario_save_failed': '操作未能完成，请先刷新状态再重试。',
   'scenario_reference_missing': '此场景需要的账号或出口不可用。',
-  'scenario_global_hint': 'Kill Switch、代理地址与认证、高级调优和按应用选择沿用设备设置。',
+  'scenario_global_hint': "输出、局域网访问、广告拦截、分流与 DNS 沿用全局设置。",
   'scenario_output': '输出',
   'scenario_exit': '出口',
   'scenario_connection': '连接偏好',
@@ -138,7 +140,7 @@ const kScenarioZhCn = <String, String>{
   'scenario_validation_name': '请输入 1–64 个字符的名称。',
   'scenario_keep_account': '保持当前账号。',
   'scenario_account_change': '账号变更',
-  'scenario_library_hint': '选择已有出口；导入和登录请前往代理页管理。',
+  'scenario_library_hint': "可在此新建、导入或管理节点，选择只写入场景草稿。",
   'scenario_saved': '场景已保存',
   'scenario_country_hint': '输入逗号分隔的国家代码，例如 CN、JP。使用前须备妥所需规则数据。',
   'scenario_rules_count': '{count} 条自定义规则',
@@ -149,12 +151,14 @@ const kScenarioZhCn = <String, String>{
   'scenario_rules_missing': '使用此场景前，请在设置中准备所需分流数据。',
   'scenario_not_applied': "场景未应用，当前设置保持不变。",
   'scenario_kill_switch_output':
-      "Kill Switch 已开启，但此场景会关闭 {tunnel}。切换后将不再保护系统全部流量。",
+      "Kill Switch 已开启，但已保存的全局设置会关闭 {tunnel}。切换后将不再保护系统全部流量。",
   'scenario_settings_invalid': "此场景保存的设置已失效，请编辑后重新保存。",
   'protection_handoff_unavailable': "此次切换无法保持 Kill Switch 保护。请先断开连接，再重新切换。",
   'scenario_confirm_before_connect': "上次场景切换仍在确认中。请刷新场景后再连接。",
   'scenario_unsaved': '场景有未保存的修改',
   'scenario_inherited_changes': '同时生效的其他已保存设置',
+  'scenario_choose_exit': "使用此选择",
+  'scenario_choose_account': "绑定到场景",
 };
 
 const kScenarioCatalogs = <String, Map<String, String>>{

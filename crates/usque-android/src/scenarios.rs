@@ -54,7 +54,7 @@ pub(crate) fn command(path: &str, request: &str) -> Result<String, String> {
     if operation.is_some() {
         // Reject a stale, unavailable or unauthorized activation before it
         // stops unrelated account, provider or catalogue work.
-        let (mut context, stable, _) = owner_context(&envelope, operation)?;
+        let (mut context, stable, _, _) = owner_context(&envelope, operation)?;
         let mut config = load(&store)?;
         prepare(&config, &request, &envelope, parent, &mut context, stable)?;
         scenarios::command(&mut config, request.clone(), &context)
@@ -70,7 +70,8 @@ pub(crate) fn command(path: &str, request: &str) -> Result<String, String> {
     let _provider_lease = operation
         .map(|_| usque_core::proton_vpn::lifecycle_lease(parent).map_err(|_| "SCENARIO_BUSY"))
         .transpose()?;
-    let (mut context, stable, mut confirmed_operations) = owner_context(&envelope, operation)?;
+    let (mut context, stable, mut confirmed_operations, observation_session_id) =
+        owner_context(&envelope, operation)?;
     // Keep config -> provider/library lock ordering. No network requests occur
     // while preparing or committing these local metadata operations.
     let _guard = store
@@ -173,6 +174,11 @@ pub(crate) fn command(path: &str, request: &str) -> Result<String, String> {
     // The GUI keeps its connection barrier only while this owner cannot
     // settle the operation from storage.
     result.response["unresolved_operation_id"] = json!(uncertain);
+    // The public scene session is absent while disconnected, but Android's
+    // settings observation still carries the connection generation. Pair this
+    // identity with the exact snapshot used for the context, without rereading
+    // mutable runtime state after the command or dropping stale-session checks.
+    result.response["observation_session_id"] = json!(observation_session_id);
     result.response["target"] = runtime_target
         .as_ref()
         .filter(|_| requires_runtime)
@@ -191,7 +197,7 @@ pub(crate) fn command(path: &str, request: &str) -> Result<String, String> {
 fn owner_context(
     envelope: &Envelope,
     operation: Option<Uuid>,
-) -> Result<(ScenarioContext, bool, Vec<Uuid>), String> {
+) -> Result<(ScenarioContext, bool, Vec<Uuid>, Option<String>), String> {
     let state = crate::network_settings::scenario_snapshot()?;
     let stable = envelope.available
         && matches!(envelope.phase.as_str(), "connected" | "degraded")
@@ -216,7 +222,12 @@ fn owner_context(
         },
         dependency_fingerprint: String::new(),
     };
-    Ok((context, stable, state.persisted_operation_ids))
+    Ok((
+        context,
+        stable,
+        state.persisted_operation_ids,
+        state.session_id,
+    ))
 }
 
 fn load(store: &ConfigStore) -> Result<usque_core::AppConfig, String> {
@@ -345,6 +356,125 @@ fn file_revision(path: &Path) -> String {
 mod tests {
     use super::*;
     use usque_core::AppConfig;
+
+    #[test]
+    fn catalogue_pairs_disconnected_session_with_its_settings_observation_generation() {
+        let _guard = crate::network_settings::TEST_STATE.lock().unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("profiles-v2.json");
+        let config = AppConfig::default();
+        ConfigStore::new(&path).save(&config).unwrap();
+        let path = path.to_str().unwrap();
+        crate::network_settings::command(path, r#"{"command":"reset"}"#).unwrap();
+        let invoke = |request: Value, phase: &str, session: &str, identity: Option<Uuid>| {
+            serde_json::from_str::<Value>(
+                &command(
+                    path,
+                    &json!({"request":request,"phase":phase,"available":phase=="connected",
+                        "session_id":session,"vpn_authorized":true,"identity_account_id":identity})
+                    .to_string(),
+                )
+                .unwrap(),
+            )
+            .unwrap()
+        };
+        let profile = crate::android_profile_value(&config.active_profile().unwrap(), None, false);
+        for (phase, session, observed_profile) in [
+            ("connected", "1", profile),
+            ("disconnected", "2", Value::Null),
+        ] {
+            let observation: Value = serde_json::from_str(
+                &crate::network_settings::command(
+                    path,
+                    &json!({"command":"observe",
+                    "profile":observed_profile,"session_id":session,"applying":false})
+                    .to_string(),
+                )
+                .unwrap(),
+            )
+            .unwrap();
+            let full = invoke(json!({"action":"list"}), phase, session, None);
+            let poll = invoke(
+                json!({"action":"list","known_revision":full["catalogue_revision"]}),
+                phase,
+                session,
+                None,
+            );
+            assert_eq!(poll["scenarios_unchanged"], true);
+            for reply in [full, poll] {
+                assert_eq!(reply["source_epoch"], observation["source_epoch"]);
+                assert_eq!(reply["observation_session_id"], observation["session_id"]);
+                assert_eq!(
+                    reply["session_id"],
+                    if phase == "connected" {
+                        json!(session)
+                    } else {
+                        Value::Null
+                    }
+                );
+                assert_eq!(reply["applied_scene_confirmed"], phase == "connected");
+            }
+        }
+        let saved = invoke(
+            json!({"action":"save","name":"Disconnected","settings":scenarios::ScenarioSettings::default()}),
+            "disconnected",
+            "2",
+            None,
+        );
+        let scene = &saved["scenarios"][0];
+        let preview = invoke(
+            json!({"action":"preview","id":scene["id"],"expected_revision":scene["revision"]}),
+            "disconnected",
+            "2",
+            None,
+        );
+        let activated = invoke(
+            json!({"action":"activate","id":scene["id"],"expected_revision":scene["revision"],"preview_token":preview["preview"]["preview_token"],"operation_id":Uuid::new_v4()}),
+            "disconnected",
+            "2",
+            config.active_profile_id,
+        );
+        for reply in [saved, preview, activated] {
+            assert!(reply["session_id"].is_null());
+            assert_eq!(reply["observation_session_id"], "2");
+            assert_eq!(reply["applied_scene_confirmed"], false);
+        }
+    }
+
+    #[test]
+    fn observation_identity_preserves_explicit_absence_and_incomplete_sessions() {
+        let _guard = crate::network_settings::TEST_STATE.lock().unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("profiles-v2.json");
+        ConfigStore::new(&path).save(&AppConfig::default()).unwrap();
+        let path = path.to_str().unwrap();
+        crate::network_settings::command(path, r#"{"command":"reset"}"#).unwrap();
+        let request = json!({"request":{"action":"list"},"phase":"preparing",
+            "available":false,"session_id":"3","vpn_authorized":true})
+        .to_string();
+        let initial: Value = serde_json::from_str(&command(path, &request).unwrap()).unwrap();
+        assert_eq!(initial["session_id"], "3");
+        assert!(
+            initial
+                .as_object()
+                .unwrap()
+                .contains_key("observation_session_id")
+        );
+        assert!(initial["observation_session_id"].is_null());
+        for (applying, unconfirmed) in [(true, false), (false, true)] {
+            crate::network_settings::command(
+                path,
+                &json!({"command":"observe","profile":null,
+                "session_id":"3","applying":applying,"unconfirmed":unconfirmed})
+                .to_string(),
+            )
+            .unwrap();
+            let reply: Value = serde_json::from_str(&command(path, &request).unwrap()).unwrap();
+            assert_eq!(reply["observation_session_id"], "3");
+            assert_eq!(reply["applied_scene_confirmed"], false);
+            assert!(reply["state"]["applied_matches"].is_null());
+        }
+    }
 
     #[test]
     fn disconnected_scenario_selection_commits_atomically_without_a_runtime_target() {

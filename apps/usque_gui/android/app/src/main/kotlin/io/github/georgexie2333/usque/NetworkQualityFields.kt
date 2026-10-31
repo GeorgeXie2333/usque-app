@@ -148,6 +148,7 @@ internal object NetworkQualityFields {
             "l4_dns_conversion",
             "vpn_gate_tcp",
             "vpn_gate_pool_favorites",
+            "vpn_gate_epoch_requests",
             "chain_profile_import",
             "chain_openvpn_udp",
             "chain_wireguard",

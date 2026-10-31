@@ -4843,6 +4843,8 @@ pub enum ControlServiceError {
     ScenarioUnavailable(&'static str),
     #[error("{0}")]
     VpnGate(usque_core::vpngate::DirectoryError),
+    #[error("the VPN Gate owner changed; refresh the draft before retrying")]
+    VpnGateOwnerStale,
     #[error("invalid request: {0}")]
     InvalidRequest(String),
     #[error("the requested feature is not available yet: {0}")]
@@ -5080,6 +5082,7 @@ impl ControlServiceError {
                 },
                 false,
             ),
+            Self::VpnGateOwnerStale => ("VPN_GATE_OWNER_STALE", false),
         };
         StructuredError {
             code: code.to_owned(),
@@ -5904,6 +5907,7 @@ fn current_capabilities() -> v1::Capabilities {
         chain_openvpn_multi_endpoint: cfg!(any(windows, target_os = "linux")),
         vpn_gate_tcp: true,
         vpn_gate_pool_favorites: true,
+        vpn_gate_epoch_requests: true,
         application_quic_blocking: true,
         account_metadata_mutations: true,
         shared_proxy_auth_application: true,
@@ -9765,6 +9769,27 @@ mod tests {
             assert_eq!(diagnostic.endpoint_preset_tier().unwrap(), expected);
             assert!(diagnostic.l4_server_name().is_some());
         }
+    }
+
+    #[test]
+    fn vpn_gate_epoch_requests_append_wire_fields() {
+        let request = v1::VpnGateNodeRequest {
+            expected_source_epoch: "owner".into(),
+            ..Default::default()
+        };
+        assert_eq!(
+            &usque_ipc::encode_frame(&request).unwrap()[4..],
+            b"\x32\x05owner"
+        );
+        let capabilities = v1::Capabilities {
+            vpn_gate_epoch_requests: true,
+            ..Default::default()
+        };
+        assert_eq!(
+            &usque_ipc::encode_frame(&capabilities).unwrap()[4..],
+            &[0xb8, 3, 1]
+        );
+        assert!(current_capabilities().vpn_gate_epoch_requests);
     }
 
     #[test]

@@ -60,6 +60,7 @@ void main() {
       locale: LocalePreference.english,
       scale: 1.0,
       editor: false,
+      accounts: false,
     ),
     (
       name: 'profiles_scenes_phone',
@@ -67,6 +68,7 @@ void main() {
       locale: LocalePreference.simplifiedChinese,
       scale: 1.0,
       editor: false,
+      accounts: false,
     ),
     (
       name: 'profiles_scenes_rtl_large',
@@ -74,6 +76,7 @@ void main() {
       locale: LocalePreference.persian,
       scale: 2.0,
       editor: false,
+      accounts: false,
     ),
     (
       name: 'profiles_scene_editor_phone',
@@ -81,6 +84,23 @@ void main() {
       locale: LocalePreference.simplifiedChinese,
       scale: 1.0,
       editor: true,
+      accounts: false,
+    ),
+    (
+      name: 'profiles_scene_accounts_phone_large',
+      size: const Size(390, 844),
+      locale: LocalePreference.simplifiedChinese,
+      scale: 2.0,
+      editor: true,
+      accounts: true,
+    ),
+    (
+      name: 'profiles_scene_accounts_rtl_large',
+      size: const Size(1280, 1000),
+      locale: LocalePreference.persian,
+      scale: 2.0,
+      editor: true,
+      accounts: true,
     ),
   ]) {
     testWidgets(
@@ -100,6 +120,14 @@ void main() {
         await tester.pumpAndSettle();
         if (scene.editor) {
           await tester.tap(find.byKey(const ValueKey('scenario-create')));
+          await tester.pumpAndSettle();
+        }
+        if (scene.accounts) {
+          final account = find.byKey(
+            const ValueKey('scenario-account-management'),
+          );
+          await tester.ensureVisible(account);
+          await tester.tap(account);
           await tester.pumpAndSettle();
         }
         expect(tester.takeException(), isNull);

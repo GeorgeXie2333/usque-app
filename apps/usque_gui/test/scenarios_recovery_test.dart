@@ -59,6 +59,7 @@ Map<String, Object?> catalog({
   List<Map<String, Object?>> scenes = const [],
   String? operation,
 }) => {
+  'settings_version': 2,
   'scenarios': scenes,
   'current_account_id': account,
   'state': {'apply_status': 'deferred'},

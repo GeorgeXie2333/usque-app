@@ -2,7 +2,7 @@
 
 const kScenarioJa = <String, String>{
   'scenario_platform_unsupported': 'このシーンには、このデバイスで利用できない設定が含まれています。',
-  'scenario_limit': 'シーンまたはシーンライブラリが上限を超えています。ルールを減らすか、不要なシーンを削除してください。',
+  'scenario_limit': "シーンライブラリが上限を超えています。不要なシーンを削除してください。",
   'scenario_vpn_permission': "先に切断してこのシーンを選択し、再接続して VPN の使用を許可してください。",
   'scenario_rules_missing': "このシーンを使用する前に、設定で必要な分流ルールデータを用意してください。",
   'profiles': "プロファイル",
@@ -37,8 +37,7 @@ const kScenarioJa = <String, String>{
   'scenario_unsupported': "このエンジンはシーンに対応していません。アカウント管理は利用できます。",
   'scenario_save_failed': "操作を完了できませんでした。状態を更新してから再試行してください。",
   'scenario_reference_missing': "このシーンで必要なアカウントまたは出口を利用できません。",
-  'scenario_global_hint':
-      "Kill Switch、プロキシのアドレスと認証、詳細調整、アプリ別の選択にはデバイス設定を使用します。",
+  'scenario_global_hint': "出力、LAN アクセス、広告ブロック、ルーティング、DNS は端末の設定を使用します。",
   'scenario_output': "出力",
   'scenario_exit': "出口",
   'scenario_connection': "接続設定",
@@ -53,7 +52,7 @@ const kScenarioJa = <String, String>{
   'scenario_validation_name': "1～64 文字の名前を入力してください。",
   'scenario_keep_account': "現在のアカウントを保持します。",
   'scenario_account_change': "アカウントの変更",
-  'scenario_library_hint': "既存の出口を選択します。インポートとログインはプロキシページで管理してください。",
+  'scenario_library_hint': "ここでノードを作成、インポート、管理できます。選択はシーンの下書きに反映されます。",
   'scenario_saved': "シーンを保存しました",
   'scenario_country_hint':
       "国コードをカンマ区切りで入力します（例：CN, JP）。使用前に必要なルールデータを用意してください。",
@@ -63,19 +62,20 @@ const kScenarioJa = <String, String>{
   'scenario_new_flows': "変更は新しい接続に適用されます。既存の接続は元の経路を使い続ける場合があります。",
   'scenario_not_applied': "シーンは適用されませんでした。現在の設定は変更されていません。",
   'scenario_kill_switch_output':
-      "Kill Switch がオンですが、このシーンは {tunnel} をオフにします。切り替え後はシステム全体の保護が停止します。",
+      "Kill Switch はオンですが、保存済みの端末設定では {tunnel} がオフになります。切り替え後はシステム全体が保護されません。",
   'scenario_settings_invalid': "このシーンに保存された設定は無効になりました。編集して保存し直してください。",
   'protection_handoff_unavailable':
       "この切り替えでは Kill Switch の保護を維持できません。接続を切断してから切り替えてください。",
   'scenario_confirm_before_connect': "前回のシーン切り替えを確認中です。シーンを更新してから接続してください。",
   'scenario_unsaved': 'シーンに未保存の変更があります',
   'scenario_inherited_changes': 'あわせて適用されるその他の保存済み設定',
+  'scenario_choose_exit': "この選択を使用",
+  'scenario_choose_account': "シーンに紐付ける",
 };
 
 const kScenarioKo = <String, String>{
   'scenario_platform_unsupported': '이 시나리오에는 이 기기에서 사용할 수 없는 설정이 있습니다.',
-  'scenario_limit':
-      '시나리오 또는 시나리오 라이브러리가 한도를 초과했습니다. 규칙을 줄이거나 사용하지 않는 시나리오를 삭제하세요.',
+  'scenario_limit': "시나리오 라이브러리가 한도를 초과했습니다. 사용하지 않는 시나리오를 삭제하세요.",
   'scenario_vpn_permission': "먼저 연결을 해제하고 이 시나리오를 선택한 뒤, 연결하여 VPN 권한을 허용하세요.",
   'scenario_rules_missing': "이 시나리오를 사용하기 전에 설정에서 필요한 라우팅 규칙 데이터를 준비하세요.",
   'profiles': "프로필",
@@ -110,8 +110,7 @@ const kScenarioKo = <String, String>{
   'scenario_unsupported': "이 엔진은 시나리오를 지원하지 않습니다. 계정 관리는 사용할 수 있습니다.",
   'scenario_save_failed': "작업을 완료하지 못했습니다. 상태를 새로 고친 후 다시 시도하세요.",
   'scenario_reference_missing': "이 시나리오에 필요한 계정이나 출구를 사용할 수 없습니다.",
-  'scenario_global_hint':
-      "Kill Switch, 프록시 주소와 인증, 고급 조정 및 앱별 선택은 기기 설정을 사용합니다.",
+  'scenario_global_hint': "출력, LAN 접근, 광고 차단, 라우팅 및 DNS는 기기 설정을 사용합니다.",
   'scenario_output': "출력",
   'scenario_exit': "출구",
   'scenario_connection': "연결 환경설정",
@@ -127,7 +126,7 @@ const kScenarioKo = <String, String>{
   'scenario_validation_name': "1~64자의 이름을 입력하세요.",
   'scenario_keep_account': "현재 계정을 유지합니다.",
   'scenario_account_change': "계정 변경",
-  'scenario_library_hint': "기존 출구를 선택하세요. 가져오기와 로그인은 프록시 페이지에서 관리합니다.",
+  'scenario_library_hint': "여기서 노드를 만들거나 가져오고 관리할 수 있습니다. 선택은 시나리오 초안에 반영됩니다.",
   'scenario_saved': "시나리오 저장됨",
   'scenario_country_hint':
       "국가 코드를 쉼표로 구분해 입력하세요(예: CN, JP). 사용 전에 필요한 규칙 데이터가 준비되어야 합니다.",
@@ -137,7 +136,7 @@ const kScenarioKo = <String, String>{
   'scenario_new_flows': "변경 사항은 새 연결에 적용됩니다. 기존 연결은 이전 경로를 계속 사용할 수 있습니다.",
   'scenario_not_applied': "시나리오가 적용되지 않았습니다. 현재 설정은 바뀌지 않았습니다.",
   'scenario_kill_switch_output':
-      "Kill Switch가 켜져 있지만 이 시나리오는 {tunnel}을(를) 끕니다. 전환 후에는 시스템 전체 보호가 중지됩니다.",
+      "Kill Switch가 켜져 있지만 저장된 기기 설정에서 {tunnel}을 끕니다. 전환 후에는 시스템 전체가 보호되지 않습니다.",
   'scenario_settings_invalid':
       "이 시나리오에 저장된 설정이 더 이상 유효하지 않습니다. 편집한 뒤 다시 저장하세요.",
   'protection_handoff_unavailable':
@@ -146,13 +145,15 @@ const kScenarioKo = <String, String>{
       "이전 시나리오 전환을 아직 확인하는 중입니다. 시나리오를 새로 고친 뒤 다시 연결하세요.",
   'scenario_unsaved': '저장하지 않은 시나리오 변경 사항',
   'scenario_inherited_changes': '함께 적용되는 기타 저장된 설정',
+  'scenario_choose_exit': "이 선택 사용",
+  'scenario_choose_account': "시나리오에 연결",
 };
 
 const kScenarioEs = <String, String>{
   'scenario_platform_unsupported':
       'Esta escena contiene un ajuste no disponible en este dispositivo.',
   'scenario_limit':
-      'La escena o su biblioteca supera el límite. Reduce las reglas o elimina una escena que no uses.',
+      "La biblioteca de escenas supera el límite. Elimina una escena que no uses.",
   'scenario_vpn_permission':
       "Desconecta, selecciona este escenario y vuelve a conectar para conceder el permiso de VPN.",
   'scenario_rules_missing':
@@ -194,7 +195,7 @@ const kScenarioEs = <String, String>{
   'scenario_reference_missing':
       "Una cuenta o salida necesaria para este escenario no está disponible.",
   'scenario_global_hint':
-      "Kill Switch, las direcciones y la autenticación del proxy, los ajustes avanzados y la selección por aplicación usan los ajustes del dispositivo.",
+      "Las salidas, el acceso LAN, el bloqueo de anuncios, el enrutamiento y DNS usan los ajustes del dispositivo.",
   'scenario_output': "Salidas",
   'scenario_exit': "Salida",
   'scenario_connection': "Preferencias de conexión",
@@ -212,7 +213,7 @@ const kScenarioEs = <String, String>{
   'scenario_keep_account': "Se mantendrá la cuenta actual.",
   'scenario_account_change': "Cambio de cuenta",
   'scenario_library_hint':
-      "Elige una salida existente. Gestiona las importaciones y el inicio de sesión en Proxy.",
+      "Crea, importa o administra nodos aquí. La selección se guarda en el borrador de la escena.",
   'scenario_saved': "Escenario guardado",
   'scenario_country_hint':
       "Códigos de país separados por comas (por ejemplo, CN, JP). Los datos de reglas necesarios deben estar disponibles antes de usarlo.",
@@ -224,7 +225,7 @@ const kScenarioEs = <String, String>{
   'scenario_not_applied':
       "El escenario no se aplicó. Los ajustes actuales no cambiaron.",
   'scenario_kill_switch_output':
-      "Kill Switch está activado, pero este escenario desactiva {tunnel}. La protección de todo el sistema se detiene tras el cambio.",
+      "Kill Switch está activado, pero los ajustes guardados del dispositivo desactivan {tunnel}. La protección de todo el sistema termina tras el cambio.",
   'scenario_settings_invalid':
       "Los ajustes guardados de este escenario ya no son válidos. Edítalo y vuelve a guardarlo.",
   'protection_handoff_unavailable':
@@ -234,13 +235,15 @@ const kScenarioEs = <String, String>{
   'scenario_unsaved': 'Cambios del escenario sin guardar',
   'scenario_inherited_changes':
       'Otros ajustes guardados que también se aplican',
+  'scenario_choose_exit': "Usar esta selección",
+  'scenario_choose_account': "Vincular a la escena",
 };
 
 const kScenarioPt = <String, String>{
   'scenario_platform_unsupported':
       'Esta cena contém uma definição indisponível neste dispositivo.',
   'scenario_limit':
-      'A cena ou a biblioteca de cenas excede o limite. Reduza as regras ou remova uma cena não utilizada.',
+      "A biblioteca de cenários excede o limite. Remova um cenário não utilizado.",
   'scenario_vpn_permission':
       "Desligue a ligação, selecione este cenário e volte a ligar para conceder a permissão de VPN.",
   'scenario_rules_missing':
@@ -282,7 +285,7 @@ const kScenarioPt = <String, String>{
   'scenario_reference_missing':
       "Uma conta ou saída necessária para este cenário não está disponível.",
   'scenario_global_hint':
-      "O Kill Switch, os endereços e a autenticação do proxy, os ajustes avançados e a seleção por aplicação usam as definições do dispositivo.",
+      "As saídas, o acesso à LAN, o bloqueio de anúncios, o roteamento e o DNS usam as configurações do dispositivo.",
   'scenario_output': "Saídas",
   'scenario_exit': "Saída",
   'scenario_connection': "Preferências de ligação",
@@ -300,7 +303,7 @@ const kScenarioPt = <String, String>{
   'scenario_keep_account': "A conta atual será mantida.",
   'scenario_account_change': "Alteração de conta",
   'scenario_library_hint':
-      "Escolha uma saída existente. Gira as importações e o início de sessão em Proxy.",
+      "Crie, importe ou gerencie nós aqui. A seleção retorna ao rascunho do cenário.",
   'scenario_saved': "Cenário guardado",
   'scenario_country_hint':
       "Códigos de país separados por vírgulas (por exemplo, CN, JP). Os dados de regras necessários devem estar disponíveis antes da utilização.",
@@ -312,7 +315,7 @@ const kScenarioPt = <String, String>{
   'scenario_not_applied':
       "O cenário não foi aplicado. As definições atuais não foram alteradas.",
   'scenario_kill_switch_output':
-      "O Kill Switch está ativado, mas este cenário desativa {tunnel}. A proteção de todo o sistema para após a mudança.",
+      "O Kill Switch está ativado, mas as configurações salvas do dispositivo desativam {tunnel}. A proteção de todo o sistema termina após a troca.",
   'scenario_settings_invalid':
       "As definições guardadas deste cenário já não são válidas. Edite-o e guarde-o novamente.",
   'protection_handoff_unavailable':
@@ -322,13 +325,15 @@ const kScenarioPt = <String, String>{
   'scenario_unsaved': 'Alterações do cenário por guardar',
   'scenario_inherited_changes':
       'Outras definições guardadas que também são aplicadas',
+  'scenario_choose_exit': "Usar esta seleção",
+  'scenario_choose_account': "Vincular ao cenário",
 };
 
 const kScenarioFr = <String, String>{
   'scenario_platform_unsupported':
       'Cette scène contient un réglage indisponible sur cet appareil.',
   'scenario_limit':
-      'La scène ou la bibliothèque dépasse la limite. Réduisez les règles ou supprimez une scène inutilisée.',
+      "La bibliothèque de scénarios dépasse la limite. Supprimez un scénario inutilisé.",
   'scenario_vpn_permission':
       "Déconnectez-vous, sélectionnez ce scénario, puis reconnectez-vous pour autoriser le VPN.",
   'scenario_rules_missing':
@@ -370,7 +375,7 @@ const kScenarioFr = <String, String>{
   'scenario_reference_missing':
       "Un compte ou un point de sortie nécessaire à ce scénario est indisponible.",
   'scenario_global_hint':
-      "Kill Switch, les adresses et l’authentification du proxy, les réglages avancés et la sélection par application utilisent les réglages de l’appareil.",
+      "Les sorties, l’accès LAN, le blocage des publicités, le routage et le DNS utilisent les réglages de l’appareil.",
   'scenario_output': "Sorties",
   'scenario_exit': "Point de sortie",
   'scenario_connection': "Préférences de connexion",
@@ -388,7 +393,7 @@ const kScenarioFr = <String, String>{
   'scenario_keep_account': "Le compte actuel sera conservé.",
   'scenario_account_change': "Changement de compte",
   'scenario_library_hint':
-      "Choisissez une sortie existante. Gérez les importations et la connexion au compte dans Proxy.",
+      "Créez, importez ou gérez des nœuds ici. La sélection est reportée dans le brouillon du scénario.",
   'scenario_saved': "Scénario enregistré",
   'scenario_country_hint':
       "Codes de pays séparés par des virgules (par exemple CN, JP). Les données des règles nécessaires doivent être disponibles avant utilisation.",
@@ -400,7 +405,7 @@ const kScenarioFr = <String, String>{
   'scenario_not_applied':
       "Le scénario n’a pas été appliqué. Les réglages actuels sont inchangés.",
   'scenario_kill_switch_output':
-      "Kill Switch est activé, mais ce scénario désactive {tunnel}. La protection de tout le système s’arrête après le changement.",
+      "Kill Switch est activé, mais les réglages enregistrés de l’appareil désactivent {tunnel}. La protection de tout le système cesse après le changement.",
   'scenario_settings_invalid':
       "Les réglages enregistrés de ce scénario ne sont plus valides. Modifiez-le puis enregistrez-le à nouveau.",
   'protection_handoff_unavailable':
@@ -410,13 +415,15 @@ const kScenarioFr = <String, String>{
   'scenario_unsaved': 'Modifications du scénario non enregistrées',
   'scenario_inherited_changes':
       'Autres paramètres enregistrés également appliqués',
+  'scenario_choose_exit': "Utiliser cette sélection",
+  'scenario_choose_account': "Lier au scénario",
 };
 
 const kScenarioNl = <String, String>{
   'scenario_platform_unsupported':
       'Deze scène bevat een instelling die op dit apparaat niet beschikbaar is.',
   'scenario_limit':
-      'De scène of bibliotheek overschrijdt de limiet. Verminder het aantal regels of verwijder een ongebruikte scène.',
+      "De scènebibliotheek overschrijdt de limiet. Verwijder een ongebruikte scène.",
   'scenario_vpn_permission':
       "Verbreek de verbinding, selecteer dit scenario en maak daarna verbinding om VPN-toestemming te geven.",
   'scenario_rules_missing':
@@ -458,7 +465,7 @@ const kScenarioNl = <String, String>{
   'scenario_reference_missing':
       "Een account of uitgang die voor dit scenario nodig is, is niet beschikbaar.",
   'scenario_global_hint':
-      "Kill Switch, proxyadressen en authenticatie, geavanceerde afstemming en selectie per app gebruiken de apparaatinstellingen.",
+      "Uitgangen, LAN-toegang, advertentieblokkering, routering en DNS gebruiken de apparaatinstellingen.",
   'scenario_output': "Uitgangen",
   'scenario_exit': "Uitgang",
   'scenario_connection': "Verbindingsvoorkeuren",
@@ -476,7 +483,7 @@ const kScenarioNl = <String, String>{
   'scenario_keep_account': "Het huidige account blijft behouden.",
   'scenario_account_change': "Accountwijziging",
   'scenario_library_hint':
-      "Kies een bestaande uitgang. Beheer imports en aanmeldingen op de pagina Proxy.",
+      "Maak, importeer of beheer hier nodes. Je selectie wordt opgenomen in het concept van de scène.",
   'scenario_saved': "Scenario opgeslagen",
   'scenario_country_hint':
       "Landcodes, gescheiden door komma’s (bijvoorbeeld CN, JP). De vereiste regelgegevens moeten vóór gebruik beschikbaar zijn.",
@@ -488,7 +495,7 @@ const kScenarioNl = <String, String>{
   'scenario_not_applied':
       "Het scenario is niet toegepast. De huidige instellingen zijn ongewijzigd.",
   'scenario_kill_switch_output':
-      "Kill Switch staat aan, maar dit scenario schakelt {tunnel} uit. De systeembrede bescherming stopt na het wisselen.",
+      "Kill Switch staat aan, maar de opgeslagen apparaatinstellingen schakelen {tunnel} uit. Na het wisselen stopt de systeembrede bescherming.",
   'scenario_settings_invalid':
       "De opgeslagen instellingen van dit scenario zijn niet meer geldig. Bewerk het en sla het opnieuw op.",
   'protection_handoff_unavailable':
@@ -498,13 +505,15 @@ const kScenarioNl = <String, String>{
   'scenario_unsaved': 'Niet-opgeslagen scenariowijzigingen',
   'scenario_inherited_changes':
       'Andere opgeslagen instellingen die ook worden toegepast',
+  'scenario_choose_exit': "Deze selectie gebruiken",
+  'scenario_choose_account': "Aan scène koppelen",
 };
 
 const kScenarioTr = <String, String>{
   'scenario_platform_unsupported':
       'Bu sahne, bu cihazda kullanılamayan bir ayar içeriyor.',
   'scenario_limit':
-      'Sahne veya sahne kitaplığı sınırı aşıyor. Kuralları azaltın veya kullanılmayan bir sahneyi silin.',
+      "Senaryo kitaplığı sınırı aşıyor. Kullanılmayan bir senaryoyu silin.",
   'scenario_vpn_permission':
       "Bağlantıyı kesin, bu senaryoyu seçin ve VPN iznini vermek için yeniden bağlanın.",
   'scenario_rules_missing':
@@ -546,7 +555,7 @@ const kScenarioTr = <String, String>{
   'scenario_reference_missing':
       "Bu senaryonun gerektirdiği bir hesap veya çıkış kullanılamıyor.",
   'scenario_global_hint':
-      "Kill Switch, proxy adresleri ve kimlik doğrulama, gelişmiş ayarlar ve uygulama bazlı seçim cihaz ayarlarını kullanır.",
+      "Çıkışlar, LAN erişimi, reklam engelleme, yönlendirme ve DNS cihaz ayarlarını kullanır.",
   'scenario_output': "Çıkışlar",
   'scenario_exit': "Çıkış",
   'scenario_connection': "Bağlantı tercihleri",
@@ -564,7 +573,7 @@ const kScenarioTr = <String, String>{
   'scenario_keep_account': "Geçerli hesap korunacak.",
   'scenario_account_change': "Hesap değişikliği",
   'scenario_library_hint':
-      "Mevcut bir çıkış seçin. İçe aktarma ve oturum açma işlemlerini Proxy sayfasında yönetin.",
+      "Burada düğüm oluşturun, içe aktarın veya yönetin. Seçiminiz senaryo taslağına aktarılır.",
   'scenario_saved': "Senaryo kaydedildi",
   'scenario_country_hint':
       "Virgülle ayrılmış ülke kodları (örneğin CN, JP). Gerekli kural verileri kullanımdan önce hazır olmalıdır.",
@@ -575,7 +584,7 @@ const kScenarioTr = <String, String>{
       "Değişiklikler yeni bağlantılara uygulanır; mevcut bağlantılar önceki yollarını koruyabilir.",
   'scenario_not_applied': "Senaryo uygulanmadı. Geçerli ayarlar değişmedi.",
   'scenario_kill_switch_output':
-      "Kill Switch açık, ancak bu senaryo {tunnel} özelliğini kapatıyor. Geçişten sonra sistem genelindeki koruma durur.",
+      "Kill Switch açık, ancak kaydedilmiş cihaz ayarları {tunnel} özelliğini kapatıyor. Geçişten sonra sistem genelindeki koruma sona erer.",
   'scenario_settings_invalid':
       "Bu senaryonun kayıtlı ayarları artık geçerli değil. Düzenleyip yeniden kaydedin.",
   'protection_handoff_unavailable':
@@ -584,13 +593,15 @@ const kScenarioTr = <String, String>{
       "Son senaryo geçişi hâlâ doğrulanıyor. Senaryoları yenileyip yeniden bağlanın.",
   'scenario_unsaved': 'Kaydedilmemiş senaryo değişiklikleri',
   'scenario_inherited_changes': 'Ayrıca uygulanacak diğer kayıtlı ayarlar',
+  'scenario_choose_exit': "Bu seçimi kullan",
+  'scenario_choose_account': "Senaryoya bağla",
 };
 
 const kScenarioRu = <String, String>{
   'scenario_platform_unsupported':
       'Этот сценарий содержит настройку, недоступную на этом устройстве.',
   'scenario_limit':
-      'Сценарий или библиотека сценариев превышает лимит. Сократите правила или удалите ненужный сценарий.',
+      "Превышен лимит библиотеки сценариев. Удалите ненужный сценарий.",
   'scenario_vpn_permission':
       "Отключитесь, выберите этот сценарий и подключитесь снова, чтобы предоставить разрешение VPN.",
   'scenario_rules_missing':
@@ -632,7 +643,7 @@ const kScenarioRu = <String, String>{
   'scenario_reference_missing':
       "Необходимый для этого сценария аккаунт или выход недоступен.",
   'scenario_global_hint':
-      "Kill Switch, адреса и аутентификация прокси, расширенные параметры и выбор приложений используют настройки устройства.",
+      "Выходы, доступ к LAN, блокировка рекламы, маршрутизация и DNS используют настройки устройства.",
   'scenario_output': "Выходы",
   'scenario_exit': "Выход",
   'scenario_connection': "Параметры подключения",
@@ -650,7 +661,7 @@ const kScenarioRu = <String, String>{
   'scenario_keep_account': "Текущий аккаунт будет сохранён.",
   'scenario_account_change': "Смена аккаунта",
   'scenario_library_hint':
-      "Выберите существующий выход. Импорт и вход в аккаунт доступны на странице «Прокси».",
+      "Здесь можно создавать, импортировать и управлять узлами. Выбор переносится в черновик сценария.",
   'scenario_saved': "Сценарий сохранён",
   'scenario_country_hint':
       "Коды стран через запятую (например, CN, JP). Перед использованием должны быть доступны необходимые данные правил.",
@@ -662,7 +673,7 @@ const kScenarioRu = <String, String>{
   'scenario_not_applied':
       "Сценарий не применён. Текущие настройки не изменились.",
   'scenario_kill_switch_output':
-      "Kill Switch включён, но этот сценарий отключает {tunnel}. После переключения защита всей системы прекратится.",
+      "Kill Switch включён, но сохранённые настройки устройства отключают {tunnel}. После переключения защита всей системы прекращается.",
   'scenario_settings_invalid':
       "Сохранённые настройки этого сценария больше недействительны. Измените и сохраните его снова.",
   'protection_handoff_unavailable':
@@ -672,13 +683,15 @@ const kScenarioRu = <String, String>{
   'scenario_unsaved': 'Несохранённые изменения сценария',
   'scenario_inherited_changes':
       'Другие сохранённые настройки, которые также применятся',
+  'scenario_choose_exit': "Использовать выбор",
+  'scenario_choose_account': "Привязать к сценарию",
 };
 
 const kScenarioDe = <String, String>{
   'scenario_platform_unsupported':
       'Diese Szene enthält eine Einstellung, die auf diesem Gerät nicht verfügbar ist.',
   'scenario_limit':
-      'Die Szene oder Szenenbibliothek überschreitet das Limit. Reduziere die Regeln oder entferne eine ungenutzte Szene.',
+      "Die Szenenbibliothek überschreitet ihr Limit. Entferne eine ungenutzte Szene.",
   'scenario_vpn_permission':
       "Verbindung trennen, dieses Szenario auswählen und erneut verbinden, um die VPN-Berechtigung zu erteilen.",
   'scenario_rules_missing':
@@ -720,7 +733,7 @@ const kScenarioDe = <String, String>{
   'scenario_reference_missing':
       "Ein für dieses Szenario benötigtes Konto oder ein Ausgang ist nicht verfügbar.",
   'scenario_global_hint':
-      "Kill Switch, Proxyadressen und Authentifizierung, erweiterte Anpassungen und die App-Auswahl verwenden die Geräteeinstellungen.",
+      "Ausgänge, LAN-Zugriff, Werbeblocker, Routing und DNS verwenden die Geräteeinstellungen.",
   'scenario_output': "Ausgänge",
   'scenario_exit': "Ausgang",
   'scenario_connection': "Verbindungseinstellungen",
@@ -739,7 +752,7 @@ const kScenarioDe = <String, String>{
   'scenario_keep_account': "Das aktuelle Konto bleibt erhalten.",
   'scenario_account_change': "Kontowechsel",
   'scenario_library_hint':
-      "Einen vorhandenen Ausgang auswählen. Importe und Anmeldung werden unter Proxy verwaltet.",
+      "Hier kannst du Knoten erstellen, importieren oder verwalten. Deine Auswahl wird in den Szenenentwurf übernommen.",
   'scenario_saved': "Szenario gespeichert",
   'scenario_country_hint':
       "Durch Kommas getrennte Ländercodes (zum Beispiel CN, JP). Die benötigten Regeldaten müssen vor der Nutzung verfügbar sein.",
@@ -751,7 +764,7 @@ const kScenarioDe = <String, String>{
   'scenario_not_applied':
       "Das Szenario wurde nicht angewendet. Die aktuellen Einstellungen sind unverändert.",
   'scenario_kill_switch_output':
-      "Kill Switch ist aktiv, aber dieses Szenario schaltet {tunnel} aus. Nach dem Wechsel endet der systemweite Schutz.",
+      "Kill Switch ist aktiv, aber die gespeicherten Geräteeinstellungen schalten {tunnel} aus. Nach dem Wechsel endet der systemweite Schutz.",
   'scenario_settings_invalid':
       "Die gespeicherten Einstellungen dieses Szenarios sind nicht mehr gültig. Bearbeiten und speichern Sie es erneut.",
   'protection_handoff_unavailable':
@@ -761,13 +774,15 @@ const kScenarioDe = <String, String>{
   'scenario_unsaved': 'Nicht gespeicherte Szenarioänderungen',
   'scenario_inherited_changes':
       'Weitere gespeicherte Einstellungen, die ebenfalls gelten',
+  'scenario_choose_exit': "Diese Auswahl verwenden",
+  'scenario_choose_account': "An Szene binden",
 };
 
 const kScenarioIt = <String, String>{
   'scenario_platform_unsupported':
       'Questa scena contiene un’impostazione non disponibile su questo dispositivo.',
   'scenario_limit':
-      'La scena o la libreria supera il limite. Riduci le regole o elimina una scena inutilizzata.',
+      "La libreria delle scene supera il limite. Elimina una scena inutilizzata.",
   'scenario_vpn_permission':
       "Disconnettiti, seleziona questo scenario e riconnettiti per concedere l’autorizzazione VPN.",
   'scenario_rules_missing':
@@ -809,7 +824,7 @@ const kScenarioIt = <String, String>{
   'scenario_reference_missing':
       "Un account o un’uscita necessari per questo scenario non sono disponibili.",
   'scenario_global_hint':
-      "Kill Switch, indirizzi e autenticazione del proxy, impostazioni avanzate e selezione per app usano le impostazioni del dispositivo.",
+      "Uscite, accesso LAN, blocco degli annunci, routing e DNS usano le impostazioni del dispositivo.",
   'scenario_output': "Uscite",
   'scenario_exit': "Uscita",
   'scenario_connection': "Preferenze di connessione",
@@ -827,7 +842,7 @@ const kScenarioIt = <String, String>{
   'scenario_keep_account': "L’account attuale verrà mantenuto.",
   'scenario_account_change': "Cambio di account",
   'scenario_library_hint':
-      "Scegli un’uscita esistente. Gestisci importazioni e accesso nella pagina Proxy.",
+      "Crea, importa o gestisci nodi qui. La selezione viene riportata nella bozza della scena.",
   'scenario_saved': "Scenario salvato",
   'scenario_country_hint':
       "Codici paese separati da virgole (ad esempio CN, JP). I dati delle regole necessari devono essere disponibili prima dell’uso.",
@@ -839,7 +854,7 @@ const kScenarioIt = <String, String>{
   'scenario_not_applied':
       "Lo scenario non è stato applicato. Le impostazioni attuali non sono cambiate.",
   'scenario_kill_switch_output':
-      "Kill Switch è attivo, ma questo scenario disattiva {tunnel}. Dopo il cambio la protezione dell’intero sistema si interrompe.",
+      "Kill Switch è attivo, ma le impostazioni salvate del dispositivo disattivano {tunnel}. La protezione dell’intero sistema termina dopo il cambio.",
   'scenario_settings_invalid':
       "Le impostazioni salvate di questo scenario non sono più valide. Modificalo e salvalo di nuovo.",
   'protection_handoff_unavailable':
@@ -848,13 +863,14 @@ const kScenarioIt = <String, String>{
       "L’ultimo cambio di scenario è ancora in fase di conferma. Aggiorna Scenari e riconnettiti.",
   'scenario_unsaved': 'Modifiche allo scenario non salvate',
   'scenario_inherited_changes': 'Altre impostazioni salvate applicate insieme',
+  'scenario_choose_exit': "Usa questa selezione",
+  'scenario_choose_account': "Associa alla scena",
 };
 
 const kScenarioPl = <String, String>{
   'scenario_platform_unsupported':
       'Ta scena zawiera ustawienie niedostępne na tym urządzeniu.',
-  'scenario_limit':
-      'Scena lub biblioteka scen przekracza limit. Zmniejsz liczbę reguł lub usuń nieużywaną scenę.',
+  'scenario_limit': "Biblioteka scen przekracza limit. Usuń nieużywaną scenę.",
   'scenario_vpn_permission':
       "Rozłącz się, wybierz ten scenariusz i połącz się ponownie, aby przyznać uprawnienie VPN.",
   'scenario_rules_missing':
@@ -896,7 +912,7 @@ const kScenarioPl = <String, String>{
   'scenario_reference_missing':
       "Konto lub wyjście wymagane przez ten scenariusz jest niedostępne.",
   'scenario_global_hint':
-      "Kill Switch, adresy i uwierzytelnianie proxy, ustawienia zaawansowane oraz wybór aplikacji korzystają z ustawień urządzenia.",
+      "Wyjścia, dostęp do LAN, blokowanie reklam, routing i DNS korzystają z ustawień urządzenia.",
   'scenario_output': "Wyjścia",
   'scenario_exit': "Wyjście",
   'scenario_connection': "Preferencje połączenia",
@@ -914,7 +930,7 @@ const kScenarioPl = <String, String>{
   'scenario_keep_account': "Bieżące konto zostanie zachowane.",
   'scenario_account_change': "Zmiana konta",
   'scenario_library_hint':
-      "Wybierz istniejące wyjście. Importami i logowaniem zarządza się na stronie Proxy.",
+      "Tutaj możesz tworzyć, importować i zarządzać węzłami. Wybór trafi do szkicu sceny.",
   'scenario_saved': "Scenariusz zapisany",
   'scenario_country_hint':
       "Kody krajów oddzielone przecinkami (na przykład CN, JP). Wymagane dane reguł muszą być dostępne przed użyciem.",
@@ -926,7 +942,7 @@ const kScenarioPl = <String, String>{
   'scenario_not_applied':
       "Scenariusz nie został zastosowany. Bieżące ustawienia się nie zmieniły.",
   'scenario_kill_switch_output':
-      "Kill Switch jest włączony, ale ten scenariusz wyłącza {tunnel}. Po przełączeniu ochrona całego systemu zostanie zatrzymana.",
+      "Kill Switch jest włączony, ale zapisane ustawienia urządzenia wyłączają {tunnel}. Po przełączeniu ochrona całego systemu ustaje.",
   'scenario_settings_invalid':
       "Zapisane ustawienia tego scenariusza są już nieprawidłowe. Edytuj go i zapisz ponownie.",
   'protection_handoff_unavailable':
@@ -936,4 +952,6 @@ const kScenarioPl = <String, String>{
   'scenario_unsaved': 'Niezapisane zmiany scenariusza',
   'scenario_inherited_changes':
       'Inne zapisane ustawienia, które również zostaną zastosowane',
+  'scenario_choose_exit': "Użyj tego wyboru",
+  'scenario_choose_account': "Powiąż ze sceną",
 };

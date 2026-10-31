@@ -10,6 +10,7 @@ import '../core/warp_strings.dart';
 import '../models/app_models.dart';
 import '../services/engine_client.dart';
 import '../state/app_controller.dart';
+import '../state/scenario_gate_leases.dart';
 import '../widgets/chain_current_connection.dart';
 import '../widgets/chain_editor_layout.dart';
 import '../widgets/chain_source_picker.dart';
@@ -29,11 +30,29 @@ class ChainProxyScreen extends StatefulWidget {
     required this.controller,
     this.active = true,
     this.now = DateTime.now,
+    this.draftProfile,
+    this.onDraftSelected,
+    this.preparedGateDraft,
+    this.onDraftGateLease,
     super.key,
-  });
+  }) : assert((draftProfile == null) == (onDraftSelected == null));
   final AppController controller;
   final bool active;
   final DateTime Function() now;
+
+  /// A scene's local settings. In this mode only library operations are live;
+  /// selecting an exit returns a draft and never applies network settings.
+  final UsqueProfile? draftProfile;
+  final ValueChanged<UsqueProfile>? onDraftSelected;
+
+  /// An unsaved VPN Gate selection whose temporary reference the scene owns.
+  /// Nested edits borrow it and must not release it when cancelled.
+  final ScenarioGateLease? preparedGateDraft;
+
+  /// Reports the exact temporary reference handed to the parent immediately
+  /// before [onDraftSelected]. A borrowed reference is retained even when its
+  /// selected VPN Gate settings become dormant under a different source.
+  final ValueChanged<ScenarioGateLease?>? onDraftGateLease;
   @override
   State<ChainProxyScreen> createState() => _ChainProxyScreenState();
 }
@@ -58,9 +77,15 @@ bool _chainPending(ChainExitSettings stored, ChainExitSettings draft) {
   return draft != stored;
 }
 
+bool _sameGateLease(ScenarioGateLease? first, ScenarioGateLease? second) =>
+    first != null &&
+    second != null &&
+    first.sourceEpoch == second.sourceEpoch &&
+    first.matches(second.selection);
+
 class _ChainProxyScreenState extends State<ChainProxyScreen> {
   final _guard = GlobalKey<UnsavedChangesGuardState>();
-  late ChainSource _source = widget.controller.activeProfile.chainSource;
+  late ChainSource _source = _profile.chainSource;
 
   /// Unapplied drafts, kept while the user compares sources.
   ///
@@ -70,15 +95,17 @@ class _ChainProxyScreenState extends State<ChainProxyScreen> {
   final _drafts = <ChainSource, ChainExitSettings>{};
   VpnGateSettings? _gateDraft;
   VpnGateServer? _gateServer;
+  ScenarioGateLease? _retainedGate;
+  ScenarioGateLease? _acceptedGate;
 
   /// The page switch as the user last left it, under any source.
   bool? _enabled;
 
   /// Configuration text that belonged to another source, reopened there.
   _CarriedImport? _carried;
-  late ChainExitSettings? _storedExit =
-      widget.controller.activeProfile.chainExit;
+  late ChainExitSettings? _storedExit = _profile.chainExit;
   AppController get _app => widget.controller;
+  UsqueProfile get _profile => widget.draftProfile ?? _app.activeProfile;
 
   @override
   void initState() {
@@ -89,10 +116,33 @@ class _ChainProxyScreenState extends State<ChainProxyScreen> {
   @override
   void dispose() {
     _app.removeListener(_storedChanged);
+    unawaited(_releaseGateReference(_retainedGate));
     super.dispose();
   }
 
+  Future<void> _releaseGateReference(ScenarioGateLease? lease) =>
+      ScenarioGateLeases.of(_app).release(lease);
+
+  void _retainGateReference(ScenarioGateLease selection) {
+    final previous = _retainedGate;
+    _retainedGate = selection;
+    if (!_sameGateLease(previous, selection)) {
+      unawaited(_releaseGateReference(previous));
+    }
+  }
+
+  void _selectDraft(UsqueProfile selected) {
+    final lease = [_acceptedGate, _retainedGate, widget.preparedGateDraft]
+        .where((reference) => reference?.matches(selected.vpnGate) == true)
+        .firstOrNull;
+    if (_sameGateLease(_retainedGate, lease)) _retainedGate = null;
+    _acceptedGate = null;
+    widget.onDraftGateLease?.call(lease);
+    widget.onDraftSelected!(selected);
+  }
+
   void _storedChanged() {
+    if (widget.draftProfile != null) return;
     final stored = _app.activeProfile.chainExit;
     if (stored == _storedExit || !mounted) return;
     setState(() {
@@ -119,7 +169,7 @@ class _ChainProxyScreenState extends State<ChainProxyScreen> {
   /// for that source, else the stored settings, with the page switch carried
   /// over from the source the user just left.
   ChainExitSettings _initialDraft(ChainSource source) {
-    final stored = _storedChainExit(_app.activeProfile);
+    final stored = _storedChainExit(_profile);
     final base =
         _drafts[source] ??
         (stored.source == source
@@ -131,7 +181,7 @@ class _ChainProxyScreenState extends State<ChainProxyScreen> {
   /// Whether a source other than [current] holds an unapplied draft, so
   /// leaving the page still asks before discarding it.
   bool _otherPending(ChainSource current) {
-    final profile = _app.activeProfile;
+    final profile = _profile;
     final stored = _storedChainExit(profile);
     for (final draft in _drafts.values) {
       if (draft.source != current &&
@@ -178,6 +228,14 @@ class _ChainProxyScreenState extends State<ChainProxyScreen> {
         initialEnabled: _enabled,
         onDraftChanged: _retainGate,
         otherPending: _otherPending(ChainSource.vpnGate),
+        draftProfile: widget.draftProfile,
+        onDraftSelected: widget.draftProfile == null ? null : _selectDraft,
+        preparedGateDraft: widget.preparedGateDraft,
+        retainedGateDraft: _retainedGate,
+        onRetainPreparedGate: widget.draftProfile == null
+            ? null
+            : _retainGateReference,
+        onDraftGateLease: (selection) => _acceptedGate = selection,
       );
     }
     // The carried import opens once, in the editor created for its source.
@@ -194,6 +252,9 @@ class _ChainProxyScreenState extends State<ChainProxyScreen> {
       otherPending: _otherPending(_source),
       carriedImport: carried,
       onSwitchWithImport: _switchWithImport,
+      draftProfile: widget.draftProfile,
+      onDraftSelected: widget.draftProfile == null ? null : _selectDraft,
+      onDraftGateLease: (selection) => _acceptedGate = selection,
     );
   }
 
@@ -205,7 +266,9 @@ class _ChainProxyScreenState extends State<ChainProxyScreen> {
     Widget? warning,
   }) => SubPage(
     title: _app.strings.chain('title'),
-    subtitle: _app.strings.chain('subtitle'),
+    subtitle: widget.draftProfile == null
+        ? _app.strings.chain('subtitle')
+        : _app.strings.get('scenario_library_hint'),
     backLabel: _app.strings.get('back'),
     contentWidth: 880,
     // With nothing to apply or report, the bar would only hold a disabled
@@ -253,10 +316,11 @@ class _ChainProxyScreenState extends State<ChainProxyScreen> {
               ),
               // The running exit comes before browsing, so a failure stays
               // in view whichever source is open below.
-              ChainCurrentConnection(
-                controller: _app,
-                configuredEnabled: _app.activeProfile.chainEnabled,
-              ),
+              if (widget.draftProfile == null)
+                ChainCurrentConnection(
+                  controller: _app,
+                  configuredEnabled: _app.activeProfile.chainEnabled,
+                ),
               ChainSourcePicker(
                 controller: _app,
                 source: _source,
@@ -294,6 +358,9 @@ class _CustomChainEditor extends StatefulWidget {
     required this.otherPending,
     required this.onSwitchWithImport,
     this.carriedImport,
+    this.draftProfile,
+    this.onDraftSelected,
+    this.onDraftGateLease,
     super.key,
   });
   final AppController controller;
@@ -305,6 +372,9 @@ class _CustomChainEditor extends StatefulWidget {
   final bool otherPending;
   final _CarriedImport? carriedImport;
   final void Function(ChainSource, _CarriedImport) onSwitchWithImport;
+  final UsqueProfile? draftProfile;
+  final ValueChanged<UsqueProfile>? onDraftSelected;
+  final ValueChanged<ScenarioGateLease?>? onDraftGateLease;
   @override
   State<_CustomChainEditor> createState() => _CustomChainEditorState();
 }
@@ -317,6 +387,7 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
   bool _loading = true, _saving = false, _importing = false;
   bool _warpEndpointValid = true;
   bool _wasSupported = false;
+  bool _accepted = false;
 
   /// Result of the last apply, shown in the action bar.
   String? _error;
@@ -324,6 +395,8 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
   /// Import, file and library problems, shown beside the import actions.
   String? _libraryError;
   AppController get _app => widget.controller;
+  bool get _sceneDraft => widget.draftProfile != null;
+  UsqueProfile get _profile => widget.draftProfile ?? _app.activeProfile;
   bool get _dirty => _chainPending(_baseline, _draft);
   bool get _supported =>
       ChainSourcePicker.available(_app.engineCapabilities, widget.source) &&
@@ -332,7 +405,7 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
           (_app.engineCapabilities?.chainWarpWireguard ?? false)) &&
       (!widget.source.isWireguard ||
           (_app.engineCapabilities?.chainWireguard ?? false));
-  ChainExitSettings get _stored => _storedChainExit(_app.activeProfile);
+  ChainExitSettings get _stored => _storedChainExit(_profile);
 
   /// The stored settings as seen from this source, with nothing pending.
   ChainExitSettings get _fresh => _baseline.source == widget.source
@@ -340,7 +413,7 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
       : ChainExitSettings(source: widget.source, enabled: _baseline.enabled);
   ChainProfileSummary? get _selected =>
       _profiles.where((p) => p.id == _draft.profileId).firstOrNull;
-  bool get _l4 => _app.activeProfile.dataPlane == DataPlaneMode.l4Proxy;
+  bool get _l4 => _profile.dataPlane == DataPlaneMode.l4Proxy;
   bool get _modeConflict =>
       _draft.enabled && _selected?.requiresUdp == true && _l4;
   bool get _multiEndpointBlocked =>
@@ -358,6 +431,7 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
     if (_multiEndpointBlocked) {
       return strings.chain('multi_endpoint_unavailable');
     }
+    if (_sceneDraft && _modeConflict) return strings.chain('l4');
     return null;
   }
 
@@ -539,9 +613,24 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
     final account = _app.activeProfile.id;
     final intent = _app.connectionIntent;
     if (_saving ||
+        _accepted ||
         !_supported ||
         _validation != null ||
         _modeConflict && !switchMode) {
+      return;
+    }
+    if (_sceneDraft) {
+      final selected = _profile.copyWith(
+        chainExit: target,
+        vpnGate: _profile.vpnGate.copyWith(enabled: false),
+      );
+      setState(() => _accepted = true);
+      // Let the leave guard rebuild before the parent pops this subpage.
+      await WidgetsBinding.instance.endOfFrame;
+      if (mounted) {
+        widget.onDraftGateLease?.call(null);
+        widget.onDraftSelected!(selected);
+      }
       return;
     }
     setState(() {
@@ -616,6 +705,7 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
     if (action == 'remove' &&
         (profile.id == _draft.profileId ||
             profile.id == _baseline.profileId ||
+            profile.id == _app.activeProfile.chainExit?.profileId ||
             profile.id == _app.snapshot.chainExit.currentProfile?.id)) {
       setState(() => _libraryError = strings.chain('profile_in_use'));
       return;
@@ -686,6 +776,13 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
 
   Future<bool> _prepareProtonRemoval(List<String> ids) async {
     if (_saving) return false;
+    if (_sceneDraft &&
+        (ids.contains(_draft.profileId) ||
+            ids.contains(_baseline.profileId) ||
+            ids.contains(_app.activeProfile.chainExit?.profileId))) {
+      setState(() => _error = _app.strings.proton('profile_in_use'));
+      return false;
+    }
     if (ids.contains(_app.snapshot.chainExit.currentProfile?.id)) {
       setState(() => _error = _app.strings.proton('profile_in_use'));
       return false;
@@ -732,16 +829,16 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
     final validation = _validation;
     final canApply =
         !_saving &&
-        !snapshot.isTransitional &&
+        (_sceneDraft || !snapshot.isTransitional) &&
         _supported &&
         validation == null &&
-        (_dirty || _modeConflict);
+        (_sceneDraft || _dirty || _modeConflict);
     final disabling = _dirty && _baseline.enabled && !_draft.enabled;
     final mutedStyle = theme.textTheme.bodyMedium?.copyWith(
       color: theme.colorScheme.onSurfaceVariant,
     );
     final marker = chainCurrentMarker(snapshot);
-    final statusLabel = _error != null
+    final statusLabel = _sceneDraft || _error != null
         ? null
         : _modeConflict
         ? strings.chain('l4')
@@ -751,6 +848,7 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
         ? _app.networkSettingsMessage
         : null;
     final showBar =
+        _sceneDraft ||
         _dirty ||
         _modeConflict ||
         _saving ||
@@ -816,7 +914,7 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
     return UnsavedChangesGuard(
       key: widget.guard,
       strings: strings,
-      dirty: _dirty || widget.otherPending,
+      dirty: !_accepted && (_dirty || widget.otherPending),
       saving: _saving,
       child: widget.pageBuilder(
         enabled: _draft.enabled,
@@ -837,16 +935,18 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
                 contentWidth: 880,
                 matchPageGutter: true,
                 strings: strings,
-                dirty: _dirty || _modeConflict,
+                dirty: _sceneDraft || _dirty || _modeConflict,
                 saving: _saving,
-                onRefresh: _app.networkSettings.canRefresh
+                onRefresh: !_sceneDraft && _app.networkSettings.canRefresh
                     ? _app.networkSettings.refresh
                     : null,
                 refreshing: _app.networkSettings.refreshing,
                 error: _error,
-                validationError: _dirty ? validation : null,
+                validationError: _sceneDraft || _dirty ? validation : null,
                 statusLabel: statusLabel,
-                saveLabel: _modeConflict
+                saveLabel: _sceneDraft
+                    ? strings.get('scenario_choose_exit')
+                    : _modeConflict
                     ? strings.chain('switch_mode')
                     : snapshot.isConnected && _dirty
                     ? strings.chain('apply_reconnect')
@@ -1031,6 +1131,8 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
                             inUse:
                                 profile.id == _draft.profileId ||
                                 profile.id == _baseline.profileId ||
+                                profile.id ==
+                                    _app.activeProfile.chainExit?.profileId ||
                                 profile.id == current?.id,
                             needsConnectIp: _l4 && profile.requiresUdp,
                             onAction: (action) =>

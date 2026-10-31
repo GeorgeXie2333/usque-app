@@ -200,6 +200,9 @@ class _ProfileIdentityDialogState extends State<_ProfileIdentityDialog> {
     final title = _isRepair
         ? _strings.get('configure_identity')
         : _strings.get('new_profile');
+    final step = _step == 0
+        ? _buildNameStep(key: const ValueKey<String>('name'))
+        : _buildIdentityStep(key: const ValueKey<String>('identity'));
     return UsqueDialog(
       icon: _step == 0
           ? LucideIcons.layers3
@@ -210,17 +213,17 @@ class _ProfileIdentityDialogState extends State<_ProfileIdentityDialog> {
       subtitle: _strings.get(
         _step == 0 ? 'profile_name' : 'identity_and_license',
       ),
-      content: AnimatedSize(
-        duration: UsqueMotion.of(context, UsqueMotion.base),
-        curve: UsqueMotion.emphasized,
-        alignment: Alignment.topCenter,
-        child: FadeThroughSwitcher(
-          duration: UsqueMotion.base,
-          child: _step == 0
-              ? _buildNameStep(key: const ValueKey<String>('name'))
-              : _buildIdentityStep(key: const ValueKey<String>('identity')),
-        ),
-      ),
+      content: UsqueMotion.reduced(context)
+          ? step
+          : AnimatedSize(
+              duration: UsqueMotion.of(context, UsqueMotion.base),
+              curve: UsqueMotion.emphasized,
+              alignment: Alignment.topCenter,
+              child: FadeThroughSwitcher(
+                duration: UsqueMotion.base,
+                child: step,
+              ),
+            ),
       actions: <Widget>[
         TextButton(
           onPressed: _submitting ? null : _cancelDialog,

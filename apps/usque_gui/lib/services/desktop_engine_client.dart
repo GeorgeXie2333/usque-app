@@ -282,7 +282,8 @@ class DesktopEngineClient
             ..string(2, request.action)
             ..string(3, request.serverId)
             ..string(4, request.configSha256)
-            ..string(5, request.expectedFavoriteHash))
+            ..string(5, request.expectedFavoriteHash)
+            ..string(6, request.expectedSourceEpoch))
           .takeBytes(),
     );
   });

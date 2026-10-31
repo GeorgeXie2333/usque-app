@@ -61,6 +61,7 @@ class ChainEngine extends GateEngine
     automaticEndpoints: true,
     vpnGateTcp: true,
     vpnGatePoolFavorites: true,
+    vpnGateEpochRequests: true,
     networkSettingsApplication: true,
     chainProfileImport: true,
     chainOpenvpnUdp: true,

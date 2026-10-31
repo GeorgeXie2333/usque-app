@@ -21,7 +21,10 @@ class ScenarioHomeLink extends StatelessWidget {
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: controller.scenarios,
     builder: (context, _) {
-      if (!controller.scenarios.supported) return const SizedBox.shrink();
+      if (!controller.scenarios.supported ||
+          !controller.scenarios.settingsSupported) {
+        return const SizedBox.shrink();
+      }
       final strings = controller.strings;
       final theme = Theme.of(context);
       final label = strings.get('scenario_current');

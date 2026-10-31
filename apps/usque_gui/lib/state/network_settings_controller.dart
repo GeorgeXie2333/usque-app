@@ -51,6 +51,11 @@ class NetworkSettingsController extends ChangeNotifier {
       _confirmationRetry == null &&
       !refreshing;
   bool get supported => _supported;
+
+  /// Whether [refresh] can obtain a live native observation instead of being a
+  /// lifecycle no-op. Draft resource leases must not certify cached authority.
+  bool get observationEnabled =>
+      supported && !_disposed && !_resetting && _observationVisible;
   set supported(bool value) {
     _supported = value;
     if (!value) _cancelConfirmationRetry();

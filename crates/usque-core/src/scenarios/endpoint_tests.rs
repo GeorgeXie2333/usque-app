@@ -276,3 +276,341 @@ fn invalid_endpoint_port_sni_and_preset_policy_never_save_a_template() {
         assert_eq!(config, before);
     }
 }
+
+#[test]
+fn restore_freezes_zero_trust_preset_fallback_and_restores_override_ownership() {
+    for original_override in [None, Some("192.0.2.20")] {
+        let mut config = AppConfig::default();
+        let id = config.active_profile_id.unwrap();
+        config.identity_bindings.insert(
+            id,
+            crate::identity::IdentityProvider::ZeroTrust {
+                organization: "test".into(),
+            },
+        );
+        config
+            .set_managed_endpoint_ips(
+                id,
+                crate::ManagedEndpointIps {
+                    ipv4: "162.159.197.2".parse().unwrap(),
+                    ipv6: "2606:4700:102::2".parse().unwrap(),
+                },
+            )
+            .unwrap();
+        if let Some(ipv4) = original_override {
+            config.account_mut(id).unwrap().zero_trust_endpoint_override =
+                Some(crate::ManagedEndpointIps {
+                    ipv4: ipv4.parse().unwrap(),
+                    ipv6: "2001:db8::20".parse().unwrap(),
+                });
+        }
+        config.network.endpoint.selection = crate::EndpointSelection::Custom;
+        config.network.endpoint.preset_region = Some(crate::EndpointPresetRegion::De);
+        config.network.ip_policy = IpPolicy::PreferIpv6;
+        let original = config.active_profile().unwrap().endpoint;
+        let original_account = config.account(id).unwrap().clone();
+        let scene = save(&mut config, manual(), None);
+        let ctx = context(&config);
+        activate(&mut config, &scene, &ctx);
+        assert_ne!(
+            config.active_profile().unwrap().endpoint.ipv4,
+            original.ipv4
+        );
+        let preview_request = ScenarioCommand::PreviewRestore;
+        let candidate = candidate_profile(&config, &preview_request)
+            .unwrap()
+            .unwrap();
+        assert_eq!(candidate.endpoint, original);
+        let preview = command(&mut config, preview_request, &ctx).unwrap();
+        assert_eq!(
+            preview.response["preview"]["target_settings"]["endpoint"],
+            json!(original)
+        );
+        let result = command(
+            &mut config,
+            ScenarioCommand::Restore {
+                operation_id: Uuid::new_v4(),
+                preview_token: preview.response["preview"]["preview_token"]
+                    .as_str()
+                    .unwrap()
+                    .into(),
+            },
+            &ctx,
+        )
+        .unwrap();
+        assert_eq!(result.target.unwrap().endpoint, original);
+        assert_eq!(config.active_profile().unwrap().endpoint, original);
+        assert_eq!(config.account(id).unwrap(), &original_account);
+    }
+}
+
+fn stored_switch() -> (
+    tempfile::TempDir,
+    crate::storage::ConfigStore,
+    ConnectionScenario,
+) {
+    let directory = tempfile::tempdir().unwrap();
+    let store = crate::storage::ConfigStore::new(directory.path().join("profiles.json"));
+    let mut config = AppConfig::default();
+    let ctx = context(&config);
+    let scene = save(&mut config, ScenarioSettings::default(), None);
+    activate(&mut config, &scene, &ctx);
+    store.save(&config).unwrap();
+    (directory, store, scene)
+}
+
+fn write(store: &crate::storage::ConfigStore, edit: impl FnOnce(&mut AppConfig)) -> AppConfig {
+    store
+        .update(|config| {
+            edit(config);
+            Ok::<_, crate::storage::StoreError>(())
+        })
+        .unwrap()
+        .0
+}
+
+#[test]
+fn persisted_managed_aba_edits_retire_undo_but_keep_pending_receipt_and_snapshots() {
+    let (_directory, store, scene) = stored_switch();
+    let original = store.load().unwrap();
+    let receipt = original.last_scenario_switch.as_ref().unwrap().clone();
+    assert!(!receipt.acknowledged);
+    write(&store, |config| {
+        config.network.ip_policy = IpPolicy::Ipv4Only
+    });
+    write(&store, |config| config.network.ip_policy = IpPolicy::Auto);
+    let mut config = store.load().unwrap();
+    assert!(!can_restore(&config));
+    let record = config.last_scenario_switch.as_ref().unwrap();
+    assert!(record.restored);
+    assert_eq!(record.operation_id, receipt.operation_id);
+    assert_eq!(record.source, receipt.source);
+    assert_eq!(record.target, receipt.target);
+    let ctx = context(&config);
+    assert_eq!(
+        command(&mut config, ScenarioCommand::PreviewRestore, &ctx).unwrap_err(),
+        ScenarioError::RestoreUnavailable
+    );
+    // A late durable receipt still reconciles the original operation.
+    write(&store, |config| {
+        assert!(acknowledge_operation(config, receipt.operation_id));
+    });
+    let acknowledged = store.load().unwrap();
+    assert!(
+        acknowledged
+            .last_scenario_switch
+            .as_ref()
+            .unwrap()
+            .acknowledged
+    );
+    assert!(!can_restore(&acknowledged));
+    // A stale same-operation copy cannot reset retirement.
+    write(&store, |config| *config = original);
+    let config = store.load().unwrap();
+    assert!(!can_restore(&config));
+    assert!(config.last_scenario_switch.as_ref().unwrap().acknowledged);
+    // A fresh preview and activation get a fresh undo, without replaying the old one.
+    let ctx = context(&config);
+    write(&store, |config| {
+        activate(config, &scene, &ctx);
+    });
+    let fresh = store.load().unwrap();
+    assert!(can_restore(&fresh));
+    assert_ne!(
+        fresh.last_scenario_switch.as_ref().unwrap().operation_id,
+        receipt.operation_id
+    );
+}
+
+#[test]
+fn global_name_template_and_normalized_rule_edits_preserve_undo() {
+    let (_directory, store, scene) = stored_switch();
+    let mut config = store.load().unwrap();
+    config.network.routing.rules = vec![crate::RoutingRule {
+        id: Uuid::new_v4(),
+        kind: crate::RoutingMatch::Domain,
+        target: "example.com".into(),
+        action: crate::RoutingAction::Proxy,
+    }];
+    config.network.routing.rules.push(crate::RoutingRule {
+        id: Uuid::new_v4(),
+        kind: crate::RoutingMatch::Cidr,
+        target: "192.0.2.0/24".into(),
+        action: crate::RoutingAction::Direct,
+    });
+    let settings = ScenarioSettings::from_network(&config.network);
+    let with_rule = save(&mut config, settings, None);
+    let ctx = context(&config);
+    activate(&mut config, &with_rule, &ctx);
+    store.save(&config).unwrap();
+    write(&store, |config| {
+        config.network.auto_connect = !config.network.auto_connect;
+        config.network.kill_switch = !config.network.kill_switch;
+        config.network.mtu = 1400;
+        config.profiles[0].name = "Renamed".into();
+        config.scenarios[0].name = "Template renamed".into();
+        config.scenarios[0].settings.transport = TransportPolicy::Http2;
+        config.network.routing.rules[0].id = Uuid::new_v4();
+        config.network.routing.rules[0].target = "EXAMPLE.COM.".into();
+        config.network.routing.rules.reverse();
+    });
+    let config = store.load().unwrap();
+    assert!(can_restore(&config));
+    assert_eq!(config.scenarios[0].id, scene.id);
+    let mut next = config.clone();
+    retire_restore_after_change(&config, &mut next);
+    assert_eq!(config, next);
+}
+
+#[test]
+fn account_round_trip_cannot_restore_over_later_zero_trust_endpoint_edits() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = crate::storage::ConfigStore::new(directory.path().join("profiles.json"));
+    let mut config = AppConfig::default();
+    let source = config.active_profile_id.unwrap();
+    let target = Uuid::new_v4();
+    config
+        .profiles
+        .push(crate::Account::new(target, "Consumer"));
+    config.identity_bindings.insert(
+        source,
+        crate::identity::IdentityProvider::ZeroTrust {
+            organization: "test".into(),
+        },
+    );
+    config
+        .set_managed_endpoint_ips(
+            source,
+            crate::ManagedEndpointIps {
+                ipv4: "162.159.197.2".parse().unwrap(),
+                ipv6: "2606:4700:102::2".parse().unwrap(),
+            },
+        )
+        .unwrap();
+    let ctx = context(&config);
+    let scene = save(&mut config, ScenarioSettings::default(), Some(target));
+    activate(&mut config, &scene, &ctx);
+    store.save(&config).unwrap();
+    // An inactive source can also change during identity reauthentication.
+    // Retirement cannot rely solely on detecting an active-account switch.
+    write(&store, |config| {
+        config
+            .set_managed_endpoint_ips(
+                source,
+                crate::ManagedEndpointIps {
+                    ipv4: "162.159.197.9".parse().unwrap(),
+                    ipv6: "2606:4700:102::9".parse().unwrap(),
+                },
+            )
+            .unwrap();
+    });
+    assert!(!can_restore(&store.load().unwrap()));
+    store.save(&config).unwrap();
+    write(&store, |config| config.active_profile_id = Some(source));
+    write(&store, |config| {
+        let mut values = config.active_profile().unwrap();
+        values.endpoint.ipv4 = "192.0.2.99".parse().unwrap();
+        crate::network_settings::merge_patch(
+            config,
+            &crate::network_settings::NetworkSettingsPatch {
+                operation_id: Uuid::new_v4(),
+                account_id: source,
+                values,
+                changed_fields: vec!["endpoint.ipv4".into()],
+            },
+        )
+        .unwrap();
+    });
+    write(&store, |config| config.active_profile_id = Some(target));
+    let mut config = store.load().unwrap();
+    assert!(!can_restore(&config));
+    assert_eq!(
+        config
+            .runtime_profile(source)
+            .unwrap()
+            .endpoint
+            .ipv4
+            .to_string(),
+        "192.0.2.99"
+    );
+    let ctx = context(&config);
+    assert_eq!(
+        command(&mut config, ScenarioCommand::PreviewRestore, &ctx).unwrap_err(),
+        ScenarioError::RestoreUnavailable
+    );
+}
+
+#[test]
+fn dormant_consumer_endpoint_conflict_does_not_retire_undo_on_ack_or_global_edits() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = crate::storage::ConfigStore::new(directory.path().join("profiles.json"));
+    let mut config = AppConfig::default();
+    let id = config.active_profile_id.unwrap();
+    config.identity_bindings.insert(
+        id,
+        crate::identity::IdentityProvider::ZeroTrust {
+            organization: "test".into(),
+        },
+    );
+    config
+        .set_managed_endpoint_ips(
+            id,
+            crate::ManagedEndpointIps {
+                ipv4: "162.159.197.2".parse().unwrap(),
+                ipv6: "2606:4700:102::2".parse().unwrap(),
+            },
+        )
+        .unwrap();
+    config.network.endpoint.selection = crate::EndpointSelection::Custom;
+    config.network.dns_servers = vec![config.network.endpoint.ipv4.into()];
+    config.network.routing.rules.push(crate::RoutingRule {
+        id: Uuid::new_v4(),
+        kind: crate::RoutingMatch::Domain,
+        target: "example.com".into(),
+        action: crate::RoutingAction::Proxy,
+    });
+    config.validate().unwrap();
+    assert!(
+        ScenarioSettings::from_network(&config.network)
+            .normalized()
+            .is_ok()
+    );
+    let mut settings = ScenarioSettings::from_profile(&config.active_profile().unwrap());
+    settings.transport = TransportPolicy::Http2;
+    store.save(&config).unwrap();
+    let ctx = context(&config);
+    write(&store, |config| {
+        let scene = save(config, settings, None);
+        activate(config, &scene, &ctx);
+    });
+    let selected = store.load().unwrap();
+    assert!(can_restore(&selected));
+    let operation = selected.last_scenario_switch.as_ref().unwrap().operation_id;
+    write(&store, |config| {
+        assert!(acknowledge_operation(config, operation));
+    });
+    let acknowledged = store.load().unwrap();
+    assert!(can_restore(&acknowledged));
+    assert!(
+        acknowledged
+            .last_scenario_switch
+            .as_ref()
+            .unwrap()
+            .acknowledged
+    );
+    write(&store, |config| {
+        config.network.auto_connect = true;
+        config.network.mtu = 1400;
+        config.profiles[0].name = "Renamed ZT account".into();
+    });
+    assert!(can_restore(&store.load().unwrap()));
+    write(&store, |config| {
+        config.network.routing.rules[0].id = Uuid::new_v4();
+        config.network.routing.rules[0].target = "EXAMPLE.COM.".into();
+    });
+    assert!(can_restore(&store.load().unwrap()));
+    write(&store, |config| {
+        config.network.ip_policy = IpPolicy::Ipv4Only
+    });
+    assert!(!can_restore(&store.load().unwrap()));
+}

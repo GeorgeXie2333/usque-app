@@ -27,6 +27,7 @@ Map<String, Object?> fixture({
   bool receipt = false,
   List<Map<String, Object?>>? scenes,
 }) => {
+  'settings_version': 2,
   'endpoint_editing': true,
   'scenarios':
       scenes ??
@@ -75,7 +76,7 @@ class SceneEngine extends WorkflowEngine {
   Future<String?> consumeLaunchTarget() async => launchTarget;
   Map<String, Object?> extraState = {};
   List<String> actualPreviewFields = [];
-  List<String> previewFields = ['frontends.http'];
+  List<String> previewFields = ['endpoint.port'];
   Map<String, Object?>? settingsOverride;
   Map<String, Object?> previewExtra = {};
   final sceneCalls = <Map<String, Object?>>[];
@@ -128,6 +129,8 @@ class SceneEngine extends WorkflowEngine {
         scenes: entries,
         selected: selected,
       ),
+      'source_epoch': settingsState?.sourceEpoch ?? settingsEpoch,
+      'session_id': settingsState?.sessionId,
       if (settingsOverride != null) 'current_settings': settingsOverride,
       ...extraState,
       if (command['action'] == 'save')
@@ -554,6 +557,12 @@ void main() {
         app.activeProfile,
         app.activeProfile.copyWith(id: 'account-b', name: 'Work account'),
       ];
+      engine.settingsState = NetworkSettingsState(
+        sourceEpoch: engine.settingsEpoch,
+        sequence: 1,
+        sessionId: 'session-a',
+        appliedProfile: app.profiles.last,
+      );
       app.engineCapabilities = await engine.getCapabilities();
       await app.scenarios.refresh();
       await tester.pumpAndSettle();
@@ -569,7 +578,7 @@ void main() {
       engine.extraState['applied_scene_confirmed'] = false;
       await app.scenarios.refresh();
       await tester.pumpAndSettle();
-      expect(running(), 'Work account · Result not confirmed');
+      expect(running(), 'Result not confirmed');
     },
   );
 
@@ -598,7 +607,7 @@ void main() {
     },
   );
   testWidgets(
-    'scene editor saves optional binding and preserves every untouched DNS address',
+    'scene editor binds a managed account without capturing device DNS settings',
     (tester) async {
       final settings = ScenarioSettings.fromProfile(
         UsqueProfile.defaultProfile(),
@@ -627,18 +636,19 @@ void main() {
         find.byKey(const ValueKey('scenario-name')),
         'Work scene',
       );
-      await tester.tap(find.byType(DropdownButtonFormField<String>).first);
+      await tester.tap(
+        find.byKey(const ValueKey('scenario-account-management')),
+      );
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Work account').last);
+      await tester.tap(
+        find.byKey(const ValueKey('scene-select-account-account-b')),
+      );
       await tester.pumpAndSettle();
       await tester.tap(find.text(app.strings.get('scenario_save')).last);
       await tester.pumpAndSettle();
       final saved = engine.sceneCalls.singleWhere((r) => r['action'] == 'save');
       expect(saved['bound_account_id'], 'account-b');
-      expect(
-        (saved['settings'] as Map)['dns_servers'],
-        settings['dns_servers'],
-      );
+      expect((saved['settings'] as Map).containsKey('dns_servers'), false);
       expect(
         engine.sceneCalls.where((r) => r['action'] == 'activate'),
         isEmpty,
@@ -773,25 +783,13 @@ void main() {
         map.keys,
         unorderedEquals([
           'endpoint',
-          'frontends',
           'transport',
           'ip_policy',
-          'allow_lan',
-          'routing',
-          'geo_direct_countries',
-          'direct_dns',
-          'warp_dns',
-          'dns_mode',
-          'dns_servers',
-          'proxy_system_proxy',
-          'proxy_dns_mode',
-          'proxy_dns_servers',
           'vpn_gate',
           'chain_exit',
         ]),
       );
       expect(map['transport'], 'auto');
-      expect((map['direct_dns'] as Map)['mode'], 'physical_system');
       expect(map.toString(), isNot(contains('private-user')));
       expect((map['endpoint'] as Map)['ipv4'], '192.0.2.1');
       final roundTrip = ScenarioSettings(map).toProfile(profile);
@@ -1183,7 +1181,7 @@ void main() {
       matching: find.text(text),
     );
     final note = inDialog(app.strings.get('scenario_will_reconnect'));
-    final field = inDialog(scenarioFieldLabel(app.strings, 'frontends.http'));
+    final field = inDialog(scenarioFieldLabel(app.strings, 'endpoint.port'));
     expect(note, findsOneWidget);
     expect(field, findsOneWidget);
     expect(tester.getTopLeft(note).dy, lessThan(tester.getTopLeft(field).dy));

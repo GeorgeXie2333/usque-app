@@ -13,6 +13,8 @@ class ScenariosController extends ChangeNotifier {
   final Future<Map<String, Object?>> Function(Map<String, Object?>) _command;
   ScenarioCatalog? catalog;
   bool supported = false, busy = false;
+  bool get settingsSupported =>
+      catalog == null || catalog!.settingsVersion == 2;
   bool _activationUnconfirmed = false;
   int? _templateUnconfirmedSequence;
   bool get unconfirmed =>
@@ -33,6 +35,40 @@ class ScenariosController extends ChangeNotifier {
   int _activationSequence = 0;
   String? _settledError;
   bool _fullListRequired = false;
+  int _runtimeRevision = 0, _catalogRuntimeRevision = -1;
+  ({String epoch, String? session, String? account})? _runtime;
+
+  /// Templates and saved selections survive a failed read; current-connection
+  /// claims require a catalogue observed in the current native runtime.
+  /// Freshness alone never establishes that settings were applied successfully.
+  bool get runtimeConfirmed =>
+      catalog != null &&
+      !queryUnconfirmed &&
+      !unconfirmed &&
+      _catalogRuntimeRevision == _runtimeRevision;
+
+  void observeRuntime(NetworkSettingsState? state) {
+    if (_disposed || state == null) return;
+    final next = (
+      epoch: state.sourceEpoch,
+      session: state.sessionId,
+      account: state.appliedProfile?.id,
+    );
+    if (next == _runtime) return;
+    _runtime = next;
+    _runtimeRevision++;
+    if (catalog case final current? when _matchesRuntime(current)) {
+      _catalogRuntimeRevision = _runtimeRevision;
+    }
+    notifyListeners();
+  }
+
+  bool _matchesRuntime(ScenarioCatalog value) =>
+      _runtime != null &&
+      value.sourceEpoch == _runtime!.epoch &&
+      value.observationSessionId == _runtime!.session &&
+      (value.appliedAccountId == null ||
+          value.appliedAccountId == _runtime!.account);
 
   void setSupported(bool value) {
     if (supported == value) return;
@@ -57,7 +93,7 @@ class ScenariosController extends ChangeNotifier {
     );
   }
 
-  void _accept(Map<String, Object?> result, int sequence) {
+  void _accept(Map<String, Object?> result, int sequence, int runtimeRevision) {
     if (_disposed) return;
     if (result['error'] != null) {
       final error = result['error'];
@@ -109,7 +145,16 @@ class ScenariosController extends ChangeNotifier {
         result,
         unchanged: unchanged ? current.scenarios : null,
       );
+      _catalogRuntimeRevision =
+          (_runtime == null || catalog!.sourceEpoch == null
+              ? runtimeRevision == _runtimeRevision
+              : _matchesRuntime(catalog!))
+          ? _runtimeRevision
+          : -1;
       _acceptedSequence = sequence;
+      queryUnconfirmed = false;
+      if (errorCode == _queryErrorCode) errorCode = null;
+      _queryErrorCode = null;
       // A fresh authoritative catalogue reconciles template uncertainty. Older
       // queries issued before the failed mutation cannot establish its outcome.
       if (_templateUnconfirmedSequence != null &&
@@ -173,6 +218,7 @@ class ScenariosController extends ChangeNotifier {
   Future<void> _refreshOnce() async {
     final generation = _generation;
     final sequence = ++_requestSequence;
+    final runtimeRevision = _runtimeRevision;
     try {
       final known = _fullListRequired ? null : catalog?.revision;
       _fullListRequired = false;
@@ -181,7 +227,7 @@ class ScenariosController extends ChangeNotifier {
         'known_revision': ?known,
       });
       if (_disposed || generation != _generation) return;
-      _accept(result, sequence);
+      _accept(result, sequence, runtimeRevision);
       await _reconcileActivation(generation);
       if (_disposed || generation != _generation) return;
       if (sequence < _acceptedSequence) return;
@@ -199,6 +245,7 @@ class ScenariosController extends ChangeNotifier {
     }
     if (!_disposed) notifyListeners();
     if (_visible &&
+        settingsSupported &&
         catalog?.applyStatus == 'applying' &&
         _pollAttempts++ < 30) {
       _refreshTimer?.cancel();
@@ -214,8 +261,14 @@ class ScenariosController extends ChangeNotifier {
     bool activation = false,
   }) async {
     if (_disposed || busy || !supported) return null;
+    if (!settingsSupported) {
+      errorCode = 'SCENARIOS_UNSUPPORTED';
+      notifyListeners();
+      return null;
+    }
     final generation = _generation;
     final sequence = ++_requestSequence;
+    final runtimeRevision = _runtimeRevision;
     final previousUnknown = _activationUnconfirmed;
     final previousOperation = pendingOperationId;
     final previousConfirmation = _confirmedActivationId;
@@ -238,7 +291,7 @@ class ScenariosController extends ChangeNotifier {
     try {
       final result = await _command(request);
       if (_disposed || generation != _generation) return null;
-      _accept(result, sequence);
+      _accept(result, sequence, runtimeRevision);
       if (mutation && result['persisted'] != true) {
         if (activation) {
           _activationUnconfirmed = true;
@@ -392,6 +445,9 @@ class ScenariosController extends ChangeNotifier {
     _activationReadback = null;
     _settledError = null;
     _fullListRequired = false;
+    _runtime = null;
+    _runtimeRevision++;
+    _catalogRuntimeRevision = -1;
     busy = false;
     _activationUnconfirmed = false;
     _templateUnconfirmedSequence = null;

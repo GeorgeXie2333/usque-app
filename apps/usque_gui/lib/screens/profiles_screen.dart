@@ -14,9 +14,18 @@ import '../widgets/usque_dialog.dart';
 export 'profiles_hub_screen.dart' show ProfilesScreen;
 
 class AccountsScreen extends StatelessWidget {
-  const AccountsScreen({required this.controller, super.key});
+  const AccountsScreen({
+    required this.controller,
+    this.selectedProfileId,
+    this.onSelect,
+    super.key,
+  });
 
   final AppController controller;
+
+  /// Selecting an account for a scene changes only the caller's draft binding.
+  final String? selectedProfileId;
+  final ValueChanged<String>? onSelect;
 
   @override
   Widget build(BuildContext context) {
@@ -28,13 +37,19 @@ class AccountsScreen extends StatelessWidget {
                 .map(
                   (profile) => _ProfileRow(
                     profile: profile,
-                    active: profile.id == controller.activeProfileId,
+                    active:
+                        profile.id ==
+                        (onSelect == null
+                            ? controller.activeProfileId
+                            : selectedProfileId),
+                    selectionOnly: onSelect != null,
                     identityState: controller.identityState(profile.id),
                     identityStatus: controller.identityStatus(profile.id),
                     strings: strings,
                     canDelete: controller.profiles.length > 1,
-                    onActivate: () =>
-                        _activateProfile(context, profile, strings),
+                    onActivate: () => onSelect != null
+                        ? onSelect!(profile.id)
+                        : _activateProfile(context, profile, strings),
                     onConfigureIdentity: () => showProfileIdentityDialog(
                       context,
                       controller: controller,
@@ -491,10 +506,12 @@ class _ProfileRow extends StatelessWidget {
     required this.onEdit,
     required this.onManageIdentity,
     required this.onDelete,
+    this.selectionOnly = false,
   });
 
   final UsqueProfile profile;
   final bool active;
+  final bool selectionOnly;
   final ProfileIdentityState identityState;
   final ProfileIdentityStatus identityStatus;
   final AppStrings strings;
@@ -557,9 +574,16 @@ class _ProfileRow extends StatelessWidget {
               // A switch action, not a completed state: no check mark.
               if (!active)
                 TextButton.icon(
+                  key: selectionOnly
+                      ? ValueKey('scene-select-account-${profile.id}')
+                      : null,
                   onPressed: onActivate,
                   icon: const Icon(LucideIcons.arrowLeftRight, size: 18),
-                  label: Text(strings.get('set_active')),
+                  label: Text(
+                    strings.get(
+                      selectionOnly ? 'scenario_choose_account' : 'set_active',
+                    ),
+                  ),
                 ),
               if (identityState != ProfileIdentityState.ready)
                 TextButton.icon(
