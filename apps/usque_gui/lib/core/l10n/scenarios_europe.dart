@@ -54,11 +54,7 @@ const kScenarioJa = <String, String>{
   'scenario_account_change': "アカウントの変更",
   'scenario_library_hint': "ここでノードを作成、インポート、管理できます。選択はシーンの下書きに反映されます。",
   'scenario_saved': "シーンを保存しました",
-  'scenario_country_hint':
-      "国コードをカンマ区切りで入力します（例：CN, JP）。使用前に必要なルールデータを用意してください。",
-  'scenario_rules_count': "カスタムルール {count} 件",
   'scenario_confirm_use': "シーンを適用",
-  'scenario_invalid_dns': "有効な DNS の IP アドレスを入力してください。",
   'scenario_new_flows': "変更は新しい接続に適用されます。既存の接続は元の経路を使い続ける場合があります。",
   'scenario_not_applied': "シーンは適用されませんでした。現在の設定は変更されていません。",
   'scenario_kill_switch_output':
@@ -128,11 +124,7 @@ const kScenarioKo = <String, String>{
   'scenario_account_change': "계정 변경",
   'scenario_library_hint': "여기서 노드를 만들거나 가져오고 관리할 수 있습니다. 선택은 시나리오 초안에 반영됩니다.",
   'scenario_saved': "시나리오 저장됨",
-  'scenario_country_hint':
-      "국가 코드를 쉼표로 구분해 입력하세요(예: CN, JP). 사용 전에 필요한 규칙 데이터가 준비되어야 합니다.",
-  'scenario_rules_count': "사용자 지정 규칙 {count}개",
   'scenario_confirm_use': "시나리오 적용",
-  'scenario_invalid_dns': "올바른 DNS IP 주소를 입력하세요.",
   'scenario_new_flows': "변경 사항은 새 연결에 적용됩니다. 기존 연결은 이전 경로를 계속 사용할 수 있습니다.",
   'scenario_not_applied': "시나리오가 적용되지 않았습니다. 현재 설정은 바뀌지 않았습니다.",
   'scenario_kill_switch_output':
@@ -215,11 +207,7 @@ const kScenarioEs = <String, String>{
   'scenario_library_hint':
       "Crea, importa o administra nodos aquí. La selección se guarda en el borrador de la escena.",
   'scenario_saved': "Escenario guardado",
-  'scenario_country_hint':
-      "Códigos de país separados por comas (por ejemplo, CN, JP). Los datos de reglas necesarios deben estar disponibles antes de usarlo.",
-  'scenario_rules_count': "{count} reglas personalizadas",
   'scenario_confirm_use': "Aplicar escenario",
-  'scenario_invalid_dns': "Introduce direcciones IP de DNS válidas.",
   'scenario_new_flows':
       "Los cambios se aplican a las conexiones nuevas; las existentes pueden conservar sus rutas.",
   'scenario_not_applied':
@@ -305,11 +293,7 @@ const kScenarioPt = <String, String>{
   'scenario_library_hint':
       "Crie, importe ou gerencie nós aqui. A seleção retorna ao rascunho do cenário.",
   'scenario_saved': "Cenário guardado",
-  'scenario_country_hint':
-      "Códigos de país separados por vírgulas (por exemplo, CN, JP). Os dados de regras necessários devem estar disponíveis antes da utilização.",
-  'scenario_rules_count': "{count} regras personalizadas",
   'scenario_confirm_use': "Aplicar cenário",
-  'scenario_invalid_dns': "Introduza endereços IP de DNS válidos.",
   'scenario_new_flows':
       "As alterações aplicam-se às novas ligações; as ligações existentes podem manter os seus percursos.",
   'scenario_not_applied':
@@ -395,11 +379,7 @@ const kScenarioFr = <String, String>{
   'scenario_library_hint':
       "Créez, importez ou gérez des nœuds ici. La sélection est reportée dans le brouillon du scénario.",
   'scenario_saved': "Scénario enregistré",
-  'scenario_country_hint':
-      "Codes de pays séparés par des virgules (par exemple CN, JP). Les données des règles nécessaires doivent être disponibles avant utilisation.",
-  'scenario_rules_count': "{count} règles personnalisées",
   'scenario_confirm_use': "Appliquer le scénario",
-  'scenario_invalid_dns': "Saisissez des adresses IP de DNS valides.",
   'scenario_new_flows':
       "Les changements s’appliquent aux nouvelles connexions ; les connexions existantes peuvent conserver leur chemin.",
   'scenario_not_applied':
@@ -485,11 +465,7 @@ const kScenarioNl = <String, String>{
   'scenario_library_hint':
       "Maak, importeer of beheer hier nodes. Je selectie wordt opgenomen in het concept van de scène.",
   'scenario_saved': "Scenario opgeslagen",
-  'scenario_country_hint':
-      "Landcodes, gescheiden door komma’s (bijvoorbeeld CN, JP). De vereiste regelgegevens moeten vóór gebruik beschikbaar zijn.",
-  'scenario_rules_count': "{count} aangepaste regels",
   'scenario_confirm_use': "Scenario toepassen",
-  'scenario_invalid_dns': "Voer geldige DNS-IP-adressen in.",
   'scenario_new_flows':
       "Wijzigingen gelden voor nieuwe verbindingen; bestaande verbindingen kunnen hun huidige routes behouden.",
   'scenario_not_applied':
@@ -575,11 +551,7 @@ const kScenarioTr = <String, String>{
   'scenario_library_hint':
       "Burada düğüm oluşturun, içe aktarın veya yönetin. Seçiminiz senaryo taslağına aktarılır.",
   'scenario_saved': "Senaryo kaydedildi",
-  'scenario_country_hint':
-      "Virgülle ayrılmış ülke kodları (örneğin CN, JP). Gerekli kural verileri kullanımdan önce hazır olmalıdır.",
-  'scenario_rules_count': "{count} özel kural",
   'scenario_confirm_use': "Senaryoyu uygula",
-  'scenario_invalid_dns': "Geçerli DNS IP adresleri girin.",
   'scenario_new_flows':
       "Değişiklikler yeni bağlantılara uygulanır; mevcut bağlantılar önceki yollarını koruyabilir.",
   'scenario_not_applied': "Senaryo uygulanmadı. Geçerli ayarlar değişmedi.",
@@ -663,11 +635,7 @@ const kScenarioRu = <String, String>{
   'scenario_library_hint':
       "Здесь можно создавать, импортировать и управлять узлами. Выбор переносится в черновик сценария.",
   'scenario_saved': "Сценарий сохранён",
-  'scenario_country_hint':
-      "Коды стран через запятую (например, CN, JP). Перед использованием должны быть доступны необходимые данные правил.",
-  'scenario_rules_count': "Пользовательских правил: {count}",
   'scenario_confirm_use': "Применить сценарий",
-  'scenario_invalid_dns': "Введите допустимые IP-адреса DNS.",
   'scenario_new_flows':
       "Изменения применяются к новым подключениям; существующие подключения могут сохранить прежние маршруты.",
   'scenario_not_applied':
@@ -754,11 +722,7 @@ const kScenarioDe = <String, String>{
   'scenario_library_hint':
       "Hier kannst du Knoten erstellen, importieren oder verwalten. Deine Auswahl wird in den Szenenentwurf übernommen.",
   'scenario_saved': "Szenario gespeichert",
-  'scenario_country_hint':
-      "Durch Kommas getrennte Ländercodes (zum Beispiel CN, JP). Die benötigten Regeldaten müssen vor der Nutzung verfügbar sein.",
-  'scenario_rules_count': "{count} benutzerdefinierte Regeln",
   'scenario_confirm_use': "Szenario anwenden",
-  'scenario_invalid_dns': "Gültige DNS-IP-Adressen eingeben.",
   'scenario_new_flows':
       "Änderungen gelten für neue Verbindungen; bestehende Verbindungen können ihre bisherigen Wege beibehalten.",
   'scenario_not_applied':
@@ -844,11 +808,7 @@ const kScenarioIt = <String, String>{
   'scenario_library_hint':
       "Crea, importa o gestisci nodi qui. La selezione viene riportata nella bozza della scena.",
   'scenario_saved': "Scenario salvato",
-  'scenario_country_hint':
-      "Codici paese separati da virgole (ad esempio CN, JP). I dati delle regole necessari devono essere disponibili prima dell’uso.",
-  'scenario_rules_count': "{count} regole personalizzate",
   'scenario_confirm_use': "Applica scenario",
-  'scenario_invalid_dns': "Inserisci indirizzi IP DNS validi.",
   'scenario_new_flows':
       "Le modifiche si applicano alle nuove connessioni; quelle esistenti possono mantenere i percorsi precedenti.",
   'scenario_not_applied':
@@ -932,11 +892,7 @@ const kScenarioPl = <String, String>{
   'scenario_library_hint':
       "Tutaj możesz tworzyć, importować i zarządzać węzłami. Wybór trafi do szkicu sceny.",
   'scenario_saved': "Scenariusz zapisany",
-  'scenario_country_hint':
-      "Kody krajów oddzielone przecinkami (na przykład CN, JP). Wymagane dane reguł muszą być dostępne przed użyciem.",
-  'scenario_rules_count': "Reguły niestandardowe: {count}",
   'scenario_confirm_use': "Zastosuj scenariusz",
-  'scenario_invalid_dns': "Wpisz poprawne adresy IP DNS.",
   'scenario_new_flows':
       "Zmiany dotyczą nowych połączeń; istniejące połączenia mogą zachować dotychczasowe trasy.",
   'scenario_not_applied':

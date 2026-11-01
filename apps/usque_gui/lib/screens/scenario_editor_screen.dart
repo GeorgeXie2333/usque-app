@@ -45,12 +45,10 @@ class _ScenarioEditorScreenState extends State<ScenarioEditorScreen> {
   final _form = GlobalKey<FormState>();
   var _endpointKey = GlobalKey<ScenarioEndpointEditorState>();
   late final TextEditingController _name;
-  late ScenarioSettings _baseline;
   late UsqueProfile _draft;
   String? _binding, _endpointAccountId, _error;
   ConnectionScenario? _savedScene;
   bool _dirty = false, _saving = false;
-  final _changed = <String>{};
   Map<String, String> _exitNames = {};
   ScenarioGateLease? _leasedGate;
 
@@ -78,13 +76,13 @@ class _ScenarioEditorScreenState extends State<ScenarioEditorScreen> {
   void initState() {
     super.initState();
     _savedScene = widget.duplicate ? null : widget.scene;
-    _baseline =
+    final settings =
         widget.scene?.settings ?? app.scenarios.catalog!.currentSettings!;
     final binding = widget.scene?.boundAccountId;
     _binding = widget.duplicate && !app.profiles.any((a) => a.id == binding)
         ? null
         : binding;
-    _draft = _baseline.toProfile(_accountBase);
+    _draft = settings.toProfile(_accountBase);
     _endpointAccountId = _accountBase.id;
     _name = TextEditingController(text: widget.scene?.name ?? '');
     _dirty = _savedScene == null;
@@ -103,23 +101,15 @@ class _ScenarioEditorScreenState extends State<ScenarioEditorScreen> {
   Future<void> _releaseGate(ScenarioGateLease? gate) =>
       ScenarioGateLeases.of(app).release(gate);
 
-  void _edit(UsqueProfile value, Iterable<String> fields) {
+  void _edit(UsqueProfile value) {
     setState(() {
       _draft = value;
-      _changed.addAll(fields);
       _dirty = true;
       _error = null;
     });
   }
 
-  ScenarioSettings _settings() {
-    final result = _baseline.toMap();
-    final projection = ScenarioSettings.fromProfile(_draft).toMap();
-    for (final field in _changed) {
-      result[field] = projection[field];
-    }
-    return ScenarioSettings(result);
-  }
+  ScenarioSettings _settings() => ScenarioSettings.fromProfile(_draft);
 
   Future<void> _refreshExitNames() async {
     final names = await scenarioExitNames(app, settings: [_settings().values]);
@@ -188,7 +178,6 @@ class _ScenarioEditorScreenState extends State<ScenarioEditorScreen> {
           enabled: enabled && chain.source == ChainSource.vpnGate,
         ),
       ),
-      ['chain_exit', 'vpn_gate'],
     );
   }
 
@@ -224,7 +213,6 @@ class _ScenarioEditorScreenState extends State<ScenarioEditorScreen> {
         clearChainExit: choice.chainExit == null,
         vpnGate: choice.vpnGate,
       ),
-      ['chain_exit', 'vpn_gate'],
     );
     unawaited(_refreshExitNames());
   }
@@ -282,12 +270,10 @@ class _ScenarioEditorScreenState extends State<ScenarioEditorScreen> {
         return;
       }
       _savedScene = result;
-      _baseline = result.settings;
       _binding = result.boundAccountId;
       _draft = result.settings.toProfile(_accountBase);
       _endpointAccountId = _accountBase.id;
       _name.text = result.name;
-      _changed.clear();
       _endpointKey = GlobalKey<ScenarioEndpointEditorState>();
       _dirty = false;
     });
@@ -388,20 +374,17 @@ class _ScenarioEditorScreenState extends State<ScenarioEditorScreen> {
                       const SizedBox(height: 8),
                       HintText(s.get('scenario_library_hint')),
                     ],
-                    if (app.scenarios.catalog?.endpointEditing == true) ...[
-                      const SizedBox(height: 28),
-                      ScenarioEndpointEditor(
-                        key: _endpointKey,
-                        value: _draft,
-                        account: account,
-                        identity: app.identityStatus(account.id),
-                        capabilities: app.engineCapabilities,
-                        strings: s,
-                        enabled: !_saving,
-                        onChanged: (value) =>
-                            _edit(value, ['endpoint', 'ip_policy']),
-                      ),
-                    ],
+                    const SizedBox(height: 28),
+                    ScenarioEndpointEditor(
+                      key: _endpointKey,
+                      value: _draft,
+                      account: account,
+                      identity: app.identityStatus(account.id),
+                      capabilities: app.engineCapabilities,
+                      strings: s,
+                      enabled: !_saving,
+                      onChanged: _edit,
+                    ),
                     const SizedBox(height: 28),
                     ContentHeading(title: s.get('scenario_connection')),
                     const SizedBox(height: 16),
@@ -424,9 +407,7 @@ class _ScenarioEditorScreenState extends State<ScenarioEditorScreen> {
                           ? null
                           : (value) {
                               if (value != null) {
-                                _edit(_draft.copyWith(transport: value), [
-                                  'transport',
-                                ]);
+                                _edit(_draft.copyWith(transport: value));
                               }
                             },
                     ),

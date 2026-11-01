@@ -27,9 +27,7 @@ pub const MAX_RESPONSE_BYTES: usize = 384 * 1024;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct ScenarioSettings {
-    /// Absent in schema 27 scenes: keep the target account's current endpoints.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub endpoint: Option<EndpointSettings>,
+    pub endpoint: EndpointSettings,
     pub transport: TransportPolicy,
     pub ip_policy: IpPolicy,
     pub vpn_gate: VpnGateSettings,
@@ -45,7 +43,7 @@ impl Default for ScenarioSettings {
 impl ScenarioSettings {
     pub fn from_network(network: &SharedNetworkSettings) -> Self {
         Self {
-            endpoint: Some(network.endpoint.clone()),
+            endpoint: network.endpoint.clone(),
             transport: network.transport,
             ip_policy: network.ip_policy,
             vpn_gate: network.vpn_gate.clone(),
@@ -58,9 +56,7 @@ impl ScenarioSettings {
     }
 
     fn copy_into(&self, network: &mut SharedNetworkSettings) {
-        if let Some(endpoint) = &self.endpoint {
-            network.endpoint = endpoint.clone();
-        }
+        network.endpoint = self.endpoint.clone();
         network.transport = self.transport;
         network.ip_policy = self.ip_policy;
         network.vpn_gate = self.vpn_gate.clone();
@@ -90,11 +86,7 @@ impl ScenarioSettings {
         profile
             .validate()
             .map_err(|_| ScenarioError::InvalidSettings)?;
-        let mut normalized = Self::from_profile(&profile);
-        if self.endpoint.is_none() {
-            normalized.endpoint = None;
-        }
-        Ok(normalized)
+        Ok(Self::from_profile(&profile))
     }
 
     pub fn apply_to(&self, network: &mut SharedNetworkSettings) -> Result<(), ScenarioError> {
@@ -118,14 +110,6 @@ impl ScenarioSettings {
         target_for(config, self, profile.id, false).is_ok_and(|target| {
             Self::from_profile(&target).equivalent(&Self::from_profile(profile))
         })
-    }
-
-    fn matches_snapshot(&self, other: &Self) -> bool {
-        let mut other = other.clone();
-        if self.endpoint.is_none() {
-            other.endpoint = None;
-        }
-        self.equivalent(&other)
     }
 }
 
@@ -183,13 +167,10 @@ pub struct ScenarioSwitchRecord {
     pub target: ScenarioSnapshot,
     /// Written only after the owner received the first transaction's durable
     /// acknowledgement. Its presence can recover a lost reply after restart.
-    #[serde(default)]
     pub acknowledged: bool,
     /// Undo is consumed after restoration or retired by a later account/managed
     /// setting edit. Keep the receipt and snapshots for operation reconciliation.
-    /// The historical wire name is retained for schema compatibility.
-    #[serde(default)]
-    pub restored: bool,
+    pub recovery_retired: bool,
 }
 
 /// Trusted owner observations. This is deliberately not deserializable from
@@ -459,13 +440,10 @@ pub fn can_restore(config: &AppConfig) -> bool {
     let Some(record) = &config.last_scenario_switch else {
         return false;
     };
-    !record.restored
+    !record.recovery_retired
         && config.account(record.source.account_id).is_some()
         && config.active_profile_id == Some(record.target.account_id)
-        && record
-            .target
-            .settings
-            .matches_snapshot(&current_settings(config))
+        && record.target.settings.equivalent(&current_settings(config))
         && config.scenario_selection == record.target.selection
 }
 
@@ -502,13 +480,13 @@ pub fn retire_restore_after_change(before: &AppConfig, next: &mut AppConfig) {
     // ZT profile is valid. Failed generic validation is not itself an edit.
     let managed_changed =
         before_settings != next_settings && !before_settings.equivalent(&next_settings);
-    let changed = previous.restored
+    let changed = previous.recovery_retired
         || before.active_profile_id != next.active_profile_id
         || account_endpoints_changed
         || managed_changed;
     let record = next.last_scenario_switch.as_mut().unwrap();
     record.acknowledged |= previous.acknowledged;
-    record.restored |= changed;
+    record.recovery_retired |= changed;
 }
 
 /// Mark a previously acknowledged commit without replaying its target. Call
@@ -558,47 +536,46 @@ fn apply_settings(
     let mut target = config
         .active_profile()
         .ok_or(ScenarioError::AccountUnavailable)?;
-    if let Some(endpoint) = &settings.endpoint {
-        let inherited = target.endpoint.clone();
-        target.endpoint = endpoint.clone();
-        if managed {
-            target.endpoint.selection = crate::EndpointSelection::Custom;
-            // Reusable presets follow the account's current fallback, but an
-            // undo must restore the address pair frozen in its source snapshot.
-            if !restoring
-                && (endpoint.selection == crate::EndpointSelection::Automatic
-                    || endpoint.preset_region.is_some())
-            {
-                target.endpoint.ipv4 = inherited.ipv4;
-                target.endpoint.ipv6 = inherited.ipv6;
-            }
-        }
-        let mut changed_fields = vec![
-            "endpoint.port".into(),
-            "endpoint.sni".into(),
-            "endpoint.preset_region".into(),
-        ];
-        if !managed {
-            changed_fields.push("endpoint.selection".into());
-        }
-        if !managed
-            || restoring
-            || (endpoint.selection == crate::EndpointSelection::Custom
-                && endpoint.preset_region.is_none())
+    let endpoint = &settings.endpoint;
+    let inherited = target.endpoint.clone();
+    target.endpoint = endpoint.clone();
+    if managed {
+        target.endpoint.selection = crate::EndpointSelection::Custom;
+        // Reusable presets follow the account's current fallback, but an
+        // undo must restore the address pair frozen in its source snapshot.
+        if !restoring
+            && (endpoint.selection == crate::EndpointSelection::Automatic
+                || endpoint.preset_region.is_some())
         {
-            changed_fields.extend(["endpoint.ipv4".into(), "endpoint.ipv6".into()]);
+            target.endpoint.ipv4 = inherited.ipv4;
+            target.endpoint.ipv6 = inherited.ipv6;
         }
-        target = crate::network_settings::merge_patch(
-            config,
-            &crate::network_settings::NetworkSettingsPatch {
-                operation_id: Uuid::nil(),
-                account_id,
-                values: target,
-                changed_fields,
-            },
-        )
-        .map_err(|_| ScenarioError::InvalidSettings)?;
     }
+    let mut changed_fields = vec![
+        "endpoint.port".into(),
+        "endpoint.sni".into(),
+        "endpoint.preset_region".into(),
+    ];
+    if !managed {
+        changed_fields.push("endpoint.selection".into());
+    }
+    if !managed
+        || restoring
+        || (endpoint.selection == crate::EndpointSelection::Custom
+            && endpoint.preset_region.is_none())
+    {
+        changed_fields.extend(["endpoint.ipv4".into(), "endpoint.ipv6".into()]);
+    }
+    target = crate::network_settings::merge_patch(
+        config,
+        &crate::network_settings::NetworkSettingsPatch {
+            operation_id: Uuid::nil(),
+            account_id,
+            values: target,
+            changed_fields,
+        },
+    )
+    .map_err(|_| ScenarioError::InvalidSettings)?;
     target
         .validate()
         .map_err(|_| ScenarioError::InvalidSettings)?;
@@ -828,7 +805,6 @@ pub fn catalogue(config: &AppConfig, context: &ScenarioContext) -> Value {
         .map(|scene| scene.id)
         .collect();
     json!({
-        "endpoint_editing":true,"settings_version":2,
         "scenarios":config.scenarios,"selection":selection_metadata,
         "catalogue_revision":catalogue_revision(config).ok(),
         "invalid_scenario_ids":invalid,
@@ -839,6 +815,7 @@ pub fn catalogue(config: &AppConfig, context: &ScenarioContext) -> Value {
         "applied_scenario_id":context.applied_profile.as_ref().and_then(|profile|applied_scenario_id(config,profile)),
         "applied_scene_confirmed":context.applied_profile.is_some(),
         "source_epoch":context.source_epoch,"session_id":context.session_id,
+        "observation_session_id":context.session_id,
         "state":{"modified":modified,"template_updated":template_updated,"bound_account_missing":bound_account_missing,
             "applied_matches":applied_matches,"apply_status":apply_status},
         "can_restore":can_restore(config),
@@ -1091,8 +1068,8 @@ fn preview_value(
     }))
 }
 
-/// Kill Switch is a device setting. A scene that turns off the VPN output while
-/// it is enabled ends system-wide protection after the switch.
+/// Kill Switch and outputs are device settings. Applying pending global values
+/// that turn off VPN ends system-wide protection after the scene switch.
 fn kill_switch_output_removed(
     config: &AppConfig,
     target: &Profile,
@@ -1138,7 +1115,7 @@ fn commit_target(
         source,
         target,
         acknowledged: false,
-        restored: restore,
+        recovery_retired: restore,
     }));
     Ok(profile)
 }

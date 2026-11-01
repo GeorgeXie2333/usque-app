@@ -962,7 +962,7 @@ fn stored_scene_rejected_by_current_rules_loads_and_is_reported_unavailable() {
     let valid = save(&mut config, ScenarioSettings::default(), None);
     let mut invalid = save(&mut config, ScenarioSettings::default(), None);
     // Invalid stored endpoint settings affect this scene, not the configuration.
-    invalid.settings.endpoint.as_mut().unwrap().port = 0;
+    invalid.settings.endpoint.port = 0;
     config.scenarios[1] = invalid.clone();
     config.validate().unwrap();
     let temp = tempfile::tempdir().unwrap();
@@ -1069,7 +1069,7 @@ fn gui_contract_sample() -> ScenarioSettings {
         ip_policy: crate::IpPolicy::PreferIpv6,
         ..Default::default()
     };
-    let endpoint = settings.endpoint.as_mut().unwrap();
+    let endpoint = &mut settings.endpoint;
     endpoint.selection = crate::EndpointSelection::Custom;
     endpoint.preset_region = Some(crate::EndpointPresetRegion::De);
     endpoint.port = 8443;

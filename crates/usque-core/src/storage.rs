@@ -174,7 +174,7 @@ impl ConfigStore {
 
     pub fn load(&self) -> Result<AppConfig, StoreError> {
         let file = File::open(&self.path)?;
-        let mut value: serde_json::Value = serde_json::from_reader(BufReader::new(file))?;
+        let value: serde_json::Value = serde_json::from_reader(BufReader::new(file))?;
         let schema = value
             .get("schema_version")
             .and_then(serde_json::Value::as_u64)
@@ -184,9 +184,6 @@ impl ConfigStore {
                 found: schema,
                 supported: CURRENT_SCHEMA_VERSION,
             }));
-        }
-        if schema < 29 {
-            migrate_scene_ownership(&mut value);
         }
         let config = if schema < 9 {
             self.back_up_existing()?;
@@ -561,73 +558,9 @@ fn migrate_app_config(config: &mut AppConfig) {
         config.schema_version = 26;
     }
     if config.schema_version < 27 {
-        config.scenarios.clear();
-        config.scenario_selection = None;
-        config.last_scenario_switch = None;
+        // Scene fields default to an empty library and no selection when
+        // loading the configurations that predate this feature.
         config.schema_version = 27;
-    }
-    if config.schema_version < 28 {
-        // Missing scene endpoints keep inheriting the target's current values.
-        // Do not freeze today's endpoint into a previously saved scene.
-        config.schema_version = 28;
-    }
-    if config.schema_version < 29 {
-        config.schema_version = 29;
-    }
-}
-
-/// Remove former scene globals before the strict scene DTO is deserialized.
-/// The live network/account sections are deliberately never traversed.
-fn migrate_scene_ownership(value: &mut serde_json::Value) {
-    fn settings(owner: &mut serde_json::Value) {
-        if let Some(settings) = owner
-            .get_mut("settings")
-            .and_then(serde_json::Value::as_object_mut)
-        {
-            for key in [
-                "frontends",
-                "allow_lan",
-                "routing",
-                "geo_direct_countries",
-                "direct_dns",
-                "warp_dns",
-                "dns_mode",
-                "dns_servers",
-                "proxy_system_proxy",
-                "proxy_dns_mode",
-                "proxy_dns_servers",
-            ] {
-                settings.remove(key);
-            }
-        }
-    }
-    if let Some(scenes) = value
-        .get_mut("scenarios")
-        .and_then(serde_json::Value::as_array_mut)
-    {
-        for scene in scenes {
-            settings(scene);
-        }
-    }
-    if let Some(selected) = value.get_mut("scenario_selection") {
-        settings(selected);
-    }
-    if let Some(record) = value
-        .get_mut("last_scenario_switch")
-        .filter(|record| record.is_object())
-    {
-        for key in ["source", "target"] {
-            if let Some(snapshot) = record.get_mut(key) {
-                settings(snapshot);
-                if let Some(selection) = snapshot.get_mut("selection") {
-                    settings(selection);
-                }
-            }
-        }
-        // Removing formerly managed fields must not revive an old undo whose
-        // invalidating changes can no longer be inferred from its projections.
-        // Retain the operation ID and acknowledgement for receipt recovery.
-        record["restored"] = serde_json::Value::Bool(true);
     }
 }
 

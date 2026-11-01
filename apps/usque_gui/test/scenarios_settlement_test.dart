@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:usque/models/app_models.dart';
 import 'package:usque/models/scenarios.dart';
 import 'package:usque/services/engine_client.dart';
 import 'package:usque/state/scenarios_controller.dart';
@@ -13,7 +14,9 @@ Map<String, Object?> _catalog({
   String revision = 'catalogue-1',
   bool unchanged = false,
 }) => {
-  'settings_version': 2,
+  'source_epoch': 'epoch-a',
+  'session_id': null,
+  'observation_session_id': null,
   if (!unchanged)
     'scenarios': [
       {
@@ -21,7 +24,9 @@ Map<String, Object?> _catalog({
         'name': 'Daily',
         'revision': 'revision-a',
         'bound_account_id': null,
-        'settings': <String, Object?>{},
+        'settings': ScenarioSettings.fromProfile(
+          UsqueProfile.defaultProfile(),
+        ).toMap(),
       },
     ],
   if (unchanged) 'scenarios_unchanged': true,
@@ -33,6 +38,7 @@ Map<String, Object?> _catalog({
 };
 
 final _preview = ScenarioPreview.fromMap({
+  ..._catalog(),
   'preview': {
     'preview_token': 't',
     'scenario_id': 'scene-a',

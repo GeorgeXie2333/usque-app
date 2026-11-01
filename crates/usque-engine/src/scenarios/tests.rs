@@ -29,7 +29,13 @@ async fn request(service: &ControlService, command: Value) -> Result<Value, Cont
             command_json: command.to_string(),
         })
         .await?;
-    Ok(serde_json::from_str(&response.metadata_json).unwrap())
+    let value: Value = serde_json::from_str(&response.metadata_json).unwrap();
+    let metadata = value.as_object().unwrap();
+    assert!(metadata.contains_key("observation_session_id"));
+    assert_eq!(value["observation_session_id"], value["session_id"]);
+    assert!(!metadata.contains_key("settings_version"));
+    assert!(!metadata.contains_key("endpoint_editing"));
+    Ok(value)
 }
 
 async fn save_scene(
@@ -66,6 +72,35 @@ fn activate_request(scene: &Value, preview: &Value, operation: Uuid) -> Value {
         "action":"activate","id":scene["id"],"expected_revision":scene["revision"],
         "preview_token":preview["preview"]["preview_token"],"operation_id":operation
     })
+}
+
+#[tokio::test]
+async fn full_and_unchanged_catalogues_share_the_current_observation_contract() {
+    for connected in [false, true] {
+        let (_directory, service) = fixture().await;
+        if connected {
+            let mut profile = service.config_snapshot().await.active_profile().unwrap();
+            profile.frontends.tunnel = false;
+            service
+                .install_test_session(profile, false, 0)
+                .await
+                .unwrap();
+        }
+        let state = service.settings.lock().await.clone();
+        let full = request(&service, json!({"action":"list"})).await.unwrap();
+        let poll = request(
+            &service,
+            json!({"action":"list","known_revision":full["catalogue_revision"]}),
+        )
+        .await
+        .unwrap();
+        assert_eq!(poll["scenarios_unchanged"], true);
+        for response in [full, poll] {
+            assert_eq!(response["source_epoch"], json!(state.source_epoch));
+            assert_eq!(response["observation_session_id"], json!(state.session_id));
+            assert_eq!(response["applied_scene_confirmed"], connected);
+        }
+    }
 }
 
 #[tokio::test]
@@ -335,7 +370,7 @@ async fn restore_is_a_new_explicit_commit_and_preserves_new_global_preferences()
     let saved = service.store.load().unwrap();
     assert_eq!(saved.network.transport, usque_core::TransportPolicy::Auto);
     assert!(saved.network.auto_connect);
-    assert!(saved.last_scenario_switch.unwrap().restored);
+    assert!(saved.last_scenario_switch.unwrap().recovery_retired);
     assert!(service.data_plane.lock().await.is_none());
 }
 

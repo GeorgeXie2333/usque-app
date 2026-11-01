@@ -284,61 +284,45 @@ void main() {
       );
     },
   );
-  test(
-    'legacy global fields are discarded and projection leaves current device settings intact',
-    () {
-      final scene = ScenarioSettings({
-        ...ScenarioSettings.fromProfile(UsqueProfile.defaultProfile()).toMap(),
-        'frontends': {'tunnel': true, 'socks5': true, 'http': true},
-        'allow_lan': true,
-        'routing': {'ads_enabled': true, 'rules': <Object?>[]},
-        'geo_direct_countries': ['US'],
-        'dns_servers': ['1.1.1.1'],
-        'dns_mode': 'tunnel',
-        'direct_dns': {'mode': 'physical_system'},
-        'warp_dns': {'mode': 'plain'},
-        'proxy_system_proxy': true,
-        'proxy_dns_mode': 'system',
-        'proxy_dns_servers': ['8.8.8.8'],
-      });
-      expect(scene.toMap().keys.toSet(), ScenarioSettings.managedFields);
-      final current = UsqueProfile.defaultProfile().copyWith(
-        frontends: const FrontendSettings(
-          tunnel: false,
-          socks5: true,
-          http: false,
-        ),
-        allowLan: false,
-        geoDirectCountries: ['DE'],
-        dnsIpv4: '9.9.9.9',
-        dnsMode: DnsMode.localConfigured,
-        directDns: const DirectDnsSettings(
-          mode: DirectDnsMode.dot,
-          serverName: 'dns.example',
-          port: 853,
-        ),
-        warpDns: const WarpDnsSettings(
-          mode: WarpDnsMode.dot,
-          serverName: 'warp.example',
-          port: 853,
-        ),
-        proxy: const ProxySettings(
-          dnsMode: ProxyDnsMode.localConfigured,
-          dnsIpv4: '149.112.112.112',
-        ),
-      );
-      final target = scene.toProfile(current);
-      expect(target.frontends, same(current.frontends));
-      expect(target.allowLan, current.allowLan);
-      expect(target.routing, current.routing);
-      expect(target.geoDirectCountries, current.geoDirectCountries);
-      expect(target.directDns, current.directDns);
-      expect(target.warpDns, current.warpDns);
-      expect(target.dnsMode, current.dnsMode);
-      expect(target.dnsIpv4, current.dnsIpv4);
-      expect(target.proxy, same(current.proxy));
-    },
-  );
+  test('scene projection leaves current device settings intact', () {
+    final scene = ScenarioSettings.fromProfile(UsqueProfile.defaultProfile());
+    expect(scene.toMap().keys.toSet(), ScenarioSettings.managedFields);
+    final current = UsqueProfile.defaultProfile().copyWith(
+      frontends: const FrontendSettings(
+        tunnel: false,
+        socks5: true,
+        http: false,
+      ),
+      allowLan: false,
+      geoDirectCountries: ['DE'],
+      dnsIpv4: '9.9.9.9',
+      dnsMode: DnsMode.localConfigured,
+      directDns: const DirectDnsSettings(
+        mode: DirectDnsMode.dot,
+        serverName: 'dns.example',
+        port: 853,
+      ),
+      warpDns: const WarpDnsSettings(
+        mode: WarpDnsMode.dot,
+        serverName: 'warp.example',
+        port: 853,
+      ),
+      proxy: const ProxySettings(
+        dnsMode: ProxyDnsMode.localConfigured,
+        dnsIpv4: '149.112.112.112',
+      ),
+    );
+    final target = scene.toProfile(current);
+    expect(target.frontends, same(current.frontends));
+    expect(target.allowLan, current.allowLan);
+    expect(target.routing, current.routing);
+    expect(target.geoDirectCountries, current.geoDirectCountries);
+    expect(target.directDns, current.directDns);
+    expect(target.warpDns, current.warpDns);
+    expect(target.dnsMode, current.dnsMode);
+    expect(target.dnsIpv4, current.dnsIpv4);
+    expect(target.proxy, same(current.proxy));
+  });
 
   testWidgets(
     'scene form omits outputs routing and DNS and binds accounts without switching',
@@ -490,42 +474,6 @@ void main() {
       expect((saved['chain_exit'] as Map)['profile_id'], 'proxy-a');
       expect(engine.networkWrites, 0);
       expect(engine.activeWrites, 0);
-    },
-  );
-
-  testWidgets(
-    'old scene engines expose Accounts but cannot apply legacy global snapshots',
-    (tester) async {
-      final engine = _ManagementEngine()..extraState = {'settings_version': 1};
-      final app = await pumpWorkflow(
-        tester,
-        engine,
-        section: AppSection.profiles,
-      );
-      app.engineCapabilities = await engine.getCapabilities();
-      await app.scenarios.refresh();
-      await tester.pumpAndSettle();
-      await tester.pump(const Duration(milliseconds: 200));
-      await tester.pumpAndSettle();
-      expect(find.byType(AccountsScreen), findsOneWidget);
-      expect(find.byKey(const ValueKey('scenario-create')), findsNothing);
-      expect(
-        find.text(app.strings.get('scenario_unsupported')),
-        findsOneWidget,
-      );
-      engine.sceneCalls.clear();
-      expect(
-        await app.scenarios.preview(app.scenarios.catalog!.scenarios.single),
-        isNull,
-      );
-      expect(
-        await app.scenarios.delete(app.scenarios.catalog!.scenarios.single),
-        false,
-      );
-      expect(engine.sceneCalls, isEmpty);
-      expect(app.scenarios.errorCode, 'SCENARIOS_UNSUPPORTED');
-      await tester.pump(const Duration(seconds: 2));
-      expect(engine.sceneCalls, isEmpty);
     },
   );
 

@@ -30,16 +30,23 @@ class ScenarioSettings {
     'chain_exit',
   };
   ScenarioSettings(Map<String, Object?> value)
-    : values = Map<String, Object?>.unmodifiable(
-        scenarioMap(
-          jsonDecode(
-            jsonEncode({
-              for (final entry in value.entries)
-                if (managedFields.contains(entry.key)) entry.key: entry.value,
-            }),
-          ),
-        ),
-      );
+    : values = Map<String, Object?>.unmodifiable(_settings(value));
+
+  static Map<String, Object?> _settings(Map<String, Object?> value) {
+    final endpoint = scenarioMap(value['endpoint']);
+    const endpointFields = {'selection', 'ipv4', 'ipv6', 'port', 'sni'};
+    if (value.length != managedFields.length ||
+        !managedFields.containsAll(value.keys) ||
+        !endpoint.keys.toSet().containsAll(endpointFields) ||
+        !{...endpointFields, 'preset_region'}.containsAll(endpoint.keys) ||
+        value['transport'] is! String ||
+        value['ip_policy'] is! String ||
+        value['vpn_gate'] is! Map ||
+        value['chain_exit'] != null && value['chain_exit'] is! Map) {
+      throw const FormatException('Invalid scene settings shape');
+    }
+    return scenarioMap(jsonDecode(jsonEncode(value)));
+  }
 
   factory ScenarioSettings.fromProfile(UsqueProfile profile) =>
       ScenarioSettings({
@@ -67,33 +74,30 @@ class ScenarioSettings {
   UsqueProfile toProfile(UsqueProfile base) {
     final endpoint = scenarioMap(values['endpoint']);
     return base.copyWith(
-      endpointSelection: endpoint.isEmpty
+      endpointSelection: EndpointSelection.values.byName(
+        endpoint['selection'] as String,
+      ),
+      endpointPresetRegion: endpoint['preset_region'] == null
           ? null
-          : endpoint['selection'] == 'automatic'
-          ? EndpointSelection.automatic
-          : EndpointSelection.custom,
-      endpointPresetRegion: endpoint.isEmpty
-          ? base.endpointPresetRegion
-          : EndpointPresetRegion.parse(endpoint['preset_region']),
-      clearEndpointPresetRegion:
-          endpoint.isNotEmpty && endpoint['preset_region'] == null,
-      endpointIpv4: endpoint['ipv4'] as String?,
-      endpointIpv6: endpoint['ipv6'] as String?,
-      endpointPort: endpoint['port'] as int?,
-      sni: endpoint['sni'] as String?,
+          : EndpointPresetRegion.values.byName(
+              endpoint['preset_region'] as String,
+            ),
+      clearEndpointPresetRegion: endpoint['preset_region'] == null,
+      endpointIpv4: endpoint['ipv4'] as String,
+      endpointIpv6: endpoint['ipv6'] as String,
+      endpointPort: endpoint['port'] as int,
+      sni: endpoint['sni'] as String,
       transport: TransportPolicy.values.firstWhere(
         (v) =>
             v.name ==
             (values['transport'] == 'auto' ? 'automatic' : values['transport']),
-        orElse: () => base.transport,
       ),
       ipPolicy: IpPolicy.values.firstWhere(
         (v) =>
             v.name ==
             (values['ip_policy'] == 'auto'
                 ? 'automatic'
-                : _camel(values['ip_policy'] as String? ?? 'auto')),
-        orElse: () => base.ipPolicy,
+                : _camel(values['ip_policy'] as String)),
       ),
       vpnGate: VpnGateSettings.fromMap(scenarioMap(values['vpn_gate'])),
       chainExit: values['chain_exit'] is Map
@@ -141,8 +145,6 @@ class ScenarioCatalog {
              ),
            ),
        revision = value['catalogue_revision'] as String?,
-       settingsVersion = value['settings_version'] as int? ?? 1,
-       endpointEditing = value['endpoint_editing'] == true,
        invalidIds = Set.unmodifiable(
          (value['invalid_scenario_ids'] as List? ?? const []).cast<String>(),
        ),
@@ -157,18 +159,21 @@ class ScenarioCatalog {
        appliedAccountId = value['applied_account_id'] as String?,
        appliedScenarioId = value['applied_scenario_id'] as String?,
        appliedSceneConfirmed = value['applied_scene_confirmed'] == true,
-       sourceEpoch = value['source_epoch'] as String?,
+       sourceEpoch = value['source_epoch'] as String,
        sessionId = value['session_id'] as String?,
-       observationSessionId = value.containsKey('observation_session_id')
-           ? value['observation_session_id'] as String?
-           : value['session_id'] as String?,
+       observationSessionId = _observationSession(value),
        state = scenarioMap(value['state']),
        canRestore = value['can_restore'] == true,
        lastOperationId = value['last_operation_id'] as String?;
   final List<ConnectionScenario> scenarios;
   final String? revision;
-  final int settingsVersion;
-  final bool endpointEditing;
+
+  static String? _observationSession(Map<String, Object?> value) {
+    if (!value.containsKey('observation_session_id')) {
+      throw const FormatException('Missing scene observation identity');
+    }
+    return value['observation_session_id'] as String?;
+  }
 
   /// Templates whose saved settings fail the current validation rules.
   final Set<String> invalidIds;
@@ -180,7 +185,8 @@ class ScenarioCatalog {
       currentSettingsError;
   final Map<String, Object?> state;
   final bool canRestore;
-  final String? appliedScenarioId, sourceEpoch, sessionId;
+  final String sourceEpoch;
+  final String? appliedScenarioId, sessionId;
 
   /// Native settings observation identity. Android keeps its generation even
   /// when the public scene session is absent after disconnecting.
@@ -216,9 +222,9 @@ class ScenarioPreview {
   Map<String, Object?> get beforeSettings =>
       scenarioMap(values['before_settings']);
   Map<String, Object?> get targetSettings =>
-      scenarioMap(values['target_settings'] ?? values['settings']);
+      scenarioMap(values['target_settings']);
 
-  /// Kill Switch stays on while this scene turns off the VPN output.
+  /// Saved global output changes stop VPN protection during this switch.
   bool get killSwitchOutputRemoved =>
       values['kill_switch_output_removed'] == true;
   Map<String, Object?>? get appliedSettings => values['applied_settings'] is Map

@@ -700,7 +700,7 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
   @override
   Widget build(BuildContext context) {
     final strings = app.strings, scenes = app.scenarios;
-    final available = scenes.supported && scenes.settingsSupported;
+    final available = scenes.supported;
     final selected = available ? app.profilesTab : ProfilesTab.accounts;
     return PageFrame(
       title: strings.get('profiles'),
@@ -1106,11 +1106,9 @@ String scenarioFieldLabel(AppStrings strings, String field) =>
       'warp_dns' => 'warp_dns_type',
       'dns_mode' ||
       'dns_servers' ||
-      'proxy_dns_mode' ||
-      'proxy_dns_servers' ||
       'proxy.dns_mode' ||
       'proxy.dns_servers' => 'dns',
-      'proxy_system_proxy' || 'proxy.system_proxy' => 'home_system_proxy',
+      'proxy.system_proxy' => 'home_system_proxy',
       'vpn_gate' || 'chain_exit' => 'scenario_exit',
       _ => 'scenario_connection',
     });
@@ -1209,8 +1207,7 @@ Future<Map<String, String>> scenarioExitNames(
 
 String scenarioErrorKey(String? code) => switch (code) {
   'SCENARIO_ACCOUNT_UNAVAILABLE' ||
-  'SCENARIO_DEPENDENCY_UNAVAILABLE' ||
-  'SCENARIO_ACCOUNT_MISSING' => 'scenario_reference_missing',
+  'SCENARIO_DEPENDENCY_UNAVAILABLE' => 'scenario_reference_missing',
   'SCENARIO_VPN_PERMISSION_REQUIRED' => 'scenario_vpn_permission',
   'SCENARIO_RULES_UNAVAILABLE' => 'scenario_rules_missing',
   'SCENARIO_UNCONFIRMED' ||
@@ -1231,7 +1228,10 @@ String scenarioValueLabel(
   String field, {
   Map<String, String> exitNames = const {},
 }) {
-  if (field.startsWith('endpoint.') && settings['endpoint'] is! Map) return '—';
+  // Bounded previews can omit the prior settings; absence is not Custom mode.
+  if (field.startsWith('endpoint.') && settings['endpoint'] is! Map) {
+    return strings.get('not_available');
+  }
   Object? value;
   if (field.startsWith('endpoint.')) {
     value = scenarioMap(

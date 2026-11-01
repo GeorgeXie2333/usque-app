@@ -21,8 +21,7 @@ class ScenarioHomeLink extends StatelessWidget {
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: controller.scenarios,
     builder: (context, _) {
-      if (!controller.scenarios.supported ||
-          !controller.scenarios.settingsSupported) {
+      if (!controller.scenarios.supported) {
         return const SizedBox.shrink();
       }
       final strings = controller.strings;

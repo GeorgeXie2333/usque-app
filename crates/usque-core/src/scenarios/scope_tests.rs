@@ -88,7 +88,7 @@ fn new_scene_commands_reject_removed_settings_instead_of_persisting_them() {
     for field in REMOVED {
         let mut settings = serde_json::to_value(ScenarioSettings::default()).unwrap();
         settings[*field] = json!({"removed": true});
-        let request = json!({"action":"save", "name":"Old GUI", "settings":settings});
+        let request = json!({"action":"save", "name":"Unsupported fields", "settings":settings});
         assert_eq!(
             ScenarioCommand::parse(&request.to_string()).unwrap_err(),
             ScenarioError::InvalidRequest
@@ -96,7 +96,13 @@ fn new_scene_commands_reject_removed_settings_instead_of_persisting_them() {
     }
     let config = AppConfig::default();
     let full = catalogue(&config, &ScenarioContext::default());
-    assert_eq!(full["settings_version"], 2);
+    assert!(full.get("settings_version").is_none());
+    assert!(full.get("endpoint_editing").is_none());
+    assert!(
+        full.as_object()
+            .unwrap()
+            .contains_key("observation_session_id")
+    );
     let mut config = config;
     let poll = command(
         &mut config,
@@ -107,12 +113,45 @@ fn new_scene_commands_reject_removed_settings_instead_of_persisting_them() {
     )
     .unwrap()
     .response;
-    assert_eq!(poll["settings_version"], 2);
+    assert!(poll.get("settings_version").is_none());
+    assert!(poll.get("endpoint_editing").is_none());
     assert_eq!(poll["scenarios_unchanged"], true);
 }
 
 #[test]
-fn schema_29_strips_removed_fields_from_every_scene_snapshot_before_deserialization() {
+fn pre_scene_configuration_initializes_empty_scenes_without_changing_global_settings() {
+    let mut config = AppConfig {
+        schema_version: 26,
+        ..AppConfig::default()
+    };
+    config.network.allow_lan = false;
+    config.network.frontends.http = false;
+    config.network.endpoint.selection = crate::EndpointSelection::Custom;
+    config.network.endpoint.preset_region = Some(crate::EndpointPresetRegion::De);
+    config.network.ip_policy = IpPolicy::PreferIpv6;
+    let mut old = serde_json::to_value(&config).unwrap();
+    for key in ["scenarios", "scenario_selection", "last_scenario_switch"] {
+        old.as_object_mut().unwrap().remove(key);
+    }
+    let directory = tempfile::tempdir().unwrap();
+    let store = crate::storage::ConfigStore::new(directory.path().join("profiles.json"));
+    std::fs::write(store.path(), serde_json::to_vec(&old).unwrap()).unwrap();
+    let migrated = store.load().unwrap();
+    assert_eq!(migrated.schema_version, 27);
+    assert_eq!(migrated.network, config.network);
+    assert_eq!(migrated.profiles, config.profiles);
+    assert_eq!(migrated.active_profile_id, config.active_profile_id);
+    assert!(migrated.scenarios.is_empty());
+    assert!(migrated.scenario_selection.is_none());
+    assert!(migrated.last_scenario_switch.is_none());
+    let backup: Value =
+        serde_json::from_slice(&std::fs::read(store.backup_path()).unwrap()).unwrap();
+    assert_eq!(backup, old);
+    assert_eq!(store.load().unwrap(), migrated);
+}
+
+#[test]
+fn unsupported_development_schemas_and_scene_fields_are_not_migrated_or_rewritten() {
     let mut config = AppConfig::default();
     config.network.allow_lan = false;
     config.network.frontends.http = false;
@@ -131,57 +170,57 @@ fn schema_29_strips_removed_fields_from_every_scene_snapshot_before_deserializat
     activate(&mut config, &second, &ctx);
     let operation = config.last_scenario_switch.as_ref().unwrap().operation_id;
     acknowledge_operation(&mut config, operation);
-    let mut legacy = serde_json::to_value(&config).unwrap();
-    legacy["schema_version"] = json!(28);
-    fn inject(owner: &mut Value) {
-        for key in REMOVED {
-            owner["settings"][*key] = json!({"old_invalid_shape":true});
-        }
-    }
-    for scene in legacy["scenarios"].as_array_mut().unwrap() {
-        inject(scene);
-    }
-    inject(&mut legacy["scenario_selection"]);
-    for side in ["source", "target"] {
-        inject(&mut legacy["last_scenario_switch"][side]);
-        inject(&mut legacy["last_scenario_switch"][side]["selection"]);
-    }
     let directory = tempfile::tempdir().unwrap();
     let store = crate::storage::ConfigStore::new(directory.path().join("profiles.json"));
-    std::fs::write(store.path(), serde_json::to_vec(&legacy).unwrap()).unwrap();
-    let mut migrated = store.load().unwrap();
-    assert_eq!(migrated.schema_version, 29);
-    assert_eq!(migrated.network, config.network);
-    assert_eq!(migrated.profiles, config.profiles);
-    assert_eq!(migrated.scenarios, config.scenarios);
-    assert_eq!(migrated.scenario_selection, config.scenario_selection);
-    let record = migrated.last_scenario_switch.as_ref().unwrap();
-    assert_eq!(record.operation_id, operation);
-    assert!(record.acknowledged);
-    assert!(record.restored);
-    assert!(!can_restore(&migrated));
-    assert_eq!(
-        record.source,
-        config.last_scenario_switch.as_ref().unwrap().source
-    );
-    assert_eq!(
-        record.target,
-        config.last_scenario_switch.as_ref().unwrap().target
-    );
-    let backup: Value =
-        serde_json::from_slice(&std::fs::read(store.backup_path()).unwrap()).unwrap();
-    assert_eq!(backup, legacy);
-    let before = globals(&migrated.network);
-    let ctx = context(&migrated);
-    activate(&mut migrated, &first, &ctx);
-    assert_eq!(globals(&migrated.network), before);
+    let rejected = |value: Value| {
+        let bytes = serde_json::to_vec(&value).unwrap();
+        std::fs::write(store.path(), &bytes).unwrap();
+        assert!(store.load().is_err());
+        assert_eq!(std::fs::read(store.path()).unwrap(), bytes);
+        assert!(!store.backup_path().exists());
+    };
+    for version in [28, 29] {
+        let mut value = serde_json::to_value(&config).unwrap();
+        value["schema_version"] = json!(version);
+        rejected(value);
+    }
+    for pointer in [
+        "/scenarios/0/settings",
+        "/scenario_selection/settings",
+        "/last_scenario_switch/source/settings",
+        "/last_scenario_switch/target/settings",
+        "/last_scenario_switch/source/selection/settings",
+        "/last_scenario_switch/target/selection/settings",
+    ] {
+        let mut value = serde_json::to_value(&config).unwrap();
+        value.pointer_mut(pointer).unwrap()["frontends"] = json!({"tunnel":false});
+        rejected(value);
+    }
+    for key in ["acknowledged", "recovery_retired"] {
+        let mut value = serde_json::to_value(&config).unwrap();
+        value["last_scenario_switch"]
+            .as_object_mut()
+            .unwrap()
+            .remove(key);
+        rejected(value);
+    }
+    let mut value = serde_json::to_value(&config).unwrap();
+    value["last_scenario_switch"]["restored"] = json!(false);
+    rejected(value);
+
+    // Current records keep their durable acknowledgement and recovery eligibility.
+    store.save(&config).unwrap();
+    let loaded = store.load().unwrap();
+    assert_eq!(loaded, config);
+    assert!(loaded.last_scenario_switch.as_ref().unwrap().acknowledged);
+    assert!(can_restore(&loaded));
 }
 
 #[test]
 fn intrinsic_scene_validation_defers_unowned_dns_and_output_constraints_to_target() {
     let mut config = AppConfig::default();
     let mut settings = ScenarioSettings::default();
-    let endpoint = settings.endpoint.as_mut().unwrap();
+    let endpoint = &mut settings.endpoint;
     endpoint.selection = crate::EndpointSelection::Custom;
     endpoint.ipv4 = "1.1.1.1".parse().unwrap();
     assert!(settings.normalized().is_ok());

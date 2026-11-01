@@ -34,10 +34,10 @@ same in the target language are not missing translations.
 ## Profiles and scene drafts
 
 The scene endpoint draft shares `EndpointFields` and preset-policy selection with
-Advanced. It never calls global save operations. Schema 28 scenes can include
-endpoint selection, presets, IPv4/IPv6, port and SNI; missing endpoints keep the
-old scene's inheritance semantics. Native previews and restore use effective
-account endpoints, and Zero Trust overrides follow Advanced's account-scoped merge.
+Advanced. It never calls global save operations. Scene settings require endpoint
+selection, IPv4/IPv6, port and SNI, with an optional preset. Native previews and
+restore use effective account endpoints, and Zero Trust overrides follow
+Advanced's account-scoped merge.
 
 The second destination is **Profiles** (**配置** in Simplified Chinese), with
 **Scenes / Accounts** tabs. Its nested section navigator preserves desktop
@@ -48,7 +48,7 @@ Home shows the selected scene directly above Kill Switch at the same visual leve
 in the desktop session card and the phone status card. The row opens Scenes.
 
 Scene forms keep local drafts. Saving a template never calls the live network
-settings save path. Schema 29 scenes own account binding, chain-proxy selection,
+settings save path. Schema 27 scenes own account binding, chain-proxy selection,
 endpoints, IP policy and transport. Outputs, LAN, Ads, routing and all device DNS
 remain global. The nested chain page reuses Proxy's full resource-management UI
 in draft-selection mode; the nested Accounts page manages resources while its
@@ -61,9 +61,10 @@ dependencies. See [Profiles and scenes](../../docs/SCENARIOS.md).
 Scene runtime confirmations are tied to the native owner epoch, session and
 account observations. A failed refresh or a newer connection invalidates cached
 runtime claims while preserving saved template and selection information.
-Android exposes the settings observation generation separately from the public
-session ID, so a disconnected catalogue can be confirmed without weakening stale
-session checks. Grouped navigation cancellation revokes all provisional discard
+Every catalogue carries its settings observation identity separately from the
+public session ID. Android retains the observation generation after disconnecting,
+so a disconnected catalogue can be confirmed without weakening stale session
+checks. Grouped navigation cancellation revokes all provisional discard
 permissions. Scene VPN Gate leases are tied to the native owner epoch; stale
 leases are prepared again before selection or save, and cleanup requests cannot
 release a newer owner's reference.

@@ -2,7 +2,7 @@ use super::*;
 
 fn manual() -> ScenarioSettings {
     let mut settings = ScenarioSettings::default();
-    let endpoint = settings.endpoint.as_mut().unwrap();
+    let endpoint = &mut settings.endpoint;
     endpoint.selection = crate::EndpointSelection::Custom;
     endpoint.ipv4 = "192.0.2.10".parse().unwrap();
     endpoint.ipv6 = "2001:db8::10".parse().unwrap();
@@ -40,7 +40,7 @@ fn endpoints_preview_commit_and_restore_through_the_same_transaction() {
             .contains(&json!("endpoint.ipv4"))
     );
     let activated = activate(&mut config, &scene, &ctx);
-    assert_eq!(config.network.endpoint, manual().endpoint.unwrap());
+    assert_eq!(config.network.endpoint, manual().endpoint);
     assert_eq!(activated.response["state"]["modified"], false);
     assert_eq!(activated.response["state"]["applied_matches"], false);
     let ctx = context(&config);
@@ -102,37 +102,43 @@ fn endpoint_edits_invalidate_preview_restore_and_selection_status() {
 }
 
 #[test]
-fn schema_27_scenes_keep_inheriting_endpoints_after_migration_and_use() {
+fn scene_endpoints_are_required_in_templates_and_recovery_snapshots() {
     let mut config = AppConfig::default();
-    let settings = ScenarioSettings {
-        endpoint: None,
-        ..ScenarioSettings::default()
-    };
-    let scene = save(&mut config, settings, None);
+    let first = save(&mut config, ScenarioSettings::default(), None);
     let ctx = context(&config);
-    activate(&mut config, &scene, &ctx);
-    let mut legacy = serde_json::to_value(&config).unwrap();
-    legacy["schema_version"] = json!(27);
-    for snapshot in ["source", "target"] {
-        legacy["last_scenario_switch"][snapshot]["settings"]
-            .as_object_mut()
-            .unwrap()
-            .remove("endpoint");
-    }
+    activate(&mut config, &first, &ctx);
+    let second = save(&mut config, manual(), None);
+    activate(&mut config, &second, &ctx);
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("config.json");
-    std::fs::write(&path, serde_json::to_vec(&legacy).unwrap()).unwrap();
-    let mut config = crate::storage::ConfigStore::new(path).load().unwrap();
-    assert_eq!(config.schema_version, crate::config::CURRENT_SCHEMA_VERSION);
-    assert_eq!(config.scenarios[0], scene);
-    config.network.endpoint = manual().endpoint.unwrap();
-    let before = config.network.clone();
-    activate(&mut config, &scene, &ctx);
-    assert_eq!(config.network, before);
-    assert_eq!(
-        catalogue(&config, &context(&config))["state"]["modified"],
-        false
-    );
+    let store = crate::storage::ConfigStore::new(path.clone());
+    for pointer in [
+        "/scenarios/0/settings",
+        "/scenario_selection/settings",
+        "/last_scenario_switch/source/settings",
+        "/last_scenario_switch/target/settings",
+        "/last_scenario_switch/source/selection/settings",
+        "/last_scenario_switch/target/selection/settings",
+    ] {
+        for null in [false, true] {
+            let mut unsupported = serde_json::to_value(&config).unwrap();
+            let settings = unsupported
+                .pointer_mut(pointer)
+                .unwrap()
+                .as_object_mut()
+                .unwrap();
+            if null {
+                settings.insert("endpoint".into(), Value::Null);
+            } else {
+                settings.remove("endpoint");
+            }
+            let bytes = serde_json::to_vec(&unsupported).unwrap();
+            std::fs::write(&path, &bytes).unwrap();
+            assert!(store.load().is_err(), "{pointer}");
+            assert_eq!(std::fs::read(&path).unwrap(), bytes);
+            assert!(!store.backup_path().exists());
+        }
+    }
 }
 
 #[test]
@@ -180,10 +186,7 @@ fn bound_zero_trust_manual_endpoints_preserve_consumer_and_other_accounts() {
     );
     activate(&mut config, &scene, &ctx);
     assert_eq!(config.active_profile_id, Some(zt));
-    assert_eq!(
-        config.active_profile().unwrap().endpoint,
-        manual().endpoint.unwrap()
-    );
+    assert_eq!(config.active_profile().unwrap().endpoint, manual().endpoint);
     assert_eq!(
         config.account(zt).unwrap().managed_endpoint_ips,
         Some(registered)
@@ -223,8 +226,8 @@ fn automatic_and_presets_use_zero_trust_account_addresses_without_overriding_the
     for preset in [None, Some(crate::EndpointPresetRegion::De)] {
         let mut settings = ScenarioSettings::default();
         if preset.is_some() {
-            settings.endpoint.as_mut().unwrap().selection = crate::EndpointSelection::Custom;
-            settings.endpoint.as_mut().unwrap().preset_region = preset;
+            settings.endpoint.selection = crate::EndpointSelection::Custom;
+            settings.endpoint.preset_region = preset;
             settings.ip_policy = crate::IpPolicy::Ipv6Only;
         }
         let scene = save(&mut config, settings, None);
@@ -253,7 +256,7 @@ fn invalid_endpoint_port_sni_and_preset_policy_never_save_a_template() {
         let mut config = AppConfig::default();
         let before = config.clone();
         let mut settings = manual();
-        let endpoint = settings.endpoint.as_mut().unwrap();
+        let endpoint = &mut settings.endpoint;
         match field {
             "port" => endpoint.port = 0,
             "sni" => endpoint.sni = "https://example.com".into(),
@@ -382,7 +385,7 @@ fn persisted_managed_aba_edits_retire_undo_but_keep_pending_receipt_and_snapshot
     let mut config = store.load().unwrap();
     assert!(!can_restore(&config));
     let record = config.last_scenario_switch.as_ref().unwrap();
-    assert!(record.restored);
+    assert!(record.recovery_retired);
     assert_eq!(record.operation_id, receipt.operation_id);
     assert_eq!(record.source, receipt.source);
     assert_eq!(record.target, receipt.target);

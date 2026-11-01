@@ -59,7 +59,9 @@ Map<String, Object?> catalog({
   List<Map<String, Object?>> scenes = const [],
   String? operation,
 }) => {
-  'settings_version': 2,
+  'source_epoch': 'epoch-a',
+  'session_id': null,
+  'observation_session_id': null,
   'scenarios': scenes,
   'current_account_id': account,
   'state': {'apply_status': 'deferred'},
@@ -138,6 +140,7 @@ void main() {
       expect(
         await controller.activate(
           ScenarioPreview.fromMap({
+            ...catalog(),
             'preview': {'preview_token': 't'},
           }),
         ),
@@ -174,6 +177,7 @@ void main() {
         }
       };
       final preview = ScenarioPreview.fromMap({
+        ...catalog(),
         'preview': {'preview_token': 't'},
       });
       expect(await controller.activate(preview), false);
@@ -236,6 +240,7 @@ void main() {
         if (!allowReadback) throw TimeoutException('Readback unavailable');
       };
       final preview = ScenarioPreview.fromMap({
+        ...catalog(),
         'preview': {'preview_token': 't'},
       });
       expect(await controller.activate(preview), true);

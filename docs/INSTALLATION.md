@@ -18,13 +18,12 @@ See [Upgrade](#upgrade) if that version cannot uninstall.
 ### Configuration compatibility when upgrading
 
 v0.3.1 uses configuration schema 24; v0.3.0 uses 23 and v0.2.9 uses 21.
-Current source uses schema 29: schema 25 adds the shared MASQUE TLS fingerprint,
+Current source uses schema 27: schema 25 adds the shared MASQUE TLS fingerprint,
 schema 26 adds optional IPv6 endpoint presets, and schema 27 adds local
 [connection scenes](SCENARIOS.md) without changing existing network settings.
-Schema 28 adds optional scene endpoints; existing scenes keep inheriting them
-until edited. Schema 29 removes outputs, routing and DNS from scene snapshots,
-preserves their current device-wide values and retires older scene undo records.
-Clients supporting schema 28 cannot read schema 29. Migrated and new
+Scene templates and snapshots use one format with required endpoints. Obsolete
+development scene formats are not migrated. Clients supporting schema 26 cannot
+read schema 27. Migrated and new
 configurations use the Chrome 155 fingerprint unless you had explicitly chosen
 another one; the original handshake is now labeled unsafe. Older configurations
 start without an IPv6 preset. Other settings migrate as before.

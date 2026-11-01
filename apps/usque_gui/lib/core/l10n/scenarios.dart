@@ -63,11 +63,7 @@ const kScenarioEn = <String, String>{
   'scenario_library_hint':
       "Create, import or manage nodes here. Your selection returns to the scene draft.",
   'scenario_saved': 'Scene saved',
-  'scenario_country_hint':
-      'Country codes, separated by commas (for example CN, JP). Required rule data must be available before use.',
-  'scenario_rules_count': '{count} custom rules',
   'scenario_confirm_use': 'Apply scene',
-  'scenario_invalid_dns': 'Enter valid DNS IP addresses.',
   'scenario_new_flows':
       'Changes apply to new connections; existing connections may keep their paths.',
   'scenario_vpn_permission':
@@ -142,10 +138,7 @@ const kScenarioZhCn = <String, String>{
   'scenario_account_change': '账号变更',
   'scenario_library_hint': "可在此新建、导入或管理节点，选择只写入场景草稿。",
   'scenario_saved': '场景已保存',
-  'scenario_country_hint': '输入逗号分隔的国家代码，例如 CN、JP。使用前须备妥所需规则数据。',
-  'scenario_rules_count': '{count} 条自定义规则',
   'scenario_confirm_use': '应用场景',
-  'scenario_invalid_dns': '请输入有效的 DNS IP 地址。',
   'scenario_new_flows': '变更对新连接生效，已有连接可能保留原路径。',
   'scenario_vpn_permission': '先断开连接，选择场景，再连接以完成 VPN 授权。',
   'scenario_rules_missing': '使用此场景前，请在设置中准备所需分流数据。',

@@ -68,7 +68,7 @@ Linux는 일반 x86-64 및 ARM64용 AppImage/deb/rpm을 제공합니다. 설치 
 
 업그레이드, 제거, 복구, Android 개발자 인증에 관한 설명은 [설치 및 제거](docs/INSTALLATION.md)를, 공식 서명에 사용하는 인증서 정보는 [코드 서명](docs/CODE_SIGNING.md)을 참고하세요. 업데이트는 다운로드 전에 확인이 필요하며, 플랫폼 설치 프로그램으로 설치합니다. 사용자 확인 없이 자동으로 설치하지 않습니다.
 
-v0.3.1에서 업그레이드하면 구성 스키마가 24에서 29으로 바뀌며 v0.3.1 이하에서는 읽을 수 없습니다. 먼저 [구성 호환성](docs/INSTALLATION.md#configuration-compatibility-when-upgrading)을 확인하고 필요한 백업을 준비하세요. 이전 버전 재설치는 마이그레이션을 되돌리지 않습니다.
+v0.3.1에서 업그레이드하면 구성 스키마가 24에서 27으로 바뀌며 v0.3.1 이하에서는 읽을 수 없습니다. 먼저 [구성 호환성](docs/INSTALLATION.md#configuration-compatibility-when-upgrading)을 확인하고 필요한 백업을 준비하세요. 이전 버전 재설치는 마이그레이션을 되돌리지 않습니다.
 
 ## 첫 연결
 

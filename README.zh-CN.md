@@ -68,7 +68,7 @@ Linux 提供通用 x86-64 与 ARM64 的 AppImage/deb/rpm，请在安装前验证
 
 升级、卸载、恢复及 Android 开发者验证说明见[安装指南](docs/INSTALLATION.md)，官方签名身份见[代码签名策略](docs/CODE_SIGNING.md)。更新下载需要用户确认，安装通过平台安装程序完成，不会未经确认自动安装。
 
-从 v0.3.1 升级会将配置从 schema 24 迁移至 29，v0.3.1 及更早客户端无法读取。升级前请查看[配置兼容性](docs/INSTALLATION.md#configuration-compatibility-when-upgrading)并安排所需备份；重新安装旧版不会逆转迁移。
+从 v0.3.1 升级会将配置从 schema 24 迁移至 27，v0.3.1 及更早客户端无法读取。升级前请查看[配置兼容性](docs/INSTALLATION.md#configuration-compatibility-when-upgrading)并安排所需备份；重新安装旧版不会逆转迁移。
 
 ## 首次连接
 

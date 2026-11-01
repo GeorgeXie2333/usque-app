@@ -5088,7 +5088,7 @@ mod tests {
                 selection: None,
             },
             acknowledged: true,
-            restored: false,
+            recovery_retired: false,
         }));
         store.save(&config).unwrap();
 
@@ -5109,7 +5109,13 @@ mod tests {
         // Returning to an older target does not revive the undo whose settings
         // were changed in the meantime. Only the inactive template retains B.
         assert!(!usque_core::scenarios::can_restore(&saved));
-        assert!(saved.last_scenario_switch.as_ref().unwrap().restored);
+        assert!(
+            saved
+                .last_scenario_switch
+                .as_ref()
+                .unwrap()
+                .recovery_retired
+        );
         assert!(objects.join(format!("{}.json", "b".repeat(64))).is_file());
         for digit in ["a", "c", "d"] {
             assert!(!objects.join(format!("{}.json", digit.repeat(64))).exists());
@@ -5142,7 +5148,7 @@ mod tests {
                 selection: None,
             },
             acknowledged: true,
-            restored: false,
+            recovery_retired: false,
         };
         config.last_scenario_switch = Some(Box::new(record.clone()));
         store.save(&config).unwrap();
@@ -5161,7 +5167,7 @@ mod tests {
         assert_eq!(stored.active_profile_id, Some(target));
         assert!(!usque_core::scenarios::can_restore(&stored));
         let retired = stored.last_scenario_switch.as_ref().unwrap();
-        assert!(retired.restored);
+        assert!(retired.recovery_retired);
         assert!(retired.acknowledged);
         assert_eq!(retired.operation_id, record.operation_id);
         assert_eq!(retired.source, record.source);

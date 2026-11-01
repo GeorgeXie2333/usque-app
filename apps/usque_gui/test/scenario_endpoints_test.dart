@@ -59,6 +59,71 @@ Future<void> enter(WidgetTester tester, String key, String value) async {
 }
 
 void main() {
+  for (final bindingOnly in [false, true]) {
+    testWidgets(
+      '${bindingOnly ? 'binding-only' : 'name-only'} scene save preserves the complete managed snapshot',
+      (tester) async {
+        final profile = UsqueProfile.defaultProfile().copyWith(
+          endpointSelection: EndpointSelection.custom,
+          endpointPresetRegion: EndpointPresetRegion.de,
+          endpointIpv4: '192.0.2.40',
+          endpointIpv6: '2001:db8::40',
+          endpointPort: 8443,
+          sni: 'saved.example',
+          ipPolicy: IpPolicy.preferIpv6,
+          transport: TransportPolicy.http2,
+          chainExit: const ChainExitSettings(
+            enabled: false,
+            source: ChainSource.wireguardCustom,
+            profileId: 'dormant-node',
+            revision: 'node-r1',
+          ),
+        );
+        final settings = ScenarioSettings.fromProfile(profile).toMap();
+        final engine = SceneEngine();
+        engine.entries.single['settings'] = settings;
+        const ready = ProfileIdentityStatus(
+          state: ProfileIdentityState.ready,
+          provider: IdentityProvider.consumer,
+          licenseState: LicenseState.free,
+        );
+        engine.storedIdentityStatuses = {
+          UsqueProfile.defaultProfileId: ready,
+          'account-b': ready,
+        };
+        final app = await editor(tester, engine);
+        final before = app.activeProfile.toMap();
+        if (bindingOnly) {
+          app.profiles = [
+            app.activeProfile,
+            app.activeProfile.copyWith(id: 'account-b', name: 'Bound account'),
+          ];
+          await tester.ensureVisible(
+            find.byKey(const ValueKey('scenario-account-management')),
+          );
+          await tester.tap(
+            find.byKey(const ValueKey('scenario-account-management')),
+          );
+          await tester.pumpAndSettle();
+          await tester.tap(
+            find.byKey(const ValueKey('scene-select-account-account-b')),
+          );
+          await tester.pumpAndSettle();
+        } else {
+          await enter(tester, 'scenario-name', 'Renamed');
+        }
+        await tapText(tester, app.strings.get('scenario_save'));
+        final saved = engine.sceneCalls.singleWhere(
+          (c) => c['action'] == 'save',
+        );
+        expect(saved['settings'], settings);
+        expect(saved['bound_account_id'], bindingOnly ? 'account-b' : null);
+        expect(app.activeProfile.toMap(), before);
+        expect(engine.writes, 0);
+      },
+    );
+  }
+
   testWidgets(
     'update from current settings previews individual endpoint differences',
     (tester) async {
@@ -183,36 +248,21 @@ void main() {
     },
   );
 
-  testWidgets(
-    'legacy scene rename does not add endpoints and old engines hide editing',
-    (tester) async {
-      final engine = SceneEngine();
-      (engine.entries.single['settings'] as Map).remove('endpoint');
-      final app = await editor(tester, engine);
-      await enter(tester, 'scenario-name', 'Renamed');
-      await tapText(tester, app.strings.get('scenario_save'));
-      expect(
-        (engine.sceneCalls.singleWhere((c) => c['action'] == 'save')['settings']
-                as Map)
-            .containsKey('endpoint'),
-        false,
-      );
-      engine.extraState = {'endpoint_editing': false};
-      await app.scenarios.refresh();
-      await tester.pumpWidget(
-        workflowHost(
-          app,
-          home: ScenarioEditorScreen(
-            key: const ValueKey('old-engine'),
-            controller: app,
-            scene: app.scenarios.catalog!.scenarios.single,
-          ),
-        ),
-      );
-      await tester.pumpAndSettle();
-      expect(find.byType(ScenarioEndpointEditor), findsNothing);
-    },
-  );
+  testWidgets('renaming a scene preserves its required endpoint snapshot', (
+    tester,
+  ) async {
+    final engine = SceneEngine();
+    final endpoint = (engine.entries.single['settings'] as Map)['endpoint'];
+    final app = await editor(tester, engine);
+    expect(find.byType(ScenarioEndpointEditor), findsOneWidget);
+    await enter(tester, 'scenario-name', 'Renamed');
+    await tapText(tester, app.strings.get('scenario_save'));
+    expect(
+      (engine.sceneCalls.singleWhere((c) => c['action'] == 'save')['settings']
+          as Map)['endpoint'],
+      endpoint,
+    );
+  });
 
   testWidgets(
     'Zero Trust scene manual fields require the existing risk acknowledgement',

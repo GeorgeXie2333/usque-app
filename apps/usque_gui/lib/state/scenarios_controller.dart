@@ -13,8 +13,6 @@ class ScenariosController extends ChangeNotifier {
   final Future<Map<String, Object?>> Function(Map<String, Object?>) _command;
   ScenarioCatalog? catalog;
   bool supported = false, busy = false;
-  bool get settingsSupported =>
-      catalog == null || catalog!.settingsVersion == 2;
   bool _activationUnconfirmed = false;
   int? _templateUnconfirmedSequence;
   bool get unconfirmed =>
@@ -146,7 +144,7 @@ class ScenariosController extends ChangeNotifier {
         unchanged: unchanged ? current.scenarios : null,
       );
       _catalogRuntimeRevision =
-          (_runtime == null || catalog!.sourceEpoch == null
+          (_runtime == null
               ? runtimeRevision == _runtimeRevision
               : _matchesRuntime(catalog!))
           ? _runtimeRevision
@@ -245,7 +243,6 @@ class ScenariosController extends ChangeNotifier {
     }
     if (!_disposed) notifyListeners();
     if (_visible &&
-        settingsSupported &&
         catalog?.applyStatus == 'applying' &&
         _pollAttempts++ < 30) {
       _refreshTimer?.cancel();
@@ -261,11 +258,6 @@ class ScenariosController extends ChangeNotifier {
     bool activation = false,
   }) async {
     if (_disposed || busy || !supported) return null;
-    if (!settingsSupported) {
-      errorCode = 'SCENARIOS_UNSUPPORTED';
-      notifyListeners();
-      return null;
-    }
     final generation = _generation;
     final sequence = ++_requestSequence;
     final runtimeRevision = _runtimeRevision;

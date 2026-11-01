@@ -53,10 +53,7 @@ const kScenarioZhTw = <String, String>{
   'scenario_account_change': '帳號變更',
   'scenario_library_hint': "可在此新增、匯入或管理節點，選擇只寫入情境草稿。",
   'scenario_saved': '情境已儲存',
-  'scenario_country_hint': '輸入逗號分隔的國家代碼，例如 CN、JP。使用前須備妥所需規則資料。',
-  'scenario_rules_count': '{count} 條自訂規則',
   'scenario_confirm_use': '套用情境',
-  'scenario_invalid_dns': '請輸入有效的 DNS IP 位址。',
   'scenario_new_flows': '變更對新連線生效，現有連線可能保留原路徑。',
   'scenario_not_applied': "情境未套用，目前設定維持不變。",
   'scenario_kill_switch_output':
@@ -135,11 +132,7 @@ const kScenarioAr = <String, String>{
   'scenario_library_hint':
       "أنشئ العقد أو استوردها أو أدرها هنا. يُنقل اختيارك إلى مسودة السيناريو.",
   'scenario_saved': 'تم حفظ المشهد',
-  'scenario_country_hint':
-      'أدخل رموز الدول مفصولة بفواصل، مثل CN وJP. يجب توفير بيانات القواعد المطلوبة قبل الاستخدام.',
-  'scenario_rules_count': '{count} قواعد مخصصة',
   'scenario_confirm_use': 'تطبيق المشهد',
-  'scenario_invalid_dns': 'أدخل عناوين IP صالحة لخوادم DNS.',
   'scenario_new_flows':
       'تنطبق التغييرات على الاتصالات الجديدة؛ قد تحتفظ الاتصالات الحالية بمساراتها.',
   'scenario_not_applied': "لم يُطبَّق المشهد. لم تتغير الإعدادات الحالية.",
@@ -223,11 +216,7 @@ const kScenarioFa = <String, String>{
   'scenario_library_hint':
       "در اینجا گره بسازید، وارد کنید یا مدیریت کنید. انتخاب شما به پیش‌نویس سناریو منتقل می‌شود.",
   'scenario_saved': 'سناریو ذخیره شد',
-  'scenario_country_hint':
-      'کد کشورها را با ویرگول جدا کنید، مانند CN و JP. داده‌های قوانین لازم باید پیش از استفاده موجود باشند.',
-  'scenario_rules_count': '{count} قانون سفارشی',
   'scenario_confirm_use': 'اعمال سناریو',
-  'scenario_invalid_dns': 'نشانی‌های IP معتبر برای DNS وارد کنید.',
   'scenario_new_flows':
       'تغییرات برای اتصال‌های جدید اعمال می‌شوند؛ اتصال‌های موجود ممکن است مسیر قبلی را حفظ کنند.',
   'scenario_not_applied': "سناریو اعمال نشد. تنظیمات فعلی تغییری نکرده است.",
@@ -312,11 +301,7 @@ const kScenarioId = <String, String>{
   'scenario_library_hint':
       "Buat, impor, atau kelola node di sini. Pilihan Anda diteruskan ke draf skenario.",
   'scenario_saved': 'Skenario disimpan',
-  'scenario_country_hint':
-      'Kode negara dipisahkan koma, misalnya CN, JP. Data aturan yang diperlukan harus tersedia sebelum digunakan.',
-  'scenario_rules_count': '{count} aturan kustom',
   'scenario_confirm_use': 'Terapkan skenario',
-  'scenario_invalid_dns': 'Masukkan alamat IP DNS yang valid.',
   'scenario_new_flows':
       'Perubahan berlaku untuk koneksi baru; koneksi yang ada dapat tetap menggunakan jalur sebelumnya.',
   'scenario_not_applied':
@@ -399,11 +384,7 @@ const kScenarioTh = <String, String>{
   'scenario_library_hint':
       "สร้าง นำเข้า หรือจัดการโหนดได้ที่นี่ การเลือกจะส่งกลับไปยังฉบับร่างของสถานการณ์",
   'scenario_saved': 'บันทึกสถานการณ์แล้ว',
-  'scenario_country_hint':
-      'ป้อนรหัสประเทศคั่นด้วยจุลภาค เช่น CN, JP ต้องเตรียมข้อมูลกฎที่จำเป็นก่อนใช้',
-  'scenario_rules_count': 'กฎที่กำหนดเอง {count} รายการ',
   'scenario_confirm_use': 'ใช้สถานการณ์นี้',
-  'scenario_invalid_dns': 'ป้อนที่อยู่ IP ของ DNS ที่ถูกต้อง',
   'scenario_new_flows':
       'การเปลี่ยนแปลงมีผลกับการเชื่อมต่อใหม่ การเชื่อมต่อเดิมอาจยังใช้เส้นทางเดิม',
   'scenario_not_applied':
@@ -488,11 +469,7 @@ const kScenarioUk = <String, String>{
   'scenario_library_hint':
       "Тут можна створювати, імпортувати й керувати вузлами. Вибір переноситься до чернетки сценарію.",
   'scenario_saved': 'Сценарій збережено',
-  'scenario_country_hint':
-      'Коди країн через кому, наприклад CN, JP. Потрібні дані правил мають бути доступні до використання.',
-  'scenario_rules_count': '{count} власних правил',
   'scenario_confirm_use': 'Застосувати сценарій',
-  'scenario_invalid_dns': 'Введіть дійсні IP-адреси DNS.',
   'scenario_new_flows':
       'Зміни застосовуються до нових з’єднань; наявні можуть зберігати попередні маршрути.',
   'scenario_not_applied':
@@ -578,11 +555,7 @@ const kScenarioVi = <String, String>{
   'scenario_library_hint':
       "Tạo, nhập hoặc quản lý nút tại đây. Lựa chọn sẽ được đưa vào bản nháp kịch bản.",
   'scenario_saved': 'Đã lưu kịch bản',
-  'scenario_country_hint':
-      'Nhập mã quốc gia cách nhau bằng dấu phẩy, ví dụ CN, JP. Dữ liệu quy tắc cần có sẵn trước khi dùng.',
-  'scenario_rules_count': '{count} quy tắc tùy chỉnh',
   'scenario_confirm_use': 'Áp dụng kịch bản',
-  'scenario_invalid_dns': 'Nhập địa chỉ IP DNS hợp lệ.',
   'scenario_new_flows':
       'Thay đổi áp dụng cho kết nối mới; kết nối hiện có có thể giữ nguyên đường đi.',
   'scenario_not_applied':
@@ -655,10 +628,7 @@ const kScenarioZhHk = <String, String>{
   'scenario_account_change': '帳戶變更',
   'scenario_library_hint': "可在此新增、匯入或管理節點，選擇只寫入情境草稿。",
   'scenario_saved': '情境已儲存',
-  'scenario_country_hint': '輸入逗號分隔的國家代碼，例如 CN、JP。使用前須備妥所需規則資料。',
-  'scenario_rules_count': '{count} 條自訂規則',
   'scenario_confirm_use': '套用情境',
-  'scenario_invalid_dns': '請輸入有效的 DNS IP 位址。',
   'scenario_new_flows': '變更對新連線生效，現有連線可能保留原路徑。',
   'scenario_not_applied': "情境未套用，目前設定維持不變。",
   'scenario_kill_switch_output':

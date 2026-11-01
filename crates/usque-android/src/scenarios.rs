@@ -357,6 +357,13 @@ mod tests {
     use super::*;
     use usque_core::AppConfig;
 
+    fn assert_current_catalogue_metadata(reply: &Value) {
+        let metadata = reply.as_object().unwrap();
+        assert!(metadata.contains_key("observation_session_id"));
+        assert!(!metadata.contains_key("settings_version"));
+        assert!(!metadata.contains_key("endpoint_editing"));
+    }
+
     #[test]
     fn catalogue_pairs_disconnected_session_with_its_settings_observation_generation() {
         let _guard = crate::network_settings::TEST_STATE.lock().unwrap();
@@ -402,6 +409,7 @@ mod tests {
             );
             assert_eq!(poll["scenarios_unchanged"], true);
             for reply in [full, poll] {
+                assert_current_catalogue_metadata(&reply);
                 assert_eq!(reply["source_epoch"], observation["source_epoch"]);
                 assert_eq!(reply["observation_session_id"], observation["session_id"]);
                 assert_eq!(
@@ -435,6 +443,7 @@ mod tests {
             config.active_profile_id,
         );
         for reply in [saved, preview, activated] {
+            assert_current_catalogue_metadata(&reply);
             assert!(reply["session_id"].is_null());
             assert_eq!(reply["observation_session_id"], "2");
             assert_eq!(reply["applied_scene_confirmed"], false);
@@ -453,6 +462,7 @@ mod tests {
             "available":false,"session_id":"3","vpn_authorized":true})
         .to_string();
         let initial: Value = serde_json::from_str(&command(path, &request).unwrap()).unwrap();
+        assert_current_catalogue_metadata(&initial);
         assert_eq!(initial["session_id"], "3");
         assert!(
             initial

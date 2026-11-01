@@ -41,6 +41,66 @@ Object? _canonical(Object? value, Object? expected) {
 }
 
 void main() {
+  test('scene snapshots require the complete current field set', () {
+    final settings = _fixture('default');
+    for (final field in ScenarioSettings.managedFields) {
+      final missing = Map<String, Object?>.from(settings)..remove(field);
+      expect(() => ScenarioSettings(missing), throwsFormatException);
+    }
+    expect(
+      () => ScenarioSettings({...settings, 'endpoint': null}),
+      throwsFormatException,
+    );
+    expect(
+      () => ScenarioSettings({...settings, 'endpoint': <String, Object?>{}}),
+      throwsFormatException,
+    );
+  });
+
+  test('former scene globals are rejected instead of silently discarded', () {
+    final settings = _fixture('default');
+    for (final field in [
+      'frontends',
+      'allow_lan',
+      'routing',
+      'geo_direct_countries',
+      'direct_dns',
+      'warp_dns',
+      'dns_mode',
+      'dns_servers',
+      'proxy_system_proxy',
+      'proxy_dns_mode',
+      'proxy_dns_servers',
+    ]) {
+      expect(
+        () => ScenarioSettings({...settings, field: null}),
+        throwsFormatException,
+      );
+    }
+  });
+
+  test(
+    'scene preset accepts null but never inherits a malformed empty region',
+    () {
+      final settings = _fixture('default');
+      final endpoint = Map<String, Object?>.from(settings['endpoint']! as Map);
+      final base = UsqueProfile.defaultProfile().copyWith(
+        endpointPresetRegion: EndpointPresetRegion.fi,
+      );
+      expect(
+        ScenarioSettings(settings).toProfile(base).endpointPresetRegion,
+        isNull,
+      );
+      expect(
+        () => ScenarioSettings({
+          ...settings,
+          'endpoint': {...endpoint, 'preset_region': ''},
+        }).toProfile(base),
+        throwsArgumentError,
+      );
+    },
+  );
+
   for (final name in ['default', 'sample']) {
     test('$name scene settings survive the GUI profile projection', () {
       final expected = _fixture(name);

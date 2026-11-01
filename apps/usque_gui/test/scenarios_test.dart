@@ -27,8 +27,6 @@ Map<String, Object?> fixture({
   bool receipt = false,
   List<Map<String, Object?>>? scenes,
 }) => {
-  'settings_version': 2,
-  'endpoint_editing': true,
   'scenarios':
       scenes ??
       [
@@ -66,6 +64,7 @@ Map<String, Object?> fixture({
   'can_restore': false,
   'source_epoch': 'epoch-a',
   'session_id': null,
+  'observation_session_id': null,
   'last_operation_id': ?operation,
   if (receipt) 'persisted_operation_id': operation,
 };
@@ -131,6 +130,7 @@ class SceneEngine extends WorkflowEngine {
       ),
       'source_epoch': settingsState?.sourceEpoch ?? settingsEpoch,
       'session_id': settingsState?.sessionId,
+      'observation_session_id': settingsState?.sessionId,
       if (settingsOverride != null) 'current_settings': settingsOverride,
       ...extraState,
       if (command['action'] == 'save')
@@ -609,23 +609,20 @@ void main() {
   testWidgets(
     'scene editor binds a managed account without capturing device DNS settings',
     (tester) async {
-      final settings = ScenarioSettings.fromProfile(
-        UsqueProfile.defaultProfile(),
-      ).toMap();
-      settings['dns_servers'] = <String>[
-        '1.1.1.1',
-        '9.9.9.9',
-        '2606:4700:4700::1111',
-      ];
-      final engine = SceneEngine()..settingsOverride = settings;
+      final current = UsqueProfile.defaultProfile().copyWith(
+        dnsIpv4: '9.9.9.9',
+        dnsIpv6: '2606:4700:4700::1111',
+      );
+      final engine = SceneEngine()
+        ..settingsOverride = ScenarioSettings.fromProfile(current).toMap();
       final app = await pumpWorkflow(
         tester,
         engine,
         section: AppSection.profiles,
       );
       app.profiles = [
-        app.activeProfile,
-        app.activeProfile.copyWith(id: 'account-b', name: 'Work account'),
+        current,
+        current.copyWith(id: 'account-b', name: 'Work account'),
       ];
       app.engineCapabilities = await engine.getCapabilities();
       await app.scenarios.refresh();

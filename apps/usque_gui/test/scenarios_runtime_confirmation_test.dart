@@ -23,6 +23,7 @@ Map<String, Object?> confirmedCatalog({
   ),
   'source_epoch': epoch,
   'session_id': session,
+  'observation_session_id': session,
   'applied_account_id': account ?? UsqueProfile.defaultProfileId,
   'applied_scenario_id': 'scene-a',
   'applied_scene_confirmed': true,
@@ -176,10 +177,11 @@ void main() {
       );
       await controller.refresh();
       expect(controller.runtimeConfirmed, false);
-      // Older/desktop catalogues omit the additive key and retain session matching.
+      // Missing authority is an invalid response, not a public-session fallback.
       response.remove('observation_session_id');
       await controller.refresh();
-      expect(controller.runtimeConfirmed, true);
+      expect(controller.queryUnconfirmed, true);
+      expect(controller.runtimeConfirmed, false);
       response = {...response, 'observation_session_id': 'session-b'};
       await controller.refresh();
       expect(controller.runtimeConfirmed, false);
@@ -530,24 +532,22 @@ void main() {
   });
 
   test(
-    'legacy catalogue without runtime identity keeps selection and recovers from a failed query',
+    'catalogue without runtime identity is rejected and preserves confirmed selection',
     () async {
-      var fail = false;
-      final response = fixture(selected: 'scene-a')
-        ..remove('source_epoch')
-        ..remove('session_id');
-      final controller = ScenariosController((_) async {
-        if (fail) throw TimeoutException('Unavailable');
-        return response;
-      })..setSupported(true);
+      var response = fixture(selected: 'scene-a');
+      final controller = ScenariosController((_) async => response)
+        ..setSupported(true);
       addTearDown(controller.dispose);
       await controller.refresh();
       expect(controller.runtimeConfirmed, true);
-      fail = true;
-      await controller.refresh();
-      expect(controller.runtimeConfirmed, false);
-      expect(controller.catalog!.selectedId, 'scene-a');
-      fail = false;
+      for (final field in ['source_epoch', 'observation_session_id']) {
+        response = fixture()..remove(field);
+        await controller.refresh();
+        expect(controller.queryUnconfirmed, true);
+        expect(controller.runtimeConfirmed, false);
+        expect(controller.catalog!.selectedId, 'scene-a');
+      }
+      response = fixture(selected: 'scene-a');
       await controller.refresh();
       expect(controller.runtimeConfirmed, true);
     },

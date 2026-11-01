@@ -198,15 +198,11 @@ unconfirmed until the native owner confirms it again.
 
 ## Compatibility and validation / 兼容与验证
 
-Schema 27 adds an empty scene library and no selected scene when upgrading;
-schema 28 adds optional scene endpoints. Existing scenes and selection snapshots
-without endpoints keep inheriting the current endpoints until explicitly edited.
-Schema 29 removes output, routing and DNS values from templates, selection
-snapshots and previous-switch snapshots, preserving current device settings.
-Pre-29 recovery records retain their receipt but cannot restore an old switch.
-The catalogue's `settings_version: 2` identifies the reduced scene scope;
-older scene engines retain account management but cannot edit or apply scenes
-through this UI. The `endpoint_editing` capability additionally gates endpoints.
+Schema 27 introduces the scene library, selection and latest-switch record.
+Upgrading a configuration without scenes starts with an empty library and no
+selection, preserving existing accounts and device settings. Scenes and their
+snapshots always contain endpoints and the current set of managed fields.
+Obsolete development scene formats have no migration or fallback.
 VPN Gate scene drafts additionally require the engine's epoch-checked node
 requests; unsupported engines retain other scene and account operations.
 Existing account and network choices are preserved. Engines predating scenes
@@ -214,11 +210,9 @@ advertise no scene capability and retain account management. Scene references co
 account credentials, and scene values are excluded from logs and diagnostics.
 There is no scene synchronization, import/export or automatic network trigger.
 
-升级至 schema 27 时增加空场景库，保留原账号与网络设置。Schema 28 增加可选场景
-端点；旧场景及选择快照未编辑端点时继续沿用当前端点。Schema 29 从模板、选择与切换
-快照中清除输出、分流和 DNS 字段，当前全局设置保持原值；旧切换保留回执，但不再可恢复。
-目录的 `settings_version: 2` 标识新的场景范围，旧场景引擎仍可管理账号，不能通过新版
-界面编辑或使用场景；`endpoint_editing` 另行控制端点编辑能力。
+Schema 27 一次引入场景库、当前选择和最近切换记录。从没有场景的配置升级时，
+场景库为空且没有选择，原账号与全局设置保持不变。场景及其快照必须包含端点和
+当前受管字段；开发期旧场景格式不提供迁移或回退。尚不支持场景的引擎仍可管理账号。
 VPN Gate 场景草稿另需引擎支持按实例校验的节点请求；不支持时其他场景与账号操作仍可用。
 场景引用不含账号凭据，场景内容不进入日志或诊断。
 本功能不包含同步、导入导出或网络条件自动切换。
