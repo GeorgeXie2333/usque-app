@@ -75,4 +75,34 @@ void main() {
     );
     expect((close.decoration! as BoxDecoration).color, const Color(0xFFC42B1C));
   });
+  testWidgets(
+    'macOS caption leaves traffic lights to AppKit',
+    (tester) async {
+      WindowFrame.instance.debugEnable();
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: UsqueTheme.light(),
+          home: WindowFrameScaffold(
+            strings: AppStrings(LocalePreference.english),
+            phase: ConnectionPhase.disconnected,
+            child: const SizedBox.expand(key: ValueKey('client')),
+          ),
+        ),
+      );
+      expect(find.text('Usque'), findsOneWidget);
+      expect(find.bySemanticsLabel('Close'), findsNothing);
+      expect(find.bySemanticsLabel('Minimize'), findsNothing);
+      expect(
+        tester.getSize(find.byType(WindowTitleBar)).height,
+        kWindowTitleBarHeight,
+      );
+      expect(
+        tester.getTopLeft(find.byKey(const ValueKey('client'))).dy,
+        kWindowTitleBarHeight,
+      );
+      expect(tester.getTopLeft(find.text('Usque')).dx, greaterThan(90));
+      expect(tester.takeException(), isNull);
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.macOS),
+  );
 }

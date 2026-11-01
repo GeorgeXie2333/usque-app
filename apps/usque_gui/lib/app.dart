@@ -205,7 +205,7 @@ class _UsqueBootstrapState extends State<UsqueBootstrap>
 
 typedef _ChromeView = ({ConnectionPhase phase, LocalePreference locale});
 
-/// Wraps every route in the Flutter-drawn Windows caption.
+/// Wraps every route in the Flutter-drawn desktop caption.
 class _WindowChrome extends StatelessWidget {
   const _WindowChrome({required this.controller, required this.child});
 

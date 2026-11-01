@@ -165,13 +165,13 @@ pub(crate) struct MacSystemProxyGuard {
     transaction: Arc<Mutex<Transaction>>,
 }
 impl MacSystemProxyGuard {
-    pub(crate) async fn shutdown(&mut self) -> Result<()> {
+    pub(crate) async fn shutdown(&mut self, interactive: bool) -> Result<()> {
         let transaction = Arc::clone(&self.transaction);
         tokio::task::spawn_blocking(move || {
             transaction
                 .lock()
                 .map_err(|_| Error::RecoveryPending)?
-                .restore(false)
+                .restore(interactive)
         })
         .await
         .map_err(|_| Error::RecoveryPending)?

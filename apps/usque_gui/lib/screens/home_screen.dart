@@ -102,7 +102,9 @@ class HomeScreen extends StatelessWidget {
     }
     return PageFrame(
       title: strings.get('home'),
-      showHeading: defaultTargetPlatform != TargetPlatform.windows,
+      showHeading:
+          defaultTargetPlatform != TargetPlatform.windows &&
+          defaultTargetPlatform != TargetPlatform.macOS,
       fillViewport: true,
       child: _DesktopHome(
         controller: controller,

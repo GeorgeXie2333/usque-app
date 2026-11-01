@@ -40,7 +40,7 @@ impl ControlService {
             .front()
             .is_some_and(|owner| owner.last_error.is_none())
         {
-            *pending = Some(self.spawn_runtime_shutdown());
+            *pending = Some(self.spawn_runtime_shutdown(false));
         }
     }
 
@@ -53,18 +53,21 @@ impl ControlService {
             let _ = task.await;
         }
         if !self.disconnect_owners.lock().await.is_empty() {
-            *pending = Some(self.spawn_runtime_shutdown());
+            *pending = Some(self.spawn_runtime_shutdown(true));
         }
     }
 
-    fn spawn_runtime_shutdown(&self) -> tokio::task::JoinHandle<Result<(), ControlServiceError>> {
+    fn spawn_runtime_shutdown(
+        &self,
+        interactive: bool,
+    ) -> tokio::task::JoinHandle<Result<(), ControlServiceError>> {
         let service = self.clone();
         tokio::spawn(async move {
             let mut owners = service.disconnect_owners.lock().await;
             while let Some(owner) = owners.front_mut() {
                 // Borrow the retained runtime across the await. Cancellation
                 // or panic cannot drop its transaction identity with the task.
-                let result = Box::pin(owner.runtime.shutdown()).await;
+                let result = Box::pin(owner.runtime.shutdown_with_authorization(interactive)).await;
                 if let Some(generation) = owner.evidence_generation
                     && let Some(evidence) =
                         service.retained_connection_evidence.lock().await.as_mut()

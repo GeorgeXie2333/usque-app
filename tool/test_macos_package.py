@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import errno
 import json
 import plistlib
 import struct
@@ -38,6 +39,19 @@ def write(path: Path, data: bytes) -> None:
         path.chmod(0o755)
 
 
+def symlink_fixture(link: Path, target: str | Path, *, directory: bool = False) -> None:
+    try:
+        link.symlink_to(target, target_is_directory=directory)
+    except OSError as error:
+        if getattr(error, "winerror", None) == 1314:
+            raise unittest.SkipTest(
+                "symlink fixtures require Windows symlink permission"
+            ) from error
+        if error.errno in (errno.EPERM, errno.EACCES, errno.ENOSYS, errno.ENOTSUP):
+            raise unittest.SkipTest("symlink fixtures unavailable on this filesystem") from error
+        raise
+
+
 def flutter_fixture(app: Path, architecture="arm64") -> None:
     for relative in (
         "MacOS/Usque",
@@ -47,8 +61,8 @@ def flutter_fixture(app: Path, architecture="arm64") -> None:
         write(app / "Contents" / relative, macho(architecture))
     for name in ("App", "FlutterMacOS"):
         framework = app / f"Contents/Frameworks/{name}.framework"
-        (framework / name).symlink_to(f"Versions/A/{name}")
-        (framework / "Versions/Current").symlink_to("A")
+        symlink_fixture(framework / name, f"Versions/A/{name}")
+        symlink_fixture(framework / "Versions/Current", "A", directory=True)
     write(
         app / "Contents/Info.plist",
         plistlib.dumps({"CFBundleIdentifier": macos_package.IDENTIFIER}),
@@ -104,6 +118,14 @@ def verification_fixture(app: Path, architecture="arm64") -> None:
 
 
 class MacOSPackageTests(unittest.TestCase):
+    def test_symlink_capability_guard_skips_permission_errors_only(self) -> None:
+        with patch.object(Path, "symlink_to", side_effect=PermissionError(errno.EPERM, "denied")):
+            with self.assertRaises(unittest.SkipTest):
+                symlink_fixture(Path("unused"), "target")
+        with patch.object(Path, "symlink_to", side_effect=FileExistsError(errno.EEXIST, "exists")):
+            with self.assertRaises(FileExistsError):
+                symlink_fixture(Path("unused"), "target")
+
     def test_names_are_architecture_specific_and_reject_path_injection(self) -> None:
         self.assertEqual(
             macos_package.artifact_name("0.3.3", "arm64"), "usque-v0.3.3-macos-arm64.dmg"
@@ -172,7 +194,7 @@ class MacOSPackageTests(unittest.TestCase):
             outside.write_text("fixture")
             link = app / "link"
             for target in (outside, Path("../private-file"), Path("missing")):
-                link.symlink_to(target)
+                symlink_fixture(link, target)
                 with self.assertRaises((ValueError, FileNotFoundError)):
                     macos_package.bundle_files(app)
                 link.unlink()
@@ -260,7 +282,7 @@ class MacOSPackageTests(unittest.TestCase):
             )
             outside = root / "external-locales"
             write(outside / "locale.pak", b"external resource must remain intact")
-            (resources / "de.lproj").symlink_to(outside)
+            symlink_fixture(resources / "de.lproj", outside, directory=True)
             with self.assertRaises(ValueError):
                 macos_package.trim_cef_locales(app)
             self.assertTrue((resources / "de.lproj").is_symlink())

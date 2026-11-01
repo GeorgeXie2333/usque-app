@@ -7,14 +7,14 @@ import 'package:flutter/services.dart';
 /// because the painted title bar is not interactive.
 enum CaptionHover { none, min, max, close }
 
-/// State of the Flutter-drawn Windows title bar.
+/// State of the Flutter-drawn desktop title bar.
 ///
 /// The window is a process singleton, so this is one too. It stays disabled
-/// until [enable] is called from `main`, which keeps tests and the Android
-/// build on the platform's own decorations.
+/// until [enable] is called from `main`, which keeps other platforms and
+/// tests on their own decorations unless a test explicitly enables it.
 ///
 /// Dart only paints and receives state. Move, resize, min/max/close, and
-/// snap layouts are handled by the native window procedure.
+/// snap layouts are handled by the native window host.
 class WindowFrame extends ChangeNotifier {
   WindowFrame._();
 

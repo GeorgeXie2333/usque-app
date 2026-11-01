@@ -432,7 +432,10 @@ class DesktopEngineTransport {
         '--socket',
         _endpoint,
       ],
-      if (Platform.isLinux) ...<String>['--parent-pid', '$pid'],
+      if (Platform.isLinux || Platform.isMacOS) ...<String>[
+        '--parent-pid',
+        '$pid',
+      ],
     ];
     final process = await Process.start(
       executable,

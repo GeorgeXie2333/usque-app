@@ -497,3 +497,26 @@ fn changed_pac_url_or_script_never_gets_enabled_by_owned_restore() {
         );
     }
 }
+
+#[tokio::test]
+async fn explicit_guard_retry_renews_expired_authorization_and_preserves_cancelled_intent() {
+    let (_directory, path, cipher, backend) = fixture();
+    let original = backend.state.lock().unwrap().services[0].values.clone();
+    let transaction =
+        Transaction::start(path.clone(), cipher, backend.clone(), listener()).unwrap();
+    let mut guard = MacSystemProxyGuard {
+        transaction: Arc::new(Mutex::new(transaction)),
+    };
+    backend.state.lock().unwrap().fail_restore = true;
+    let prompts = backend.state.lock().unwrap().interactive_requests;
+    assert_eq!(guard.shutdown(false).await, Err(Error::PermissionRequired));
+    assert_eq!(backend.state.lock().unwrap().interactive_requests, prompts);
+    backend.state.lock().unwrap().cancel_once = true;
+    assert_eq!(guard.shutdown(true).await, Err(Error::PermissionCancelled));
+    assert!(path.exists());
+    guard.shutdown(true).await.unwrap();
+    assert!(!path.exists());
+    let state = backend.state.lock().unwrap();
+    assert_eq!(state.interactive_requests, prompts + 2);
+    assert_eq!(state.services[0].values, original);
+}

@@ -15,6 +15,7 @@ use usque_core::{
 use usque_macos_runtime::{
     backend::{
         BrokerPinRefresher, DataPlaneBackend, PlatformAdapter, PlatformRequest, SessionBackend,
+        SessionHealth,
     },
     credentials::{
         ChainCredentials, CredentialBroker, PersistenceAck, SessionCredentials,
@@ -304,14 +305,17 @@ async fn production_backend_reaches_actual_data_plane_socket_boundary_and_fails_
         .unwrap();
     let result = tokio::time::timeout(
         std::time::Duration::from_secs(5),
-        backend.connect(&session, configuration, credentials, cancellation),
+        backend.connect(&session, configuration, credentials, cancellation.clone()),
     )
     .await;
-    assert!(
-        result
-            .expect("protected socket refusal cancels actual shared runtime startup")
-            .is_err()
-    );
+    let _startup = result.expect("shared runtime startup must remain bounded");
+    // Continuous startup may return before its background socket callback.
+    tokio::time::timeout(std::time::Duration::from_secs(5), cancellation.cancelled())
+        .await
+        .expect("the injected socket refusal must cancel the session");
+    assert!(!matches!(backend.health(), SessionHealth::Connected(_)));
+    backend.disconnect().await.unwrap();
+    assert!(matches!(backend.health(), SessionHealth::Failed));
     let requests = adapter.requests.lock().unwrap();
     assert!(
         requests

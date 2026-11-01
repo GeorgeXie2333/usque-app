@@ -631,7 +631,17 @@ impl ActiveRuntime {
         }
     }
 
+    #[cfg(test)]
     pub(crate) async fn shutdown(&mut self) -> Result<(), ControlServiceError> {
+        self.shutdown_with_authorization(false).await
+    }
+
+    pub(crate) async fn shutdown_with_authorization(
+        &mut self,
+        interactive: bool,
+    ) -> Result<(), ControlServiceError> {
+        #[cfg(not(target_os = "macos"))]
+        let _ = interactive;
         match self {
             #[cfg(target_os = "macos")]
             Self::MacVpn(runtime) => runtime.shutdown().await,
@@ -655,7 +665,7 @@ impl ActiveRuntime {
                 #[cfg(target_os = "macos")]
                 let system_proxy_result = match runtime.system_proxy.as_mut() {
                     Some(proxy) => proxy
-                        .shutdown()
+                        .shutdown(interactive)
                         .await
                         .map_err(ControlServiceError::MacSystemProxy),
                     None => Ok(()),
@@ -921,7 +931,7 @@ impl ActiveRuntime {
                 #[cfg(target_os = "macos")]
                 {
                     if let Some(proxy) = runtime.system_proxy.as_mut() {
-                        proxy.shutdown().await?;
+                        proxy.shutdown(true).await?;
                     }
                     runtime.system_proxy = None;
                     if profile.frontends.http && profile.proxy.system_proxy {

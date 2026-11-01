@@ -93,6 +93,37 @@ cancellation/retry, revoked-right preflight and shared context lifetime. They do
 display a real password dialog or change host network preferences. Actual dialog
 counts, long-running sessions, cancellation and crash recovery remain device-pending.
 
+## PR #147 follow-up (2026-11-01)
+
+Explicit Disconnect/exit retries can renew an expired system-proxy authorization.
+The first cleanup attempt, startup recovery and process detach remain
+noninteractive; cancelling an explicit retry retains the same encrypted journal
+and exact transaction for another retry. Disabling the system-proxy output from
+its settings is also an explicit authorization path.
+
+The GUI now supplies its parent PID to the macOS Engine. The Engine watches its
+actual parent relationship, detaches local frontends after GUI exit and releases
+the IPC lease after detach. A reused PID cannot keep an orphan alive. This does
+not stop an independently protected Network Extension session.
+
+The shared-runtime refusal fixture waits for its asynchronous socket callback
+and verifies cancellation plus a non-connected state before teardown. Packaging
+fixtures skip only unavailable symlink capabilities; portable Mach-O/parser
+checks still run, and other filesystem errors still fail the suite.
+
+macOS now draws the shared 40-pixel Flutter caption over a transparent AppKit
+frame. AppKit retains accessible traffic-light controls, native drag/double-click
+and close-to-tray handling. Home omits its redundant page heading, as Windows
+already does; the navigation label remains. The default content size remains
+1040×760, including the Flutter caption.
+
+Focused validation: 50 Flutter tests, 18 packaging tests, 283 Engine/runtime
+Rust tests, strict Clippy, Flutter analysis, 10 native desktop contract groups
+and an Apple Silicon debug GUI build passed. Tests use mock authorization,
+credential stores and temporary state. Actual authorization dialogs, native
+window interactions, real VPN/proxy traffic and Intel execution were not run.
+No replacement installer or release was published.
+
 ## Earlier complete-suite checks
 
 Development host: Apple Silicon, current macOS, Xcode 27.1. Native deployment

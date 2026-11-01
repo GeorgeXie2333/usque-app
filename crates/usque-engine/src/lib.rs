@@ -2927,6 +2927,9 @@ impl ControlService {
                         runtime.shutdown().await;
                         #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
                         if let Some(mut guard) = system_proxy {
+                            #[cfg(target_os = "macos")]
+                            let _ = guard.shutdown(false).await;
+                            #[cfg(any(windows, target_os = "linux"))]
                             let _ = guard.shutdown().await;
                         }
                         let error = ControlServiceError::Transport(error);

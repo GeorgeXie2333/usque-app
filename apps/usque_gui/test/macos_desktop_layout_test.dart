@@ -168,8 +168,8 @@ Future<void> _saveSimulation(WidgetTester tester, String scene) async {
         'Simulated Flutter platform widgets with a fake Engine.\n'
         'No app, browser, CEF, native window, permission or real network ran.\n'
         'Both client areas are 1040 x 760 logical pixels at 100% text.\n'
-        'Windows includes its actual shared Flutter caption; macOS native\n'
-        'title bar is outside the client and is not rendered by this test.\n'
+        'Both platforms include the shared Flutter caption; AppKit traffic\n'
+        'lights are native and are not rendered by this test.\n'
         'English uses the repository font assets. This is not device QA.\n',
       );
     } finally {
@@ -511,7 +511,7 @@ void main() {
           const Size(1040, 760),
         );
         app.section = section;
-        if (windows) WindowFrame.instance.debugEnable();
+        WindowFrame.instance.debugEnable();
         await tester.pumpWidget(
           RepaintBoundary(
             key: const ValueKey('desktop-qa-capture'),
@@ -527,10 +527,7 @@ void main() {
         );
         await tester.pumpAndSettle();
         expect(tester.takeException(), isNull);
-        expect(
-          find.byType(WindowTitleBar),
-          windows ? findsOneWidget : findsNothing,
-        );
+        expect(find.byType(WindowTitleBar), findsOneWidget);
         await _saveSimulation(
           tester,
           '${windows ? 'windows' : 'macos'}_${section.name}_client_1040x760',

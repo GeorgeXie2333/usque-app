@@ -125,11 +125,11 @@ impl MacOsIpcServer {
         })
     }
 
-    pub async fn serve(self, service: Arc<ControlService>) -> io::Result<()> {
+    pub async fn serve(&self, service: Arc<ControlService>) -> io::Result<()> {
         let control_permits = Arc::new(Semaphore::new(MAX_CONTROL_CLIENTS));
         let event_permits = Arc::new(Semaphore::new(MAX_EVENT_CLIENTS));
-        // Dropping the server aborts every accepted client, including a stalled
-        // frame or event reader, before removing its own socket inodes.
+        // Dropping this serving future aborts accepted clients. The caller keeps
+        // the process/socket leases alive until local cleanup has finished.
         let mut clients = JoinSet::new();
         let mut accept_failed = false;
         loop {
@@ -370,7 +370,7 @@ mod tests {
         let service = Arc::new(
             ControlService::open(ConfigStore::new(root.path().join("config.json"))).unwrap(),
         );
-        let task = tokio::spawn(server.serve(service));
+        let task = tokio::spawn(async move { server.serve(service).await });
         let mut stream = UnixStream::connect(&path).await.unwrap();
         authenticate_peer(&stream).unwrap();
         stream
