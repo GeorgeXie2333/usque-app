@@ -9,10 +9,74 @@ import '../models/app_models.dart';
 import '../state/app_controller.dart';
 import '../widgets/common.dart';
 import '../widgets/profile_identity_dialog.dart';
+import '../widgets/profiles_status.dart';
 import '../widgets/tv_text_input.dart';
 import '../widgets/usque_dialog.dart';
 
 export 'profiles_hub_screen.dart' show ProfilesScreen;
+
+/// Account management lives inside the Profiles section's navigation stack.
+class AccountsPage extends StatefulWidget {
+  const AccountsPage({required this.controller, super.key});
+
+  final AppController controller;
+
+  @override
+  State<AccountsPage> createState() => _AccountsPageState();
+}
+
+class _AccountsPageState extends State<AccountsPage> {
+  AppController get controller => widget.controller;
+
+  @override
+  void initState() {
+    super.initState();
+    controller.addListener(_changed);
+  }
+
+  @override
+  void didUpdateWidget(covariant AccountsPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != controller) {
+      oldWidget.controller.removeListener(_changed);
+      controller.addListener(_changed);
+    }
+  }
+
+  void _changed() {
+    if (!mounted ||
+        !controller.uiVisible ||
+        controller.section != AppSection.profiles) {
+      return;
+    }
+    setState(() {});
+  }
+
+  @override
+  void dispose() {
+    controller.removeListener(_changed);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => SubPage(
+    title: controller.strings.get('scenario_accounts'),
+    backLabel: controller.strings.get('back'),
+    contentWidth: 880,
+    actions: [AddAccountButton(controller: controller)],
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        BannerSlot(child: profilesOperationBanner(controller)),
+        if (controller.scenarios.supported) ...[
+          ProfilesSummary(controller: controller),
+          const SizedBox(height: 24),
+        ],
+        AccountsScreen(controller: controller),
+      ],
+    ),
+  );
+}
 
 class AccountsScreen extends StatelessWidget {
   const AccountsScreen({
@@ -68,7 +132,7 @@ class AccountsScreen extends StatelessWidget {
                 )
                 .toList(growable: false),
           );
-    // Profiles frames this list and places its create action.
+    // The owning page frames this list and places its create action.
     return content;
   }
 
@@ -187,7 +251,7 @@ class AccountsScreen extends StatelessWidget {
   }
 }
 
-/// Starts adding a WARP account; shared by Accounts and the Profiles tabs.
+/// Starts adding a WARP account; shared by management and scene binding pages.
 class AddAccountButton extends StatelessWidget {
   const AddAccountButton({required this.controller, super.key});
 

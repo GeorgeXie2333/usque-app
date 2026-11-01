@@ -4,10 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:usque/models/app_models.dart';
 import 'package:usque/models/scenarios.dart';
 import 'package:usque/screens/profiles_hub_screen.dart';
+import 'package:usque/screens/profiles_screen.dart' show AccountsPage;
 import 'package:usque/screens/scenario_editor_screen.dart';
 import 'package:usque/services/engine_client.dart';
 import 'package:usque/state/app_controller.dart';
@@ -267,7 +267,7 @@ void main() {
   }
 
   testWidgets(
-    'Ctrl+2 defaults to scenes while home account and scene entries select their tabs',
+    'Ctrl+2 opens scenes while home account and scene entries select their pages',
     (tester) async {
       final engine = SceneEngine();
       final app = await pumpWorkflow(tester, engine, section: AppSection.home);
@@ -276,7 +276,7 @@ void main() {
       await tester.pumpAndSettle();
       await controlKey(tester, LogicalKeyboardKey.digit2);
       expect(app.section, AppSection.profiles);
-      expect(app.profilesTab, ProfilesTab.scenes);
+      expect(find.byType(AccountsPage), findsNothing);
       expect(find.text('Daily'), findsOneWidget);
       await controlKey(tester, LogicalKeyboardKey.digit1);
       await tester.tap(
@@ -286,32 +286,17 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      expect(app.profilesTab, ProfilesTab.accounts);
+      expect(find.byType(AccountsPage), findsOneWidget);
       expect(find.text(app.strings.get('new_profile')), findsOneWidget);
       await controlKey(tester, LogicalKeyboardKey.digit1);
       final sceneLink = find.byKey(const ValueKey('home-scene-link'));
       await tester.ensureVisible(sceneLink);
       await tester.tap(sceneLink);
       await tester.pumpAndSettle();
-      expect(app.profilesTab, ProfilesTab.scenes);
+      expect(find.byType(AccountsPage), findsNothing);
       expect(find.text('Daily'), findsOneWidget);
     },
     variant: TargetPlatformVariant.only(TargetPlatform.windows),
-  );
-
-  test(
-    'the existing profiles launch target explicitly opens Accounts',
-    () async {
-      SharedPreferences.setMockInitialValues({
-        'onboarding_complete': true,
-        'update_checks_enabled': false,
-      });
-      final app = AppController(SceneEngine()..launchTarget = 'profiles');
-      addTearDown(app.dispose);
-      await app.initialize();
-      expect(app.section, AppSection.profiles);
-      expect(app.profilesTab, ProfilesTab.accounts);
-    },
   );
 
   testWidgets(
@@ -925,7 +910,7 @@ void main() {
   });
 
   testWidgets(
-    'Profiles tabs retain accounts and scene use previews one native activation',
+    'Profiles keeps account management available after one native scene activation',
     (tester) async {
       final engine = SceneEngine();
       final app = await pumpWorkflow(
@@ -949,7 +934,7 @@ void main() {
         engine.sceneCalls.where((r) => r['action'] == 'activate'),
         hasLength(1),
       );
-      app.selectProfilesTab(ProfilesTab.accounts);
+      await tester.tap(find.byKey(const ValueKey('profiles-manage-accounts')));
       await tester.pumpAndSettle();
       expect(find.text(app.strings.get('new_profile')), findsOneWidget);
     },
@@ -1185,7 +1170,7 @@ void main() {
   });
 
   testWidgets(
-    'an Engine without scenes shows Accounts without a tab selector',
+    'an Engine without scenes keeps account management at the section root',
     (tester) async {
       final app = await pumpWorkflow(
         tester,
@@ -1193,7 +1178,11 @@ void main() {
         section: AppSection.profiles,
       );
       await tester.pumpAndSettle();
-      expect(find.byType(SegmentedButton<ProfilesTab>), findsNothing);
+      expect(
+        find.byKey(const ValueKey('profiles-manage-accounts')),
+        findsNothing,
+      );
+      expect(find.byKey(const ValueKey('scenario-create')), findsNothing);
       expect(
         find.text(app.strings.get('scenario_unsupported')),
         findsOneWidget,

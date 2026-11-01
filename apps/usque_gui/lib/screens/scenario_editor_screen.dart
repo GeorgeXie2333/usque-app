@@ -9,17 +9,14 @@ import '../models/scenarios.dart';
 import '../state/app_controller.dart';
 import '../state/scenario_gate_leases.dart';
 import '../widgets/common.dart';
+import '../widgets/profiles_status.dart' show scenarioErrorKey;
 import '../widgets/save_changes_bar.dart';
 import '../widgets/scenario_endpoint_editor.dart';
 import '../widgets/tv_text_input.dart';
 import '../widgets/unsaved_changes_guard.dart';
 import 'chain_proxy_screen.dart';
 import 'profiles_hub_screen.dart'
-    show
-        previewAndUseScenario,
-        scenarioErrorKey,
-        scenarioExitNames,
-        scenarioValueLabel;
+    show previewAndUseScenario, scenarioExitNames, scenarioValueLabel;
 import 'profiles_screen.dart' show AccountsScreen, AddAccountButton;
 
 class ScenarioEditorScreen extends StatefulWidget {

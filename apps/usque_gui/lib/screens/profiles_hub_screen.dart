@@ -5,27 +5,30 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../core/app_strings.dart';
-import '../core/chain_strings.dart';
 import '../core/proton_strings.dart';
 import '../core/usque_theme.dart';
 import '../models/app_models.dart';
 import '../models/scenarios.dart';
 import '../state/app_controller.dart';
 import '../widgets/common.dart';
+import '../widgets/profiles_status.dart';
 import '../widgets/proton_vpn_panel.dart' show loadCachedProtonServers;
 import '../widgets/usque_dialog.dart';
 import '../widgets/zero_trust_endpoint_warning.dart';
-import 'profiles_screen.dart' show AccountsScreen, AddAccountButton;
+import 'profiles_screen.dart'
+    show AccountsPage, AccountsScreen, AddAccountButton;
 import 'scenario_editor_screen.dart';
 
 class ProfilesScreen extends StatefulWidget {
   const ProfilesScreen({
     required this.controller,
     this.gateObservation = false,
+    this.onOpenAccounts,
     super.key,
   });
   final bool gateObservation;
   final AppController controller;
+  final VoidCallback? onOpenAccounts;
   @override
   State<ProfilesScreen> createState() => _ProfilesScreenState();
 }
@@ -449,175 +452,33 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
     );
   }
 
-  /// The saved choices beside the confirmed running combination, which can
-  /// differ until a switch is applied.
-  Widget _summary() {
-    final strings = app.strings, state = app.scenarios.catalog;
-    final theme = Theme.of(context);
-    final accountId = state?.currentAccountId ?? app.activeProfileId;
-    final account = app.profiles.where((a) => a.id == accountId).firstOrNull;
-    final accountUnconfirmed =
-        app.scenarios.queryUnconfirmed && accountId != app.activeProfileId;
-    final runtimeConfirmed =
-        app.scenarios.runtimeConfirmed && state?.appliedSceneConfirmed == true;
-    final appliedAccount = runtimeConfirmed
-        ? app.profiles.where((a) => a.id == state?.appliedAccountId).firstOrNull
-        : null;
-    final appliedScene = runtimeConfirmed
-        ? state?.scenarios
-                  .where((scene) => scene.id == state.appliedScenarioId)
-                  .firstOrNull
-                  ?.name ??
-              strings.get('scenario_custom')
-        : strings.get('scenario_unknown');
-    Widget item(IconData icon, String label, String value, {Key? key}) =>
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(icon, size: 16, color: theme.colorScheme.onSurfaceVariant),
-                const SizedBox(width: 6),
-                Flexible(
-                  child: Text(
-                    label,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 4),
-            Text(value, key: key, style: theme.textTheme.titleSmall),
-          ],
-        );
-    final facts = Wrap(
-      spacing: 40,
-      runSpacing: 12,
-      children: [
-        item(
-          LucideIcons.layers3,
-          strings.get('scenario_current'),
-          state?.selected?.name ?? strings.get('scenario_custom'),
-        ),
-        item(
-          LucideIcons.user,
-          strings.get('scenario_current_account'),
-          accountUnconfirmed
-              ? strings.get('scenario_unknown')
-              : account?.name ?? strings.get('not_available'),
-          key: const ValueKey('profiles-selected-account'),
-        ),
-        if (state?.sessionId != null || app.snapshot.isConnected)
-          item(
-            LucideIcons.activity,
-            strings.chain('current'),
-            runtimeConfirmed
-                ? '${appliedAccount?.name ?? strings.get('not_available')} · $appliedScene'
-                : strings.get('scenario_unknown'),
-            key: const ValueKey('profiles-running'),
-          ),
-      ],
-    );
-    // Refresh stays beside the facts at every width; it is small, and an
-    // uncertain switch is resolved by refreshing before anything else.
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(child: facts),
-            const SizedBox(width: 16),
-            IconButton(
-              tooltip: strings.get('settings_refresh'),
-              onPressed: app.scenarios.busy ? null : app.scenarios.refresh,
-              icon: const Icon(LucideIcons.refreshCw),
-            ),
-          ],
-        ),
-        if (state?.canRestore == true) ...[
-          const SizedBox(height: 8),
-          Align(
-            alignment: AlignmentDirectional.centerStart,
-            child: TextButton.icon(
-              onPressed: app.scenarios.busy
-                  ? null
-                  : () => previewAndUseScenario(context, app, null),
-              icon: const Icon(LucideIcons.history, size: 18),
-              label: Text(strings.get('scenario_restore')),
-            ),
-          ),
-        ],
-      ],
+  void _openAccounts() {
+    if (widget.onOpenAccounts case final open?) {
+      open();
+      return;
+    }
+    Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        settings: const RouteSettings(name: '/profiles/accounts'),
+        builder: (_) => AccountsPage(controller: app),
+      ),
     );
   }
 
-  /// Engine and switch problems, above the content they concern.
-  Widget? _banner() {
-    final strings = app.strings, scenes = app.scenarios, state = scenes.catalog;
-    final failed = scenes.runtimeConfirmed && state?.applyStatus == 'failed';
-    final banners = [
-      if (state?.currentSettingsError != null)
-        WarningBanner(
-          title: null,
-          message: strings.get(scenarioErrorKey(state!.currentSettingsError)),
-        ),
-      if (scenes.errorCode != null || scenes.unconfirmed || failed)
-        WarningBanner(
-          title: null,
-          danger: failed,
-          message: strings.get(
-            scenes.unconfirmed
-                ? 'scenario_unknown'
-                : failed
-                ? 'scenario_failed'
-                : scenarioErrorKey(scenes.errorCode),
-          ),
-        ),
-    ];
-    if (banners.isEmpty) return null;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        for (var i = 0; i < banners.length; i++) ...[
-          if (i > 0) const SizedBox(height: 8),
-          banners[i],
-        ],
-      ],
-    );
-  }
-
-  /// The tab selector shares a row with the visible tab's create action.
-  Widget _toolbar(ProfilesTab selected) {
+  Widget _toolbar() {
     final strings = app.strings, scenes = app.scenarios;
-    final tabs = SegmentedButton<ProfilesTab>(
-      segments: [
-        ButtonSegment(
-          value: ProfilesTab.scenes,
-          label: Text(strings.get('scenario_scenes')),
-        ),
-        ButtonSegment(
-          value: ProfilesTab.accounts,
-          label: Text(strings.get('scenario_accounts')),
-        ),
-      ],
-      selected: {selected},
-      onSelectionChanged: (values) => app.selectProfilesTab(values.first),
+    final heading = Text(
+      strings.get('scenario_scenes'),
+      style: Theme.of(context).textTheme.titleSmall,
     );
-    final create = selected == ProfilesTab.accounts
-        ? AddAccountButton(controller: app)
-        : FilledButton.icon(
-            key: const ValueKey('scenario-create'),
-            onPressed: scenes.busy || scenes.catalog?.currentSettings == null
-                ? null
-                : () => _edit(),
-            icon: const Icon(LucideIcons.plus),
-            label: Text(strings.get('scenario_create')),
-          );
+    final create = FilledButton.icon(
+      key: const ValueKey('scenario-create'),
+      onPressed: scenes.busy || scenes.catalog?.currentSettings == null
+          ? null
+          : () => _edit(),
+      icon: const Icon(LucideIcons.plus),
+      label: Text(strings.get('scenario_create')),
+    );
     return LayoutBuilder(
       builder: (context, constraints) {
         if (constraints.maxWidth < 560 ||
@@ -625,19 +486,15 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
           return Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              tabs,
-              const SizedBox(height: 16),
+              heading,
+              const SizedBox(height: 12),
               Align(alignment: AlignmentDirectional.centerEnd, child: create),
             ],
           );
         }
         return Row(
           children: [
-            ConstrainedBox(
-              constraints: const BoxConstraints(minWidth: 280),
-              child: tabs,
-            ),
-            const Spacer(),
+            Expanded(child: heading),
             const SizedBox(width: 16),
             create,
           ],
@@ -701,19 +558,30 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
   Widget build(BuildContext context) {
     final strings = app.strings, scenes = app.scenarios;
     final available = scenes.supported;
-    final selected = available ? app.profilesTab : ProfilesTab.accounts;
     return PageFrame(
       title: strings.get('profiles'),
       subtitle: strings.get('profiles_subtitle'),
       contentWidth: 880,
+      actions: [
+        if (available)
+          TextButton.icon(
+            key: const ValueKey('profiles-manage-accounts'),
+            onPressed: _openAccounts,
+            icon: const Icon(LucideIcons.users, size: 18),
+            label: Text(strings.get('profiles_manage_accounts')),
+          ),
+      ],
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          BannerSlot(child: _banner()),
+          BannerSlot(child: profilesOperationBanner(app)),
           if (available) ...[
-            _summary(),
+            ProfilesSummary(
+              controller: app,
+              onRestore: () => previewAndUseScenario(context, app, null),
+            ),
             const SizedBox(height: 24),
-            _toolbar(selected),
+            _toolbar(),
           ] else ...[
             // Without scenes there is nothing to switch to, only Accounts.
             HintText(strings.get('scenario_unsupported')),
@@ -724,10 +592,7 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
             ),
           ],
           const SizedBox(height: 16),
-          if (selected == ProfilesTab.accounts)
-            AccountsScreen(controller: app)
-          else
-            _scenes(),
+          if (!available) AccountsScreen(controller: app) else _scenes(),
         ],
       ),
     );
@@ -1204,23 +1069,6 @@ Future<Map<String, String>> scenarioExitNames(
   }
   return names;
 }
-
-String scenarioErrorKey(String? code) => switch (code) {
-  'SCENARIO_ACCOUNT_UNAVAILABLE' ||
-  'SCENARIO_DEPENDENCY_UNAVAILABLE' => 'scenario_reference_missing',
-  'SCENARIO_VPN_PERMISSION_REQUIRED' => 'scenario_vpn_permission',
-  'SCENARIO_RULES_UNAVAILABLE' => 'scenario_rules_missing',
-  'SCENARIO_UNCONFIRMED' ||
-  'SCENARIO_COMMIT_UNCONFIRMED' ||
-  'SCENARIO_RESULT_UNKNOWN' => 'scenario_unknown',
-  'SCENARIO_PLATFORM_UNSUPPORTED' => 'scenario_platform_unsupported',
-  'SCENARIO_NOT_APPLIED' => 'scenario_not_applied',
-  'SCENARIO_INVALID_SETTINGS' => 'scenario_settings_invalid',
-  'SCENARIO_PROTECTION_UNAVAILABLE' => 'protection_handoff_unavailable',
-  'SCENARIO_LIMIT' => 'scenario_limit',
-  'SCENARIOS_UNSUPPORTED' => 'scenario_unsupported',
-  _ => 'scenario_save_failed',
-};
 
 String scenarioValueLabel(
   AppStrings strings,

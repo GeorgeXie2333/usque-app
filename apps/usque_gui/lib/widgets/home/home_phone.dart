@@ -7,7 +7,6 @@ import '../../core/chain_home_status.dart';
 import '../../core/chain_scope_presentation.dart';
 import '../../core/usque_theme.dart';
 import '../../models/app_models.dart';
-import '../../models/scenarios.dart';
 import '../../state/app_controller.dart';
 import '../chain_exit_summary.dart';
 import '../chain_source_icon.dart';
@@ -83,7 +82,7 @@ class _AccountChip extends StatelessWidget {
           shape: const StadiumBorder(),
           clipBehavior: Clip.antiAlias,
           child: InkWell(
-            onTap: () => controller.openProfiles(ProfilesTab.accounts),
+            onTap: controller.openAccounts,
             child: ConstrainedBox(
               constraints: const BoxConstraints(minHeight: 40),
               child: Padding(

@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../core/usque_theme.dart';
-import '../../models/scenarios.dart';
 import '../../state/app_controller.dart';
 import '../common.dart';
 
@@ -35,7 +34,7 @@ class ScenarioHomeLink extends StatelessWidget {
         padding: EdgeInsets.only(bottom: compact ? UsqueSpace.xs : 0),
         child: ActionRow(
           key: const ValueKey('home-scene-link'),
-          onTap: () => controller.openProfiles(ProfilesTab.scenes),
+          onTap: controller.openProfiles,
           padding: EdgeInsets.zero,
           child: Align(
             alignment: AlignmentDirectional.centerStart,

@@ -7,7 +7,6 @@ import '../../core/connection_presentation.dart';
 import '../../core/usque_motion.dart';
 import '../../core/usque_theme.dart';
 import '../../models/app_models.dart';
-import '../../models/scenarios.dart';
 import '../../state/app_controller.dart';
 import '../common.dart';
 import '../connection_ring.dart';
@@ -202,7 +201,7 @@ class HomeConnectionHero extends StatelessWidget {
         _AccountEyebrow(
           name: view.profileName,
           strings: strings,
-          onOpen: () => controller.openProfiles(ProfilesTab.accounts),
+          onOpen: controller.openAccounts,
         ),
         const SizedBox(height: UsqueSpace.xs),
         headline,

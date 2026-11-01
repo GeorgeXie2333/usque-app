@@ -4,8 +4,6 @@ import 'package:flutter/foundation.dart';
 
 import 'app_models.dart';
 
-enum ProfilesTab { scenes, accounts }
-
 Map<String, Object?> scenarioMap(Object? value) =>
     value is Map ? Map<String, Object?>.from(value) : <String, Object?>{};
 

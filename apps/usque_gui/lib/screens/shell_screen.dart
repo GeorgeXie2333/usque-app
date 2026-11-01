@@ -89,6 +89,8 @@ class _ShellScreenState extends State<ShellScreen> {
   bool _changingSection = false;
   bool _openingChainProxy = false;
   bool _openingDiagnostics = false;
+  bool _profilesNavigationScheduled = false;
+  PageRoute<void>? _accountsRoute;
 
   static const _sectionKeys = <LogicalKeyboardKey>[
     LogicalKeyboardKey.digit1,
@@ -100,13 +102,53 @@ class _ShellScreenState extends State<ShellScreen> {
   @override
   void initState() {
     super.initState();
+    controller.addListener(_profilesRequested);
+    _profilesRequested();
     if (desktopShortcutsSupported) {
       HardwareKeyboard.instance.addHandler(_handleShortcut);
     }
   }
 
   @override
+  void didUpdateWidget(covariant ShellScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != controller) {
+      oldWidget.controller.removeListener(_profilesRequested);
+      controller.addListener(_profilesRequested);
+      _profilesRequested();
+    }
+  }
+
+  /// Startup requests can precede the first mounted section navigator. Consume
+  /// each request once, after a frame, and use the same leave guard as the rail.
+  void _profilesRequested() {
+    if (controller.pendingProfilesDestination == null) return;
+    // Hidden sections defer rebuilding and cannot mount a lazy navigator yet.
+    if (!controller.uiVisible) return;
+    if (_changingSection) {
+      controller.takeProfilesDestination();
+      return;
+    }
+    if (_profilesNavigationScheduled) return;
+    _profilesNavigationScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _profilesNavigationScheduled = false;
+      if (!mounted || !controller.uiVisible) return;
+      final destination = controller.takeProfilesDestination();
+      if (destination == null) return;
+      unawaited(
+        _selectSection(
+          AppSection.profiles,
+          openAccounts: destination == ProfilesDestination.accounts,
+        ),
+      );
+    });
+    WidgetsBinding.instance.ensureVisualUpdate();
+  }
+
+  @override
   void dispose() {
+    controller.removeListener(_profilesRequested);
     if (desktopShortcutsSupported) {
       HardwareKeyboard.instance.removeHandler(_handleShortcut);
     }
@@ -221,8 +263,19 @@ class _ShellScreenState extends State<ShellScreen> {
     }
   }
 
-  Future<bool> _selectSection(AppSection section) async {
+  Future<bool> _selectSection(
+    AppSection section, {
+    bool openAccounts = false,
+  }) async {
+    // An explicit rail/keyboard action supersedes an unhandled launch request.
+    controller.takeProfilesDestination();
     if (_changingSection) return false;
+    // A repeated shortcut or tap must not recreate the current account page.
+    if (openAccounts &&
+        controller.section == AppSection.profiles &&
+        _accountsRoute?.isCurrent == true) {
+      return true;
+    }
     _changingSection = true;
     final selectedController = controller;
     try {
@@ -232,6 +285,39 @@ class _ShellScreenState extends State<ShellScreen> {
       }
       if (!mounted || controller != selectedController) return false;
       controller.selectSection(section);
+      if (openAccounts) {
+        await WidgetsBinding.instance.endOfFrame;
+        if (!mounted ||
+            controller != selectedController ||
+            controller.section != AppSection.profiles) {
+          return false;
+        }
+        // Unknown startup capabilities must not discard an account shortcut.
+        // Account management itself needs no scene support. A confirmed older
+        // engine already renders Accounts at the root.
+        if (controller.engineCapabilities?.connectionScenarios == false) {
+          return true;
+        }
+        final profiles = _sectionNavigators[AppSection.profiles]?.currentState;
+        if (profiles == null || !await profiles.closeSubpages()) return false;
+        if (!mounted ||
+            controller != selectedController ||
+            controller.section != AppSection.profiles) {
+          return false;
+        }
+        final navigator = profiles.navigator;
+        if (navigator == null) return false;
+        final route = MaterialPageRoute<void>(
+          settings: const RouteSettings(name: '/profiles/accounts'),
+          builder: (_) => AccountsPage(controller: selectedController),
+        );
+        _accountsRoute = route;
+        unawaited(
+          navigator.push<void>(route).whenComplete(() {
+            if (_accountsRoute == route) _accountsRoute = null;
+          }),
+        );
+      }
       return true;
     } finally {
       _changingSection = false;
@@ -345,8 +431,11 @@ class _ShellScreenState extends State<ShellScreen> {
             active: section == AppSection.profiles,
             rootName: '/profiles',
             onSubpageChanged: _onSubpageChanged(AppSection.profiles),
-            builder: (context) =>
-                ProfilesScreen(controller: controller, gateObservation: true),
+            builder: (context) => ProfilesScreen(
+              controller: controller,
+              gateObservation: true,
+              onOpenAccounts: controller.openAccounts,
+            ),
           ),
           ProxySection(
             key: _proxySection,

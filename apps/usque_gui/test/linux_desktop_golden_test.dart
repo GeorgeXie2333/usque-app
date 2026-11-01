@@ -1237,6 +1237,30 @@ void main() {
           accounts: false,
         ),
         (
+          name: 'profiles_accounts_desktop_en_light',
+          size: const Size(1280, 900),
+          locale: LocalePreference.english,
+          scale: 1.0,
+          editor: false,
+          accounts: true,
+        ),
+        (
+          name: 'profiles_accounts_narrow_zh_large',
+          size: const Size(390, 844),
+          locale: LocalePreference.simplifiedChinese,
+          scale: 2.0,
+          editor: false,
+          accounts: true,
+        ),
+        (
+          name: 'profiles_accounts_rtl_large',
+          size: const Size(1280, 1000),
+          locale: LocalePreference.persian,
+          scale: 2.0,
+          editor: false,
+          accounts: true,
+        ),
+        (
           name: 'profiles_scene_editor_zh_light',
           size: const Size(390, 844),
           locale: LocalePreference.simplifiedChinese,
@@ -1282,7 +1306,11 @@ void main() {
             }
             if (fixture.accounts) {
               final account = find.byKey(
-                const ValueKey('scenario-account-management'),
+                ValueKey(
+                  fixture.editor
+                      ? 'scenario-account-management'
+                      : 'profiles-manage-accounts',
+                ),
               );
               await tester.ensureVisible(account);
               await tester.tap(account);

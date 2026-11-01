@@ -1,17 +1,34 @@
 # Profiles and scenes / 配置与场景
 
-Open **Profiles → Scenes** to save and reuse a local network setup. **Accounts**
-is the second tab on the same page. Home's account entry opens Accounts; its
-scene entry opens Scenes. Ordinary navigation remembers the last tab for the
-current application run. The existing Ctrl+2 shortcut opens Profiles.
+Open **Profiles** to save and reuse a local network setup. The page opens on the
+scene list; **Manage accounts** opens its **Accounts** subpage. Home's account
+entry and the account launcher open that subpage directly. Home's scene entry,
+ordinary navigation and Ctrl+2 open the Profiles root. Back from Accounts returns
+to Profiles, retaining the scene list's scroll position. Desktop navigation stays
+visible; phones hide bottom navigation on subpages. Leaving an editor first checks
+its unsaved changes, including when opening Accounts from another entry.
 The top of the page shows the selected scene and account and, while a session
 exists, the confirmed current connection, with a refresh button. Engines
-without scenes show Accounts only, without the tab selector.
+without scenes continue to show account management at the root.
 
-在 **配置 → 场景** 保存和使用本机网络方案；同一页面的 **账号** 标签保留账号管理。
-首页账号入口直接打开账号标签，场景入口打开场景标签。普通导航记住本次运行访问的
-标签，Ctrl+2 仍打开配置页。页面顶部显示已选场景、已选账号；存在会话时还显示
-已确认的当前连接，旁边提供刷新按钮。不支持场景的引擎只显示账号，不显示标签切换。
+在 **配置** 首页保存和使用本机网络场景，通过 **账号管理** 打开 **账号** 二级页。
+首页账号入口和账号启动入口直达账号页；首页场景入口、普通导航和 Ctrl+2 均打开
+配置首页。账号页返回配置首页并保留场景列表的滚动位置。桌面保留侧栏，手机在
+子页面隐藏底部导航。离开编辑器时先检查未保存修改，从其他入口打开账号页也遵循
+同一保护。页面顶部显示已选场景、已选账号；存在会话时还显示已确认的当前连接，
+旁边提供刷新按钮。不支持场景的引擎继续在配置首页提供账号管理。
+
+The Accounts page supports account creation, identity setup, renaming, licenses
+and deletion. **Set active** changes the current account and confirms reconnection
+while connected or connecting. Its summary distinguishes the saved choice from
+the confirmed running connection; failures and unconfirmed results stay visible
+on this page. In a scene editor, **Bind to scene** instead changes only the draft
+binding and returns to the editor.
+
+账号页支持新建、身份设置、重命名、许可证和删除。**设为当前账号** 切换当前账号，
+连接中或正在连接时会先确认重连。摘要区分已保存选择和已确认的运行连接，失败及
+结果未确认提示直接显示在账号页。场景编辑器内的 **绑定到场景** 只修改草稿绑定，
+随后返回编辑器。
 
 ## Create and edit / 创建与编辑
 
