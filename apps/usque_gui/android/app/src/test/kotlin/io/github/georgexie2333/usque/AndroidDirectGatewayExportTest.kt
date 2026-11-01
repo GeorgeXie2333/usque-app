@@ -49,6 +49,13 @@ class AndroidDirectGatewayExportTest {
         }
 
         val manifest = JSONObject(requireNotNull(entries["manifest.json"]).toString(Charsets.UTF_8))
+        val modes =
+            JSONObject(requireNotNull(entries["configuration-summary.json"]).toString(Charsets.UTF_8))
+                .getJSONArray("diagnostic_modes")
+        assertEquals(listOf("standard", "deep"), (0 until modes.length()).map(modes::getString))
+        val excluded = manifest.getJSONArray("excluded")
+        assertTrue(excluded.length() > 0)
+        assertTrue((0 until excluded.length()).all { excluded.get(it) is String })
         val contents = manifest.getJSONArray("contents")
         assertEquals(entries.size - 1, contents.length())
         for (index in 0 until contents.length()) {
@@ -58,6 +65,29 @@ class AndroidDirectGatewayExportTest {
             val digest = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
             assertEquals(digest, entry.getString("sha256"))
         }
+    }
+
+    @Test
+    fun archiveUsesJsonContainersBeforeSerializationOnAndroid() {
+        val configuration = AndroidMaintenance.diagnosticArchiveConfiguration()
+        assertTrue(configuration.get("diagnostic_modes") is JSONArray)
+        val modes = configuration.getJSONArray("diagnostic_modes")
+        assertEquals(listOf("standard", "deep"), (0 until modes.length()).map(modes::getString))
+        val payload = "diagnostic fixture".toByteArray()
+        val metadata = AndroidMaintenance.DiagnosticArchiveMetadata("probe", true, null, 36, listOf("x86_64"))
+        val manifest = AndroidMaintenance.diagnosticArchiveManifest(mapOf("fixture.json" to payload), metadata, null)
+        // The host JSON serializer accepts raw Collections that Android writes as strings.
+        // Check the unrendered value so this fixture detects that platform difference.
+        assertTrue(manifest.get("contents") is JSONArray)
+        val contents = manifest.getJSONArray("contents")
+        assertEquals(1, contents.length())
+        assertTrue(contents.get(0) is JSONObject)
+        assertEquals("fixture.json", contents.getJSONObject(0).getString("path"))
+        assertEquals(payload.size, contents.getJSONObject(0).getInt("size"))
+        assertTrue(manifest.get("excluded") is JSONArray)
+        val empty = AndroidMaintenance.diagnosticArchiveManifest(emptyMap(), metadata, null)
+        assertTrue(empty.get("contents") is JSONArray)
+        assertEquals(0, empty.getJSONArray("contents").length())
     }
 
     @Test
