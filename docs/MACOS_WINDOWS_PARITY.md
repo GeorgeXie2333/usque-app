@@ -117,12 +117,43 @@ and close-to-tray handling. Home omits its redundant page heading, as Windows
 already does; the navigation label remains. The default content size remains
 1040×760, including the Flutter caption.
 
-Focused validation: 50 Flutter tests, 18 packaging tests, 283 Engine/runtime
-Rust tests, strict Clippy, Flutter analysis, 10 native desktop contract groups
-and an Apple Silicon debug GUI build passed. Tests use mock authorization,
+Before integrating upstream dev, focused validation passed: 50 Flutter tests,
+18 packaging tests, 283 Engine/runtime Rust tests, strict Clippy, Flutter
+analysis, 10 native desktop contract groups and an Apple Silicon debug GUI build.
+The follow-up integrates upstream dev `57d7624864d940c322e16c855476fa235d182346`,
+retaining both native Settings navigation and the new account/scenario routes,
+and preserving the system Traditional Chinese locale resolver. Tests use mock authorization,
 credential stores and temporary state. Actual authorization dialogs, native
 window interactions, real VPN/proxy traffic and Intel execution were not run.
 No replacement installer or release was published.
+
+Final integration source: `90c57bf9d5ef1ec0607a99ae5dd1ae76e9220495`.
+
+- `cargo test --workspace --all-targets --locked --offline`: 2,062 passed,
+  3 ignored, no failures.
+- `cargo clippy --workspace --all-targets --locked --offline -- -D warnings`
+  and `pwsh -NoProfile -File tool/check_source.ps1`: passed. The latter covers
+  Rust/Dart formatting, Flutter analysis, Kotlin, Ruff, PowerShell and Protobuf.
+- Full non-golden Flutter run: 1,499 passed, 1 skipped, 1 preview-disposal test
+  timed out at 30 seconds. All 7 tests in `preview_test.dart` then passed in an
+  isolated retry. The full command therefore exited nonzero; it is not recorded
+  as an entirely green single run. Earlier merge-check locale failures were
+  corrected; the 13 locale/desktop-shortcut checks passed afterward.
+- Python tool suite: 354 cases, 21 skipped, no failures (includes the 18
+  packaging cases). Its initial restricted run could not open test sockets;
+  the permitted rerun passed.
+- `cargo check -p usque-engine --locked --offline --target x86_64-apple-darwin`:
+  passed. This is not Intel hardware execution.
+- Final Apple Silicon debug GUI build and committed-source repository policy:
+  passed. Xcode logged an unrelated iOS simulator version warning while the
+  macOS build succeeded. A separate invisible AppKit geometry probe confirmed
+  a 1040×760 content view with the custom frame; window interactions remain
+  untested.
+
+The updated [mock UI comparison](MACOS_QA_CHECKLIST.md#可重現的介面比較) includes
+both Flutter captions, preserves historical images separately and omits the
+native AppKit traffic-light buttons. No host proxy, DNS, routes or actual
+Keychain records were modified by these checks.
 
 ## Earlier complete-suite checks
 

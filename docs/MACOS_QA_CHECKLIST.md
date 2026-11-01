@@ -39,18 +39,22 @@
 ## 可重現的介面比較
 
 以下是使用 fake Engine 的無視窗 Flutter 元件渲染，**不是 Windows 或 macOS 真機截圖**。
-兩份內容區域均為 1040×760、英文、100% 文字大小。Windows 圖片包含共用 Flutter
-標題列；Mac 的原生標題列位於內容區域之外，這裡沒有渲染。
+以下比較更新於 2026-11-01。兩份內容區域均為 1040×760、英文、100% 文字大小，
+均包含共用的 40 像素 Flutter 標題列。Mac 的 AppKit 原生視窗按鈕不在此渲染範圍，
+左上角為這些按鈕預留空間。首頁已去掉多餘的頁面標題。
 
 | macOS 模擬 | Windows 模擬 |
 | --- | --- |
-| ![macOS 首頁模擬](assets/macos-qa/macos-home.png) | ![Windows 首頁模擬](assets/macos-qa/windows-home.png) |
-| ![macOS 設定模擬](assets/macos-qa/macos-settings.png) | ![Windows 設定模擬](assets/macos-qa/windows-settings.png) |
+| ![macOS 首頁模擬](assets/macos-review-2026-11-01/macos-home.png) | ![Windows 首頁模擬](assets/macos-review-2026-11-01/windows-home.png) |
+| ![macOS 設定模擬](assets/macos-review-2026-11-01/macos-settings.png) | ![Windows 設定模擬](assets/macos-review-2026-11-01/windows-settings.png) |
+
+本次 PR 審查修訂及驗證範圍見[修訂記錄](MACOS_WINDOWS_PARITY.md#pr-147-follow-up-2026-11-01)。
+舊圖片和來源校驗記錄仍保留，沒有以新圖片覆蓋歷史證據。
 
 測試也覆蓋 800×600、640×480 與 200% 文字大小。畫面中的 VPN 開關差異反映目前
 Mac 開發包沒有系統 VPN 能力；主要頁面與資料設定語義沿用 Windows 的共用實作。
 
-## 本輪自動化結果
+## 2026-10-29 自動化結果（歷史記錄）
 
 [來源與開發包驗證記錄](MACOS_QA_VALIDATION.json)綁定程式碼提交、來源雜湊、
 日誌、畫面及兩份 DMG 的校驗值；較早的驗證記錄保留原樣。
