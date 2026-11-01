@@ -371,7 +371,6 @@ const Map<String, String> kChainJa = <String, String>{
   'failure_protocol': 'プロトコル',
   'failure_cleanup': 'クリーンアップ',
   'failure_reason': '失敗理由: {reason}。',
-  'manage': '管理',
   'dns_fallback': '既存のトンネル DNS（OpenVPN はサーバーと DNS を交渉できます）',
   'dns_unavailable_title': 'この出口に使える DNS がありません',
   'dns_unavailable':

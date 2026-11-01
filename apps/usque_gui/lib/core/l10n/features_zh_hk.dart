@@ -347,7 +347,6 @@ const Map<String, String> kChainZhHk = <String, String>{
   'failure_protocol': '協定錯誤',
   'failure_cleanup': '清理失敗',
   'failure_reason': '原因：{reason}。',
-  'manage': '管理',
   'dns_fallback': '由隧道提供（OpenVPN 伺服器可能會指派）',
   'dns_unavailable_title': '此出口沒有可用 DNS',
   'dns_unavailable': '此出口沒有可達的 DNS 伺服器。請使用 IP 地址，或選擇有可達 DNS 的其他出口。',

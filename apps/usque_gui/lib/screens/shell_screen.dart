@@ -21,6 +21,18 @@ import 'settings_screen.dart';
 
 const double _railMinWidth = 78;
 const double _railMinExtendedWidth = 232;
+const double _railLogoSize = 30;
+
+/// The brand mark is centred in a compact-rail-wide column after the
+/// destination inset.
+const double _railLogoInset = 8 + (_railMinWidth - _railLogoSize) / 2;
+
+/// Padding above the brand row in the extended rail.
+const double _railBrandTop = 10;
+
+/// NavigationRail's spacer above [NavigationRail.leading] plus the brand
+/// row's own padding.
+const double _railLogoTop = 8 + _railBrandTop;
 
 /// Matches [NavigationRailDestination.padding] so the brand sits on the
 /// same vertical axis as the destination icons.
@@ -33,6 +45,33 @@ class ShellScreen extends StatefulWidget {
   const ShellScreen({required this.controller, super.key});
 
   final AppController controller;
+
+  /// Width at which the bottom bar gives way to the side rail.
+  static const double railBreakpoint = 760;
+
+  /// Width at which the rail can afford to show labels beside the icons.
+  /// The extended rail takes 249 px with its divider, so this leaves Home its
+  /// 860 px side-by-side width plus page gutters instead of stacking it.
+  static const double extendedBreakpoint = 1180;
+
+  /// Width of the side rail and its divider in a shell [width] wide, or zero
+  /// when the shell uses a bottom bar.
+  static double railExtent(double width) {
+    if (width < railBreakpoint) return 0;
+    return (width >= extendedBreakpoint
+            ? _railMinExtendedWidth + _destinationPadding.horizontal
+            : _railMinWidth) +
+        1;
+  }
+
+  /// The brand mark at the top of the extended rail, measured from the
+  /// shell's top-start corner, so first-run setup can hand its own mark over.
+  static const Rect railBrandLogo = Rect.fromLTWH(
+    _railLogoInset,
+    _railLogoTop,
+    _railLogoSize,
+    _railLogoSize,
+  );
 
   @override
   State<ShellScreen> createState() => _ShellScreenState();
@@ -50,6 +89,8 @@ class _ShellScreenState extends State<ShellScreen> {
   bool _changingSection = false;
   bool _openingChainProxy = false;
   bool _openingDiagnostics = false;
+  bool _profilesNavigationScheduled = false;
+  PageRoute<void>? _accountsRoute;
 
   static const _sectionKeys = <LogicalKeyboardKey>[
     LogicalKeyboardKey.digit1,
@@ -62,18 +103,11 @@ class _ShellScreenState extends State<ShellScreen> {
   void initState() {
     super.initState();
     controller.settingsNavigationRequests.addListener(_openNativeSettings);
+    controller.addListener(_profilesRequested);
+    _profilesRequested();
     if (desktopShortcutsSupported) {
       HardwareKeyboard.instance.addHandler(_handleShortcut);
     }
-  }
-
-  @override
-  void dispose() {
-    controller.settingsNavigationRequests.removeListener(_openNativeSettings);
-    if (desktopShortcutsSupported) {
-      HardwareKeyboard.instance.removeHandler(_handleShortcut);
-    }
-    super.dispose();
   }
 
   @override
@@ -84,7 +118,47 @@ class _ShellScreenState extends State<ShellScreen> {
         _openNativeSettings,
       );
       controller.settingsNavigationRequests.addListener(_openNativeSettings);
+      oldWidget.controller.removeListener(_profilesRequested);
+      controller.addListener(_profilesRequested);
+      _profilesRequested();
     }
+  }
+
+  /// Startup requests can precede the first mounted section navigator. Consume
+  /// each request once, after a frame, and use the same leave guard as the rail.
+  void _profilesRequested() {
+    if (controller.pendingProfilesDestination == null) return;
+    // Hidden sections defer rebuilding and cannot mount a lazy navigator yet.
+    if (!controller.uiVisible) return;
+    if (_changingSection) {
+      controller.takeProfilesDestination();
+      return;
+    }
+    if (_profilesNavigationScheduled) return;
+    _profilesNavigationScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _profilesNavigationScheduled = false;
+      if (!mounted || !controller.uiVisible) return;
+      final destination = controller.takeProfilesDestination();
+      if (destination == null) return;
+      unawaited(
+        _selectSection(
+          AppSection.profiles,
+          openAccounts: destination == ProfilesDestination.accounts,
+        ),
+      );
+    });
+    WidgetsBinding.instance.ensureVisualUpdate();
+  }
+
+  @override
+  void dispose() {
+    controller.settingsNavigationRequests.removeListener(_openNativeSettings);
+    controller.removeListener(_profilesRequested);
+    if (desktopShortcutsSupported) {
+      HardwareKeyboard.instance.removeHandler(_handleShortcut);
+    }
+    super.dispose();
   }
 
   void _openNativeSettings() {
@@ -212,8 +286,19 @@ class _ShellScreenState extends State<ShellScreen> {
     }
   }
 
-  Future<bool> _selectSection(AppSection section) async {
+  Future<bool> _selectSection(
+    AppSection section, {
+    bool openAccounts = false,
+  }) async {
+    // An explicit rail/keyboard action supersedes an unhandled launch request.
+    controller.takeProfilesDestination();
     if (_changingSection) return false;
+    // A repeated shortcut or tap must not recreate the current account page.
+    if (openAccounts &&
+        controller.section == AppSection.profiles &&
+        _accountsRoute?.isCurrent == true) {
+      return true;
+    }
     _changingSection = true;
     final selectedController = controller;
     try {
@@ -223,6 +308,39 @@ class _ShellScreenState extends State<ShellScreen> {
       }
       if (!mounted || controller != selectedController) return false;
       controller.selectSection(section);
+      if (openAccounts) {
+        await WidgetsBinding.instance.endOfFrame;
+        if (!mounted ||
+            controller != selectedController ||
+            controller.section != AppSection.profiles) {
+          return false;
+        }
+        // Unknown startup capabilities must not discard an account shortcut.
+        // Account management itself needs no scene support. A confirmed older
+        // engine already renders Accounts at the root.
+        if (controller.engineCapabilities?.connectionScenarios == false) {
+          return true;
+        }
+        final profiles = _sectionNavigators[AppSection.profiles]?.currentState;
+        if (profiles == null || !await profiles.closeSubpages()) return false;
+        if (!mounted ||
+            controller != selectedController ||
+            controller.section != AppSection.profiles) {
+          return false;
+        }
+        final navigator = profiles.navigator;
+        if (navigator == null) return false;
+        final route = MaterialPageRoute<void>(
+          settings: const RouteSettings(name: '/profiles/accounts'),
+          builder: (_) => AccountsPage(controller: selectedController),
+        );
+        _accountsRoute = route;
+        unawaited(
+          navigator.push<void>(route).whenComplete(() {
+            if (_accountsRoute == route) _accountsRoute = null;
+          }),
+        );
+      }
       return true;
     } finally {
       _changingSection = false;
@@ -239,14 +357,6 @@ class _ShellScreenState extends State<ShellScreen> {
     AppSection.proxy: LucideIcons.waypoints,
     AppSection.settings: LucideIcons.settings,
   };
-
-  /// Width at which the bottom bar gives way to the side rail.
-  static const double _railBreakpoint = 760;
-
-  /// Width at which the rail can afford to show labels beside the icons.
-  /// The extended rail takes 249 px with its divider, so this leaves Home its
-  /// 860 px side-by-side width plus page gutters instead of stacking it.
-  static const double _extendedBreakpoint = 1180;
 
   KeyEventResult _handleNavigationKey(
     KeyEvent event, {
@@ -344,8 +454,11 @@ class _ShellScreenState extends State<ShellScreen> {
             active: section == AppSection.profiles,
             rootName: '/profiles',
             onSubpageChanged: _onSubpageChanged(AppSection.profiles),
-            builder: (context) =>
-                ProfilesScreen(controller: controller, gateObservation: true),
+            builder: (context) => ProfilesScreen(
+              controller: controller,
+              gateObservation: true,
+              onOpenAccounts: controller.openAccounts,
+            ),
           ),
           ProxySection(
             key: _proxySection,
@@ -418,8 +531,9 @@ class _ShellScreenState extends State<ShellScreen> {
 
         return LayoutBuilder(
           builder: (context, constraints) {
-            final useRail = constraints.maxWidth >= _railBreakpoint;
-            final extended = constraints.maxWidth >= _extendedBreakpoint;
+            final useRail = constraints.maxWidth >= ShellScreen.railBreakpoint;
+            final extended =
+                constraints.maxWidth >= ShellScreen.extendedBreakpoint;
             final scaffold = Scaffold(
               body: SafeArea(
                 bottom: false,
@@ -549,7 +663,7 @@ class _RailLeading extends StatelessWidget {
     return Padding(
       padding: EdgeInsets.fromLTRB(
         _destinationPadding.left,
-        10,
+        _railBrandTop,
         _destinationPadding.right,
         18,
       ),
@@ -559,7 +673,7 @@ class _RailLeading extends StatelessWidget {
           children: <Widget>[
             SizedBox(
               width: _railMinWidth,
-              child: Center(child: const UsqueLogo(size: 30)),
+              child: Center(child: const UsqueLogo(size: _railLogoSize)),
             ),
             Expanded(
               child: Text(

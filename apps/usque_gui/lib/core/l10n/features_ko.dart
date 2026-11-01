@@ -373,7 +373,6 @@ const Map<String, String> kChainKo = <String, String>{
   'failure_protocol': '프로토콜',
   'failure_cleanup': '정리',
   'failure_reason': '실패 원인: {reason}.',
-  'manage': '관리',
   'dns_fallback': '기존 터널 DNS(OpenVPN이 서버와 DNS를 협상할 수 있음)',
   'dns_unavailable_title': '이 출구에는 사용할 DNS가 없습니다',
   'dns_unavailable':

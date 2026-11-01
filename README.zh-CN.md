@@ -91,9 +91,11 @@ VPN、SOCKS5 和 HTTP 默认开启，Windows 系统代理默认关闭。它们�
 
 ## 主要功能
 
-- **配置 → 场景** 与 **账号** 共用页面，可保存[本机网络场景](docs/SCENARIOS.md)、
+- **配置** 首页提供[本机网络场景](docs/SCENARIOS.md)，**账号管理** 打开账号二级页。可保存场景、
   可选绑定账号、预览后使用并恢复最近一次切换。保存模板不改变当前连接，
   页面明确区分已保存和已应用。
+  场景保存账号绑定、链式代理、端点、IP 策略与传输协议；子页面可直接管理账号和节点。
+  输出、分流与 DNS 保持全局，端点控件与高级网络设置一致。
 
 - 可选的[链式代理](docs/CHAIN_PROXY.md)：在“代理 → 链式代理”依次选择 **OpenVPN**、
   **WireGuard**、[**WARP via WireGuard**](docs/WARP_WIREGUARD.md)、[**Proton VPN**](docs/PROTON_VPN.md)、**VPN Gate**、**HTTP** 或 **SOCKS5**。

@@ -1,12 +1,13 @@
 // Localized connection-scene labels; placeholders match the English catalogue.
 const kScenarioZhTw = <String, String>{
   'scenario_platform_unsupported': '此情境包含目前裝置不支援的設定。',
-  'scenario_limit': '情境或情境庫超過限制，請減少規則或刪除不再使用的情境。',
+  'scenario_limit': "情境庫超過限制，請刪除不再使用的情境。",
   'scenario_vpn_permission': '請先中斷連線、選擇此情境，再連線以完成 VPN 授權。',
   'scenario_rules_missing': '使用此情境前，請在設定中準備所需的分流資料。',
   'profiles': '設定檔',
   'nav_profiles': '設定檔',
-  'profiles_subtitle': '選擇帳號與網路情境。',
+  'profiles_subtitle': '儲存情境與管理帳號。',
+  'profiles_manage_accounts': '帳號管理',
   'scenario_scenes': '情境',
   'scenario_accounts': '帳號',
   'scenario_create': '新增情境',
@@ -36,7 +37,7 @@ const kScenarioZhTw = <String, String>{
   'scenario_unsupported': '目前引擎不支援情境，仍可管理帳號。',
   'scenario_save_failed': '操作未能完成，請先重新整理狀態再重試。',
   'scenario_reference_missing': '此情境需要的帳號或出口無法使用。',
-  'scenario_global_hint': 'Kill Switch、代理位址與驗證、進階調校和個別應用程式選擇沿用裝置設定。',
+  'scenario_global_hint': "輸出、區域網路存取、廣告封鎖、分流與 DNS 沿用全域設定。",
   'scenario_output': '輸出',
   'scenario_exit': '出口',
   'scenario_connection': '連線偏好',
@@ -51,27 +52,35 @@ const kScenarioZhTw = <String, String>{
   'scenario_validation_name': '請輸入 1–64 個字元的名稱。',
   'scenario_keep_account': '保留目前帳號。',
   'scenario_account_change': '帳號變更',
-  'scenario_library_hint': '選擇現有出口；匯入與登入請前往代理頁管理。',
+  'scenario_library_hint': "可在此新增、匯入或管理節點，選擇只寫入情境草稿。",
   'scenario_saved': '情境已儲存',
-  'scenario_country_hint': '輸入逗號分隔的國家代碼，例如 CN、JP。使用前須備妥所需規則資料。',
-  'scenario_rules_count': '{count} 條自訂規則',
   'scenario_confirm_use': '套用情境',
-  'scenario_invalid_dns': '請輸入有效的 DNS IP 位址。',
   'scenario_new_flows': '變更對新連線生效，現有連線可能保留原路徑。',
+  'scenario_not_applied': "情境未套用，目前設定維持不變。",
+  'scenario_kill_switch_output':
+      "Kill Switch 已開啟，但已儲存的全域設定會關閉 {tunnel}。切換後將不再保護系統全部流量。",
+  'scenario_settings_invalid': "此情境儲存的設定已失效，請編輯後重新儲存。",
+  'protection_handoff_unavailable': "此次切換無法維持 Kill Switch 保護。請先中斷連線，再重新切換。",
+  'scenario_confirm_before_connect': "上次情境切換仍在確認中。請重新整理情境後再連線。",
+  'scenario_unsaved': '情境有未儲存的變更',
+  'scenario_inherited_changes': '同時生效的其他已儲存設定',
+  'scenario_choose_exit': "使用此選擇",
+  'scenario_choose_account': "綁定至情境",
 };
 
 const kScenarioAr = <String, String>{
   'scenario_platform_unsupported':
       'يحتوي هذا المشهد على إعداد غير متاح على هذا الجهاز.',
   'scenario_limit':
-      'تجاوز المشهد أو مكتبة المشاهد الحد المسموح. قلّل القواعد أو احذف مشهدًا غير مستخدم.',
+      "تجاوزت مكتبة السيناريوهات الحد المسموح. احذف سيناريو غير مستخدم.",
   'scenario_vpn_permission':
       'اقطع الاتصال، ثم اختر هذا المشهد وأعد الاتصال لمنح إذن VPN.',
   'scenario_rules_missing':
       'جهّز بيانات قواعد التوجيه المطلوبة في الإعدادات قبل استخدام هذا المشهد.',
   'profiles': 'ملفات الإعداد',
   'nav_profiles': 'ملفات',
-  'profiles_subtitle': 'اختر الحساب وإعداد الشبكة المحفوظ.',
+  'profiles_subtitle': 'احفظ إعدادات الشبكة وأدِر الحسابات.',
+  'profiles_manage_accounts': 'إدارة الحسابات',
   'scenario_scenes': 'المشاهد',
   'scenario_accounts': 'الحسابات',
   'scenario_create': 'مشهد جديد',
@@ -105,7 +114,7 @@ const kScenarioAr = <String, String>{
   'scenario_reference_missing':
       'أحد الحسابات أو المخارج المطلوبة لهذا المشهد غير متاح.',
   'scenario_global_hint':
-      'تستخدم ميزة Kill Switch وعناوين الوكيل والمصادقة والضبط المتقدم واختيار التطبيقات إعدادات الجهاز.',
+      "تستخدم المخرجات والوصول إلى الشبكة المحلية وحظر الإعلانات والتوجيه وDNS إعدادات الجهاز.",
   'scenario_output': 'المخرجات',
   'scenario_exit': 'المخرج',
   'scenario_connection': 'تفضيلات الاتصال',
@@ -123,29 +132,39 @@ const kScenarioAr = <String, String>{
   'scenario_keep_account': 'يتم الاحتفاظ بالحساب الحالي.',
   'scenario_account_change': 'تغيير الحساب',
   'scenario_library_hint':
-      'اختر مخرجًا موجودًا. يمكن إدارة الاستيراد وتسجيل الدخول في صفحة الوكيل.',
+      "أنشئ العقد أو استوردها أو أدرها هنا. يُنقل اختيارك إلى مسودة السيناريو.",
   'scenario_saved': 'تم حفظ المشهد',
-  'scenario_country_hint':
-      'أدخل رموز الدول مفصولة بفواصل، مثل CN وJP. يجب توفير بيانات القواعد المطلوبة قبل الاستخدام.',
-  'scenario_rules_count': '{count} قواعد مخصصة',
   'scenario_confirm_use': 'تطبيق المشهد',
-  'scenario_invalid_dns': 'أدخل عناوين IP صالحة لخوادم DNS.',
   'scenario_new_flows':
       'تنطبق التغييرات على الاتصالات الجديدة؛ قد تحتفظ الاتصالات الحالية بمساراتها.',
+  'scenario_not_applied': "لم يُطبَّق المشهد. لم تتغير الإعدادات الحالية.",
+  'scenario_kill_switch_output':
+      "Kill Switch مفعّل، لكن إعدادات الجهاز المحفوظة توقف {tunnel}. تتوقف حماية النظام بالكامل بعد التبديل.",
+  'scenario_settings_invalid':
+      "لم تعد الإعدادات المحفوظة لهذا المشهد صالحة. عدّله واحفظه مرة أخرى.",
+  'protection_handoff_unavailable':
+      "لا يمكن الحفاظ على حماية Kill Switch أثناء هذا التبديل. اقطع الاتصال ثم بدّل مرة أخرى.",
+  'scenario_confirm_before_connect':
+      "لا يزال آخر تبديل للمشهد قيد التأكيد. حدّث المشاهد ثم اتصل مرة أخرى.",
+  'scenario_unsaved': 'تغييرات غير محفوظة في المشهد',
+  'scenario_inherited_changes': 'إعدادات محفوظة أخرى ستُطبَّق أيضًا',
+  'scenario_choose_exit': "استخدام هذا الاختيار",
+  'scenario_choose_account': "ربط بالسيناريو",
 };
 
 const kScenarioFa = <String, String>{
   'scenario_platform_unsupported':
       'این سناریو تنظیمی دارد که در این دستگاه در دسترس نیست.',
   'scenario_limit':
-      'سناریو یا کتابخانهٔ سناریوها از حد مجاز گذشته است. قوانین را کم کنید یا سناریوی بدون استفاده را حذف کنید.',
+      "کتابخانهٔ سناریوها از حد مجاز فراتر رفته است. یک سناریوی بدون استفاده را حذف کنید.",
   'scenario_vpn_permission':
       'اتصال را قطع کنید، این سناریو را انتخاب کنید و سپس برای اعطای مجوز VPN متصل شوید.',
   'scenario_rules_missing':
       'پیش از استفاده از این سناریو، داده‌های لازم برای مسیریابی را در تنظیمات آماده کنید.',
   'profiles': 'نمایه‌ها',
   'nav_profiles': 'نمایه‌ها',
-  'profiles_subtitle': 'حساب و سناریوی شبکه را انتخاب کنید.',
+  'profiles_subtitle': 'سناریوها را ذخیره و حساب‌ها را مدیریت کنید.',
+  'profiles_manage_accounts': 'مدیریت حساب‌ها',
   'scenario_scenes': 'سناریوها',
   'scenario_accounts': 'حساب‌ها',
   'scenario_create': 'سناریوی جدید',
@@ -180,7 +199,7 @@ const kScenarioFa = <String, String>{
   'scenario_reference_missing':
       'حساب یا خروجی مورد نیاز این سناریو در دسترس نیست.',
   'scenario_global_hint':
-      'Kill Switch، نشانی و احراز هویت پراکسی، تنظیمات پیشرفته و انتخاب برنامه‌ها از تنظیمات دستگاه استفاده می‌کنند.',
+      "خروجی‌ها، دسترسی به شبکهٔ محلی، مسدودسازی تبلیغات، مسیریابی و DNS از تنظیمات دستگاه استفاده می‌کنند.",
   'scenario_output': 'خروجی‌ها',
   'scenario_exit': 'خروجی',
   'scenario_connection': 'ترجیحات اتصال',
@@ -198,29 +217,40 @@ const kScenarioFa = <String, String>{
   'scenario_keep_account': 'حساب فعلی حفظ می‌شود.',
   'scenario_account_change': 'تغییر حساب',
   'scenario_library_hint':
-      'خروجی موجودی را انتخاب کنید. ورود حساب و وارد کردن پیکربندی در صفحهٔ پراکسی مدیریت می‌شود.',
+      "در اینجا گره بسازید، وارد کنید یا مدیریت کنید. انتخاب شما به پیش‌نویس سناریو منتقل می‌شود.",
   'scenario_saved': 'سناریو ذخیره شد',
-  'scenario_country_hint':
-      'کد کشورها را با ویرگول جدا کنید، مانند CN و JP. داده‌های قوانین لازم باید پیش از استفاده موجود باشند.',
-  'scenario_rules_count': '{count} قانون سفارشی',
   'scenario_confirm_use': 'اعمال سناریو',
-  'scenario_invalid_dns': 'نشانی‌های IP معتبر برای DNS وارد کنید.',
   'scenario_new_flows':
       'تغییرات برای اتصال‌های جدید اعمال می‌شوند؛ اتصال‌های موجود ممکن است مسیر قبلی را حفظ کنند.',
+  'scenario_not_applied': "سناریو اعمال نشد. تنظیمات فعلی تغییری نکرده است.",
+  'scenario_kill_switch_output':
+      "Kill Switch روشن است، اما تنظیمات ذخیره‌شدهٔ دستگاه {tunnel} را خاموش می‌کنند. پس از جابه‌جایی، حفاظت سراسری سیستم متوقف می‌شود.",
+  'scenario_settings_invalid':
+      "تنظیمات ذخیره‌شدهٔ این سناریو دیگر معتبر نیست. آن را ویرایش و دوباره ذخیره کنید.",
+  'protection_handoff_unavailable':
+      "در این تغییر نمی‌توان محافظت Kill Switch را حفظ کرد. اتصال را قطع کنید و دوباره تغییر دهید.",
+  'scenario_confirm_before_connect':
+      "آخرین تغییر سناریو هنوز در حال تأیید است. سناریوها را تازه کنید و دوباره وصل شوید.",
+  'scenario_unsaved': 'تغییرات ذخیره‌نشدهٔ سناریو',
+  'scenario_inherited_changes':
+      'سایر تنظیمات ذخیره‌شده که همزمان اعمال می‌شوند',
+  'scenario_choose_exit': "استفاده از این انتخاب",
+  'scenario_choose_account': "پیوند به سناریو",
 };
 
 const kScenarioId = <String, String>{
   'scenario_platform_unsupported':
       'Skenario ini berisi pengaturan yang tidak tersedia di perangkat ini.',
   'scenario_limit':
-      'Skenario atau pustaka skenario melebihi batas. Kurangi aturan atau hapus skenario yang tidak digunakan.',
+      "Pustaka skenario melebihi batas. Hapus skenario yang tidak digunakan.",
   'scenario_vpn_permission':
       'Putuskan koneksi, pilih skenario ini, lalu sambungkan untuk memberikan izin VPN.',
   'scenario_rules_missing':
       'Siapkan data aturan perutean yang diperlukan di Pengaturan sebelum menggunakan skenario ini.',
   'profiles': 'Profil',
   'nav_profiles': 'Profil',
-  'profiles_subtitle': 'Pilih akun dan skenario jaringan.',
+  'profiles_subtitle': 'Simpan skenario dan kelola akun.',
+  'profiles_manage_accounts': 'Kelola akun',
   'scenario_scenes': 'Skenario',
   'scenario_accounts': 'Akun',
   'scenario_create': 'Skenario baru',
@@ -255,7 +285,7 @@ const kScenarioId = <String, String>{
   'scenario_reference_missing':
       'Akun atau jalur keluar yang dibutuhkan skenario ini tidak tersedia.',
   'scenario_global_hint':
-      'Kill Switch, alamat dan autentikasi proksi, penyetelan lanjutan, serta pilihan per aplikasi mengikuti pengaturan perangkat.',
+      "Keluaran, akses LAN, pemblokiran iklan, perutean, dan DNS menggunakan pengaturan perangkat.",
   'scenario_output': 'Keluaran',
   'scenario_exit': 'Jalur keluar',
   'scenario_connection': 'Preferensi koneksi',
@@ -273,29 +303,40 @@ const kScenarioId = <String, String>{
   'scenario_keep_account': 'Akun saat ini dipertahankan.',
   'scenario_account_change': 'Perubahan akun',
   'scenario_library_hint':
-      'Pilih jalur keluar yang sudah ada. Kelola impor dan masuk akun di halaman Proksi.',
+      "Buat, impor, atau kelola node di sini. Pilihan Anda diteruskan ke draf skenario.",
   'scenario_saved': 'Skenario disimpan',
-  'scenario_country_hint':
-      'Kode negara dipisahkan koma, misalnya CN, JP. Data aturan yang diperlukan harus tersedia sebelum digunakan.',
-  'scenario_rules_count': '{count} aturan kustom',
   'scenario_confirm_use': 'Terapkan skenario',
-  'scenario_invalid_dns': 'Masukkan alamat IP DNS yang valid.',
   'scenario_new_flows':
       'Perubahan berlaku untuk koneksi baru; koneksi yang ada dapat tetap menggunakan jalur sebelumnya.',
+  'scenario_not_applied':
+      "Skenario tidak diterapkan. Pengaturan saat ini tidak berubah.",
+  'scenario_kill_switch_output':
+      "Kill Switch aktif, tetapi pengaturan perangkat yang tersimpan menonaktifkan {tunnel}. Perlindungan seluruh sistem berhenti setelah peralihan.",
+  'scenario_settings_invalid':
+      "Pengaturan tersimpan skenario ini sudah tidak valid. Edit lalu simpan kembali.",
+  'protection_handoff_unavailable':
+      "Perlindungan Kill Switch tidak dapat dipertahankan selama peralihan ini. Putuskan koneksi, lalu beralih lagi.",
+  'scenario_confirm_before_connect':
+      "Peralihan skenario terakhir masih dikonfirmasi. Muat ulang Skenario, lalu sambungkan lagi.",
+  'scenario_unsaved': 'Perubahan skenario belum disimpan',
+  'scenario_inherited_changes':
+      'Pengaturan tersimpan lain yang juga diterapkan',
+  'scenario_choose_exit': "Gunakan pilihan ini",
+  'scenario_choose_account': "Tautkan ke skenario",
 };
 
 const kScenarioTh = <String, String>{
   'scenario_platform_unsupported':
       'สถานการณ์นี้มีการตั้งค่าที่อุปกรณ์นี้ไม่รองรับ',
-  'scenario_limit':
-      'สถานการณ์หรือคลังสถานการณ์เกินขีดจำกัด โปรดลดกฎหรือลบสถานการณ์ที่ไม่ใช้',
+  'scenario_limit': "คลังสถานการณ์เกินขีดจำกัด โปรดลบสถานการณ์ที่ไม่ได้ใช้",
   'scenario_vpn_permission':
       'ตัดการเชื่อมต่อ เลือกสถานการณ์นี้ แล้วเชื่อมต่อเพื่ออนุญาตการใช้งาน VPN',
   'scenario_rules_missing':
       'เตรียมข้อมูลกฎการกำหนดเส้นทางที่จำเป็นในหน้าการตั้งค่าก่อนใช้สถานการณ์นี้',
   'profiles': 'โปรไฟล์',
   'nav_profiles': 'โปรไฟล์',
-  'profiles_subtitle': 'เลือกบัญชีและชุดการตั้งค่าเครือข่าย',
+  'profiles_subtitle': 'บันทึกชุดการตั้งค่าและจัดการบัญชี',
+  'profiles_manage_accounts': 'จัดการบัญชี',
   'scenario_scenes': 'สถานการณ์',
   'scenario_accounts': 'บัญชี',
   'scenario_create': 'สถานการณ์ใหม่',
@@ -328,7 +369,7 @@ const kScenarioTh = <String, String>{
   'scenario_reference_missing':
       'บัญชีหรือทางออกที่สถานการณ์นี้ต้องใช้ไม่พร้อมใช้งาน',
   'scenario_global_hint':
-      'Kill Switch ที่อยู่และการยืนยันตัวตนพร็อกซี การปรับแต่งขั้นสูง และการเลือกแอปจะใช้การตั้งค่าของอุปกรณ์',
+      "เอาต์พุต การเข้าถึง LAN การบล็อกโฆษณา การกำหนดเส้นทาง และ DNS ใช้การตั้งค่าอุปกรณ์",
   'scenario_output': 'ช่องทางรับส่ง',
   'scenario_exit': 'ทางออก',
   'scenario_connection': 'ค่ากำหนดการเชื่อมต่อ',
@@ -346,29 +387,40 @@ const kScenarioTh = <String, String>{
   'scenario_keep_account': 'คงบัญชีปัจจุบันไว้',
   'scenario_account_change': 'เปลี่ยนบัญชี',
   'scenario_library_hint':
-      'เลือกทางออกที่มีอยู่ จัดการการนำเข้าและการเข้าสู่ระบบในหน้าพร็อกซี',
+      "สร้าง นำเข้า หรือจัดการโหนดได้ที่นี่ การเลือกจะส่งกลับไปยังฉบับร่างของสถานการณ์",
   'scenario_saved': 'บันทึกสถานการณ์แล้ว',
-  'scenario_country_hint':
-      'ป้อนรหัสประเทศคั่นด้วยจุลภาค เช่น CN, JP ต้องเตรียมข้อมูลกฎที่จำเป็นก่อนใช้',
-  'scenario_rules_count': 'กฎที่กำหนดเอง {count} รายการ',
   'scenario_confirm_use': 'ใช้สถานการณ์นี้',
-  'scenario_invalid_dns': 'ป้อนที่อยู่ IP ของ DNS ที่ถูกต้อง',
   'scenario_new_flows':
       'การเปลี่ยนแปลงมีผลกับการเชื่อมต่อใหม่ การเชื่อมต่อเดิมอาจยังใช้เส้นทางเดิม',
+  'scenario_not_applied':
+      "ไม่ได้ใช้สถานการณ์นี้ การตั้งค่าปัจจุบันไม่เปลี่ยนแปลง",
+  'scenario_kill_switch_output':
+      "Kill Switch เปิดอยู่ แต่การตั้งค่าอุปกรณ์ที่บันทึกไว้จะปิด {tunnel} การป้องกันทั้งระบบจะหยุดหลังจากสลับ",
+  'scenario_settings_invalid':
+      "การตั้งค่าที่บันทึกไว้ของสถานการณ์นี้ใช้ไม่ได้แล้ว โปรดแก้ไขแล้วบันทึกอีกครั้ง",
+  'protection_handoff_unavailable':
+      "ไม่สามารถคงการป้องกันของ Kill Switch ระหว่างการสลับครั้งนี้ได้ โปรดตัดการเชื่อมต่อแล้วสลับอีกครั้ง",
+  'scenario_confirm_before_connect':
+      "ยังยืนยันการสลับสถานการณ์ครั้งล่าสุดอยู่ โปรดรีเฟรชสถานการณ์แล้วเชื่อมต่ออีกครั้ง",
+  'scenario_unsaved': 'มีการเปลี่ยนแปลงสถานการณ์ที่ยังไม่ได้บันทึก',
+  'scenario_inherited_changes': 'การตั้งค่าที่บันทึกไว้อื่น ๆ ที่จะมีผลด้วย',
+  'scenario_choose_exit': "ใช้การเลือกนี้",
+  'scenario_choose_account': "ผูกกับสถานการณ์",
 };
 
 const kScenarioUk = <String, String>{
   'scenario_platform_unsupported':
       'Цей сценарій містить налаштування, недоступне на цьому пристрої.',
   'scenario_limit':
-      'Сценарій або бібліотека сценаріїв перевищує ліміт. Скоротіть правила або видаліть невикористаний сценарій.',
+      "Бібліотека сценаріїв перевищує ліміт. Видаліть невикористовуваний сценарій.",
   'scenario_vpn_permission':
       'Розірвіть з’єднання, виберіть цей сценарій і підключіться, щоб надати дозвіл VPN.',
   'scenario_rules_missing':
       'Підготуйте потрібні дані правил маршрутизації в налаштуваннях перед використанням сценарію.',
   'profiles': 'Профілі',
   'nav_profiles': 'Профілі',
-  'profiles_subtitle': 'Виберіть обліковий запис і сценарій мережі.',
+  'profiles_subtitle': 'Зберігайте сценарії та керуйте обліковими записами.',
+  'profiles_manage_accounts': 'Керування обліковими записами',
   'scenario_scenes': 'Сценарії',
   'scenario_accounts': 'Облікові записи',
   'scenario_create': 'Новий сценарій',
@@ -403,7 +455,7 @@ const kScenarioUk = <String, String>{
   'scenario_reference_missing':
       'Обліковий запис або вихід, потрібний цьому сценарію, недоступний.',
   'scenario_global_hint':
-      'Kill Switch, адреси й автентифікація проксі, розширені параметри та вибір застосунків використовують налаштування пристрою.',
+      "Виходи, доступ до LAN, блокування реклами, маршрутизація та DNS використовують налаштування пристрою.",
   'scenario_output': 'Вихідні інтерфейси',
   'scenario_exit': 'Вихід',
   'scenario_connection': 'Параметри з’єднання',
@@ -421,29 +473,41 @@ const kScenarioUk = <String, String>{
   'scenario_keep_account': 'Поточний обліковий запис зберігається.',
   'scenario_account_change': 'Зміна облікового запису',
   'scenario_library_hint':
-      'Виберіть наявний вихід. Імпорт і вхід до облікових записів доступні на сторінці проксі.',
+      "Тут можна створювати, імпортувати й керувати вузлами. Вибір переноситься до чернетки сценарію.",
   'scenario_saved': 'Сценарій збережено',
-  'scenario_country_hint':
-      'Коди країн через кому, наприклад CN, JP. Потрібні дані правил мають бути доступні до використання.',
-  'scenario_rules_count': '{count} власних правил',
   'scenario_confirm_use': 'Застосувати сценарій',
-  'scenario_invalid_dns': 'Введіть дійсні IP-адреси DNS.',
   'scenario_new_flows':
       'Зміни застосовуються до нових з’єднань; наявні можуть зберігати попередні маршрути.',
+  'scenario_not_applied':
+      "Сценарій не застосовано. Поточні налаштування не змінилися.",
+  'scenario_kill_switch_output':
+      "Kill Switch увімкнено, але збережені налаштування пристрою вимикають {tunnel}. Після перемикання захист усієї системи припиняється.",
+  'scenario_settings_invalid':
+      "Збережені налаштування цього сценарію більше не дійсні. Змініть і збережіть його знову.",
+  'protection_handoff_unavailable':
+      "Під час цього перемикання неможливо зберегти захист Kill Switch. Від’єднайтеся та перемкніть знову.",
+  'scenario_confirm_before_connect':
+      "Останнє перемикання сценарію ще підтверджується. Оновіть сценарії та підключіться знову.",
+  'scenario_unsaved': 'Незбережені зміни сценарію',
+  'scenario_inherited_changes':
+      'Інші збережені налаштування, які також застосуються',
+  'scenario_choose_exit': "Використати цей вибір",
+  'scenario_choose_account': "Прив’язати до сценарію",
 };
 
 const kScenarioVi = <String, String>{
   'scenario_platform_unsupported':
       'Kịch bản này có thiết lập không khả dụng trên thiết bị này.',
   'scenario_limit':
-      'Kịch bản hoặc thư viện kịch bản vượt giới hạn. Hãy giảm quy tắc hoặc xóa kịch bản không dùng.',
+      "Thư viện kịch bản vượt quá giới hạn. Hãy xóa kịch bản không dùng.",
   'scenario_vpn_permission':
       'Ngắt kết nối, chọn kịch bản này, rồi kết nối để cấp quyền VPN.',
   'scenario_rules_missing':
       'Chuẩn bị dữ liệu quy tắc định tuyến cần thiết trong Cài đặt trước khi dùng kịch bản này.',
   'profiles': 'Hồ sơ',
   'nav_profiles': 'Hồ sơ',
-  'profiles_subtitle': 'Chọn tài khoản và kịch bản mạng.',
+  'profiles_subtitle': 'Lưu kịch bản và quản lý tài khoản.',
+  'profiles_manage_accounts': 'Quản lý tài khoản',
   'scenario_scenes': 'Kịch bản',
   'scenario_accounts': 'Tài khoản',
   'scenario_create': 'Kịch bản mới',
@@ -478,7 +542,7 @@ const kScenarioVi = <String, String>{
   'scenario_reference_missing':
       'Tài khoản hoặc lối ra mà kịch bản này cần hiện không khả dụng.',
   'scenario_global_hint':
-      'Kill Switch, địa chỉ và xác thực proxy, tinh chỉnh nâng cao và lựa chọn theo ứng dụng dùng thiết lập của thiết bị.',
+      "Đầu ra, truy cập LAN, chặn quảng cáo, định tuyến và DNS dùng cài đặt thiết bị.",
   'scenario_output': 'Đầu ra',
   'scenario_exit': 'Lối ra',
   'scenario_connection': 'Tùy chọn kết nối',
@@ -496,25 +560,36 @@ const kScenarioVi = <String, String>{
   'scenario_keep_account': 'Giữ nguyên tài khoản hiện tại.',
   'scenario_account_change': 'Thay đổi tài khoản',
   'scenario_library_hint':
-      'Chọn lối ra có sẵn. Quản lý nhập cấu hình và đăng nhập tại trang Proxy.',
+      "Tạo, nhập hoặc quản lý nút tại đây. Lựa chọn sẽ được đưa vào bản nháp kịch bản.",
   'scenario_saved': 'Đã lưu kịch bản',
-  'scenario_country_hint':
-      'Nhập mã quốc gia cách nhau bằng dấu phẩy, ví dụ CN, JP. Dữ liệu quy tắc cần có sẵn trước khi dùng.',
-  'scenario_rules_count': '{count} quy tắc tùy chỉnh',
   'scenario_confirm_use': 'Áp dụng kịch bản',
-  'scenario_invalid_dns': 'Nhập địa chỉ IP DNS hợp lệ.',
   'scenario_new_flows':
       'Thay đổi áp dụng cho kết nối mới; kết nối hiện có có thể giữ nguyên đường đi.',
+  'scenario_not_applied':
+      "Kịch bản chưa được áp dụng. Thiết lập hiện tại không thay đổi.",
+  'scenario_kill_switch_output':
+      "Kill Switch đang bật nhưng cài đặt thiết bị đã lưu sẽ tắt {tunnel}. Bảo vệ toàn hệ thống sẽ dừng sau khi chuyển.",
+  'scenario_settings_invalid':
+      "Thiết lập đã lưu của kịch bản này không còn hợp lệ. Hãy chỉnh sửa và lưu lại.",
+  'protection_handoff_unavailable':
+      "Không thể duy trì bảo vệ Kill Switch trong lần chuyển này. Hãy ngắt kết nối rồi chuyển lại.",
+  'scenario_confirm_before_connect':
+      "Lần chuyển kịch bản gần nhất vẫn đang được xác nhận. Hãy làm mới Kịch bản rồi kết nối lại.",
+  'scenario_unsaved': 'Thay đổi kịch bản chưa lưu',
+  'scenario_inherited_changes': 'Các cài đặt đã lưu khác cũng được áp dụng',
+  'scenario_choose_exit': "Dùng lựa chọn này",
+  'scenario_choose_account': "Liên kết với kịch bản",
 };
 
 const kScenarioZhHk = <String, String>{
   'scenario_platform_unsupported': '此情境包含目前裝置不支援的設定。',
-  'scenario_limit': '情境或情境庫超過限制，請減少規則或刪除不再使用的情境。',
+  'scenario_limit': "情境庫超過限制，請刪除不再使用的情境。",
   'scenario_vpn_permission': '請先中斷連線、選擇此情境，再連線以完成 VPN 授權。',
   'scenario_rules_missing': '使用此情境前，請在設定中準備所需的分流資料。',
   'profiles': '設定檔',
   'nav_profiles': '設定檔',
-  'profiles_subtitle': '選擇帳戶與網絡情境。',
+  'profiles_subtitle': '儲存情境及管理帳戶。',
+  'profiles_manage_accounts': '帳戶管理',
   'scenario_scenes': '情境',
   'scenario_accounts': '帳戶',
   'scenario_create': '新增情境',
@@ -544,7 +619,7 @@ const kScenarioZhHk = <String, String>{
   'scenario_unsupported': '目前引擎不支援情境，仍可管理帳戶。',
   'scenario_save_failed': '操作未能完成，請先重新整理狀態再重試。',
   'scenario_reference_missing': '此情境需要的帳戶或出口無法使用。',
-  'scenario_global_hint': 'Kill Switch、代理位址與驗證、進階調校和個別應用程式選擇沿用裝置設定。',
+  'scenario_global_hint': "輸出、區域網絡存取、廣告封鎖、分流與 DNS 沿用全域設定。",
   'scenario_output': '輸出',
   'scenario_exit': '出口',
   'scenario_connection': '連線偏好',
@@ -559,11 +634,18 @@ const kScenarioZhHk = <String, String>{
   'scenario_validation_name': '請輸入 1–64 個字元的名稱。',
   'scenario_keep_account': '保留目前帳戶。',
   'scenario_account_change': '帳戶變更',
-  'scenario_library_hint': '選擇現有出口；匯入與登入請前往代理頁管理。',
+  'scenario_library_hint': "可在此新增、匯入或管理節點，選擇只寫入情境草稿。",
   'scenario_saved': '情境已儲存',
-  'scenario_country_hint': '輸入逗號分隔的國家代碼，例如 CN、JP。使用前須備妥所需規則資料。',
-  'scenario_rules_count': '{count} 條自訂規則',
   'scenario_confirm_use': '套用情境',
-  'scenario_invalid_dns': '請輸入有效的 DNS IP 位址。',
   'scenario_new_flows': '變更對新連線生效，現有連線可能保留原路徑。',
+  'scenario_not_applied': "情境未套用，目前設定維持不變。",
+  'scenario_kill_switch_output':
+      "Kill Switch 已開啟，但已儲存的全域設定會關閉 {tunnel}。切換後將不再保護系統全部流量。",
+  'scenario_settings_invalid': "此情境儲存的設定已失效，請編輯後重新儲存。",
+  'protection_handoff_unavailable': "此次切換無法維持 Kill Switch 保護。請先中斷連線，再重新切換。",
+  'scenario_confirm_before_connect': "上次情境切換仍在確認中。請重新整理情境後再連線。",
+  'scenario_unsaved': '情境有未儲存的變更',
+  'scenario_inherited_changes': '同時生效的其他已儲存設定',
+  'scenario_choose_exit': "使用此選擇",
+  'scenario_choose_account': "綁定至情境",
 };

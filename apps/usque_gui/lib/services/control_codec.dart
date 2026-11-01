@@ -1894,6 +1894,7 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
   var protonAccountWarpFallback = false;
   var protonServerSwitching = false;
   var connectionScenarios = false;
+  var vpnGateEpochRequests = false;
   var vpnGatePoolFavorites = false;
   final congestionAlgorithms = <CongestionControlAlgorithm>[];
   final tlsFingerprints = <TlsFingerprint>[];
@@ -1944,6 +1945,8 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
         protonServerSwitching = reader.varint(field) != 0;
       case 54:
         connectionScenarios = reader.varint(field) != 0;
+      case 55:
+        vpnGateEpochRequests = reader.varint(field) != 0;
       case 47:
         liveAdsRules = reader.varint(field) != 0;
       case 48:
@@ -2038,6 +2041,7 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
     protonAccountWarpFallback: protonAccountWarpFallback,
     protonServerSwitching: protonServerSwitching,
     connectionScenarios: connectionScenarios,
+    vpnGateEpochRequests: vpnGateEpochRequests,
     chainOpenvpnMultiEndpoint: chainOpenvpnMultiEndpoint,
     vpnGatePoolFavorites: vpnGatePoolFavorites,
     h3CongestionControlAlgorithms: List.unmodifiable(congestionAlgorithms),

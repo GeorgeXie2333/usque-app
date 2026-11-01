@@ -6,6 +6,7 @@ import '../models/app_models.dart';
 import '../models/encrypted_dns_endpoint.dart';
 import 'common.dart';
 import 'direct_dns_editor.dart';
+import 'tv_text_input.dart';
 
 class WarpDnsEditor extends StatefulWidget {
   const WarpDnsEditor({
@@ -198,7 +199,7 @@ class WarpDnsEditorState extends State<WarpDnsEditor> {
         if (custom) ...<Widget>[
           const SizedBox(height: 20),
           if (_mode != WarpDnsMode.doh)
-            TextFormField(
+            tvTextFormField(
               key: _keys[0],
               focusNode: _focus[0],
               controller: _server,
@@ -219,7 +220,7 @@ class WarpDnsEditorState extends State<WarpDnsEditor> {
             ),
           if (_mode != WarpDnsMode.doh) const SizedBox(height: 12),
           if (_mode == WarpDnsMode.doh) ...<Widget>[
-            TextFormField(
+            tvTextFormField(
               key: _keys[1],
               focusNode: _focus[1],
               controller: _url,
@@ -244,7 +245,7 @@ class WarpDnsEditorState extends State<WarpDnsEditor> {
             const SizedBox(height: 12),
           ],
           if (_mode != WarpDnsMode.doh)
-            TextFormField(
+            tvTextFormField(
               key: _keys[2],
               focusNode: _focus[2],
               controller: _port,
@@ -263,7 +264,7 @@ class WarpDnsEditorState extends State<WarpDnsEditor> {
               },
             ),
           if (_mode != WarpDnsMode.doh) const SizedBox(height: 12),
-          TextFormField(
+          tvTextFormField(
             key: _keys[3],
             focusNode: _focus[3],
             controller: _bootstrap,

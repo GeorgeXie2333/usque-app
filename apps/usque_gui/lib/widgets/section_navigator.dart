@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
+import 'tv_input_scope.dart';
 import 'unsaved_changes_guard.dart';
 
 /// Keeps a shell section's subpages inside the shell, so desktop navigation
@@ -94,10 +95,15 @@ class SectionNavigatorState extends State<SectionNavigator> {
 
   /// Returns to the root page after every guarded subpage agrees to leave.
   Future<bool> closeSubpages() async {
+    if (TvInputScope.maybeOf(context)?.consumeBack(context) ?? false) {
+      return false;
+    }
     final navigator = _navigator.currentState;
     if (navigator == null) return true;
     if (_closing) return false;
     _closing = true;
+    final confirmed = <UnsavedChangesGuardState>[];
+    var departed = false;
     try {
       final pages = _observer.pages;
       if (pages.length <= 1) {
@@ -111,14 +117,30 @@ class SectionNavigatorState extends State<SectionNavigator> {
         if (!guard.mounted) continue;
         final route = ModalRoute.of(guard.context);
         if (route == null || !route.isActive || route.isFirst) continue;
+        confirmed.add(guard);
         if (!await guard.confirmLeave()) return false;
         if (!mounted) return false;
       }
+      // An earlier page may have begun saving while a later confirmation was
+      // open. All pages must still permit the same departure before any pop.
+      if (confirmed.any((guard) => guard.mounted && !guard.canLeave)) {
+        return false;
+      }
       final top = _observer.pages.last;
       navigator.popUntil((route) => route.isFirst);
+      departed = true;
       if (top is TransitionRoute) await top.completed;
       return mounted;
     } finally {
+      if (!departed) {
+        var revoked = false;
+        for (final guard in confirmed) {
+          revoked = guard.cancelLeave() || revoked;
+        }
+        // Do not complete a cancelled departure while PopScope still exposes
+        // the earlier discard permission to the next back event.
+        if (revoked) await WidgetsBinding.instance.endOfFrame;
+      }
       _closing = false;
     }
   }
@@ -127,7 +149,10 @@ class SectionNavigatorState extends State<SectionNavigator> {
   Widget build(BuildContext context) => NavigatorPopHandler<void>(
     enabled: widget.active,
     onPopWithResult: (_) {
-      if (widget.active) unawaited(_navigator.currentState!.maybePop());
+      if (TvInputScope.maybeOf(context)?.consumeBack(context) ?? false) return;
+      if (widget.active && !_closing) {
+        unawaited(_navigator.currentState!.maybePop());
+      }
     },
     child: Navigator(
       key: _navigator,

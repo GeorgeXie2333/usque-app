@@ -93,10 +93,13 @@ Network settings are shared by all accounts.
 
 ## Features
 
-- [Local connection scenes](docs/SCENARIOS.md) in **Profiles → Scenes**, beside
-  **Accounts**. Save common network settings, optionally bind an account, review
+- [Local connection scenes](docs/SCENARIOS.md) in **Profiles**, with account management under
+  **Manage accounts → Accounts**. Save common network settings, optionally bind an account, review
   changes before use, and restore the latest switch. Saving a template does not
   change the running connection; saved and applied states remain distinct.
+  Scenes save account binding, chain proxy, endpoints, IP policy and transport.
+  Manage accounts and nodes in nested pages; outputs, routing and DNS stay global.
+  Endpoint controls match Advanced network settings.
 
 - Optional [chain proxy](docs/CHAIN_PROXY.md): open **Proxy → Chain proxy** for
   **OpenVPN**, **WireGuard**, [**WARP via WireGuard**](docs/WARP_WIREGUARD.md),

@@ -23,6 +23,7 @@ class SaveChangesBar extends StatelessWidget {
     this.statusLabel,
     this.onReconnect,
     this.onRefresh,
+    this.secondaryAction,
     this.refreshing = false,
     this.saveLabel,
     this.summary,
@@ -42,6 +43,9 @@ class SaveChangesBar extends StatelessWidget {
   final String? statusLabel;
   final VoidCallback? onReconnect;
   final VoidCallback? onRefresh;
+
+  /// An optional lower-emphasis action placed before the primary button.
+  final Widget? secondaryAction;
   final bool refreshing;
 
   /// Contextual label for the primary action, such as an explicit reconnect.
@@ -159,7 +163,10 @@ class SaveChangesBar extends StatelessWidget {
                             : saveLabel ?? strings.get('save_changes'),
                       ),
                     );
-                    final save = onReconnect == null && onRefresh == null
+                    final save =
+                        onReconnect == null &&
+                            onRefresh == null &&
+                            secondaryAction == null
                         ? saveButton
                         : Wrap(
                             spacing: 8,
@@ -178,6 +185,7 @@ class SaveChangesBar extends StatelessWidget {
                                     strings.get('settings_reconnect'),
                                   ),
                                 ),
+                              ?secondaryAction,
                               saveButton,
                             ],
                           );

@@ -54,6 +54,7 @@ Continuous connection behavior and control compatibility: [English / 简体中�
 | [macOS checklist validation](MACOS_QA_VALIDATION.json) | Source-bound isolated results and checksums for the refreshed development packages / 本輪隔離結果與開發包校驗記錄 |
 | [Routing validation record](ROUTING_VALIDATION.md) | Workstation commands, results and unavailable isolated checks / 分流功能开发机验证与未运行的隔离检查 |
 | [GUI development](../apps/usque_gui/README.md) | Editing workflows and native UI conventions / 界面交互与布局约定 |
+| [Android TV input validation](ANDROID_TV_INPUT_VALIDATION.md) | D-pad editing, Back handling, automated checks and unavailable device validation / 方向键编辑、返回处理、自动化检查与未运行的设备验收 |
 | [Linux and WSL development](LINUX_DEVELOPMENT.md) | Native tools, debug UI preview, hot reload and checks / Linux 工具、模拟界面预览、热重载与检查 |
 | [Linux TUN repair validation](LINUX_TUN_REPAIR_VALIDATION.md) | Failure evidence, kernel egress selection, safe checks and pending VM acceptance / 失败证据、内核出口选择、安全检查与待运行的 VM 验收 |
 | [Linux DNS and startup repair validation](LINUX_DNS_STARTUP_VALIDATION.md) | NetworkManager IPv6 snapshot, responsive startup, regression results and pending physical Debian acceptance / NetworkManager IPv6 快照、启动响应、回归结果与待运行的 Debian 实机验收 |

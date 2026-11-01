@@ -12,6 +12,9 @@ use usque_transport::{
     SocketProtector,
 };
 
+#[cfg(test)]
+mod epoch_tests;
+
 static CATALOGUE: OnceLock<Mutex<Option<Controller>>> = OnceLock::new();
 struct Controller {
     path: PathBuf,
@@ -88,12 +91,23 @@ pub(crate) struct Request {
     pub warp_wireguard: Option<usque_core::warp_wireguard::Request>,
     #[serde(default)]
     pub cancel: bool,
+    #[serde(default)]
+    expected_source_epoch: String,
     #[serde(flatten)]
     query: ListQuery,
     #[serde(flatten)]
     node: NodeRequest,
 }
 impl Request {
+    fn expected_epoch(&self) -> Result<Option<uuid::Uuid>, String> {
+        if self.command != "node" || self.expected_source_epoch.is_empty() {
+            return Ok(None);
+        }
+        uuid::Uuid::parse_str(&self.expected_source_epoch)
+            .map(Some)
+            .map_err(|_| "VPN_GATE_REQUEST_INVALID".into())
+    }
+
     pub fn needs_fetch(&self) -> bool {
         (self.command == "warp_wireguard"
             && self
@@ -126,6 +140,7 @@ pub(crate) fn parse_request(json: &str) -> Result<Request, String> {
         return Err("VPN_GATE_REQUEST_INVALID".into());
     }
     if request.command == "node" {
+        request.expected_epoch()?;
         request
             .node
             .validate()
@@ -152,6 +167,10 @@ pub(crate) fn command(
     {
         return Err("VPN_GATE_REQUEST_INVALID".into());
     }
+    let _epoch_guard = request
+        .expected_epoch()?
+        .map(crate::network_settings::vpn_gate_epoch_guard)
+        .transpose()?;
     if request.cancel && !cancel_refresh() {
         return Err("VPN_GATE_CLEANUP_PENDING".into());
     }

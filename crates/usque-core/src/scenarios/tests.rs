@@ -1,5 +1,11 @@
 use super::*;
 
+#[path = "endpoint_tests.rs"]
+mod endpoint_tests;
+
+#[path = "scope_tests.rs"]
+mod scope_tests;
+
 fn context(config: &AppConfig) -> ScenarioContext {
     ScenarioContext {
         source_epoch: Uuid::new_v4(),
@@ -71,12 +77,14 @@ fn projection_preserves_global_settings_and_excludes_credentials() {
         Some(zeroize::Zeroizing::new(b"private-password".to_vec()));
     config.network.proxy.socks5_listeners = vec!["127.0.0.1:2000".parse().unwrap()];
     let original = config.network.clone();
-    let mut settings = ScenarioSettings::default();
-    settings.frontends.http = false;
+    let settings = ScenarioSettings {
+        transport: crate::TransportPolicy::Http2,
+        ..Default::default()
+    };
     let ctx = context(&config);
     let scenario = save(&mut config, settings, None);
     let result = activate(&mut config, &scenario, &ctx);
-    assert!(!config.network.frontends.http);
+    assert_eq!(config.network.transport, crate::TransportPolicy::Http2);
     assert_eq!(config.network.kill_switch, original.kill_switch);
     assert_eq!(config.network.auto_connect, original.auto_connect);
     assert_eq!(config.network.mtu, original.mtu);
@@ -156,10 +164,16 @@ fn tunnel_only_scene_preview_uses_native_platform_reconnect_policy() {
     let mut config = AppConfig::default();
     config.network.endpoint.selection = crate::EndpointSelection::Custom;
     let ctx = context(&config);
-    let mut settings = ScenarioSettings::from_network(&config.network);
-    settings.frontends.tunnel = false;
+    let settings = ScenarioSettings::from_network(&config.network);
+    config.network.frontends.tunnel = false;
     let scene = save(&mut config, settings, None);
-    let target = target_for(&config, &scene.settings, config.active_profile_id.unwrap()).unwrap();
+    let target = target_for(
+        &config,
+        &scene.settings,
+        config.active_profile_id.unwrap(),
+        false,
+    )
+    .unwrap();
     assert_eq!(
         crate::classify_reconfigure(ctx.applied_profile.as_ref().unwrap(), &target),
         crate::ReconfigureClass::HotTunnelAttach
@@ -188,30 +202,19 @@ fn tunnel_only_scene_preview_uses_native_platform_reconnect_policy() {
 }
 
 #[test]
-fn rule_order_and_rule_ids_do_not_make_a_scenario_modified() {
-    let mut settings = ScenarioSettings::default();
-    settings.routing.rules = vec![
-        crate::RoutingRule {
-            id: Uuid::new_v4(),
-            kind: crate::RoutingMatch::Domain,
-            target: "EXAMPLE.com.".into(),
-            action: crate::RoutingAction::Proxy,
-        },
-        crate::RoutingRule {
-            id: Uuid::new_v4(),
-            kind: crate::RoutingMatch::Cidr,
-            target: "192.0.2.5/24".into(),
-            action: crate::RoutingAction::Reject,
-        },
-    ];
-    let mut other = settings.normalized().unwrap();
-    other.routing.rules.reverse();
-    for rule in &mut other.routing.rules {
-        rule.id = Uuid::new_v4();
-    }
-    assert!(settings.equivalent(&other));
-    other.routing.rules[0].action = crate::RoutingAction::Direct;
-    assert!(!settings.equivalent(&other));
+fn routing_rules_are_global_even_when_actions_change() {
+    let mut network = SharedNetworkSettings::default();
+    network.routing.rules.push(crate::RoutingRule {
+        id: Uuid::new_v4(),
+        kind: crate::RoutingMatch::Domain,
+        target: "EXAMPLE.com.".into(),
+        action: crate::RoutingAction::Proxy,
+    });
+    let before = ScenarioSettings::from_network(&network);
+    network.routing.rules.reverse();
+    network.routing.rules[0].id = Uuid::new_v4();
+    network.routing.rules[0].action = crate::RoutingAction::Direct;
+    assert!(before.equivalent(&ScenarioSettings::from_network(&network)));
 }
 
 #[test]
@@ -220,14 +223,16 @@ fn bound_account_and_settings_commit_together_and_manual_account_changes_are_mod
     let first = config.active_profile_id.unwrap();
     let second = Uuid::new_v4();
     config.profiles.push(crate::Account::new(second, "Second"));
-    let mut settings = ScenarioSettings::default();
-    settings.frontends.http = false;
+    let settings = ScenarioSettings {
+        transport: crate::TransportPolicy::Http2,
+        ..Default::default()
+    };
     let scenario = save(&mut config, settings, Some(second));
     let ctx = context(&config);
     let result = activate(&mut config, &scenario, &ctx);
     assert_eq!(config.active_profile_id, Some(second));
     assert_eq!(result.target.unwrap().id, second);
-    assert!(!config.network.frontends.http);
+    assert_eq!(config.network.transport, crate::TransportPolicy::Http2);
     config.active_profile_id = Some(first);
     assert_eq!(catalogue(&config, &ctx)["state"]["modified"], true);
     assert_eq!(config.scenarios[0].bound_account_id, Some(second));
@@ -237,8 +242,25 @@ fn bound_account_and_settings_commit_together_and_manual_account_changes_are_mod
 fn missing_binding_does_not_break_storage_but_blocks_activation() {
     let mut config = AppConfig::default();
     let missing = Uuid::new_v4();
+    config
+        .profiles
+        .push(crate::Account::new(missing, "Deleted"));
     let scenario = save(&mut config, ScenarioSettings::default(), Some(missing));
+    config.profiles.retain(|account| account.id != missing);
     config.validate().unwrap();
+    // Renaming keeps the dangling binding the user still has to repair.
+    let renamed = command(
+        &mut config.clone(),
+        ScenarioCommand::Save {
+            id: Some(scenario.id),
+            name: "Renamed".into(),
+            bound_account_id: Some(missing),
+            settings: Box::new(scenario.settings.clone()),
+            expected_revision: Some(scenario.revision),
+        },
+        &ScenarioContext::default(),
+    );
+    assert!(renamed.is_ok());
     let error = command(
         &mut config,
         ScenarioCommand::Preview {
@@ -312,20 +334,28 @@ fn activation_includes_changes_pending_in_running_session() {
     .unwrap()
     .response;
     assert!(
-        response["preview"]["changed_fields"]
+        response["preview"]["actual_changed_fields"]
             .as_array()
             .unwrap()
             .contains(&json!("frontends.http"))
     );
-    assert_eq!(response["state"]["applied_matches"], false);
+    assert_eq!(response["state"]["applied_matches"], true);
+    assert!(
+        response["preview"]["changed_fields"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
 }
 
 #[test]
 fn restore_preserves_new_global_values_and_refuses_new_managed_edits() {
     let mut config = AppConfig::default();
     let ctx = context(&config);
-    let mut settings = ScenarioSettings::default();
-    settings.frontends.http = false;
+    let settings = ScenarioSettings {
+        transport: crate::TransportPolicy::Http2,
+        ..Default::default()
+    };
     let scenario = save(&mut config, settings, None);
     activate(&mut config, &scenario, &ctx);
     assert!(can_restore(&config));
@@ -343,11 +373,11 @@ fn restore_preserves_new_global_values_and_refuses_new_managed_edits() {
         &ctx,
     )
     .unwrap();
-    assert!(config.network.frontends.http);
+    assert_eq!(config.network.transport, crate::TransportPolicy::Auto);
     assert!(config.network.auto_connect);
     assert!(!can_restore(&config));
     activate(&mut config, &scenario, &ctx);
-    config.network.frontends.socks5 = false;
+    config.network.ip_policy = crate::IpPolicy::Ipv4Only;
     assert!(!can_restore(&config));
 }
 
@@ -359,7 +389,7 @@ fn edited_template_does_not_change_selected_snapshot_and_deleting_does_not_chang
     activate(&mut config, &scenario, &ctx);
     let before = config.network.clone();
     let mut settings = scenario.settings.clone();
-    settings.frontends.http = false;
+    settings.transport = crate::TransportPolicy::Http2;
     command(
         &mut config,
         ScenarioCommand::Save {
@@ -529,7 +559,10 @@ fn schema_twenty_six_migration_preserves_account_and_network_and_starts_without_
     std::fs::write(&path, serde_json::to_vec(&legacy).unwrap()).unwrap();
     let store = crate::storage::ConfigStore::new(path);
     let migrated = store.load().unwrap();
-    assert_eq!(migrated.schema_version, 27);
+    assert_eq!(
+        migrated.schema_version,
+        crate::config::CURRENT_SCHEMA_VERSION
+    );
     assert_eq!(migrated.network, config.network);
     assert_eq!(migrated.profiles, config.profiles);
     assert_eq!(migrated.active_profile_id, config.active_profile_id);
@@ -551,8 +584,7 @@ fn same_meaning_rules_preserve_existing_runtime_ids() {
         target: "example.com".into(),
         action: crate::RoutingAction::Proxy,
     });
-    let mut settings = ScenarioSettings::from_network(&config.network);
-    settings.routing.rules[0].id = Uuid::new_v4();
+    let settings = ScenarioSettings::from_network(&config.network);
     let value = save(&mut config, settings, None);
     let ctx = context(&config);
     let preview = command(
@@ -641,18 +673,20 @@ fn oversized_current_configuration_keeps_catalogue_and_deletion_available() {
     config.validate().unwrap();
     assert!(
         encoded_size(&ScenarioSettings::from_network(&config.network)).unwrap()
-            > MAX_SCENARIO_BYTES
+            < MAX_SCENARIO_BYTES
     );
     let value = save(&mut config, ScenarioSettings::default(), None);
     let response = command(
         &mut config,
-        ScenarioCommand::List,
+        ScenarioCommand::List {
+            known_revision: None,
+        },
         &ScenarioContext::default(),
     )
     .unwrap()
     .response;
-    assert!(response["current_settings"].is_null());
-    assert_eq!(response["current_settings_error"], "SCENARIO_LIMIT");
+    assert!(response["current_settings"].is_object());
+    assert!(response["current_settings_error"].is_null());
     assert_eq!(response["scenarios"].as_array().unwrap().len(), 1);
     assert!(encoded_size(&response).unwrap() < MAX_RESPONSE_BYTES);
     command(
@@ -689,7 +723,9 @@ fn all_command_envelopes_reject_owner_observations_and_secret_fields() {
     }
     assert!(matches!(
         ScenarioCommand::parse(r#"{"action":"list"}"#).unwrap(),
-        ScenarioCommand::List
+        ScenarioCommand::List {
+            known_revision: None,
+        }
     ));
     assert!(matches!(
         ScenarioCommand::parse(r#"{"action":"preview_restore"}"#).unwrap(),
@@ -732,7 +768,7 @@ fn completed_and_invalidated_restore_records_do_not_retain_unused_exits() {
         } else {
             let plain = save(&mut config, ScenarioSettings::default(), None);
             activate(&mut config, &plain, &ctx);
-            config.network.frontends.http = false;
+            config.network.ip_policy = crate::IpPolicy::Ipv4Only;
         }
         assert!(!can_restore(&config));
         command(
@@ -812,7 +848,7 @@ fn scene_status_ignores_only_unmanaged_deferrals_not_failed_or_unknown_outcomes(
         );
     }
     ctx.apply_status = ApplyStatus::Deferred;
-    config.network.frontends.http = false;
+    config.network.transport = crate::TransportPolicy::Http2;
     assert_eq!(
         catalogue(&config, &ctx)["state"]["apply_status"],
         "deferred"
@@ -823,8 +859,10 @@ fn scene_status_ignores_only_unmanaged_deferrals_not_failed_or_unknown_outcomes(
 fn applied_scene_uses_frozen_selection_and_current_transition_source() {
     let mut config = AppConfig::default();
     let mut ctx = context(&config);
-    let mut first_settings = ScenarioSettings::default();
-    first_settings.frontends.http = false;
+    let first_settings = ScenarioSettings {
+        transport: crate::TransportPolicy::Http2,
+        ..Default::default()
+    };
     let first = save(&mut config, first_settings, None);
     activate(&mut config, &first, &ctx);
     ctx.applied_profile = config.active_profile();
@@ -896,4 +934,174 @@ fn applied_scene_never_guesses_from_catalogue_or_mismatched_binding() {
     assert_eq!(modified["applied_scene_confirmed"], true);
     assert!(modified["applied_scenario_id"].is_null());
     assert_eq!(modified["state"]["modified"], true);
+}
+
+#[test]
+fn new_bindings_must_name_an_existing_account() {
+    let mut config = AppConfig::default();
+    let before = config.clone();
+    let error = command(
+        &mut config,
+        ScenarioCommand::Save {
+            id: None,
+            name: "Work".into(),
+            bound_account_id: Some(Uuid::new_v4()),
+            settings: Box::default(),
+            expected_revision: None,
+        },
+        &ScenarioContext::default(),
+    )
+    .unwrap_err();
+    assert_eq!(error, ScenarioError::AccountUnavailable);
+    assert_eq!(config, before);
+}
+
+#[test]
+fn stored_scene_rejected_by_current_rules_loads_and_is_reported_unavailable() {
+    let mut config = AppConfig::default();
+    let valid = save(&mut config, ScenarioSettings::default(), None);
+    let mut invalid = save(&mut config, ScenarioSettings::default(), None);
+    // Invalid stored endpoint settings affect this scene, not the configuration.
+    invalid.settings.endpoint.port = 0;
+    config.scenarios[1] = invalid.clone();
+    config.validate().unwrap();
+    let temp = tempfile::tempdir().unwrap();
+    let store = crate::storage::ConfigStore::new(temp.path().join("profiles-v2.json"));
+    std::fs::write(
+        temp.path().join("profiles-v2.json"),
+        serde_json::to_vec(&config).unwrap(),
+    )
+    .unwrap();
+    let loaded = store.load().unwrap();
+    assert_eq!(loaded.scenarios.len(), 2);
+    let response = catalogue(&loaded, &ScenarioContext::default());
+    assert_eq!(response["invalid_scenario_ids"], json!([invalid.id]));
+    let mut working = loaded.clone();
+    let error = command(
+        &mut working,
+        ScenarioCommand::Preview {
+            id: invalid.id,
+            expected_revision: invalid.revision,
+        },
+        &ScenarioContext::default(),
+    )
+    .unwrap_err();
+    assert_eq!(error, ScenarioError::InvalidSettings);
+    command(
+        &mut working,
+        ScenarioCommand::Preview {
+            id: valid.id,
+            expected_revision: valid.revision,
+        },
+        &context(&loaded),
+    )
+    .unwrap();
+}
+
+#[test]
+fn status_poll_omits_unchanged_templates_but_keeps_state() {
+    let mut config = AppConfig::default();
+    save(&mut config, ScenarioSettings::default(), None);
+    let list = |config: &mut AppConfig, known: Option<String>| {
+        command(
+            config,
+            ScenarioCommand::List {
+                known_revision: known,
+            },
+            &ScenarioContext::default(),
+        )
+        .unwrap()
+        .response
+    };
+    let full = list(&mut config, None);
+    let revision = full["catalogue_revision"].as_str().unwrap().to_owned();
+    let poll = list(&mut config, Some(revision.clone()));
+    assert!(poll.get("scenarios").is_none());
+    assert_eq!(poll["scenarios_unchanged"], true);
+    assert_eq!(poll["state"], full["state"]);
+    save(&mut config, ScenarioSettings::default(), None);
+    let changed = list(&mut config, Some(revision));
+    assert_eq!(changed["scenarios"].as_array().unwrap().len(), 2);
+    assert!(changed.get("scenarios_unchanged").is_none());
+}
+
+#[test]
+fn preview_warns_when_pending_global_output_ends_kill_switch_protection() {
+    let mut config = AppConfig::default();
+    config.network.kill_switch = true;
+    let ctx = context(&config);
+    let scene = save(&mut config, ScenarioSettings::default(), None);
+    config.network.frontends.tunnel = false;
+    let preview = |config: &mut AppConfig| {
+        command(
+            config,
+            ScenarioCommand::Preview {
+                id: scene.id,
+                expected_revision: scene.revision,
+            },
+            &ctx,
+        )
+        .unwrap()
+        .response["preview"]
+            .clone()
+    };
+    let removed = preview(&mut config);
+    assert_eq!(removed["kill_switch_output_removed"], true);
+    assert!(
+        removed["actual_changed_fields"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("frontends.tunnel"))
+    );
+    assert!(removed["target_settings"].get("frontends").is_none());
+    config.network.frontends.tunnel = true;
+    assert_eq!(preview(&mut config)["kill_switch_output_removed"], false);
+    config.network.frontends.tunnel = false;
+    config.network.kill_switch = false;
+    assert_eq!(preview(&mut config)["kill_switch_output_removed"], false);
+}
+
+/// A non-default projection shared with the GUI. Rust owns the field set; the
+/// Flutter contract test reads the same fixture and checks its round trip.
+fn gui_contract_sample() -> ScenarioSettings {
+    let mut settings = ScenarioSettings {
+        transport: crate::TransportPolicy::Http2,
+        ip_policy: crate::IpPolicy::PreferIpv6,
+        ..Default::default()
+    };
+    let endpoint = &mut settings.endpoint;
+    endpoint.selection = crate::EndpointSelection::Custom;
+    endpoint.preset_region = Some(crate::EndpointPresetRegion::De);
+    endpoint.port = 8443;
+    settings.chain_exit = Some(ChainExitSettings {
+        enabled: true,
+        source: crate::chain_exit::ChainSource::WireguardCustom,
+        profile_id: Some(Uuid::from_u128(0x5ce0_0000_0000_4000_8000_0000_0000_0002)),
+        revision: Some(Uuid::from_u128(0x5ce0_0000_0000_4000_8000_0000_0000_0003)),
+        endpoint_override: None,
+        proton_server_id: None,
+    });
+    settings.normalized().unwrap()
+}
+
+#[test]
+fn gui_scene_settings_contract_fixture_matches_the_rust_projection() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../apps/usque_gui/test/fixtures/scenario_settings_contract.json");
+    let expected = serde_json::to_string_pretty(&json!({
+        "default": ScenarioSettings::default().normalized().unwrap(),
+        "sample": gui_contract_sample(),
+    }))
+    .unwrap()
+        + "\n";
+    if std::env::var_os("USQUE_UPDATE_CONTRACT_FIXTURES").is_some() {
+        std::fs::write(&path, &expected).unwrap();
+    }
+    assert_eq!(
+        std::fs::read_to_string(&path)
+            .unwrap_or_default()
+            .replace("\r\n", "\n"),
+        expected,
+        "scene settings changed; regenerate with USQUE_UPDATE_CONTRACT_FIXTURES=1 and update the GUI projection",
+    );
 }

@@ -45,95 +45,101 @@ class AdsRulesSection extends StatelessWidget {
     final updated = timestamp > 0
         ? DateTime.fromMillisecondsSinceEpoch(timestamp)
         : null;
-    return ContentSection(
-      child: RowTileTheme(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            SwitchListTile(
-              key: const ValueKey('routing-ads'),
-              contentPadding: EdgeInsets.zero,
-              secondary: const Icon(LucideIcons.megaphoneOff),
-              title: Text(strings.get('routing_ads')),
-              // Whether blocking is actually in effect is a state, not a
-              // hint, so it reads as one; the other lines explain next steps.
-              subtitle: switch (status) {
-                'ads_active' => Align(
-                  alignment: AlignmentDirectional.centerStart,
-                  child: InlineStatus(
-                    label: strings.get(status),
-                    tone: StatusTone.success,
-                  ),
-                ),
-                'ads_missing' => Align(
-                  alignment: AlignmentDirectional.centerStart,
-                  child: InlineStatus(
-                    label: strings.get(status),
-                    tone: StatusTone.warning,
-                  ),
-                ),
-                _ => Text(strings.get(status)),
-              },
-              value: enabled,
-              onChanged: onChanged,
-            ),
-            Padding(
-              padding: const EdgeInsetsDirectional.only(start: 32),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (failed)
-                    HintText(
-                      strings.get(
-                        ready || active
-                            ? 'ads_failed_old'
-                            : 'ads_failed_missing',
-                      ),
+    return RowTileTheme(
+      child: ContentGroup(
+        title: strings.get('routing_protection'),
+        children: [
+          ContentSection(
+            padding: RowInsets.tile,
+            children: [
+              SwitchListTile(
+                key: const ValueKey('routing-ads'),
+                contentPadding: EdgeInsets.zero,
+                secondary: const Icon(LucideIcons.megaphoneOff),
+                title: Text(strings.get('routing_ads')),
+                // Whether blocking is actually in effect is a state, not a
+                // hint, so it reads as one; the other lines explain next steps.
+                subtitle: switch (status) {
+                  'ads_active' => Align(
+                    alignment: AlignmentDirectional.centerStart,
+                    child: InlineStatus(
+                      label: strings.get(status),
+                      tone: StatusTone.success,
                     ),
-                  if (enabled &&
-                      !busy &&
-                      (failed || saved && !ready) &&
-                      controller.supportsLiveAds)
-                    TextButton.icon(
-                      key: const ValueKey('ads-retry'),
-                      onPressed: () => controller.updateAdsRules(manual: true),
-                      icon: const Icon(LucideIcons.refreshCw),
-                      label: Text(strings.get('retry')),
-                    ),
-                  ExpansionTile(
-                    key: const ValueKey('ads-details'),
-                    tilePadding: EdgeInsets.zero,
-                    childrenPadding: EdgeInsets.zero,
-                    title: Text(strings.get('ads_details')),
-                    expandedCrossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      HintText(strings.get('ads_auto_hint')),
-                      HintText(strings.get('ads_source')),
-                      if (updated != null)
-                        HintText(
-                          '${strings.get('ads_updated')}: ${_date(context, updated)}',
-                        ),
-                      if (controller.adsLastChecked case final checked?)
-                        HintText(
-                          '${strings.get('ads_checked')}: ${_date(context, checked)}',
-                        ),
-                      if (!controller.supportsLiveAds)
-                        HintText(strings.get('bypass_unsupported')),
-                      TextButton.icon(
-                        key: const ValueKey('ads-update'),
-                        onPressed: busy || !controller.supportsLiveAds
-                            ? null
-                            : () => controller.updateAdsRules(manual: true),
-                        icon: const Icon(LucideIcons.refreshCw),
-                        label: Text(strings.get('ads_update')),
-                      ),
-                    ],
                   ),
-                ],
+                  'ads_missing' => Align(
+                    alignment: AlignmentDirectional.centerStart,
+                    child: InlineStatus(
+                      label: strings.get(status),
+                      tone: StatusTone.warning,
+                    ),
+                  ),
+                  _ => Text(strings.get(status)),
+                },
+                value: enabled,
+                onChanged: onChanged,
               ),
-            ),
-          ],
-        ),
+              Padding(
+                padding: const EdgeInsetsDirectional.only(
+                  start: RowInsets.textIndent,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (failed)
+                      HintText(
+                        strings.get(
+                          ready || active
+                              ? 'ads_failed_old'
+                              : 'ads_failed_missing',
+                        ),
+                      ),
+                    if (enabled &&
+                        !busy &&
+                        (failed || saved && !ready) &&
+                        controller.supportsLiveAds)
+                      TextButton.icon(
+                        key: const ValueKey('ads-retry'),
+                        onPressed: () =>
+                            controller.updateAdsRules(manual: true),
+                        icon: const Icon(LucideIcons.refreshCw),
+                        label: Text(strings.get('retry')),
+                      ),
+                    ExpansionTile(
+                      key: const ValueKey('ads-details'),
+                      tilePadding: EdgeInsets.zero,
+                      childrenPadding: EdgeInsets.zero,
+                      title: Text(strings.get('ads_details')),
+                      expandedCrossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        HintText(strings.get('ads_auto_hint')),
+                        HintText(strings.get('ads_source')),
+                        if (updated != null)
+                          HintText(
+                            '${strings.get('ads_updated')}: ${_date(context, updated)}',
+                          ),
+                        if (controller.adsLastChecked case final checked?)
+                          HintText(
+                            '${strings.get('ads_checked')}: ${_date(context, checked)}',
+                          ),
+                        if (!controller.supportsLiveAds)
+                          HintText(strings.get('bypass_unsupported')),
+                        TextButton.icon(
+                          key: const ValueKey('ads-update'),
+                          onPressed: busy || !controller.supportsLiveAds
+                              ? null
+                              : () => controller.updateAdsRules(manual: true),
+                          icon: const Icon(LucideIcons.refreshCw),
+                          label: Text(strings.get('ads_update')),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }

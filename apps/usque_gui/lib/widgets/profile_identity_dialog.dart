@@ -8,6 +8,7 @@ import '../core/usque_motion.dart';
 import '../models/app_models.dart';
 import '../state/app_controller.dart';
 import 'common.dart';
+import 'tv_text_input.dart';
 import 'usque_dialog.dart';
 import 'zero_trust_enrollment_editor.dart';
 
@@ -200,6 +201,9 @@ class _ProfileIdentityDialogState extends State<_ProfileIdentityDialog> {
     final title = _isRepair
         ? _strings.get('configure_identity')
         : _strings.get('new_profile');
+    final step = _step == 0
+        ? _buildNameStep(key: const ValueKey<String>('name'))
+        : _buildIdentityStep(key: const ValueKey<String>('identity'));
     return UsqueDialog(
       icon: _step == 0
           ? LucideIcons.layers3
@@ -210,17 +214,17 @@ class _ProfileIdentityDialogState extends State<_ProfileIdentityDialog> {
       subtitle: _strings.get(
         _step == 0 ? 'profile_name' : 'identity_and_license',
       ),
-      content: AnimatedSize(
-        duration: UsqueMotion.of(context, UsqueMotion.base),
-        curve: UsqueMotion.emphasized,
-        alignment: Alignment.topCenter,
-        child: FadeThroughSwitcher(
-          duration: UsqueMotion.base,
-          child: _step == 0
-              ? _buildNameStep(key: const ValueKey<String>('name'))
-              : _buildIdentityStep(key: const ValueKey<String>('identity')),
-        ),
-      ),
+      content: UsqueMotion.reduced(context)
+          ? step
+          : AnimatedSize(
+              duration: UsqueMotion.of(context, UsqueMotion.base),
+              curve: UsqueMotion.emphasized,
+              alignment: Alignment.topCenter,
+              child: FadeThroughSwitcher(
+                duration: UsqueMotion.base,
+                child: step,
+              ),
+            ),
       actions: <Widget>[
         TextButton(
           onPressed: _submitting ? null : _cancelDialog,
@@ -262,7 +266,7 @@ class _ProfileIdentityDialogState extends State<_ProfileIdentityDialog> {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        TextField(
+        tvTextField(
           controller: _nameController,
           focusNode: _nameFocusNode,
           autofocus: true,
@@ -327,7 +331,7 @@ class _ProfileIdentityDialogState extends State<_ProfileIdentityDialog> {
         if (_method ==
             IdentityProvisioningMethod.registerWithLicense) ...<Widget>[
           const SizedBox(height: 10),
-          TextField(
+          tvTextField(
             controller: _licenseController,
             focusNode: _licenseFocusNode,
             autofocus: true,

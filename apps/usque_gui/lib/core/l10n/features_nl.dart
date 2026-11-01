@@ -445,7 +445,6 @@ const Map<String, String> kChainNl = <String, String>{
   'failure_protocol': 'protocolfout',
   'failure_cleanup': 'opschoning',
   'failure_reason': 'Fout: {reason}.',
-  'manage': 'Beheren',
   'dns_fallback': 'Tunnel-DNS (OpenVPN kan DNS onderhandelen)',
   'dns_unavailable_title': 'Geen DNS via deze uitgang',
   'dns_unavailable':

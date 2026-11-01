@@ -253,9 +253,10 @@ class _VpnGateServerRowState extends State<VpnGateServerRow> {
                     titleAlignment: ListTileTitleAlignment.top,
                     enabled: enabled,
                     selected: widget.selected,
+                    // A pick, not a confirmed connection: a dot, no check.
                     leading: Icon(
                       widget.selected
-                          ? LucideIcons.circleCheck
+                          ? LucideIcons.circleDot
                           : LucideIcons.circle,
                       size: 24,
                     ),

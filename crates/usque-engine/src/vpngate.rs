@@ -3,6 +3,9 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 use usque_core::vpngate::*;
+
+#[cfg(test)]
+mod epoch_tests;
 use usque_ipc::v1;
 use usque_transport::{
     DataPlaneRuntime, GeoDirectPolicy, InternalNetwork, MasqueTlsIdentity, NoopSocketProtector,
@@ -440,6 +443,20 @@ impl ControlService {
         &self,
         request: v1::VpnGateNodeRequest,
     ) -> Result<(), ControlServiceError> {
+        // A scene's temporary reference belongs to one native owner. Serialize
+        // its admission/local mutation with the reset that changes this epoch;
+        // stale cleanup must not release the next owner's same-hash reference.
+        let _epoch_submission = if request.expected_source_epoch.is_empty() {
+            None
+        } else {
+            let expected = uuid::Uuid::parse_str(&request.expected_source_epoch)
+                .map_err(|_| error(DirectoryError::StaleSelection))?;
+            let submission = self.settings_submission.lock().await;
+            if self.settings.lock().await.source_epoch != expected {
+                return Err(ControlServiceError::VpnGateOwnerStale);
+            }
+            Some(submission)
+        };
         let action = match request.action.as_str() {
             "prepare" => NodeAction::Prepare,
             "favorite" => NodeAction::Favorite,

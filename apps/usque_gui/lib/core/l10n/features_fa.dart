@@ -407,7 +407,6 @@ const Map<String, String> kChainFa = <String, String>{
   'failure_protocol': 'پروتکل',
   'failure_cleanup': 'پاک‌سازی',
   'failure_reason': 'علت خرابی: {reason}.',
-  'manage': 'مدیریت',
   'dns_fallback': 'DNS تونل (OpenVPN می‌تواند DNS را مذاکره کند)',
   'dns_unavailable_title': 'از این خروجی DNS در دسترس نیست',
   'dns_unavailable':

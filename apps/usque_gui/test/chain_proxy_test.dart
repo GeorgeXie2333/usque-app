@@ -61,6 +61,7 @@ class ChainEngine extends GateEngine
     automaticEndpoints: true,
     vpnGateTcp: true,
     vpnGatePoolFavorites: true,
+    vpnGateEpochRequests: true,
     networkSettingsApplication: true,
     chainProfileImport: true,
     chainOpenvpnUdp: true,
@@ -478,7 +479,15 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Chain proxy'), findsOneWidget);
     expect(find.text('VPN Gate'), findsOneWidget);
-    expect(find.text('Manage'), findsOneWidget);
+    // The whole row opens the chain page; there is no separate action.
+    expect(
+      tester
+          .widget<LinkRow>(
+            find.byKey(const ValueKey('proxy-chain-proxy-entry')),
+          )
+          .onTap,
+      isNotNull,
+    );
     expect(find.text('Manage servers'), findsNothing);
     expect(find.text('Choose an exit reached through WARP.'), findsOneWidget);
   });

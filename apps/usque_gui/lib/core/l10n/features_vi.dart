@@ -407,7 +407,6 @@ const Map<String, String> kChainVi = <String, String>{
   'failure_protocol': 'giao thức',
   'failure_cleanup': 'dọn dẹp',
   'failure_reason': 'Lỗi: {reason}.',
-  'manage': 'Quản lý',
   'dns_fallback': 'DNS đường hầm (OpenVPN có thể thương lượng DNS)',
   'dns_unavailable_title': 'Không có DNS qua lối ra này',
   'dns_unavailable':

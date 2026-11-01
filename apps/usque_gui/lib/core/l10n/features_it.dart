@@ -443,7 +443,6 @@ const Map<String, String> kChainIt = <String, String>{
   'failure_protocol': 'protocollo',
   'failure_cleanup': 'pulizia',
   'failure_reason': 'Errore: {reason}.',
-  'manage': 'Gestisci',
   'dns_fallback': 'DNS del tunnel (OpenVPN può negoziare il DNS)',
   'dns_unavailable_title': 'Nessun DNS tramite questa uscita',
   'dns_unavailable':

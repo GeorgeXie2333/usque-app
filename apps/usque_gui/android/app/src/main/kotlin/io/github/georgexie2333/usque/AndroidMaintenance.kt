@@ -121,12 +121,7 @@ internal object AndroidMaintenance {
                 connectionTimeline
             }
         val connection = sanitizeConnectionSummary(snapshot)
-        val configuration =
-            JSONObject()
-                .put("platform", "android")
-                .put("vpn_service_diagnostics", true)
-                .put("diagnostic_modes", listOf("standard", "deep"))
-                .put("automatic_upload", false)
+        val configuration = diagnosticArchiveConfiguration()
         val platformHealth = sanitizePlatformHealth(snapshot)
         val readme =
             """
@@ -169,27 +164,50 @@ internal object AndroidMaintenance {
         }
 
         val sessionState = sanitizedSession?.optString("state")
-        val platform = metadata()
-        val manifest =
-            JSONObject()
-                .put("schema_version", 2)
-                .put("created_at_unix_millis", System.currentTimeMillis())
-                .put("app_version", platform.appVersion)
-                .put("platform", "android")
-                .put("app_debuggable", platform.appDebuggable)
-                .put("native_build", L4StatusFields.buildInfo(platform.nativeBuild) ?: JSONObject.NULL)
-                .put("sdk", platform.sdk)
-                .put("supported_abis", platform.supportedAbis.joinToString(","))
-                .put("diagnostic_complete", sessionState == "completed")
-                .put("diagnostic_cancelled", sessionState == "cancelled")
-                .put("redaction_policy", "allowlist-v2")
-                .put(
-                    "contents",
+        val manifest = diagnosticArchiveManifest(payloads, metadata(), sessionState)
+        openOutput().use { stream ->
+            ZipOutputStream(stream.buffered()).use { archive ->
+                archive.writeEntry("manifest.json", manifest.toString(2).toByteArray())
+                payloads.forEach { (name, bytes) -> archive.writeEntry(name, bytes) }
+            }
+        }
+    }
+
+    internal fun diagnosticArchiveConfiguration(): JSONObject =
+        JSONObject()
+            .put("platform", "android")
+            .put("vpn_service_diagnostics", true)
+            .put("diagnostic_modes", JSONArray(listOf("standard", "deep")))
+            .put("automatic_upload", false)
+
+    internal fun diagnosticArchiveManifest(
+        payloads: Map<String, ByteArray>,
+        platform: DiagnosticArchiveMetadata,
+        sessionState: String?,
+    ): JSONObject =
+        JSONObject()
+            .put("schema_version", 2)
+            .put("created_at_unix_millis", System.currentTimeMillis())
+            .put("app_version", platform.appVersion)
+            .put("platform", "android")
+            .put("app_debuggable", platform.appDebuggable)
+            .put("native_build", L4StatusFields.buildInfo(platform.nativeBuild) ?: JSONObject.NULL)
+            .put("sdk", platform.sdk)
+            .put("supported_abis", platform.supportedAbis.joinToString(","))
+            .put("diagnostic_complete", sessionState == "completed")
+            .put("diagnostic_cancelled", sessionState == "cancelled")
+            .put("redaction_policy", "allowlist-v2")
+            .put(
+                "contents",
+                // Android's JSONObject.put does not wrap collections like the JVM serializer.
+                JSONArray(
                     payloads.map { (name, bytes) ->
-                        mapOf("path" to name, "size" to bytes.size, "sha256" to sha256(bytes))
+                        JSONObject(mapOf("path" to name, "size" to bytes.size, "sha256" to sha256(bytes)))
                     },
-                ).put(
-                    "excluded",
+                ),
+            ).put(
+                "excluded",
+                JSONArray(
                     listOf(
                         "WARP Secret",
                         "private key",
@@ -205,14 +223,8 @@ internal object AndroidMaintenance {
                         "installed application list",
                         "user filesystem paths",
                     ),
-                )
-        openOutput().use { stream ->
-            ZipOutputStream(stream.buffered()).use { archive ->
-                archive.writeEntry("manifest.json", manifest.toString(2).toByteArray())
-                payloads.forEach { (name, bytes) -> archive.writeEntry(name, bytes) }
-            }
-        }
-    }
+                ),
+            )
 
     internal fun sanitizeConnectionSummary(snapshot: Map<String, Any?>): JSONObject {
         val platform = observedPlatformFields(snapshot)

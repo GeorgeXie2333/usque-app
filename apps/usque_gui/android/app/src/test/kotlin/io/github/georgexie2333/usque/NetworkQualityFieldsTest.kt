@@ -11,6 +11,15 @@ import java.util.concurrent.Executor
 import java.util.concurrent.atomic.AtomicInteger
 
 class NetworkQualityFieldsTest {
+    @Test
+    fun vpnGateEpochRequestsRequireAnExplicitNativeBoolean() {
+        val key = "vpn_gate_epoch_requests"
+        assertTrue(NetworkQualityFields.capabilities("{\"vpn_gate_epoch_requests\":true}").getValue(key))
+        for (source in listOf(null, "{}", "bad json", "{\"vpn_gate_epoch_requests\":\"true\"}")) {
+            assertFalse(NetworkQualityFields.capabilities(source).getValue(key))
+        }
+    }
+
     @Test fun endpointPresetCapabilityRequiresExplicitBoolean() {
         assertTrue(NetworkQualityFields.capabilities("{\"endpoint_presets\":true}").getValue("endpoint_presets"))
         for (source in listOf(null, "{}", "{\"endpoint_presets\":\"true\"}")) {

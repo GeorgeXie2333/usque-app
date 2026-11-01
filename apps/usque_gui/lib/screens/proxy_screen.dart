@@ -14,6 +14,7 @@ import '../widgets/chain_proxy_entry.dart';
 import '../widgets/common.dart';
 import '../widgets/local_proxy_outputs.dart';
 import '../widgets/save_changes_bar.dart';
+import '../widgets/tv_text_input.dart';
 import 'chain_proxy_screen.dart';
 
 ({String key, bool username})? proxyAuthError(
@@ -301,27 +302,39 @@ class _ProxyScreenState extends State<ProxyScreen> {
                           )
                         : null,
                   ),
+                  // The same groups, row insets and separators as Settings,
+                  // so icons, text and switches keep one column across pages.
                   PanelStack(
                     spacing: 32,
                     children: [
-                      ChainProxyEntry(
-                        controller: widget.controller,
-                        onOpen:
-                            widget.onOpenChainProxy ??
-                            () => Navigator.of(context).push<void>(
-                              MaterialPageRoute(
-                                builder: (_) => ChainProxyScreen(
-                                  controller: widget.controller,
+                      ContentGroup(
+                        title: strings.get('proxy_exit_group'),
+                        children: [
+                          ChainProxyEntry(
+                            controller: widget.controller,
+                            onOpen:
+                                widget.onOpenChainProxy ??
+                                () => Navigator.of(context).push<void>(
+                                  MaterialPageRoute(
+                                    builder: (_) => ChainProxyScreen(
+                                      controller: widget.controller,
+                                    ),
+                                  ),
                                 ),
-                              ),
-                            ),
+                          ),
+                        ],
                       ),
                       LocalProxyOutputs(
                         controller: widget.controller,
                         enabled: !_saving,
                       ),
-                      _listenerPanel(profile, socks5: true),
-                      _listenerPanel(profile, socks5: false),
+                      ContentGroup(
+                        title: strings.get('proxy_listeners_group'),
+                        children: [
+                          _listenerPanel(profile, socks5: true),
+                          _listenerPanel(profile, socks5: false),
+                        ],
+                      ),
                       _AuthPanel(
                         controller: widget.controller,
                         enabled: !_saving,
@@ -360,7 +373,7 @@ class _ProxyScreenState extends State<ProxyScreen> {
 
   Widget _field(int index, String label, {Key? key}) {
     final port = index == 2 || index == 5;
-    return TextFormField(
+    return tvTextFormField(
       key: key,
       controller: _fields[index],
       focusNode: _focus[index],
@@ -426,6 +439,7 @@ class _ProxyScreenState extends State<ProxyScreen> {
     );
     final controller = widget.controller;
     return ContentSection(
+      padding: RowInsets.tile.copyWith(bottom: 16),
       children: [
         // The listener's switch is its heading: it applies immediately, like
         // the device outputs above, while the addresses below stay a draft.
@@ -458,16 +472,16 @@ class _ProxyScreenState extends State<ProxyScreen> {
         const SizedBox(height: 6),
         Padding(
           padding: const EdgeInsetsDirectional.only(
-            start: ChainProxyEntry.textIndent,
+            start: RowInsets.textIndent,
           ),
           child: Align(
             alignment: AlignmentDirectional.centerStart,
             child: pill,
           ),
         ),
-        const SizedBox(height: 22),
+        const SizedBox(height: 16),
         if (socks5 ? _customSocks : _customHttp)
-          TextFormField(
+          tvTextFormField(
             key: ValueKey(
               socks5 ? 'socks-listener-addresses' : 'http-listener-addresses',
             ),
@@ -582,15 +596,13 @@ class _AuthPanelState extends State<_AuthPanel> {
   @override
   Widget build(BuildContext context) {
     final strings = widget.controller.strings;
-    return ContentSection(
-      icon: LucideIcons.keyRound,
+    return FormGroup(
       title: strings.get('proxy_auth'),
-      subtitle: strings.get('proxy_auth_help'),
-      gap: 20,
+      hint: strings.get('proxy_auth_help'),
       children: <Widget>[
         LayoutBuilder(
           builder: (context, constraints) {
-            final username = TextField(
+            final username = tvTextField(
               key: const ValueKey<String>('proxy-auth-username'),
               controller: _username,
               focusNode: _usernameFocus,
@@ -604,7 +616,7 @@ class _AuthPanelState extends State<_AuthPanel> {
                 errorMaxLines: 6,
               ),
             );
-            final password = TextField(
+            final password = tvTextField(
               key: const ValueKey<String>('proxy-auth-password'),
               controller: _password,
               focusNode: _passwordFocus,

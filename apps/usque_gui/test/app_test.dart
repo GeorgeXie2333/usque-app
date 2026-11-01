@@ -3112,6 +3112,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Cloudflare terms'), findsOneWidget);
 
+    await tester.ensureVisible(find.byType(CheckboxListTile));
+    await tester.pumpAndSettle();
     await tester.tap(find.byType(CheckboxListTile));
     await tester.pumpAndSettle();
     await tester.ensureVisible(find.widgetWithText(FilledButton, 'Continue'));

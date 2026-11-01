@@ -1,7 +1,6 @@
 //! Bounded, non-secret connection scenarios. Platform owners validate resources
 //! and execute returned targets; a configuration commit is never a runtime ACK.
 use std::collections::HashSet;
-use std::net::IpAddr;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -13,8 +12,7 @@ use crate::chain_exit::ChainExitSettings;
 use crate::network_settings::ApplyStatus;
 use crate::vpngate::{Selection, VpnGateSettings};
 use crate::{
-    AppConfig, DirectDnsSettings, DnsMode, FrontendSettings, IpPolicy, Profile, ProxyDnsMode,
-    RoutingSettings, SharedNetworkSettings, TransportPolicy, WarpDnsSettings,
+    AppConfig, EndpointSettings, IpPolicy, Profile, SharedNetworkSettings, TransportPolicy,
 };
 
 pub const MAX_SCENARIOS: usize = 32;
@@ -24,24 +22,14 @@ pub const MAX_COMMAND_BYTES: usize = 256 * 1024;
 /// UTF-16 Android Binder strings can take twice their UTF-8 ASCII size.
 pub const MAX_RESPONSE_BYTES: usize = 384 * 1024;
 
-/// The complete v1 allowlist. Credentials, endpoints, listeners, Kill Switch,
-/// automatic connection and platform per-app settings cannot enter this DTO.
+/// Scene-owned connection choices only. Outputs, routing, DNS, protection,
+/// listeners, credentials and advanced tuning remain outside this DTO.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct ScenarioSettings {
-    pub frontends: FrontendSettings,
+    pub endpoint: EndpointSettings,
     pub transport: TransportPolicy,
     pub ip_policy: IpPolicy,
-    pub allow_lan: bool,
-    pub routing: RoutingSettings,
-    pub geo_direct_countries: Vec<String>,
-    pub direct_dns: DirectDnsSettings,
-    pub warp_dns: WarpDnsSettings,
-    pub dns_mode: DnsMode,
-    pub dns_servers: Vec<IpAddr>,
-    pub proxy_system_proxy: bool,
-    pub proxy_dns_mode: ProxyDnsMode,
-    pub proxy_dns_servers: Vec<IpAddr>,
     pub vpn_gate: VpnGateSettings,
     pub chain_exit: Option<ChainExitSettings>,
 }
@@ -55,19 +43,9 @@ impl Default for ScenarioSettings {
 impl ScenarioSettings {
     pub fn from_network(network: &SharedNetworkSettings) -> Self {
         Self {
-            frontends: network.frontends,
+            endpoint: network.endpoint.clone(),
             transport: network.transport,
             ip_policy: network.ip_policy,
-            allow_lan: network.allow_lan,
-            routing: network.routing.clone(),
-            geo_direct_countries: network.geo_direct_countries.clone(),
-            direct_dns: network.direct_dns.clone(),
-            warp_dns: network.warp_dns.clone(),
-            dns_mode: network.dns_mode,
-            dns_servers: network.dns_servers.clone(),
-            proxy_system_proxy: network.proxy.system_proxy,
-            proxy_dns_mode: network.proxy.dns_mode,
-            proxy_dns_servers: network.proxy.dns_servers.clone(),
             vpn_gate: network.vpn_gate.clone(),
             chain_exit: network.chain_exit.clone(),
         }
@@ -78,21 +56,9 @@ impl ScenarioSettings {
     }
 
     fn copy_into(&self, network: &mut SharedNetworkSettings) {
-        network.frontends = self.frontends;
+        network.endpoint = self.endpoint.clone();
         network.transport = self.transport;
         network.ip_policy = self.ip_policy;
-        network.allow_lan = self.allow_lan;
-        if !routing_equivalent(&network.routing, &self.routing) {
-            network.routing = self.routing.clone();
-        }
-        network.geo_direct_countries = self.geo_direct_countries.clone();
-        network.direct_dns = self.direct_dns.clone();
-        network.warp_dns = self.warp_dns.clone();
-        network.dns_mode = self.dns_mode;
-        network.dns_servers = self.dns_servers.clone();
-        network.proxy.system_proxy = self.proxy_system_proxy && self.frontends.http;
-        network.proxy.dns_mode = self.proxy_dns_mode;
-        network.proxy.dns_servers = self.proxy_dns_servers.clone();
         network.vpn_gate = self.vpn_gate.clone();
         network.chain_exit = self.chain_exit.clone();
         if let Some(chain) = &network.chain_exit {
@@ -109,21 +75,14 @@ impl ScenarioSettings {
         }
         let mut network = SharedNetworkSettings::default();
         self.copy_into(&mut network);
-        network.routing = network
-            .routing
-            .normalized()
-            .map_err(|_| ScenarioError::InvalidSettings)?;
         let mut profile = network.hydrate(&crate::Account::default_account());
-        // Edge-resolved DNS has a global data-plane dependency. Validate that
-        // dependency against the real inherited configuration at activation.
-        if profile.proxy.dns_mode == ProxyDnsMode::EdgeResolved {
-            profile.data_plane = crate::DataPlaneMode::L4Proxy;
-        }
-        profile
-            .canonicalize_geo_direct()
-            .map_err(|_| ScenarioError::InvalidSettings)?;
-        profile.canonicalize_direct_dns();
-        profile.canonicalize_warp_dns();
+        // Only intrinsic scene constraints belong here. Runtime output/DNS
+        // dependencies are validated with the inherited globals at activation.
+        profile.frontends = crate::FrontendSettings {
+            tunnel: false,
+            socks5: false,
+            http: false,
+        };
         profile
             .validate()
             .map_err(|_| ScenarioError::InvalidSettings)?;
@@ -136,9 +95,7 @@ impl ScenarioSettings {
     }
 
     fn semantic_value(&self) -> Result<Value, ScenarioError> {
-        let mut normalized = self.normalized()?;
-        normalized.routing = semantic_routing(&normalized.routing)?;
-        normalized.geo_direct_countries.sort();
+        let normalized = self.normalized()?;
         serde_json::to_value(normalized).map_err(|_| ScenarioError::InvalidSettings)
     }
 
@@ -148,23 +105,19 @@ impl ScenarioSettings {
             _ => false,
         }
     }
-}
 
-fn semantic_routing(routing: &RoutingSettings) -> Result<RoutingSettings, ScenarioError> {
-    let mut normalized = routing
-        .normalized()
-        .map_err(|_| ScenarioError::InvalidSettings)?;
-    normalized
-        .rules
-        .sort_by_cached_key(|rule| format!("{:?}:{}:{:?}", rule.kind, rule.target, rule.action));
-    for rule in &mut normalized.rules {
-        rule.id = Uuid::nil();
+    fn matches_profile(&self, config: &AppConfig, profile: &Profile) -> bool {
+        target_for(config, self, profile.id, false).is_ok_and(|target| {
+            Self::from_profile(&target).equivalent(&Self::from_profile(profile))
+        })
     }
-    Ok(normalized)
 }
 
-fn routing_equivalent(left: &RoutingSettings, right: &RoutingSettings) -> bool {
-    matches!((semantic_routing(left),semantic_routing(right)),(Ok(left),Ok(right)) if left==right)
+fn current_settings(config: &AppConfig) -> ScenarioSettings {
+    config.active_profile().as_ref().map_or_else(
+        || ScenarioSettings::from_network(&config.network),
+        ScenarioSettings::from_profile,
+    )
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -214,11 +167,10 @@ pub struct ScenarioSwitchRecord {
     pub target: ScenarioSnapshot,
     /// Written only after the owner received the first transaction's durable
     /// acknowledgement. Its presence can recover a lost reply after restart.
-    #[serde(default)]
     pub acknowledged: bool,
-    /// A restore is not itself offered as an endlessly alternating undo.
-    #[serde(default)]
-    pub restored: bool,
+    /// Undo is consumed after restoration or retired by a later account/managed
+    /// setting edit. Keep the receipt and snapshots for operation reconciliation.
+    pub recovery_retired: bool,
 }
 
 /// Trusted owner observations. This is deliberately not deserializable from
@@ -247,7 +199,12 @@ impl Default for ScenarioContext {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ScenarioCommand {
-    List,
+    List {
+        /// The caller's last accepted catalogue revision. A matching value
+        /// omits the unchanged templates from a status poll.
+        #[serde(default)]
+        known_revision: Option<String>,
+    },
     Save {
         id: Option<Uuid>,
         name: String,
@@ -287,7 +244,8 @@ impl ScenarioCommand {
             serde_json::from_str(request).map_err(|_| ScenarioError::InvalidRequest)?;
         let object = value.as_object().ok_or(ScenarioError::InvalidRequest)?;
         let allowed: &[&str] = match object.get("action").and_then(Value::as_str) {
-            Some("list" | "preview_restore") => &["action"],
+            Some("list") => &["action", "known_revision"],
+            Some("preview_restore") => &["action"],
             Some("save") => &[
                 "action",
                 "id",
@@ -388,12 +346,12 @@ fn validate_selection(selection: &ScenarioSelection) -> Result<(), ScenarioError
     {
         return Err(ScenarioError::InvalidRequest);
     }
-    selection.settings.normalized()?;
-    Ok(())
+    validate_settings_size(&selection.settings)
 }
 
-/// Dangling account/library references are intentionally accepted here. They
-/// make one scenario unavailable, never the entire application configuration.
+/// Dangling account/library references and settings rejected by the current
+/// validation rules are intentionally accepted here. They make one scenario
+/// unavailable, never the entire application configuration.
 pub fn validate_config(config: &AppConfig) -> Result<(), ScenarioError> {
     if config.scenarios.len() > MAX_SCENARIOS
         || encoded_size(&config.scenarios)? > MAX_SCENARIOS_BYTES
@@ -409,7 +367,7 @@ pub fn validate_config(config: &AppConfig) -> Result<(), ScenarioError> {
         if scenario.bound_account_id.is_some_and(|id| !valid_id(id)) {
             return Err(ScenarioError::InvalidRequest);
         }
-        scenario.settings.normalized()?;
+        validate_settings_size(&scenario.settings)?;
     }
     if let Some(selection) = &config.scenario_selection {
         validate_selection(selection)?;
@@ -422,13 +380,27 @@ pub fn validate_config(config: &AppConfig) -> Result<(), ScenarioError> {
             if !valid_id(snapshot.account_id) {
                 return Err(ScenarioError::InvalidRequest);
             }
-            snapshot.settings.normalized()?;
+            validate_settings_size(&snapshot.settings)?;
             if let Some(selection) = &snapshot.selection {
                 validate_selection(selection)?;
             }
         }
     }
     Ok(())
+}
+
+/// Stored snapshots are checked for shape and size only. A snapshot that a
+/// newer validation rule rejects makes that scene, selection or restore
+/// unavailable when used; it never prevents accounts from loading.
+fn validate_settings_size(settings: &ScenarioSettings) -> Result<(), ScenarioError> {
+    if encoded_size(settings)? > MAX_SCENARIO_BYTES {
+        return Err(ScenarioError::Limit);
+    }
+    Ok(())
+}
+
+fn catalogue_revision(config: &AppConfig) -> Result<String, ScenarioError> {
+    digest(&config.scenarios)
 }
 
 fn validate_name(name: &str) -> Result<(), ScenarioError> {
@@ -459,7 +431,7 @@ fn snapshot(config: &AppConfig) -> Result<ScenarioSnapshot, ScenarioError> {
         account_id: config
             .active_profile_id
             .ok_or(ScenarioError::AccountUnavailable)?,
-        settings: ScenarioSettings::from_network(&config.network).normalized()?,
+        settings: current_settings(config).normalized()?,
         selection: config.scenario_selection.clone(),
     })
 }
@@ -468,14 +440,53 @@ pub fn can_restore(config: &AppConfig) -> bool {
     let Some(record) = &config.last_scenario_switch else {
         return false;
     };
-    !record.restored
+    !record.recovery_retired
         && config.account(record.source.account_id).is_some()
         && config.active_profile_id == Some(record.target.account_id)
-        && record
-            .target
-            .settings
-            .equivalent(&ScenarioSettings::from_network(&config.network))
+        && record.target.settings.equivalent(&current_settings(config))
         && config.scenario_selection == record.target.selection
+}
+
+/// Retire an existing undo at the persistence boundary. Comparing only the
+/// latest target allows an A -> B -> A edit to revive an obsolete undo. Keep
+/// this bit monotonic while retaining the operation ID and durable receipt.
+pub fn retire_restore_after_change(before: &AppConfig, next: &mut AppConfig) {
+    let Some(previous) = before.last_scenario_switch.as_ref() else {
+        return;
+    };
+    let Some(record) = next.last_scenario_switch.as_ref() else {
+        return;
+    };
+    if record.operation_id != previous.operation_id {
+        // A newly committed scene switch owns its own fresh recovery snapshot.
+        return;
+    }
+    let account_endpoints_changed = [previous.source.account_id, previous.target.account_id]
+        .into_iter()
+        .any(|id| {
+            let endpoints = |config: &AppConfig| {
+                config.account(id).map(|account| {
+                    (
+                        account.managed_endpoint_ips.clone(),
+                        account.zero_trust_endpoint_override.clone(),
+                    )
+                })
+            };
+            endpoints(before) != endpoints(next)
+        });
+    let before_settings = ScenarioSettings::from_network(&before.network);
+    let next_settings = ScenarioSettings::from_network(&next.network);
+    // Dormant Consumer endpoints can conflict with DNS while every hydrated
+    // ZT profile is valid. Failed generic validation is not itself an edit.
+    let managed_changed =
+        before_settings != next_settings && !before_settings.equivalent(&next_settings);
+    let changed = previous.recovery_retired
+        || before.active_profile_id != next.active_profile_id
+        || account_endpoints_changed
+        || managed_changed;
+    let record = next.last_scenario_switch.as_mut().unwrap();
+    record.acknowledged |= previous.acknowledged;
+    record.recovery_retired |= changed;
 }
 
 /// Mark a previously acknowledged commit without replaying its target. Call
@@ -500,13 +511,71 @@ fn target_for(
     config: &AppConfig,
     settings: &ScenarioSettings,
     account_id: Uuid,
+    restoring: bool,
+) -> Result<Profile, ScenarioError> {
+    apply_settings(&mut config.clone(), settings, account_id, restoring)
+}
+
+/// Reuse Advanced's field merge so ZT overrides stay with the target account,
+/// while Consumer addresses and registered ZT addresses remain untouched.
+fn apply_settings(
+    config: &mut AppConfig,
+    settings: &ScenarioSettings,
+    account_id: Uuid,
+    restoring: bool,
 ) -> Result<Profile, ScenarioError> {
     let account = config
         .account(account_id)
         .ok_or(ScenarioError::AccountUnavailable)?;
-    let mut network = config.network.clone();
-    settings.apply_to(&mut network)?;
-    let target = network.hydrate(account);
+    let managed =
+        account.managed_endpoint_ips.is_some() || config.is_zero_trust_account(account_id);
+    let previous_endpoint = config.network.endpoint.clone();
+    settings.apply_to(&mut config.network)?;
+    config.network.endpoint = previous_endpoint;
+    config.active_profile_id = Some(account_id);
+    let mut target = config
+        .active_profile()
+        .ok_or(ScenarioError::AccountUnavailable)?;
+    let endpoint = &settings.endpoint;
+    let inherited = target.endpoint.clone();
+    target.endpoint = endpoint.clone();
+    if managed {
+        target.endpoint.selection = crate::EndpointSelection::Custom;
+        // Reusable presets follow the account's current fallback, but an
+        // undo must restore the address pair frozen in its source snapshot.
+        if !restoring
+            && (endpoint.selection == crate::EndpointSelection::Automatic
+                || endpoint.preset_region.is_some())
+        {
+            target.endpoint.ipv4 = inherited.ipv4;
+            target.endpoint.ipv6 = inherited.ipv6;
+        }
+    }
+    let mut changed_fields = vec![
+        "endpoint.port".into(),
+        "endpoint.sni".into(),
+        "endpoint.preset_region".into(),
+    ];
+    if !managed {
+        changed_fields.push("endpoint.selection".into());
+    }
+    if !managed
+        || restoring
+        || (endpoint.selection == crate::EndpointSelection::Custom
+            && endpoint.preset_region.is_none())
+    {
+        changed_fields.extend(["endpoint.ipv4".into(), "endpoint.ipv6".into()]);
+    }
+    target = crate::network_settings::merge_patch(
+        config,
+        &crate::network_settings::NetworkSettingsPatch {
+            operation_id: Uuid::nil(),
+            account_id,
+            values: target,
+            changed_fields,
+        },
+    )
+    .map_err(|_| ScenarioError::InvalidSettings)?;
     target
         .validate()
         .map_err(|_| ScenarioError::InvalidSettings)?;
@@ -571,7 +640,11 @@ pub fn candidate_profile(
         }
         _ => return Ok(None),
     };
-    target_for(config, &target.settings, target.account_id).map(Some)
+    let restoring = matches!(
+        request,
+        ScenarioCommand::PreviewRestore | ScenarioCommand::Restore { .. }
+    );
+    target_for(config, &target.settings, target.account_id, restoring).map(Some)
 }
 
 /// Keep session-owned, next-connection choices honest during a same-account
@@ -609,6 +682,7 @@ fn preview_token(
     // payload. Bind inherited global settings and actual owner observations.
     digest(&json!({
         "network":config.network,"selected_account":config.active_profile_id,
+        "source_account":config.active_profile_id.and_then(|id|config.account(id)),
         "target_account":config.account(target.account_id),"target":target,
         "selection":config.scenario_selection,"last_operation":config.last_scenario_switch.as_ref().map(|r|r.operation_id),
         "source_epoch":context.source_epoch,"session_id":context.session_id,
@@ -625,21 +699,14 @@ pub fn managed_changed_fields(
     context: &ScenarioContext,
 ) -> Vec<String> {
     const FIELDS: &[&str] = &[
-        "frontends.tunnel",
-        "frontends.socks5",
-        "frontends.http",
+        "endpoint.selection",
+        "endpoint.preset_region",
+        "endpoint.ipv4",
+        "endpoint.ipv6",
+        "endpoint.port",
+        "endpoint.sni",
         "transport",
         "ip_policy",
-        "allow_lan",
-        "routing",
-        "geo_direct_countries",
-        "direct_dns",
-        "warp_dns",
-        "dns_mode",
-        "dns_servers",
-        "proxy.system_proxy",
-        "proxy.dns_mode",
-        "proxy.dns_servers",
         "vpn_gate",
         "chain_exit",
     ];
@@ -661,11 +728,10 @@ pub fn managed_changed_fields(
 /// of the current transition. Equal settings in an unrelated template are not
 /// evidence that the user selected that template for the running connection.
 fn applied_scenario_id(config: &AppConfig, applied: &Profile) -> Option<Uuid> {
-    let applied_settings = ScenarioSettings::from_profile(applied);
     let matches = |selected: &ScenarioSelection, account_id: Uuid| {
         applied.id == account_id
             && selected.bound_account_id.is_none_or(|id| id == applied.id)
-            && selected.settings.equivalent(&applied_settings)
+            && selected.settings.matches_profile(config, applied)
             && config
                 .scenarios
                 .iter()
@@ -682,10 +748,7 @@ fn applied_scenario_id(config: &AppConfig, applied: &Profile) -> Option<Uuid> {
     // current target, not undo eligibility, to validate the transition source.
     if config.active_profile_id != Some(record.target.account_id)
         || config.scenario_selection != record.target.selection
-        || !record
-            .target
-            .settings
-            .equivalent(&ScenarioSettings::from_network(&config.network))
+        || !record.target.settings.equivalent(&current_settings(config))
     {
         return None;
     }
@@ -694,7 +757,7 @@ fn applied_scenario_id(config: &AppConfig, applied: &Profile) -> Option<Uuid> {
 }
 
 pub fn catalogue(config: &AppConfig, context: &ScenarioContext) -> Value {
-    let current = ScenarioSettings::from_network(&config.network);
+    let current = current_settings(config);
     let current_fits = encoded_size(&current).is_ok_and(|size| size <= MAX_SCENARIO_BYTES);
     let selection = config.scenario_selection.as_ref();
     let selection_metadata = selection.map(|selected| {
@@ -704,7 +767,9 @@ pub fn catalogue(config: &AppConfig, context: &ScenarioContext) -> Value {
         })
     });
     let modified = selection.is_some_and(|selected| {
-        !selected.settings.equivalent(&current)
+        !config
+            .active_profile()
+            .is_some_and(|profile| selected.settings.matches_profile(config, &profile))
             || selected
                 .bound_account_id
                 .is_some_and(|id| Some(id) != config.active_profile_id)
@@ -733,8 +798,16 @@ pub fn catalogue(config: &AppConfig, context: &ScenarioContext) -> Value {
         } else {
             context.apply_status
         };
+    let invalid: Vec<_> = config
+        .scenarios
+        .iter()
+        .filter(|scene| scene.settings.normalized().is_err())
+        .map(|scene| scene.id)
+        .collect();
     json!({
         "scenarios":config.scenarios,"selection":selection_metadata,
+        "catalogue_revision":catalogue_revision(config).ok(),
+        "invalid_scenario_ids":invalid,
         "current_settings":current_fits.then_some(&current),
         "current_settings_error":(!current_fits).then_some("SCENARIO_LIMIT"),
         "current_account_id":config.active_profile_id,
@@ -742,6 +815,7 @@ pub fn catalogue(config: &AppConfig, context: &ScenarioContext) -> Value {
         "applied_scenario_id":context.applied_profile.as_ref().and_then(|profile|applied_scenario_id(config,profile)),
         "applied_scene_confirmed":context.applied_profile.is_some(),
         "source_epoch":context.source_epoch,"session_id":context.session_id,
+        "observation_session_id":context.session_id,
         "state":{"modified":modified,"template_updated":template_updated,"bound_account_missing":bound_account_missing,
             "applied_matches":applied_matches,"apply_status":apply_status},
         "can_restore":can_restore(config),
@@ -763,8 +837,11 @@ pub fn command(
     let mut preview_target = None;
     let mut preview = None;
     let mut saved_scenario_id = None;
+    let mut known_revision = None;
     match request {
-        ScenarioCommand::List => {}
+        ScenarioCommand::List {
+            known_revision: known,
+        } => known_revision = known,
         ScenarioCommand::Save {
             id,
             name,
@@ -778,15 +855,27 @@ pub fn command(
                 return Err(ScenarioError::InvalidRequest);
             }
             let settings = settings.normalized()?;
-            let id = match id {
-                Some(id) => {
+            let existing_binding = match id {
+                Some(id) => Some(
                     scenario(
                         &next,
                         id,
                         expected_revision.ok_or(ScenarioError::StaleRevision)?,
-                    )?;
-                    id
-                }
+                    )?
+                    .bound_account_id,
+                ),
+                None => None,
+            };
+            // A new binding must name an existing account. An unchanged
+            // dangling binding can still be saved while the user repairs it.
+            if let Some(account) = bound_account_id
+                && existing_binding != Some(Some(account))
+                && next.account(account).is_none()
+            {
+                return Err(ScenarioError::AccountUnavailable);
+            }
+            let id = match id {
+                Some(id) => id,
                 None => {
                     if expected_revision.is_some() {
                         return Err(ScenarioError::InvalidRequest);
@@ -831,14 +920,14 @@ pub fn command(
             // A successful preview must also be able to retain a bounded undo.
             snapshot(&next)?;
             let target = target_snapshot(&next, id, expected_revision)?;
-            let profile = target_for(&next, &target.settings, target.account_id)?;
+            let profile = target_for(&next, &target.settings, target.account_id, false)?;
             preview = Some(preview_value(&next, &target, &profile, context, false)?);
             preview_target = Some(profile);
         }
         ScenarioCommand::PreviewRestore => {
             snapshot(&next)?;
             let target = restore_snapshot(&next)?;
-            let profile = target_for(&next, &target.settings, target.account_id)?;
+            let profile = target_for(&next, &target.settings, target.account_id, true)?;
             preview = Some(preview_value(&next, &target, &profile, context, true)?);
             preview_target = Some(profile);
         }
@@ -880,6 +969,16 @@ pub fn command(
     if let Some(id) = saved_scenario_id {
         response["saved_scenario_id"] = json!(id);
     }
+    if known_revision.is_some()
+        && response["catalogue_revision"].as_str() == known_revision.as_deref()
+    {
+        // The poll still carries selection and application state.
+        response
+            .as_object_mut()
+            .expect("catalogue object")
+            .remove("scenarios");
+        response["scenarios_unchanged"] = json!(true);
+    }
     if let Some(value) = preview {
         // Preview carries its own bounded before/target/applied projections;
         // do not repeat the potentially large template catalogue over Binder.
@@ -915,7 +1014,7 @@ fn preview_value(
         .as_ref()
         .map(|applied| runtime_target(profile, applied));
     let profile = runtime_target.as_ref().unwrap_or(profile);
-    let before_settings = ScenarioSettings::from_network(&config.network);
+    let before_settings = current_settings(config);
     let before_fits = encoded_size(&before_settings)? <= MAX_SCENARIO_BYTES;
     let applied_settings = context
         .applied_profile
@@ -956,18 +1055,38 @@ fn preview_value(
         "changed_fields":managed_changed_fields(config,profile,context),
         "actual_changed_fields":actual_changed_fields,"apply_kind":apply_kind,"needs_reconnect":needs_reconnect,
         "preview_token":preview_token(config,target,context,restore)?,"restore":restore,
-        "settings":target.settings,
+        "kill_switch_output_removed":kill_switch_output_removed(config,profile,context),
         "before_settings":before_fits.then_some(before_settings),
         "before_settings_omitted":!before_fits,
-        "target_settings":target.settings,
+        "target_settings":ScenarioSettings::from_profile(profile),
+        "zero_trust_endpoint_warning":config.is_zero_trust_account(profile.id)
+            && profile.endpoint.preset_region.is_none()
+            && config.account(profile.id).and_then(|a|a.managed_endpoint_ips.as_ref())
+                .is_some_and(|registered| *registered != crate::ManagedEndpointIps::from_endpoint(&profile.endpoint)),
         "applied_settings":if applied_fits{applied_settings}else{None},
         "applied_settings_omitted":!applied_fits
     }))
 }
 
+/// Kill Switch and outputs are device settings. Applying pending global values
+/// that turn off VPN ends system-wide protection after the scene switch.
+fn kill_switch_output_removed(
+    config: &AppConfig,
+    target: &Profile,
+    context: &ScenarioContext,
+) -> bool {
+    let tunnel_before = context
+        .applied_profile
+        .as_ref()
+        .map_or(config.network.frontends.tunnel, |applied| {
+            applied.frontends.tunnel
+        });
+    target.kill_switch && tunnel_before && !target.frontends.tunnel
+}
+
 fn commit_target(
     config: &mut AppConfig,
-    target: ScenarioSnapshot,
+    mut target: ScenarioSnapshot,
     context: &ScenarioContext,
     token: &str,
     operation_id: Uuid,
@@ -986,17 +1105,17 @@ fn commit_target(
     if token.len() != 64 || token != preview_token(config, &target, context, restore)? {
         return Err(ScenarioError::PreviewStale);
     }
-    let profile = target_for(config, &target.settings, target.account_id)?;
+    let profile = target_for(config, &target.settings, target.account_id, restore)?;
     let source = snapshot(config)?;
-    target.settings.apply_to(&mut config.network)?;
-    config.active_profile_id = Some(target.account_id);
+    apply_settings(config, &target.settings, target.account_id, restore)?;
+    target.settings = ScenarioSettings::from_profile(&profile);
     config.scenario_selection = target.selection.clone();
     config.last_scenario_switch = Some(Box::new(ScenarioSwitchRecord {
         operation_id,
         source,
         target,
         acknowledged: false,
-        restored: restore,
+        recovery_retired: restore,
     }));
     Ok(profile)
 }

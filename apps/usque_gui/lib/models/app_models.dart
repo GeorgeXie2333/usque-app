@@ -2170,6 +2170,7 @@ class EngineCapabilities {
     this.zeroTrustEndpointEditing = false,
     this.chainOpenvpnMultiEndpoint = false,
     this.vpnGatePoolFavorites = false,
+    this.vpnGateEpochRequests = false,
     this.networkSettingsApplication = false,
     this.applicationQuicBlocking = false,
     this.accountMetadataMutations = false,
@@ -2212,6 +2213,7 @@ class EngineCapabilities {
     zeroTrustEndpointEditing: map['zero_trust_endpoint_editing'] == true,
     chainOpenvpnMultiEndpoint: map['chain_openvpn_multi_endpoint'] == true,
     vpnGatePoolFavorites: map['vpn_gate_pool_favorites'] == true,
+    vpnGateEpochRequests: map['vpn_gate_epoch_requests'] == true,
     networkSettingsApplication: map['network_settings_application'] == true,
     applicationQuicBlocking: map['application_quic_blocking'] == true,
     accountMetadataMutations: map['account_metadata_mutations'] == true,
@@ -2266,6 +2268,7 @@ class EngineCapabilities {
       chainProxyEncryptedDns,
       chainOpenvpnMultiEndpoint;
   final bool vpnGatePoolFavorites;
+  final bool vpnGateEpochRequests;
   final bool networkSettingsApplication;
   final bool applicationQuicBlocking;
   final bool accountMetadataMutations;
@@ -2308,6 +2311,7 @@ class EngineCapabilities {
           zeroTrustEndpointEditing == other.zeroTrustEndpointEditing &&
           chainOpenvpnMultiEndpoint == other.chainOpenvpnMultiEndpoint &&
           vpnGatePoolFavorites == other.vpnGatePoolFavorites &&
+          vpnGateEpochRequests == other.vpnGateEpochRequests &&
           networkSettingsApplication == other.networkSettingsApplication &&
           applicationQuicBlocking == other.applicationQuicBlocking &&
           accountMetadataMutations == other.accountMetadataMutations &&
@@ -2354,7 +2358,7 @@ class EngineCapabilities {
       zeroTrustEndpointEditing,
     ),
     chainOpenvpnMultiEndpoint,
-    vpnGatePoolFavorites,
+    Object.hash(vpnGatePoolFavorites, vpnGateEpochRequests),
     l4Tcp,
     l4TunTcp,
     l4DnsConversion,

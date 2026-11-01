@@ -211,6 +211,8 @@ enum _Scene {
   protonNodes,
   protonProfile,
   profiles,
+  proxy,
+  proxyPhone,
   qualityGood,
   qualityDegraded,
   qualityDegradedPhone,
@@ -524,6 +526,22 @@ const _fixtures = <_Fixture>[
     scale: 1,
   ),
   (
+    scene: _Scene.proxy,
+    name: 'proxy_en_light',
+    size: Size(1280, 1500),
+    locale: LocalePreference.english,
+    dark: false,
+    scale: 1,
+  ),
+  (
+    scene: _Scene.proxyPhone,
+    name: 'proxy_zh_phone_dark',
+    size: Size(390, 1900),
+    locale: LocalePreference.simplifiedChinese,
+    dark: true,
+    scale: 1,
+  ),
+  (
     scene: _Scene.qualityGood,
     name: 'network_quality_good_en_light',
     size: Size(1280, 1500),
@@ -656,6 +674,9 @@ void _configure(
     case _Scene.serviceCancelled:
     case _Scene.trayUnavailable:
       app.section = AppSection.settings;
+    case _Scene.proxy:
+    case _Scene.proxyPhone:
+      app.section = AppSection.proxy;
     case _Scene.profiles:
       app.section = AppSection.profiles;
       final active = app.activeProfile;
@@ -1197,6 +1218,7 @@ void main() {
           locale: LocalePreference.english,
           scale: 1.0,
           editor: false,
+          accounts: false,
         ),
         (
           name: 'profiles_scenes_narrow_zh_light',
@@ -1204,6 +1226,7 @@ void main() {
           locale: LocalePreference.simplifiedChinese,
           scale: 1.0,
           editor: false,
+          accounts: false,
         ),
         (
           name: 'profiles_scenes_rtl_large',
@@ -1211,6 +1234,31 @@ void main() {
           locale: LocalePreference.persian,
           scale: 2.0,
           editor: false,
+          accounts: false,
+        ),
+        (
+          name: 'profiles_accounts_desktop_en_light',
+          size: const Size(1280, 900),
+          locale: LocalePreference.english,
+          scale: 1.0,
+          editor: false,
+          accounts: true,
+        ),
+        (
+          name: 'profiles_accounts_narrow_zh_large',
+          size: const Size(390, 844),
+          locale: LocalePreference.simplifiedChinese,
+          scale: 2.0,
+          editor: false,
+          accounts: true,
+        ),
+        (
+          name: 'profiles_accounts_rtl_large',
+          size: const Size(1280, 1000),
+          locale: LocalePreference.persian,
+          scale: 2.0,
+          editor: false,
+          accounts: true,
         ),
         (
           name: 'profiles_scene_editor_zh_light',
@@ -1218,6 +1266,23 @@ void main() {
           locale: LocalePreference.simplifiedChinese,
           scale: 1.0,
           editor: true,
+          accounts: false,
+        ),
+        (
+          name: 'profiles_scene_accounts_phone_large',
+          size: const Size(390, 844),
+          locale: LocalePreference.simplifiedChinese,
+          scale: 2.0,
+          editor: true,
+          accounts: true,
+        ),
+        (
+          name: 'profiles_scene_accounts_rtl_large',
+          size: const Size(1280, 1000),
+          locale: LocalePreference.persian,
+          scale: 2.0,
+          editor: true,
+          accounts: true,
         ),
       ]) {
         testWidgets(
@@ -1237,6 +1302,18 @@ void main() {
             await tester.pumpAndSettle();
             if (fixture.editor) {
               await tester.tap(find.byKey(const ValueKey('scenario-create')));
+              await tester.pumpAndSettle();
+            }
+            if (fixture.accounts) {
+              final account = find.byKey(
+                ValueKey(
+                  fixture.editor
+                      ? 'scenario-account-management'
+                      : 'profiles-manage-accounts',
+                ),
+              );
+              await tester.ensureVisible(account);
+              await tester.tap(account);
               await tester.pumpAndSettle();
             }
             expect(tester.takeException(), isNull);

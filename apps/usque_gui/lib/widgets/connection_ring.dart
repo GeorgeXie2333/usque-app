@@ -203,6 +203,7 @@ class _PowerButton extends StatefulWidget {
 class _PowerButtonState extends State<_PowerButton> {
   bool _pressed = false;
   bool _hovered = false;
+  bool _focused = false;
 
   @override
   Widget build(BuildContext context) {
@@ -216,77 +217,119 @@ class _PowerButtonState extends State<_PowerButton> {
         ? theme.colorScheme.onSurface
         : theme.colorScheme.onPrimary;
 
+    // D-pad and keyboard focus gets a detached halo: an outline flush with a
+    // primary fill would vanish, so a gap of page colour separates them. The
+    // halo and the lift are paint-only, so focus never moves the layout.
+    final bool focused = enabled && _focused;
+    final double focusScale = math.max(1, widget.contentScale);
+
     return AnimatedScale(
-      scale: _pressed ? 0.97 : 1,
+      scale: _pressed
+          ? 0.97
+          : focused
+          ? 1.04
+          : 1,
       duration: UsqueMotion.of(context, UsqueMotion.fast),
       curve: UsqueMotion.standard,
-      child: Material(
-        color: enabled
-            ? background
-            : theme.colorScheme.surfaceContainerHigh.withValues(alpha: 0.6),
-        shape: CircleBorder(
-          side: BorderSide(
-            color: widget.engaged ? tokens.hairlineStrong : Colors.transparent,
-          ),
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: widget.onPressed,
-          onHighlightChanged: (value) => setState(() => _pressed = value),
-          onHover: (value) => setState(() => _hovered = value),
-          overlayColor: WidgetStatePropertyAll<Color>(
-            foreground.withValues(alpha: _hovered ? 0.06 : 0.10),
-          ),
-          child: SizedBox.square(
-            dimension: widget.diameter,
-            child: Padding(
-              padding: EdgeInsets.symmetric(
-                horizontal: widget.diameter * 0.13,
-                vertical: widget.diameter * 0.18,
-              ),
-              // The label has to survive a 200% text scale inside a circle, so
-              // it shrinks rather than pushing the icon out of the button.
-              child: FittedBox(
-                fit: BoxFit.scaleDown,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    if (widget.busy)
-                      SizedBox(
-                        width: 22 * widget.contentScale,
-                        height: 22 * widget.contentScale,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2.4 * widget.contentScale,
-                          color: enabled ? foreground : theme.disabledColor,
-                        ),
-                      )
-                    else
-                      Icon(
-                        widget.engaged
-                            ? LucideIcons.powerOff
-                            : LucideIcons.power,
-                        size: 24 * widget.contentScale,
-                        color: enabled ? foreground : theme.disabledColor,
-                      ),
-                    SizedBox(height: 7 * widget.contentScale),
-                    Text(
-                      widget.label,
-                      maxLines: 1,
-                      textAlign: TextAlign.center,
-                      style: theme.textTheme.labelLarge?.copyWith(
-                        fontSize:
-                            (theme.textTheme.labelLarge?.fontSize ?? 14) *
-                            widget.contentScale,
-                        color: enabled ? foreground : theme.disabledColor,
-                        fontWeight: FontWeight.w700,
-                      ),
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: <Widget>[
+          Positioned.fill(
+            left: -5 * focusScale,
+            top: -5 * focusScale,
+            right: -5 * focusScale,
+            bottom: -5 * focusScale,
+            child: IgnorePointer(
+              child: AnimatedOpacity(
+                key: const ValueKey<String>('power-focus-ring'),
+                opacity: focused ? 1 : 0,
+                duration: UsqueMotion.of(context, UsqueMotion.fast),
+                curve: UsqueMotion.standard,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: theme.colorScheme.primary,
+                      width: 3 * focusScale,
                     ),
-                  ],
+                  ),
                 ),
               ),
             ),
           ),
-        ),
+          Material(
+            color: enabled
+                ? background
+                : theme.colorScheme.surfaceContainerHigh.withValues(alpha: 0.6),
+            shape: CircleBorder(
+              side: BorderSide(
+                color: widget.engaged
+                    ? tokens.hairlineStrong
+                    : Colors.transparent,
+              ),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTap: widget.onPressed,
+              onHighlightChanged: (value) => setState(() => _pressed = value),
+              onHover: (value) => setState(() => _hovered = value),
+              onFocusChange: (value) => setState(() => _focused = value),
+              overlayColor: WidgetStatePropertyAll<Color>(
+                foreground.withValues(alpha: _hovered ? 0.06 : 0.10),
+              ),
+              child: SizedBox.square(
+                dimension: widget.diameter,
+                child: Padding(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: widget.diameter * 0.13,
+                    vertical: widget.diameter * 0.18,
+                  ),
+                  // The label has to survive a 200% text scale inside a
+                  // circle, so it shrinks rather than pushing the icon out of
+                  // the button.
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: <Widget>[
+                        if (widget.busy)
+                          SizedBox(
+                            width: 22 * widget.contentScale,
+                            height: 22 * widget.contentScale,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2.4 * widget.contentScale,
+                              color: enabled ? foreground : theme.disabledColor,
+                            ),
+                          )
+                        else
+                          Icon(
+                            widget.engaged
+                                ? LucideIcons.powerOff
+                                : LucideIcons.power,
+                            size: 24 * widget.contentScale,
+                            color: enabled ? foreground : theme.disabledColor,
+                          ),
+                        SizedBox(height: 7 * widget.contentScale),
+                        Text(
+                          widget.label,
+                          maxLines: 1,
+                          textAlign: TextAlign.center,
+                          style: theme.textTheme.labelLarge?.copyWith(
+                            fontSize:
+                                (theme.textTheme.labelLarge?.fontSize ?? 14) *
+                                widget.contentScale,
+                            color: enabled ? foreground : theme.disabledColor,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

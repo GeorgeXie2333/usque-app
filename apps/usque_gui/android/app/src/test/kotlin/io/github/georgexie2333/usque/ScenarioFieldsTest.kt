@@ -16,6 +16,7 @@ class ScenarioFieldsTest {
             runCatching {
                 ScenarioFields.validateIdentity(
                     source,
+                    loadProfile = { target.toString() },
                     loadSecret = { id, profile ->
                         assertEquals("zero-trust", id)
                         assertEquals("192.0.2.1", JSONObject(profile).getString("endpoint_v4"))
@@ -37,6 +38,7 @@ class ScenarioFieldsTest {
                 runCatching {
                     ScenarioFields.validateIdentity(
                         JSONObject().put("preview_target", JSONObject().put("id", "armed-account")),
+                        loadProfile = { JSONObject().put("id", it).toString() },
                         loadSecret = { _, _ -> rollback },
                         inspect = {
                             assertTrue(it.contentEquals(byteArrayOf(4, 2)))

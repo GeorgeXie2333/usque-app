@@ -1662,86 +1662,25 @@ class UsqueVpnService : VpnService() {
                     SecureIdentityStore.Record.PENDING_REPLACEMENT_IDENTITY,
                 )
             }.getOrNull()
-        var current = store.get(profileId, SecureIdentityStore.Record.WARP_SECRET)
+        val current = store.get(profileId, SecureIdentityStore.Record.WARP_SECRET)
         try {
             val authority = identityReplacementAuthority(profileId) ?: return null
-            if (!authority.matches(profileJson)) return null
-            return when (authority.state) {
-                IdentityReplacementState.Preparing -> {
-                    current.also { current = null }
-                }
-
-                IdentityReplacementState.Armed -> {
-                    val rollback =
-                        IdentityReplacementRollbackCodec.decode(encodedRollback ?: return null)
-                    try {
-                        rollback.identity?.copyOf()
-                    } finally {
-                        rollback.clear()
-                    }
-                }
-
-                IdentityReplacementState.None -> {
-                    if (encodedRollback != null && !readOnly) {
-                        runCatching {
-                            store.delete(
-                                profileId,
-                                SecureIdentityStore.Record.PENDING_REPLACEMENT_IDENTITY,
-                            )
-                        }
-                    }
-                    current?.fill(0)
-                    current = null
-                    store.get(profileId, SecureIdentityStore.Record.WARP_SECRET)
-                }
-            }
+            return authority.loadSecret(
+                profileJson = profileJson,
+                current = current,
+                encodedRollback = encodedRollback,
+                readOnly = readOnly,
+                readCurrent = { store.get(profileId, SecureIdentityStore.Record.WARP_SECRET) },
+                discardRollback = {
+                    store.delete(profileId, SecureIdentityStore.Record.PENDING_REPLACEMENT_IDENTITY)
+                },
+            )
         } catch (_: Exception) {
             return null
         } finally {
             current?.fill(0)
             encodedRollback?.fill(0)
         }
-    }
-
-    private enum class IdentityReplacementState {
-        None,
-        Preparing,
-        Armed,
-    }
-
-    private data class IdentityReplacementAuthority(
-        val state: IdentityReplacementState,
-        val endpointIpv4: String,
-        val endpointIpv6: String,
-        val endpointPort: Int,
-        val sni: String,
-        val endpointReady: Boolean,
-    ) {
-        fun matches(profileJson: String): Boolean =
-            runCatching {
-                val profile = JSONObject(profileJson)
-
-                fun numericAddress(value: String): ByteArray? {
-                    if (value.isEmpty() ||
-                        value.any { character ->
-                            !character.isDigit() &&
-                                character.lowercaseChar() !in 'a'..'f' &&
-                                character != '.' &&
-                                character != ':'
-                        }
-                    ) {
-                        return null
-                    }
-                    return InetAddress.getByName(value).address
-                }
-                endpointReady &&
-                    numericAddress(profile.getString("endpoint_v4"))
-                        ?.contentEquals(numericAddress(endpointIpv4) ?: return@runCatching false) == true &&
-                    numericAddress(profile.getString("endpoint_v6"))
-                        ?.contentEquals(numericAddress(endpointIpv6) ?: return@runCatching false) == true &&
-                    profile.getInt("endpoint_port") == endpointPort &&
-                    profile.getString("sni").equals(sni, ignoreCase = true)
-            }.getOrDefault(false)
     }
 
     private fun identityReplacementAuthority(profileId: String): IdentityReplacementAuthority? {
@@ -1751,49 +1690,7 @@ class UsqueVpnService : VpnService() {
                 configPath,
                 """{"command":"list_profiles"}""",
             ) ?: return null
-        val catalog = JSONObject(response)
-        val profiles = catalog.optJSONArray("profiles") ?: return null
-        var profile: JSONObject? = null
-        for (index in 0 until profiles.length()) {
-            val candidate = profiles.optJSONObject(index) ?: continue
-            if (candidate.optString("id") == profileId) {
-                profile = candidate
-                break
-            }
-        }
-        profile ?: return null
-        val pendingValues =
-            catalog.optJSONArray("pending_identity_replacements") ?: return null
-        var pending = false
-        for (index in 0 until pendingValues.length()) {
-            if (pendingValues.optString(index) == profileId) {
-                pending = true
-                break
-            }
-        }
-        val state =
-            if (!pending) {
-                IdentityReplacementState.None
-            } else {
-                val armedValues =
-                    catalog.optJSONArray("armed_identity_replacements") ?: return null
-                var armed = false
-                for (index in 0 until armedValues.length()) {
-                    if (armedValues.optString(index) == profileId) {
-                        armed = true
-                        break
-                    }
-                }
-                if (armed) IdentityReplacementState.Armed else IdentityReplacementState.Preparing
-            }
-        return IdentityReplacementAuthority(
-            state = state,
-            endpointIpv4 = profile.getString("endpoint_v4"),
-            endpointIpv6 = profile.getString("endpoint_v6"),
-            endpointPort = profile.getInt("endpoint_port"),
-            sni = profile.getString("sni"),
-            endpointReady = profile.optBoolean("zero_trust_endpoint_ready", true),
-        )
+        return IdentityReplacementAuthority.fromCatalog(profileId, response)
     }
 
     private fun inspectAssignment(secret: ByteArray): WarpAddressAssignment {
@@ -2561,6 +2458,7 @@ class UsqueVpnService : VpnService() {
     private fun validateScenarioIdentity(source: JSONObject): String =
         ScenarioFields.validateIdentity(
             source,
+            loadProfile = { id -> identityReplacementAuthority(id)?.profileJson },
             loadSecret = { id, profile -> loadWarpSecret(id, profile, readOnly = true) },
             inspect = { inspectAssignment(it) },
         )

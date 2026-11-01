@@ -291,9 +291,8 @@ void _scene(
           alignment: 0.15,
         );
       } else if (fixture == 'landscape_en_large' && scene == 'terms') {
-        final policy = find.widgetWithText(
-          TextButton,
-          app.strings.get('onboarding_application_terms'),
+        final policy = find.byKey(
+          const ValueKey<String>('onboarding-onboarding_application_terms'),
         );
         await Scrollable.ensureVisible(tester.element(policy), alignment: 0.05);
         await settle();

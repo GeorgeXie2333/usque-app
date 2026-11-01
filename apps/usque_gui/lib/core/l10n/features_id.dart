@@ -422,7 +422,6 @@ const Map<String, String> kChainId = <String, String>{
   'failure_protocol': 'protokol',
   'failure_cleanup': 'pembersihan',
   'failure_reason': 'Kegagalan: {reason}.',
-  'manage': 'Kelola',
   'dns_fallback': 'DNS terowongan (OpenVPN dapat menegosiasikan DNS)',
   'dns_unavailable_title': 'Tidak ada DNS lewat pintu keluar ini',
   'dns_unavailable':

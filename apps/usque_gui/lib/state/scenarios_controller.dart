@@ -30,6 +30,43 @@ class ScenariosController extends ChangeNotifier {
   Future<void> Function()? afterActivation;
   String? _confirmedActivationId;
   Future<void>? _activationReadback;
+  int _activationSequence = 0;
+  String? _settledError;
+  bool _fullListRequired = false;
+  int _runtimeRevision = 0, _catalogRuntimeRevision = -1;
+  ({String epoch, String? session, String? account})? _runtime;
+
+  /// Templates and saved selections survive a failed read; current-connection
+  /// claims require a catalogue observed in the current native runtime.
+  /// Freshness alone never establishes that settings were applied successfully.
+  bool get runtimeConfirmed =>
+      catalog != null &&
+      !queryUnconfirmed &&
+      !unconfirmed &&
+      _catalogRuntimeRevision == _runtimeRevision;
+
+  void observeRuntime(NetworkSettingsState? state) {
+    if (_disposed || state == null) return;
+    final next = (
+      epoch: state.sourceEpoch,
+      session: state.sessionId,
+      account: state.appliedProfile?.id,
+    );
+    if (next == _runtime) return;
+    _runtime = next;
+    _runtimeRevision++;
+    if (catalog case final current? when _matchesRuntime(current)) {
+      _catalogRuntimeRevision = _runtimeRevision;
+    }
+    notifyListeners();
+  }
+
+  bool _matchesRuntime(ScenarioCatalog value) =>
+      _runtime != null &&
+      value.sourceEpoch == _runtime!.epoch &&
+      value.observationSessionId == _runtime!.session &&
+      (value.appliedAccountId == null ||
+          value.appliedAccountId == _runtime!.account);
 
   void setSupported(bool value) {
     if (supported == value) return;
@@ -54,7 +91,7 @@ class ScenariosController extends ChangeNotifier {
     );
   }
 
-  void _accept(Map<String, Object?> result, int sequence) {
+  void _accept(Map<String, Object?> result, int sequence, int runtimeRevision) {
     if (_disposed) return;
     if (result['error'] != null) {
       final error = result['error'];
@@ -71,14 +108,51 @@ class ScenariosController extends ChangeNotifier {
       );
     }
     // An older command can acknowledge itself without replacing a newer view.
-    if (pendingOperationId != null &&
-        result['persisted_operation_id'] == pendingOperationId) {
-      _confirmedActivationId = pendingOperationId;
+    final pending = pendingOperationId;
+    if (pending != null && result['persisted_operation_id'] == pending) {
+      _confirmedActivationId = pending;
       _activationUnconfirmed = false;
+    } else if (pending != null &&
+        _activationUnconfirmed &&
+        sequence > _activationSequence &&
+        result.containsKey('unresolved_operation_id') &&
+        result.containsKey('last_operation_id') &&
+        result['unresolved_operation_id'] != pending) {
+      // Without a receipt, a later catalogue settles the outcome once the
+      // owner reports no unresolved commit: the durable record either holds
+      // this operation or it never committed. Both still require a readback
+      // before connecting; the activation itself is never replayed.
+      _confirmedActivationId = pending;
+      _activationUnconfirmed = false;
+      _settledError = result['last_operation_id'] == pending
+          ? 'SCENARIO_COMMIT_UNCONFIRMED'
+          : 'SCENARIO_NOT_APPLIED';
     }
-    if (sequence >= _acceptedSequence && result.containsKey('scenarios')) {
-      catalog = ScenarioCatalog.fromMap(result);
+    final current = catalog;
+    final unchanged =
+        result['scenarios_unchanged'] == true &&
+        current != null &&
+        current.revision != null &&
+        result['catalogue_revision'] == current.revision;
+    if (result['scenarios_unchanged'] == true && !unchanged) {
+      _fullListRequired = true;
+    }
+    if (sequence >= _acceptedSequence &&
+        (result.containsKey('scenarios') || unchanged)) {
+      catalog = ScenarioCatalog.fromMap(
+        result,
+        unchanged: unchanged ? current.scenarios : null,
+      );
+      _catalogRuntimeRevision =
+          (_runtime == null
+              ? runtimeRevision == _runtimeRevision
+              : _matchesRuntime(catalog!))
+          ? _runtimeRevision
+          : -1;
       _acceptedSequence = sequence;
+      queryUnconfirmed = false;
+      if (errorCode == _queryErrorCode) errorCode = null;
+      _queryErrorCode = null;
       // A fresh authoritative catalogue reconciles template uncertainty. Older
       // queries issued before the failed mutation cannot establish its outcome.
       if (_templateUnconfirmedSequence != null &&
@@ -112,7 +186,8 @@ class ScenariosController extends ChangeNotifier {
             pendingOperationId = null;
             _confirmedActivationId = null;
             _activationUnconfirmed = false;
-            errorCode = null;
+            errorCode = _settledError;
+            _settledError = null;
           }
         }).whenComplete(() {
           if (identical(_activationReadback, work)) _activationReadback = null;
@@ -141,10 +216,16 @@ class ScenariosController extends ChangeNotifier {
   Future<void> _refreshOnce() async {
     final generation = _generation;
     final sequence = ++_requestSequence;
+    final runtimeRevision = _runtimeRevision;
     try {
-      final result = await _command({'action': 'list'});
+      final known = _fullListRequired ? null : catalog?.revision;
+      _fullListRequired = false;
+      final result = await _command({
+        'action': 'list',
+        'known_revision': ?known,
+      });
       if (_disposed || generation != _generation) return;
-      _accept(result, sequence);
+      _accept(result, sequence, runtimeRevision);
       await _reconcileActivation(generation);
       if (_disposed || generation != _generation) return;
       if (sequence < _acceptedSequence) return;
@@ -179,6 +260,7 @@ class ScenariosController extends ChangeNotifier {
     if (_disposed || busy || !supported) return null;
     final generation = _generation;
     final sequence = ++_requestSequence;
+    final runtimeRevision = _runtimeRevision;
     final previousUnknown = _activationUnconfirmed;
     final previousOperation = pendingOperationId;
     final previousConfirmation = _confirmedActivationId;
@@ -193,13 +275,15 @@ class ScenariosController extends ChangeNotifier {
     if (activation) {
       pendingOperationId = request['operation_id'] as String;
       _confirmedActivationId = null;
+      _settledError = null;
+      _activationSequence = sequence;
       _pollAttempts = 0;
     }
     notifyListeners();
     try {
       final result = await _command(request);
       if (_disposed || generation != _generation) return null;
-      _accept(result, sequence);
+      _accept(result, sequence, runtimeRevision);
       if (mutation && result['persisted'] != true) {
         if (activation) {
           _activationUnconfirmed = true;
@@ -272,6 +356,11 @@ class ScenariosController extends ChangeNotifier {
     'SCENARIO_RULES_UNAVAILABLE',
     'SCENARIO_PROTECTION_UNAVAILABLE',
     'SCENARIOS_UNSUPPORTED',
+    // Owner checks that fail before any storage change.
+    'SCENARIO_RUNTIME_UNCONFIRMED',
+    'SCENARIO_STORAGE_UNAVAILABLE',
+    'SCENARIO_SAVE_FAILED',
+    'SCENARIO_CANCELLED',
   };
 
   Future<ConnectionScenario?> save({
@@ -346,6 +435,11 @@ class ScenariosController extends ChangeNotifier {
     pendingOperationId = null;
     _confirmedActivationId = null;
     _activationReadback = null;
+    _settledError = null;
+    _fullListRequired = false;
+    _runtime = null;
+    _runtimeRevision++;
+    _catalogRuntimeRevision = -1;
     busy = false;
     _activationUnconfirmed = false;
     _templateUnconfirmedSequence = null;

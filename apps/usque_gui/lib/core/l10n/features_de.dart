@@ -453,7 +453,6 @@ const Map<String, String> kChainDe = <String, String>{
   'failure_protocol': 'Protokoll',
   'failure_cleanup': 'Aufräumen',
   'failure_reason': 'Fehlerursache: {reason}.',
-  'manage': 'Verwalten',
   'dns_fallback': 'Tunnel-DNS (OpenVPN kann DNS aushandeln)',
   'dns_unavailable_title': 'Kein DNS über diesen Ausgang',
   'dns_unavailable':

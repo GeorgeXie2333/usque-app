@@ -33,21 +33,53 @@ same in the target language are not missing translations.
 
 ## Profiles and scene drafts
 
-The second destination is **Profiles** (**配置** in Simplified Chinese), with
-**Scenes / Accounts** tabs. Its nested section navigator preserves desktop
-navigation and uses the normal leave guard; phones hide bottom navigation on
-editor subpages. Home account and existing account-launch targets open Accounts;
-the scene entry opens Scenes. Ordinary navigation remembers the tab for this run.
+The scene endpoint draft shares `EndpointFields` and preset-policy selection with
+Advanced. It never calls global save operations. Scene settings require endpoint
+selection, IPv4/IPv6, port and SNI, with an optional preset. Native previews and
+restore use effective account endpoints, and Zero Trust overrides follow
+Advanced's account-scoped merge.
+
+The second destination is **Profiles** (**配置** in Simplified Chinese), opening
+on the scene list with a secondary **Manage accounts** action. Accounts opens as
+a standard subpage with its own create action, live account list and operation
+feedback. Its nested section navigator preserves desktop navigation and uses the
+normal leave guard; phones hide bottom navigation on subpages. Home account and
+existing account-launch targets open Accounts directly; Back returns to Profiles.
+The scene entry, ordinary navigation and Ctrl+2 open the Profiles root. Navigation
+requests wait for the section to mount and cannot bypass unsaved-change guards.
+Home shows the selected scene directly above Kill Switch at the same visual level:
+in the desktop session card and the phone status card. The row opens Profiles.
 
 Scene forms keep local drafts. Saving a template never calls the live network
-settings save path. Reuse the pure routing and DNS fields and prepared exit
-references; imports and authentication stay in Proxy. The native scene command
+settings save path. Schema 27 scenes own account binding, chain-proxy selection,
+endpoints, IP policy and transport. Outputs, LAN, Ads, routing and all device DNS
+remain global. The nested chain page reuses Proxy's full resource-management UI
+in draft-selection mode; the nested Accounts page manages resources while its
+primary action binds an account to the draft. Explicit resource saves persist
+independently; returning preserves the parent draft. The native scene command
 owns preview, optional account binding, activation and recovery. Current and
 applied combinations are distinct, including uncertain replies and unavailable
 dependencies. See [Profiles and scenes](../../docs/SCENARIOS.md).
 
+Scene runtime confirmations are tied to the native owner epoch, session and
+account observations. A failed refresh or a newer connection invalidates cached
+runtime claims while preserving saved template and selection information.
+Every catalogue carries its settings observation identity separately from the
+public session ID. Android retains the observation generation after disconnecting,
+so a disconnected catalogue can be confirmed without weakening stale session
+checks. Grouped navigation cancellation revokes all provisional discard
+permissions. Scene VPN Gate leases are tied to the native owner epoch; stale
+leases are prepared again before selection or save, and cleanup requests cannot
+release a newer owner's reference.
+
+配置首页固定展示场景，右上“账号管理”打开账号二级页。首页账号和账号启动入口直达
+账号页，返回回到配置首页；普通导航和 Ctrl+2 均回到配置首页，离开编辑器仍检查草稿。
 配置页与首页都以引擎确认状态区分已选目标和当前连接。场景编辑保留独立草稿，
-账号默认沿用当前选择，也可绑定指定账号；保存模板不会改变连接。
+账号默认沿用当前选择，也可绑定指定账号；保存模板不会改变连接。场景只管理账号绑定、
+链式代理、端点、IP 策略与传输协议，输出、局域网、广告、分流和 DNS 保持全局。
+账号与链式代理子页面支持完整资源管理，选择只更新草稿，明确保存的资源独立持久化。
+首页将所选场景放在 Kill Switch 正上方，以同级状态行展示：桌面端位于会话卡内，
+手机端位于状态卡内；点击该行进入场景配置。
 
 ## Linux desktop
 
@@ -130,6 +162,29 @@ required.
 Linux/WSL 可运行上述命令预览界面并热重载，切换模拟连接状态和重新开始首次引导。
 数据仅在内存中保存，Windows golden 基线仍须在 Windows 验证。
 
+## Android TV text input
+
+On Android TV and Fire TV, D-pad focus highlights a text field without opening
+the keyboard. Press Select, Enter or gamepad A to edit; pointer and accessibility
+activation also work. The first Back ends editing, keeps the draft and returns
+to the same field. Directional navigation then reaches adjacent controls. A
+later Back follows the existing page/dialog and unsaved-changes rules. IME
+submission keeps the field's existing action; Next without a custom action
+moves to the next focus target without automatically editing it.
+
+All Material text inputs use the shared `TvTextInput` adapter. Native TV
+detection and a UI-only editing-session channel handle legacy pre-IME Back and
+Android 33+ system Back separately. Phone and desktop input keep their normal
+behavior. The channel carries no field contents or credentials. Widget tests
+and JVM policy tests use fake inputs and do not establish Fire OS IME behavior;
+device and emulator validation remains separate.
+
+Android TV／Fire TV 的方向键只移动焦点，按确认、Enter 或手柄 A 才进入编辑；
+点击和无障碍激活同样可用。第一次返回结束编辑并保留草稿及当前字段焦点，之后
+可以继续用方向键访问其他控件。再次返回才执行页面／弹窗返回和未保存修改保护。
+手机和桌面保留原有输入交互。自动化测试使用模拟输入及 JVM 策略夹具，不等于
+Fire OS 输入法实测。
+
 ## Editing and navigation
 
 - Ads downloads missing verified rules when applying its enabled preference. While enabled, the running app checks every seven days, retries failed checks after one hour, and persists deadlines across restarts. The switch and downloaded rules apply to new requests without reconnecting. Status uses the native loaded revision; a first download failure remains visibly inactive with Retry. Rule details holds source, timestamps and manual update. Existing country update actions remain separate.
@@ -138,10 +193,10 @@ Linux/WSL 可运行上述命令预览界面并热重载，切换模拟连接状�
 - Update checks on Windows, Linux and Android request GitHub's latest official release, compare its stable version with the installed version, and retain the 512 KiB response limit. Installable packages still require matching asset and manifest metadata (name, platform, architecture, size and SHA-256). Manual failures distinguish network/timeouts, rate limits, unavailable release information, oversized responses and invalid responses; automatic failures remain silent. Raw backend errors are never displayed.
 - Windows 与 Android 的更新检查只请求 GitHub 最新正式版，比较已安装版本，并保留 512 KiB 响应上限。安装包仍须通过资源与清单的名称、平台、架构、大小及 SHA-256 校验。手动检查会区分网络／超时、限流、信息不可用、响应超限和响应无效；自动检查失败保持静默，界面不显示后端原始错误。
 
-- First launch keeps four steps: welcome, system permissions, Cloudflare, Inc. terms and account setup. The wide layout's brand pane carries the non-affiliation notice on every step, so its welcome step explains the next steps instead; narrow layouts show the notice in the welcome step. Android only requests optional notification permission during setup, explaining that the persistent service notification helps background operation and that no other notifications are sent. Onboarding never probes or requests VPN authorization. After the user presses Connect, Android requests VPN authorization directly if needed, then connects without an additional app confirmation. Cancelling system authorization leaves Home disconnected without restarting setup.
+- First launch keeps four steps: welcome, system permissions, Cloudflare, Inc. terms and account setup. The wide layout's brand pane carries the non-affiliation notice on every step, so its welcome step explains the next steps instead; narrow layouts show the notice in the welcome step. The welcome step also outlines the remaining steps, and the progress line names the next one. Steps are top-aligned; when the window has room and text is not enlarged, the actions and trademark attribution stay at the bottom edge with the primary action at the end, otherwise they scroll after the step. Completing setup plays one hand-off of at most `UsqueMotion.lock`: the brand ring closes, the wide brand pane folds into the rail with its mark landing on the rail's (`ShellScreen.railBrandLogo`), and Home rises in. The outgoing setup holds its last frame and takes no input, focus or semantics; reduced motion, a hidden window and every other screen switch change directly. Android only requests optional notification permission during setup, explaining that the persistent service notification helps background operation and that no other notifications are sent. Onboarding never probes or requests VPN authorization. After the user presses Connect, Android requests VPN authorization directly if needed, then connects without an additional app confirmation. Cancelling system authorization leaves Home disconnected without restarting setup.
 - The welcome copy identifies Usque as an unofficial client compatible with Cloudflare® WARP® services, with no affiliation, sponsorship or endorsement. All 21 language catalogs include a localized trademark attribution after the navigation actions on every setup step; it stays reachable by scrolling on small screens and with large text.
 - The terms step opens Cloudflare's application terms and the distinct personal WARP® and Zero Trust privacy policies in the system browser. Confirmation and step progress are saved locally without credentials. Account setup uses the native initial-identity operation, preserves an existing ready account, and checks an uncertain result before allowing a new attempt. Interrupted attempts require fresh user input; License Keys and login callbacks are never replayed from a saved draft.
-- 首次引导仍为欢迎、系统权限、Cloudflare 条款、账号设置四步。Android 引导只申请可选的通知权限，说明常驻通知用于帮助后台保活、不会推送其他通知；不探测或申请 VPN 权限。用户点击连接后按需直接申请 Android 系统 VPN 授权，不再额外弹出应用确认框；取消系统授权后留在首页且保持未连接。已注册账号会被保留；通信超时后先检查原操作结果，确定中断后才由用户重新输入并重试。
+- 首次引导仍为欢迎、系统权限、Cloudflare 条款、账号设置四步。欢迎页列出后续步骤，进度行提示下一步；内容顶部对齐，空间足够且未放大字号时操作按钮和商标声明固定在底部、主按钮始终靠后，否则随内容滚动。完成设置后播放一次交接动画：品牌环闭合，宽布局品牌栏收进侧栏、Logo 落到侧栏 Logo 上，首页随后浮现；退场的引导页保持最后一帧且不接收输入、焦点和读屏。减少动态效果、窗口隐藏及其他页面切换均直接切换。Android 引导只申请可选的通知权限，说明常驻通知用于帮助后台保活、不会推送其他通知；不探测或申请 VPN 权限。用户点击连接后按需直接申请 Android 系统 VPN 授权，不再额外弹出应用确认框；取消系统授权后留在首页且保持未连接。已注册账号会被保留；通信超时后先检查原操作结果，确定中断后才由用户重新输入并重试。
 
 - Accounts select WARP identities; network settings are shared across accounts.
 - Advanced → WARP DNS offers WARP DNS types Plain DNS, DNS over HTTPS and DNS over TLS, sharing the encrypted type names with Direct DNS. Both editors use one complete HTTPS URL for DoH; DoT retains server name and port. New encrypted drafts prefill Cloudflare (`https://cloudflare-dns.com/dns-query` or `one.one.one.one:853`) and its IPv4/IPv6 bootstrap addresses. WARP bootstrap IPs remain optional; Direct DNS requires them. Existing DoH name/port/path settings display as a URL without rewriting saved fields, replacing custom values, or introducing migration UI. Protocol drafts stay separate, including invalid URL text and bootstrap lists; an explicit Advanced reset clears both editors' inactive drafts. Only the selected type is applied through the existing save bar. Labels and validation errors stay concise. See [WARP exit DNS](../../docs/WARP_DNS.md).
@@ -174,7 +229,7 @@ Linux/WSL 可运行上述命令预览界面并热重载，切换模拟连接状�
 - Windows reports initial, hidden and minimized window visibility to Flutter. Hidden windows pause quality/history reads, diagnostics refresh timers, UI selectors and animation tickers. Connection/error events, tray commands and settings confirmations remain active. Restoring the window refreshes current state without replaying a mutation. The native event reader waits for data or cancellation with overlapped I/O instead of polling an idle pipe. Fake-engine and IPC fixtures cover this lifecycle; controlled CPU measurements remain separate.
 - Windows 窗口隐藏或最小化时暂停质量历史查询、诊断刷新、界面重建和动画；连接／错误事件、托盘操作与设置确认继续运行。恢复窗口会重新读取状态，不重放保存或连接操作。原生事件管道以可取消的异步读取等待数据，避免空闲轮询；实际 CPU 改善仍须独立测量。
 - Windows opens centred on the monitor under the pointer the first time, then restores the last position, size and maximized state if that monitor is still attached. The frame is stored under `HKCU\Software\io.github.georgexie2333\Usque` next to the close-to-tray preference and holds no account or network data.
-- Windows keyboard shortcuts: **Ctrl+1** to **Ctrl+4** select Home, Accounts, Proxy and Settings; **Esc** (outside a text field), **Alt+Left** and the mouse back button leave a subpage through its unapplied-edits prompt; **Ctrl+S** applies the visible apply bar; **F5** refreshes the VPN Gate list and the diagnostics timeline. Shortcuts are inactive while a dialog or popup is open and on Android.
+- Windows keyboard shortcuts: **Ctrl+1** to **Ctrl+4** select Home, Profiles, Proxy and Settings; **Esc** (outside a text field), **Alt+Left** and the mouse back button leave a subpage through its unapplied-edits prompt; **Ctrl+S** applies the visible apply bar; **F5** refreshes the VPN Gate list and the diagnostics timeline. Shortcuts are inactive while a dialog or popup is open and on Android.
 - Windows 托盘图标带状态圆点，托盘菜单可直接切换虚拟网卡和系统代理；窗口在后台时，持续 5 秒以上的重连、连接错误以及之后的恢复会弹出系统通知。窗口首次居中打开，之后恢复上次的位置、大小与最大化状态。快捷键：Ctrl+1～4 切换页面，Esc／Alt+←／鼠标后退键返回，Ctrl+S 应用修改，F5 刷新。
 
 - **Bypass settings** combines a custom DIRECT/REJECT/PROXY rule list, an independent Ads switch, and country direct presets. Rows are not numbered, because specificity rather than order decides precedence; each shows its target and a localized action status (**Direct**, **Block**, **Through Usque**). The editor supports individual edits and action-scoped bulk paste. A rejected or conflicting row shows the reason under it and the apply bar names affected rules by target; overlapping rows with different actions each state that the more specific rule wins. It uses the shared apply bar, shown only while there is something to apply or report, and leave guard. The Ads state reads as a status: active in green, not ready with a warning. Ads availability and the current session revision are distinct; complete verified rules update the running session automatically. See [routing and Ads](../../docs/ROUTING.md).
@@ -230,9 +285,16 @@ Proton 来源在“Proton 账号”下按账号显示，旧版重复记录合并
 
 ## Native UI composition
 
-- `ContentSection` and `ContentHeading` group ordinary content with typography and spacing, not a card background. `ContentList` separates adjacent entries; `ActionRow` provides native ink, keyboard/D-pad activation and a visible, layout-stable focus outline. `LinkRow` builds Settings navigation rows on `ActionRow`: the chevron always stays at the trailing edge, and below 480 logical pixels or above 150% text a row value moves under its summary. `RowTileTheme` gives Material list tiles the same 20-pixel icons, 12-pixel gap and title style, so switch and navigation rows share one text column; Settings, Proxy outputs, Advanced protection, Bypass Ads and the chain-proxy enable switch use it. `HintText` is the muted style for explanations under a control. `FieldDropdown` gives dropdowns the typed-value style and a text field's height at any text scale; Advanced, the chain-proxy DNS picker, the routing-rule dialog and the VPN Gate country filter use it. Expanders inside a section use zero tile padding so their titles share the section edge, and section-level apply bars align with the 880-pixel form column. `InlineStatus` pairs a readable state label with a supplementary icon.
-- Accounts are continuous rows in the same 880-pixel column as Proxy and Settings, so section headings never move between them. Each row's name sits above its identity and status tags; wide rows centre the actions beside that block. The active identity has a light selection wash, marker and explicit status; clicking the row itself never switches accounts. Identity configuration, activation, rename and delete remain separate controls; activation, license and rename carry visible labels (touch screens show no tooltips), and delete stays an icon with a tooltip and a confirmation. Setting another account active while a session is connected or connecting first confirms that the connection will reconnect with it; the only account cannot be deleted.
-- Accounts, Settings and proxy editors use open groups with a maximum form width of 880 logical pixels. Home remains capped at 1120. Navigation retains its existing 760/1050 breakpoints and phone/rail behavior.
+- `ContentSection` and `ContentHeading` group ordinary content with typography and spacing, not a card background. `ContentList` separates adjacent entries; `ActionRow` provides native ink, keyboard/D-pad activation and a visible, layout-stable focus outline. The connection ring's power button marks keyboard/D-pad focus with a primary halo separated from its fill by a gap, plus a slight lift, so focus stays visible on a primary button on Android TV; both are paint-only. `LinkRow` builds Settings navigation rows on `ActionRow`: the chevron always stays at the trailing edge, and below 480 logical pixels or above 150% text a row value or `status` (such as the Proxy chain row's `InlineStatus`) moves under its summary; `details` carries rich summary text. `RowTileTheme` gives Material list tiles the same 20-pixel icons, 12-pixel gap and title style, so switch and navigation rows share one text column; Settings, Proxy outputs, Advanced protection, Bypass Ads and the chain-proxy enable switch use it. `HintText` is the muted style for explanations under a control. `FieldDropdown` gives dropdowns the typed-value style and a text field's height at any text scale; Advanced, the chain-proxy DNS picker, the routing-rule dialog and the VPN Gate country filter use it. Expanders inside a section use zero tile padding so their titles share the section edge, and section-level apply bars align with the 880-pixel form column. `InlineStatus` pairs a readable state label with a supplementary icon.
+- Accounts are continuous rows in the same 880-pixel column as Proxy and Settings, so section headings never move between them. Each row's name sits above its identity and status tags; wide rows centre the actions beside that block. The selected account has a light selection wash, a brand-coloured person glyph and a **Selected** tag; clicking the row itself never switches accounts. Wide rows keep activation, license and rename as labelled buttons and delete as an icon with a tooltip. Below 620 logical pixels or above 150% text, the row keeps its primary action visible (**Set active**, or identity setup while the identity is not ready) and moves license, rename and delete into a labelled menu, which joins the name's line when no primary action remains; the only account's delete entry is disabled and names why. Delete always confirms. Setting another account active while a session is connected or connecting first confirms that the connection will reconnect with it. Account rows use a person glyph; the layers glyph marks scenes.
+- Scene rows follow the same grammar: the selected scene has the selection wash and start marker, its name sits above its status tags and a quieter line of facts (exit and account binding), and clicking the row never uses the scene. A modified selection adds **Update from current settings**, and wide rows wrap extra actions instead of narrowing the name. Above the scene list, Profiles shows the selected scene, selected account and confirmed current connection as an open summary with refresh beside it. The scene editor groups name, account binding, chain proxy, endpoints and transport; account and chain management open as nested pages without discarding the draft.
+- Status tones have one meaning app-wide. Brand marks a saved choice or a step in progress (selected, saved selection, connecting); neutral states a fact or a wait; success is reserved for a state the Engine confirmed (applied, connected); caution asks for attention (modified, unconfirmed, missing dependency); danger reports a failure. A saved selection never uses success or a check mark, and a pick in a list (such as a VPN Gate node) uses a radio dot, not a check. `InlineStatus` defaults to a dot for brand; pass a specific glyph when the state has a better one.
+- Row actions read and focus in one order: the primary action, then other labelled actions, then contextual ones, then a menu last. Keep an editing action directly before the primary use action so D-pad focus moves between them, and keep every action reachable without a tooltip.
+- `SaveChangesBar` defaults to apply wording. A form whose save does not apply anything (such as a scene template) supplies its own unsaved status, and may add one lower-emphasis `secondaryAction` (such as **Save and use**) before the primary button.
+- Destructive confirmations (delete, remove, sign out and remove, clear data) set `UsqueDialog.danger` and style their confirm button with `dangerButtonStyle`.
+- Change previews read top-down: what applying does (stays disconnected, new connections only, may reconnect, unconfirmed), then safety warnings such as Kill Switch, then the account change, then each field as old → new, then other saved settings that also take effect.
+- `SegmentedButton` keeps its check mark as a value picker. Profiles uses a scene heading beside its create action; below 560 logical pixels or above 150% text, the action moves below the heading. Its secondary account-management action belongs to the page heading and follows the standard responsive page actions.
+- Accounts, Settings and proxy editors use open groups with a maximum form width of 880 logical pixels. Settings and Proxy share one row grammar: `ContentGroup` puts a quiet `titleSmall` label (and an optional hint) over a `ContentList`, and every row uses `RowInsets` (an 8-pixel inset), so icons, titles, switches and chevrons stay in the same columns when switching between the two pages. Content under a row's title, such as a listener's status, starts at `RowInsets.textIndent`. Proxy groups are Exit (the chain-proxy `LinkRow`), Device traffic, Local proxies (each listener's switch, status and addresses) and proxy authentication. Pages opened from Settings follow the same grammar: `FormGroup` is a `ContentGroup` with one inset form entry, used by Advanced network settings (Routing & protection switch rows, then WARP DNS, Direct DNS, Endpoint and Transport) and Bypass (custom routing rules as inset rows with their actions last, Routing & protection for Ads, and Countries / regions with data status and the country list as separate entries). Per-app proxy keeps its rows and app list on the same inset. `DirectDnsEditor` and `RoutingRulesEditor` take `grouped: true` there. Scenes inherit these global settings. Network quality and Diagnostics remain dashboards on the 1120-pixel column. Home remains capped at 1120. Navigation retains its existing 760/1050 breakpoints and phone/rail behavior.
 - Network quality uses continuous metric sections rather than a card grid. It leads with the overall level in display size and the latest round trip and loss. Congestion, path MTU, migration, direct DNS and queue metrics are folded under **Advanced metrics**; the group opens on first view and shows a count when one of its phases is degraded, with **Start diagnostics** beside it, and phase states use `InlineStatus`. **Run Network Doctor** is the primary action only while the level is fair or poor. Each section follows only the values it shows (`ListenableSelector`), so a new sample repaints the trends rather than the whole page. Diagnostics keeps its checks, timeline and export distinct. A completed run concludes with either **No problems found** or the number of problems and the two most severe with their advice, each scrolling to its check. Results list the most severe category first; failed and warning checks open with their explanation and show a readable failure title (the code stays in the detail card), and categories whose checks all passed fold to one line. Only counts that occurred are shown. The destructive **Clear all data** panel lives in About, where a failed wipe is reported inside the panel. Dialog field groups and onboarding forms do not nest card surfaces.
 - Background fills are reserved for controls, selection, warnings, dialogs and save bars. Use `Panel` for explicitly isolated danger areas; do not make every panel transparent. Home is the one primary page that groups content in `Panel` cards (its session, outputs and traffic, and the phone chain summary); other pages keep open sections. Home spacing uses the `UsqueSpace` 4-pixel steps. Preserve the connection ring's drawing, proportions, phase mapping and motion when editing surrounding layouts.
 - Use the existing brand colors, bundled fonts and locale fallbacks. Primary controls have a minimum 48-pixel target; status indicators do not rely on color alone. Layout code must use the existing network observations without creating probes, sampling timers or history persistence.

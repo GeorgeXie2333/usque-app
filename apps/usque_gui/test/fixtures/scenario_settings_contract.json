@@ -1,0 +1,40 @@
+{
+  "default": {
+    "chain_exit": null,
+    "endpoint": {
+      "ipv4": "162.159.198.2",
+      "ipv6": "2606:4700:103::2",
+      "port": 443,
+      "selection": "automatic",
+      "sni": "speed.cloudflare.com"
+    },
+    "ip_policy": "auto",
+    "transport": "auto",
+    "vpn_gate": {
+      "enabled": false,
+      "selection": null
+    }
+  },
+  "sample": {
+    "chain_exit": {
+      "enabled": true,
+      "profile_id": "5ce00000-0000-4000-8000-000000000002",
+      "revision": "5ce00000-0000-4000-8000-000000000003",
+      "source": "wireguard_custom"
+    },
+    "endpoint": {
+      "ipv4": "162.159.198.2",
+      "ipv6": "2606:4700:103::2",
+      "port": 8443,
+      "preset_region": "de",
+      "selection": "custom",
+      "sni": "speed.cloudflare.com"
+    },
+    "ip_policy": "prefer_ipv6",
+    "transport": "http2",
+    "vpn_gate": {
+      "enabled": false,
+      "selection": null
+    }
+  }
+}

@@ -397,7 +397,6 @@ const Map<String, String> kChainTh = <String, String>{
   'failure_protocol': 'โพรโทคอล',
   'failure_cleanup': 'การเก็บกวาด',
   'failure_reason': 'สาเหตุ: {reason}',
-  'manage': 'จัดการ',
   'dns_fallback': 'DNS ของอุโมงค์ (OpenVPN อาจเจรจา DNS)',
   'dns_unavailable_title': 'ไม่มี DNS ผ่านทางออกนี้',
   'dns_unavailable':

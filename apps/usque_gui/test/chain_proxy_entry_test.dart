@@ -310,7 +310,7 @@ void main() {
         buttonSemantics.dispose();
         Focus.of(
           tester.element(
-            find.descendant(of: entry, matching: find.byType(Text)),
+            find.descendant(of: entry, matching: find.byType(Text)).first,
           ),
         ).requestFocus();
         await tester.pump();

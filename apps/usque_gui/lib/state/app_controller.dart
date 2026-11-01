@@ -10,7 +10,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../core/app_strings.dart';
 import '../core/user_facing_errors.dart';
 import '../models/app_models.dart';
-import '../models/scenarios.dart';
 import '../services/engine_client.dart';
 import '../services/gui_startup_observation.dart';
 import '../services/linux_preferences_store.dart';
@@ -28,6 +27,9 @@ class _AdsRulesWork {
   bool downloadStarted = false;
   late final Future<bool> future;
 }
+
+/// A one-shot navigation request, consumed by the shell's leave protection.
+enum ProfilesDestination { root, accounts }
 
 class AppController extends ChangeNotifier {
   final settingsNavigationRequests = ValueNotifier<int>(0);
@@ -186,15 +188,32 @@ class AppController extends ChangeNotifier {
 
   final EngineClient _engine;
   late final ScenariosController scenarios;
-  ProfilesTab profilesTab = ProfilesTab.scenes;
-  void selectProfilesTab(ProfilesTab tab) {
-    profilesTab = tab;
+  ProfilesDestination? _profilesDestination;
+
+  ProfilesDestination? get pendingProfilesDestination => _profilesDestination;
+
+  /// Scene state is polled only while Home or Profiles is observed.
+  void _syncScenarioVisibility() => scenarios.setVisible(
+    _uiVisible &&
+        _observationVisible &&
+        (section == AppSection.profiles || section == AppSection.home),
+  );
+
+  void _requestProfiles(ProfilesDestination destination) {
+    if (_disposed || _clearing) return;
+    _profilesDestination = destination;
     _notifyListeners();
   }
 
-  void openProfiles(ProfilesTab tab) {
-    profilesTab = tab;
-    selectSection(AppSection.profiles);
+  void openProfiles() => _requestProfiles(ProfilesDestination.root);
+
+  void openAccounts() => _requestProfiles(ProfilesDestination.accounts);
+
+  /// Consume before asking to leave, so cancelling cannot replay the request.
+  ProfilesDestination? takeProfilesDestination() {
+    final destination = _profilesDestination;
+    _profilesDestination = null;
+    return destination;
   }
 
   @visibleForTesting
@@ -419,11 +438,7 @@ class AppController extends ChangeNotifier {
   set engineCapabilities(EngineCapabilities? value) {
     _engineCapabilities = value;
     scenarios.setSupported(value?.connectionScenarios ?? false);
-    scenarios.setVisible(
-      _uiVisible &&
-          _observationVisible &&
-          (section == AppSection.profiles || section == AppSection.home),
-    );
+    _syncScenarioVisibility();
     quality.setEnabled(value?.networkQuality ?? false);
     final newlySupported =
         !networkSettings.supported &&
@@ -602,6 +617,7 @@ class AppController extends ChangeNotifier {
       return;
     }
     _acceptedSettings = state;
+    scenarios.observeRuntime(state);
     scenarios.invalidate();
     final accountProfile = state?.storedProfile;
     if (accountProfile != null &&
@@ -718,8 +734,7 @@ class AppController extends ChangeNotifier {
       final launchTarget = await _engine.consumeLaunchTarget();
       if (_disposed || dataGeneration != _dataGeneration) return;
       if (launchTarget == 'profiles') {
-        profilesTab = ProfilesTab.accounts;
-        section = AppSection.profiles;
+        openAccounts();
       }
     } on Object {
       // A launcher shortcut is optional and must not block initialization.
@@ -970,11 +985,7 @@ class AppController extends ChangeNotifier {
   void selectSection(AppSection value) {
     if (!availableSections.contains(value)) return;
     section = value;
-    scenarios.setVisible(
-      _uiVisible &&
-          _observationVisible &&
-          (value == AppSection.profiles || value == AppSection.home),
-    );
+    _syncScenarioVisibility();
     _notifyListeners();
   }
 
@@ -1509,7 +1520,7 @@ class AppController extends ChangeNotifier {
       if (!await scenarios.synchronizeActivation()) {
         throw EngineException(
           'SCENARIO_RESULT_UNKNOWN',
-          strings.get('scenario_unknown'),
+          strings.get('scenario_confirm_before_connect'),
         );
       }
       if (intent != _connectionIntent) return;
@@ -1538,7 +1549,7 @@ class AppController extends ChangeNotifier {
       if (!await scenarios.synchronizeActivation()) {
         throw EngineException(
           'SCENARIO_RESULT_UNKNOWN',
-          strings.get('scenario_unknown'),
+          strings.get('scenario_confirm_before_connect'),
         );
       }
       if (intent != _connectionIntent) return;
@@ -2255,6 +2266,7 @@ class AppController extends ChangeNotifier {
     diagnostics.suspendForReset();
     networkSettings.suspendForReset();
     scenarios.reset();
+    _profilesDestination = null;
     _updateOperationGeneration++;
     _updateCancellation?.cancel();
     String? cleanupWarning;
@@ -3012,11 +3024,7 @@ class AppController extends ChangeNotifier {
   void setUiVisible(bool visible) {
     if (_disposed || visible == _uiVisible) return;
     _uiVisible = visible;
-    scenarios.setVisible(
-      visible &&
-          _observationVisible &&
-          (section == AppSection.profiles || section == AppSection.home),
-    );
+    _syncScenarioVisibility();
     _uiObservationGeneration++;
     quality.setObservationVisible(visible && _observationVisible);
     diagnostics.setObservationVisible(visible && _observationVisible);
@@ -3034,11 +3042,7 @@ class AppController extends ChangeNotifier {
   void setObservationVisible(bool visible) {
     if (_disposed || visible == _observationVisible) return;
     _observationVisible = visible;
-    scenarios.setVisible(
-      visible &&
-          _uiVisible &&
-          (section == AppSection.profiles || section == AppSection.home),
-    );
+    _syncScenarioVisibility();
     _observationGeneration++;
     _snapshotRevision++;
     quality.setObservationVisible(visible && _uiVisible);

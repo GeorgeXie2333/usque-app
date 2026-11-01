@@ -35,17 +35,23 @@ internal object ScenarioFields {
     fun failure(message: String?): String =
         message?.takeIf { it.matches(Regex("SCENARIO_[A-Z_]{1,64}")) } ?: "SCENARIO_UNCONFIRMED"
 
-    /** Use the same read-only authority as startup, including endpoint readiness
-     * and any armed identity replacement's rollback record. */
+    /** Verify credentials using the account's persisted startup profile. Native
+     * preview validation owns the proposed scene endpoints and its stale token;
+     * they must not be mistaken for an already committed startup profile. */
     fun validateIdentity(
         source: JSONObject,
+        loadProfile: (String) -> String?,
         loadSecret: (String, String) -> ByteArray?,
         inspect: (ByteArray) -> Unit,
     ): String {
         val target = source.optJSONObject("preview_target") ?: error("SCENARIO_UNCONFIRMED")
         val id = target.getString("id")
+        val persisted =
+            runCatching {
+                loadProfile(id)?.takeIf { JSONObject(it).getString("id") == id }
+            }.getOrNull() ?: error("SCENARIO_ACCOUNT_UNAVAILABLE")
         val secret =
-            runCatching { loadSecret(id, target.toString()) }.getOrNull()
+            runCatching { loadSecret(id, persisted) }.getOrNull()
                 ?: error("SCENARIO_ACCOUNT_UNAVAILABLE")
         try {
             runCatching { inspect(secret) }.getOrElse { error("SCENARIO_ACCOUNT_UNAVAILABLE") }

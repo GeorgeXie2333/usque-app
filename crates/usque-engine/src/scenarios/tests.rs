@@ -29,7 +29,13 @@ async fn request(service: &ControlService, command: Value) -> Result<Value, Cont
             command_json: command.to_string(),
         })
         .await?;
-    Ok(serde_json::from_str(&response.metadata_json).unwrap())
+    let value: Value = serde_json::from_str(&response.metadata_json).unwrap();
+    let metadata = value.as_object().unwrap();
+    assert!(metadata.contains_key("observation_session_id"));
+    assert_eq!(value["observation_session_id"], value["session_id"]);
+    assert!(!metadata.contains_key("settings_version"));
+    assert!(!metadata.contains_key("endpoint_editing"));
+    Ok(value)
 }
 
 async fn save_scene(
@@ -69,11 +75,40 @@ fn activate_request(scene: &Value, preview: &Value, operation: Uuid) -> Value {
 }
 
 #[tokio::test]
+async fn full_and_unchanged_catalogues_share_the_current_observation_contract() {
+    for connected in [false, true] {
+        let (_directory, service) = fixture().await;
+        if connected {
+            let mut profile = service.config_snapshot().await.active_profile().unwrap();
+            profile.frontends.tunnel = false;
+            service
+                .install_test_session(profile, false, 0)
+                .await
+                .unwrap();
+        }
+        let state = service.settings.lock().await.clone();
+        let full = request(&service, json!({"action":"list"})).await.unwrap();
+        let poll = request(
+            &service,
+            json!({"action":"list","known_revision":full["catalogue_revision"]}),
+        )
+        .await
+        .unwrap();
+        assert_eq!(poll["scenarios_unchanged"], true);
+        for response in [full, poll] {
+            assert_eq!(response["source_epoch"], json!(state.source_epoch));
+            assert_eq!(response["observation_session_id"], json!(state.session_id));
+            assert_eq!(response["applied_scene_confirmed"], connected);
+        }
+    }
+}
+
+#[tokio::test]
 async fn template_crud_and_preview_do_not_change_selected_network_or_connect() {
     let (_directory, service) = fixture().await;
     let before = service.config_snapshot().await;
     let mut settings = ScenarioSettings::from_network(&before.network);
-    settings.frontends.http = false;
+    settings.transport = usque_core::TransportPolicy::Http2;
     let scene = save_scene(&service, settings, None).await;
     let after_save = service.config_snapshot().await;
     assert_eq!(after_save.network, before.network);
@@ -115,7 +150,7 @@ async fn disconnected_activation_commits_bound_account_and_settings_without_star
         .unwrap();
     let before = service.config_snapshot().await;
     let mut settings = ScenarioSettings::from_network(&before.network);
-    settings.frontends.http = false;
+    settings.transport = usque_core::TransportPolicy::Http2;
     let scene = save_scene(&service, settings, Some(bound)).await;
     let plan = preview(&service, &scene).await;
     assert_eq!(plan["preview"]["account_changed"], true);
@@ -129,7 +164,7 @@ async fn disconnected_activation_commits_bound_account_and_settings_without_star
     assert!(response["state"]["applied_matches"].is_null());
     let saved = service.store.load().unwrap();
     assert_eq!(saved.active_profile_id, Some(bound));
-    assert!(!saved.network.frontends.http);
+    assert_eq!(saved.network.transport, usque_core::TransportPolicy::Http2);
     assert_eq!(saved.network.kill_switch, before.network.kill_switch);
     assert_eq!(saved.last_scenario_switch.unwrap().operation_id, operation);
     assert!(service.data_plane.lock().await.is_none());
@@ -166,7 +201,28 @@ async fn stale_preview_rejects_before_mutating_storage() {
 #[tokio::test]
 async fn missing_bound_account_remains_editable_but_cannot_be_used() {
     let (_directory, service) = fixture().await;
-    let scene = save_scene(&service, ScenarioSettings::default(), Some(Uuid::new_v4())).await;
+    let missing = Uuid::new_v4();
+    let error = request(
+        &service,
+        json!({"action":"save","name":"Work","settings":ScenarioSettings::default(),"bound_account_id":missing}),
+    )
+    .await
+    .unwrap_err();
+    assert!(matches!(
+        error,
+        ControlServiceError::Scenario(ScenarioError::AccountUnavailable)
+    ));
+    let saved = save_scene(&service, ScenarioSettings::default(), None).await;
+    // Model an account deleted after the scene was bound to it.
+    service
+        .update_config(move |config| {
+            config.scenarios[0].bound_account_id = Some(missing);
+            Ok(())
+        })
+        .await
+        .unwrap();
+    let mut scene = saved;
+    scene["bound_account_id"] = json!(missing);
     let before = service.store.load().unwrap();
     let error = request(
         &service,
@@ -191,18 +247,26 @@ async fn missing_bound_account_remains_editable_but_cannot_be_used() {
 }
 
 #[tokio::test]
-async fn list_remains_available_while_lifecycle_owner_is_busy() {
+async fn queries_and_template_edits_remain_available_while_lifecycle_owner_is_busy() {
     let (_directory, service) = fixture().await;
     let scene = save_scene(&service, ScenarioSettings::default(), None).await;
-    let _owner = service.mutation_lock.lock().await;
+    let owner = service.mutation_lock.lock().await;
     let response = request(&service, json!({"action":"list"})).await.unwrap();
     assert_eq!(response["scenarios"].as_array().unwrap().len(), 1);
-    let error = request(
+    let plan = preview(&service, &scene).await;
+    let second = save_scene(&service, ScenarioSettings::default(), None).await;
+    request(
         &service,
-        json!({"action":"preview","id":scene["id"],"expected_revision":scene["revision"]}),
+        json!({"action":"delete","id":second["id"],"expected_revision":second["revision"]}),
     )
     .await
-    .unwrap_err();
+    .unwrap();
+    let before = service.store.load().unwrap();
+    let error = request(&service, activate_request(&scene, &plan, Uuid::new_v4()))
+        .await
+        .unwrap_err();
+    assert_eq!(service.store.load().unwrap(), before);
+    drop(owner);
     assert!(matches!(
         error,
         ControlServiceError::ScenarioUnavailable("SCENARIO_BUSY")
@@ -282,8 +346,10 @@ async fn unknown_running_owner_is_rejected_before_scene_commit() {
 #[tokio::test]
 async fn restore_is_a_new_explicit_commit_and_preserves_new_global_preferences() {
     let (_directory, service) = fixture().await;
-    let mut settings = ScenarioSettings::default();
-    settings.frontends.http = false;
+    let settings = ScenarioSettings {
+        transport: usque_core::TransportPolicy::Http2,
+        ..Default::default()
+    };
     let scene = save_scene(&service, settings, None).await;
     let plan = preview(&service, &scene).await;
     request(&service, activate_request(&scene, &plan, Uuid::new_v4()))
@@ -302,9 +368,9 @@ async fn restore_is_a_new_explicit_commit_and_preserves_new_global_preferences()
     let operation = Uuid::new_v4();
     request(&service,json!({"action":"restore","preview_token":restore["preview"]["preview_token"],"operation_id":operation})).await.unwrap();
     let saved = service.store.load().unwrap();
-    assert!(saved.network.frontends.http);
+    assert_eq!(saved.network.transport, usque_core::TransportPolicy::Auto);
     assert!(saved.network.auto_connect);
-    assert!(saved.last_scenario_switch.unwrap().restored);
+    assert!(saved.last_scenario_switch.unwrap().recovery_retired);
     assert!(service.data_plane.lock().await.is_none());
 }
 
@@ -326,17 +392,23 @@ async fn hot_scene_changes_publish_confirmed_profile_and_keep_actual_session_alg
             })
             .await
             .unwrap();
-        let mut settings = ScenarioSettings::from_profile(&profile);
-        if change_rules {
-            settings.routing.rules.push(usque_core::RoutingRule {
-                id: Uuid::new_v4(),
-                kind: usque_core::RoutingMatch::Domain,
-                target: "blocked.example".into(),
-                action: usque_core::RoutingAction::Reject,
-            });
-        } else {
-            settings.frontends.http = false;
-        }
+        let settings = ScenarioSettings::from_profile(&profile);
+        service
+            .update_config(move |config| {
+                if change_rules {
+                    config.network.routing.rules.push(usque_core::RoutingRule {
+                        id: Uuid::new_v4(),
+                        kind: usque_core::RoutingMatch::Domain,
+                        target: "blocked.example".into(),
+                        action: usque_core::RoutingAction::Reject,
+                    });
+                } else {
+                    config.network.frontends.http = false;
+                }
+                Ok(())
+            })
+            .await
+            .unwrap();
         let expected = settings.clone();
         let scene = save_scene(&service, settings, None).await;
         let plan = preview(&service, &scene).await;
@@ -368,6 +440,11 @@ async fn hot_scene_changes_publish_confirmed_profile_and_keep_actual_session_alg
         let active = service.data_plane.lock().await;
         let active = active.as_ref().unwrap();
         assert!(expected.equivalent(&ScenarioSettings::from_profile(&active.profile)));
+        if change_rules {
+            assert_eq!(active.profile.routing.rules[0].target, "blocked.example");
+        } else {
+            assert!(!active.profile.frontends.http);
+        }
         assert_eq!(active.profile.congestion_control, running_algorithm);
         let crate::ActiveRuntime::Harness(runtime) = &active.runtime else {
             panic!("fixture must stay inert");
@@ -401,14 +478,20 @@ async fn session_only_preferences_do_not_require_a_protected_scene_handoff() {
             })
             .await
             .unwrap();
-        let mut settings = ScenarioSettings::from_profile(&profile);
+        let settings = ScenarioSettings::from_profile(&profile);
         if change_rules {
-            settings.routing.rules.push(usque_core::RoutingRule {
-                id: Uuid::new_v4(),
-                kind: usque_core::RoutingMatch::Domain,
-                target: "blocked.example".into(),
-                action: usque_core::RoutingAction::Reject,
-            });
+            service
+                .update_config(|config| {
+                    config.network.routing.rules.push(usque_core::RoutingRule {
+                        id: Uuid::new_v4(),
+                        kind: usque_core::RoutingMatch::Domain,
+                        target: "blocked.example".into(),
+                        action: usque_core::RoutingAction::Reject,
+                    });
+                    Ok(())
+                })
+                .await
+                .unwrap();
         }
         let scene = save_scene(&service, settings.clone(), None).await;
         let plan = preview(&service, &scene).await;
@@ -517,9 +600,15 @@ async fn scene_noop_and_failed_hot_rollback_keep_private_listener_authentication
         runtime.fail_routing_publish = true;
     }
     for change_output in [false, true] {
-        let mut settings = ScenarioSettings::from_profile(&profile);
+        let settings = ScenarioSettings::from_profile(&profile);
         if change_output {
-            settings.frontends.http = false;
+            service
+                .update_config(|config| {
+                    config.network.frontends.http = false;
+                    Ok(())
+                })
+                .await
+                .unwrap();
         }
         let scene = save_scene(&service, settings, None).await;
         let plan = preview(&service, &scene).await;
@@ -620,4 +709,59 @@ async fn scene_noop_and_failed_hot_rollback_keep_private_listener_authentication
             .as_slice(),
         password
     );
+}
+
+#[tokio::test]
+async fn applying_flags_clear_when_the_owned_worker_unwinds() {
+    let (_directory, service) = fixture().await;
+    let flags = ApplyingFlags::set(&service);
+    assert!(service.scenario_applying.load(Ordering::SeqCst));
+    let worker = tokio::spawn(async move {
+        let _flags = flags;
+        panic!("simulated scene worker failure");
+    });
+    assert!(worker.await.is_err());
+    assert!(!service.scenario_applying.load(Ordering::SeqCst));
+    assert!(!service.settings_applying.load(Ordering::SeqCst));
+}
+
+#[tokio::test]
+async fn uncertain_activation_is_settled_from_storage_without_replay() {
+    let (_directory, service) = fixture().await;
+    let scene = save_scene(&service, ScenarioSettings::default(), None).await;
+    let plan = preview(&service, &scene).await;
+    let operation = Uuid::new_v4();
+    request(&service, activate_request(&scene, &plan, operation))
+        .await
+        .unwrap();
+    // Model a reply whose durable write was uncertain: the record is on disk
+    // without the acknowledgement marker and this owner has no receipt.
+    service
+        .update_config(|config| {
+            config.last_scenario_switch.as_mut().unwrap().acknowledged = false;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    service
+        .settings
+        .lock()
+        .await
+        .persisted_operation_ids
+        .clear();
+    *service.scenario_unconfirmed_operation.lock().await = Some(operation);
+    let list = request(&service, json!({"action":"list"})).await.unwrap();
+    assert!(list["unresolved_operation_id"].is_null());
+    assert_eq!(list["persisted_operation_id"], operation.to_string());
+    assert_eq!(list["last_operation_id"], operation.to_string());
+    let stored = service.store.load().unwrap();
+    assert!(stored.last_scenario_switch.unwrap().acknowledged);
+    assert!(service.data_plane.lock().await.is_none());
+
+    // An operation absent from storage never committed.
+    let lost = Uuid::new_v4();
+    *service.scenario_unconfirmed_operation.lock().await = Some(lost);
+    let list = request(&service, json!({"action":"list"})).await.unwrap();
+    assert!(list["unresolved_operation_id"].is_null());
+    assert_ne!(list["last_operation_id"], lost.to_string());
 }

@@ -34,8 +34,8 @@ fixtures to particular strings.
 
 | Checked-in fixture | SHA-256 |
 | --- | --- |
-| `NotoSansCJKsc-Regular.subset.otf` | `30f1fabb5cb1bed7fc62baae289fa7c49b9e6ad6d5b52f1627e9ef017fdb35d8` |
-| `NotoSansCJKsc-Bold.subset.otf` | `69777c80beb6c898c3af40cf1a4b6031282a249758ca0bb287fc7545201c142f` |
+| `NotoSansCJKsc-Regular.subset.otf` | `abed9a301e0ef81bbf86183182419aab5a555f62b55bfd9e9d8a5222831705bf` |
+| `NotoSansCJKsc-Bold.subset.otf` | `c99cadd17ff6606f65295fab3387b5d3b12fc3636d565e5576dfa769be89a00d` |
 | `NotoNaskhArabic-Regular.ttf` | `6f0a92031367b2f5a2078fe9d24f3433122b61a0bad57c423aad8f3c39aa2e6e` |
 | `NotoNaskhArabic-Bold.ttf` | `04017b0ccdd1156dcde3bc386734c1b03165261762f16a025c8afc9088ae76e9` |
 | `NotoNaskhArabic-OFL.txt` | `a783ea143e23dc0374b472b79d3b76a369e57a28eb599d19535073c0a4b3aa4d` |
@@ -75,7 +75,8 @@ unsupported characters in the corpus do not create replacement glyphs.
 
 The Profiles scene fixtures extend that corpus with the current Dart sources,
 including all 21 scenario translations and country labels. Both regenerated
-weights cover all 2,270 corpus codepoints supported by the pinned originals;
+weights cover all 2,272 corpus codepoints supported by the pinned originals,
+including the scene draft wording 草稿;
 the existing Arabic/Persian fonts retain their full shaping coverage.
 
 Use FontTools **4.60.1** in a temporary environment, download the two originals

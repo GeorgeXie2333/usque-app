@@ -82,13 +82,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
             child: PanelStack(
               spacing: 32,
               children: <Widget>[
-                _SettingsGroup(
+                ContentGroup(
                   title: strings.get('connection_protection_group'),
                   children: [
                     if (controller.supportsLinuxServiceMaintenance)
                       LinuxServiceSection(controller: controller),
                     ContentSection(
-                      padding: _tilePadding,
+                      padding: RowInsets.tile,
                       child: SwitchListTile(
                         contentPadding: EdgeInsets.zero,
                         secondary: const Icon(LucideIcons.zap),
@@ -101,7 +101,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                     ),
                     ContentSection(
-                      padding: _tilePadding,
+                      padding: RowInsets.tile,
                       child: SwitchListTile(
                         key: const ValueKey('settings-kill-switch-row'),
                         contentPadding: EdgeInsets.zero,
@@ -144,7 +144,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                   ],
                 ),
-                _SettingsGroup(
+                ContentGroup(
                   title: strings.get('proxy_routing_group'),
                   children: [
                     LinkRow(
@@ -175,7 +175,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                   ],
                 ),
-                _SettingsGroup(
+                ContentGroup(
                   title: strings.get('tools_group'),
                   children: [
                     if (controller.engineCapabilities?.networkQuality ?? false)
@@ -199,11 +199,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                   ],
                 ),
-                _SettingsGroup(
+                ContentGroup(
                   title: strings.get('application_group'),
                   children: [
                     ContentSection(
-                      padding: _rowPadding,
+                      padding: RowInsets.row,
                       child: _SettingRow(
                         icon: LucideIcons.sunMoon,
                         title: strings.get('theme'),
@@ -221,7 +221,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                     ),
                     ContentSection(
-                      padding: _rowPadding,
+                      padding: RowInsets.row,
                       child: _SettingRow(
                         icon: LucideIcons.languages,
                         title: strings.get('language'),
@@ -236,7 +236,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                     ),
                     ContentSection(
-                      padding: _tilePadding,
+                      padding: RowInsets.tile,
                       child: SwitchListTile(
                         contentPadding: EdgeInsets.zero,
                         secondary: const Icon(LucideIcons.power),
@@ -250,7 +250,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                     if (desktop)
                       ContentSection(
-                        padding: _tilePadding,
+                        padding: RowInsets.tile,
                         child: SwitchListTile(
                           contentPadding: EdgeInsets.zero,
                           secondary: const Icon(LucideIcons.panelTopClose),
@@ -272,7 +272,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         onTap: controller.requestAddQuickSettingsTile,
                       ),
                     ContentSection(
-                      padding: _tilePadding.copyWith(bottom: 12),
+                      padding: RowInsets.tile.copyWith(bottom: 12),
                       children: <Widget>[
                         SwitchListTile(
                           contentPadding: EdgeInsets.zero,
@@ -363,44 +363,6 @@ Widget? _networkSettingsProblem(AppController controller) {
           ),
         ),
       ],
-    ],
-  );
-}
-
-/// Settings rows are denser than general content. Sections holding a single
-/// Material list tile rely on the tile's own height for the touch target.
-const EdgeInsets _rowPadding = EdgeInsets.symmetric(
-  horizontal: 8,
-  vertical: 12,
-);
-const EdgeInsets _tilePadding = EdgeInsets.symmetric(
-  horizontal: 8,
-  vertical: 4,
-);
-
-class _SettingsGroup extends StatelessWidget {
-  const _SettingsGroup({required this.title, required this.children});
-  final String title;
-  final List<Widget> children;
-  @override
-  Widget build(BuildContext context) => Column(
-    crossAxisAlignment: CrossAxisAlignment.stretch,
-    children: [
-      // A quiet label, so groups never compete with the page title.
-      Padding(
-        padding: const EdgeInsetsDirectional.only(start: 8),
-        child: Semantics(
-          header: true,
-          child: Text(
-            title,
-            style: Theme.of(context).textTheme.titleSmall?.copyWith(
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-            ),
-          ),
-        ),
-      ),
-      const SizedBox(height: 4),
-      ContentList(children: children),
     ],
   );
 }
@@ -566,7 +528,9 @@ class _UpdateActions extends StatelessWidget {
             // The installed version sits in the switch's text column, so the
             // update actions always read against what is running now.
             final version = Padding(
-              padding: const EdgeInsetsDirectional.only(start: 32),
+              padding: const EdgeInsetsDirectional.only(
+                start: RowInsets.textIndent,
+              ),
               child: Text(
                 strings.get('app_version'),
                 key: const ValueKey('settings-app-version'),

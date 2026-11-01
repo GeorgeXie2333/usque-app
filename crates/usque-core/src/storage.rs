@@ -127,7 +127,9 @@ impl ConfigStore {
     {
         let _lock = self.lock_exclusive()?;
         let mut config = self.load_or_default()?;
+        let before = config.clone();
         let result = change(&mut config)?;
+        crate::scenarios::retire_restore_after_change(&before, &mut config);
         self.save(&config)?;
         Ok((config, result))
     }
@@ -556,9 +558,8 @@ fn migrate_app_config(config: &mut AppConfig) {
         config.schema_version = 26;
     }
     if config.schema_version < 27 {
-        config.scenarios.clear();
-        config.scenario_selection = None;
-        config.last_scenario_switch = None;
+        // Scene fields default to an empty library and no selection when
+        // loading the configurations that predate this feature.
         config.schema_version = 27;
     }
 }
