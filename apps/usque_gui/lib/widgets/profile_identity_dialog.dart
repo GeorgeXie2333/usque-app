@@ -8,6 +8,7 @@ import '../core/usque_motion.dart';
 import '../models/app_models.dart';
 import '../state/app_controller.dart';
 import 'common.dart';
+import 'tv_text_input.dart';
 import 'usque_dialog.dart';
 import 'zero_trust_enrollment_editor.dart';
 
@@ -265,7 +266,7 @@ class _ProfileIdentityDialogState extends State<_ProfileIdentityDialog> {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        TextField(
+        tvTextField(
           controller: _nameController,
           focusNode: _nameFocusNode,
           autofocus: true,
@@ -330,7 +331,7 @@ class _ProfileIdentityDialogState extends State<_ProfileIdentityDialog> {
         if (_method ==
             IdentityProvisioningMethod.registerWithLicense) ...<Widget>[
           const SizedBox(height: 10),
-          TextField(
+          tvTextField(
             controller: _licenseController,
             focusNode: _licenseFocusNode,
             autofocus: true,

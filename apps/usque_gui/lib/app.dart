@@ -16,6 +16,7 @@ import 'state/app_controller.dart';
 import 'state/window_frame.dart';
 import 'widgets/controller_selector.dart';
 import 'widgets/setup_handoff.dart';
+import 'widgets/tv_input_scope.dart';
 import 'widgets/window_titlebar.dart';
 
 typedef _BootstrapView = ({
@@ -104,111 +105,121 @@ class _UsqueBootstrapState extends State<UsqueBootstrap>
 
   @override
   Widget build(BuildContext context) {
-    return ControllerSelector<_BootstrapView>(
-      controller: controller,
-      observeWhenHidden: true,
-      selector: (controller) => (
-        initialized: controller.initialized,
-        startupError: controller.startupError,
-        onboardingComplete: controller.onboardingComplete,
-        theme: controller.themePreference,
-        locale: controller.localePreference,
-        onboardingBusy: controller.onboardingComplete ? false : controller.busy,
-        onboardingError: controller.onboardingComplete
-            ? null
-            : controller.lastError,
-        uiVisible: controller.uiVisible,
-      ),
-      builder: (context, view) {
-        final themeMode = switch (view.theme) {
-          ThemePreference.system => ThemeMode.system,
-          ThemePreference.light => ThemeMode.light,
-          ThemePreference.dark => ThemeMode.dark,
-        };
-        final locale = switch (view.locale) {
-          LocalePreference.system => null,
-          LocalePreference.english => const Locale('en'),
-          LocalePreference.simplifiedChinese => const Locale('zh', 'CN'),
-          LocalePreference.traditionalChineseHongKong => const Locale(
-            'zh',
-            'HK',
-          ),
-          LocalePreference.traditionalChineseTaiwan => const Locale('zh', 'TW'),
-          LocalePreference.japanese => const Locale('ja'),
-          LocalePreference.korean => const Locale('ko'),
-          LocalePreference.spanish => const Locale('es'),
-          LocalePreference.portuguese => const Locale('pt', 'BR'),
-          LocalePreference.french => const Locale('fr'),
-          LocalePreference.dutch => const Locale('nl'),
-          LocalePreference.turkish => const Locale('tr'),
-          LocalePreference.russian => const Locale('ru'),
-          LocalePreference.persian => const Locale('fa'),
-          LocalePreference.arabic => const Locale('ar'),
-          LocalePreference.german => const Locale('de'),
-          LocalePreference.indonesian => const Locale('id'),
-          LocalePreference.italian => const Locale('it'),
-          LocalePreference.polish => const Locale('pl'),
-          LocalePreference.thai => const Locale('th'),
-          LocalePreference.ukrainian => const Locale('uk'),
-          LocalePreference.vietnamese => const Locale('vi'),
-        };
-        return MaterialApp(
-          title: 'Usque',
-          debugShowCheckedModeBanner: false,
-          theme: UsqueTheme.light(),
-          darkTheme: UsqueTheme.dark(),
-          themeMode: themeMode,
-          locale: locale,
-          supportedLocales: const <Locale>[
-            Locale('en'),
-            Locale('zh', 'CN'),
-            Locale('zh', 'HK'),
-            Locale('zh', 'TW'),
-            Locale('ja'),
-            Locale('ko'),
-            Locale('es'),
-            Locale('pt', 'BR'),
-            Locale('fr'),
-            Locale('nl'),
-            Locale('tr'),
-            Locale('ru'),
-            Locale('fa'),
-            Locale('ar'),
-            Locale('de'),
-            Locale('id'),
-            Locale('it'),
-            Locale('pl'),
-            Locale('th'),
-            Locale('uk'),
-            Locale('vi'),
-          ],
-          localizationsDelegates: const <LocalizationsDelegate<dynamic>>[
-            GlobalMaterialLocalizations.delegate,
-            GlobalWidgetsLocalizations.delegate,
-            GlobalCupertinoLocalizations.delegate,
-          ],
-          builder: (context, child) {
-            final content = WindowFrame.instance.enabled
-                ? _WindowChrome(
+    return TvInputHost(
+      child: ControllerSelector<_BootstrapView>(
+        controller: controller,
+        observeWhenHidden: true,
+        selector: (controller) => (
+          initialized: controller.initialized,
+          startupError: controller.startupError,
+          onboardingComplete: controller.onboardingComplete,
+          theme: controller.themePreference,
+          locale: controller.localePreference,
+          onboardingBusy: controller.onboardingComplete
+              ? false
+              : controller.busy,
+          onboardingError: controller.onboardingComplete
+              ? null
+              : controller.lastError,
+          uiVisible: controller.uiVisible,
+        ),
+        builder: (context, view) {
+          final themeMode = switch (view.theme) {
+            ThemePreference.system => ThemeMode.system,
+            ThemePreference.light => ThemeMode.light,
+            ThemePreference.dark => ThemeMode.dark,
+          };
+          final locale = switch (view.locale) {
+            LocalePreference.system => null,
+            LocalePreference.english => const Locale('en'),
+            LocalePreference.simplifiedChinese => const Locale('zh', 'CN'),
+            LocalePreference.traditionalChineseHongKong => const Locale(
+              'zh',
+              'HK',
+            ),
+            LocalePreference.traditionalChineseTaiwan => const Locale(
+              'zh',
+              'TW',
+            ),
+            LocalePreference.japanese => const Locale('ja'),
+            LocalePreference.korean => const Locale('ko'),
+            LocalePreference.spanish => const Locale('es'),
+            LocalePreference.portuguese => const Locale('pt', 'BR'),
+            LocalePreference.french => const Locale('fr'),
+            LocalePreference.dutch => const Locale('nl'),
+            LocalePreference.turkish => const Locale('tr'),
+            LocalePreference.russian => const Locale('ru'),
+            LocalePreference.persian => const Locale('fa'),
+            LocalePreference.arabic => const Locale('ar'),
+            LocalePreference.german => const Locale('de'),
+            LocalePreference.indonesian => const Locale('id'),
+            LocalePreference.italian => const Locale('it'),
+            LocalePreference.polish => const Locale('pl'),
+            LocalePreference.thai => const Locale('th'),
+            LocalePreference.ukrainian => const Locale('uk'),
+            LocalePreference.vietnamese => const Locale('vi'),
+          };
+          return MaterialApp(
+            title: 'Usque',
+            debugShowCheckedModeBanner: false,
+            theme: UsqueTheme.light(),
+            darkTheme: UsqueTheme.dark(),
+            themeMode: themeMode,
+            locale: locale,
+            supportedLocales: const <Locale>[
+              Locale('en'),
+              Locale('zh', 'CN'),
+              Locale('zh', 'HK'),
+              Locale('zh', 'TW'),
+              Locale('ja'),
+              Locale('ko'),
+              Locale('es'),
+              Locale('pt', 'BR'),
+              Locale('fr'),
+              Locale('nl'),
+              Locale('tr'),
+              Locale('ru'),
+              Locale('fa'),
+              Locale('ar'),
+              Locale('de'),
+              Locale('id'),
+              Locale('it'),
+              Locale('pl'),
+              Locale('th'),
+              Locale('uk'),
+              Locale('vi'),
+            ],
+            localizationsDelegates: const <LocalizationsDelegate<dynamic>>[
+              GlobalMaterialLocalizations.delegate,
+              GlobalWidgetsLocalizations.delegate,
+              GlobalCupertinoLocalizations.delegate,
+            ],
+            builder: (context, child) {
+              final content = WindowFrame.instance.enabled
+                  ? _WindowChrome(
+                      controller: controller,
+                      child: child ?? const SizedBox.shrink(),
+                    )
+                  : child ?? const SizedBox.shrink();
+              return TickerMode(
+                enabled: view.uiVisible,
+                child: widget.builder?.call(context, content) ?? content,
+              );
+            },
+            home: !view.initialized
+                ? _LoadingScreen(
                     controller: controller,
-                    child: child ?? const SizedBox.shrink(),
+                    error: view.startupError,
                   )
-                : child ?? const SizedBox.shrink();
-            return TickerMode(
-              enabled: view.uiVisible,
-              child: widget.builder?.call(context, content) ?? content,
-            );
-          },
-          home: !view.initialized
-              ? _LoadingScreen(controller: controller, error: view.startupError)
-              : SetupHandoff(
-                  complete: view.onboardingComplete,
-                  setup: (exit) =>
-                      OnboardingScreen(controller: controller, exit: exit),
-                  shell: ShellScreen(controller: controller),
-                ),
-        );
-      },
+                : SetupHandoff(
+                    complete: view.onboardingComplete,
+                    setup: (exit) =>
+                        OnboardingScreen(controller: controller, exit: exit),
+                    shell: ShellScreen(controller: controller),
+                  ),
+          );
+        },
+      ),
     );
   }
 }

@@ -13,6 +13,7 @@ import '../state/app_controller.dart';
 import 'chain_editor_layout.dart';
 import 'common.dart';
 import 'country_flag.dart';
+import 'tv_text_input.dart';
 import 'usque_dialog.dart';
 
 /// Native controls around a native-owned, cancellable authentication job.
@@ -846,7 +847,7 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
             Row(
               children: [
                 Expanded(
-                  child: TextField(
+                  child: tvTextField(
                     controller: _totp,
                     obscureText: true,
                     maxLength: 6,
@@ -1101,7 +1102,7 @@ class _ProtonServerPickerState extends State<_ProtonServerPicker> {
         height: (available * .55).clamp(100.0, 480.0),
         child: Column(
           children: [
-            TextField(
+            tvTextField(
               controller: _search,
               onChanged: (_) => setState(() {}),
               decoration: InputDecoration(
@@ -1225,7 +1226,7 @@ class _ProtonLoginDialogState extends State<_ProtonLoginDialog> {
       content: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          TextField(
+          tvTextField(
             controller: _username,
             autofocus: true,
             autofillHints: const [],
@@ -1234,7 +1235,7 @@ class _ProtonLoginDialogState extends State<_ProtonLoginDialog> {
             decoration: InputDecoration(labelText: strings.proton('username')),
           ),
           const SizedBox(height: 12),
-          TextField(
+          tvTextField(
             controller: _password,
             obscureText: true,
             autofillHints: const [],

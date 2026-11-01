@@ -186,7 +186,7 @@ class _BatchImportDialogState extends State<_BatchImportDialog> {
     bool secret = false,
   }) => Padding(
     padding: const EdgeInsets.only(top: 16),
-    child: TextField(
+    child: tvTextField(
       controller: controller,
       enabled: !_saving && !item.saved && !_interrupted,
       obscureText: secret,

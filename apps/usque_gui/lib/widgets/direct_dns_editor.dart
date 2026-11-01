@@ -8,6 +8,7 @@ import '../core/app_strings.dart';
 import '../models/app_models.dart';
 import '../models/encrypted_dns_endpoint.dart';
 import 'common.dart';
+import 'tv_text_input.dart';
 
 export '../models/encrypted_dns_endpoint.dart'
     show validDirectDnsName, validDirectDnsPath;
@@ -231,7 +232,7 @@ class DirectDnsEditorState extends State<DirectDnsEditor> {
       if (custom) ...<Widget>[
         const SizedBox(height: 20),
         if (_mode != DirectDnsMode.doh)
-          TextFormField(
+          tvTextFormField(
             key: _keys[0],
             focusNode: _focus[0],
             controller: _server,
@@ -251,7 +252,7 @@ class DirectDnsEditorState extends State<DirectDnsEditor> {
           ),
         if (_mode != DirectDnsMode.doh) const SizedBox(height: 12),
         if (_mode == DirectDnsMode.doh) ...<Widget>[
-          TextFormField(
+          tvTextFormField(
             key: _keys[1],
             focusNode: _focus[1],
             controller: _url,
@@ -276,7 +277,7 @@ class DirectDnsEditorState extends State<DirectDnsEditor> {
           const SizedBox(height: 12),
         ],
         if (_mode != DirectDnsMode.doh)
-          TextFormField(
+          tvTextFormField(
             key: _keys[2],
             focusNode: _focus[2],
             controller: _port,
@@ -295,7 +296,7 @@ class DirectDnsEditorState extends State<DirectDnsEditor> {
             },
           ),
         if (_mode != DirectDnsMode.doh) const SizedBox(height: 12),
-        TextFormField(
+        tvTextFormField(
           key: _keys[3],
           focusNode: _focus[3],
           controller: _bootstrap,

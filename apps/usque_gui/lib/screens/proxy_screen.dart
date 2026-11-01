@@ -14,6 +14,7 @@ import '../widgets/chain_proxy_entry.dart';
 import '../widgets/common.dart';
 import '../widgets/local_proxy_outputs.dart';
 import '../widgets/save_changes_bar.dart';
+import '../widgets/tv_text_input.dart';
 import 'chain_proxy_screen.dart';
 
 ({String key, bool username})? proxyAuthError(
@@ -372,7 +373,7 @@ class _ProxyScreenState extends State<ProxyScreen> {
 
   Widget _field(int index, String label, {Key? key}) {
     final port = index == 2 || index == 5;
-    return TextFormField(
+    return tvTextFormField(
       key: key,
       controller: _fields[index],
       focusNode: _focus[index],
@@ -480,7 +481,7 @@ class _ProxyScreenState extends State<ProxyScreen> {
         ),
         const SizedBox(height: 16),
         if (socks5 ? _customSocks : _customHttp)
-          TextFormField(
+          tvTextFormField(
             key: ValueKey(
               socks5 ? 'socks-listener-addresses' : 'http-listener-addresses',
             ),
@@ -601,7 +602,7 @@ class _AuthPanelState extends State<_AuthPanel> {
       children: <Widget>[
         LayoutBuilder(
           builder: (context, constraints) {
-            final username = TextField(
+            final username = tvTextField(
               key: const ValueKey<String>('proxy-auth-username'),
               controller: _username,
               focusNode: _usernameFocus,
@@ -615,7 +616,7 @@ class _AuthPanelState extends State<_AuthPanel> {
                 errorMaxLines: 6,
               ),
             );
-            final password = TextField(
+            final password = tvTextField(
               key: const ValueKey<String>('proxy-auth-password'),
               controller: _password,
               focusNode: _passwordFocus,

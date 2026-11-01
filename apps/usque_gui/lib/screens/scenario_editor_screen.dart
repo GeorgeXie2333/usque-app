@@ -11,6 +11,7 @@ import '../state/scenario_gate_leases.dart';
 import '../widgets/common.dart';
 import '../widgets/save_changes_bar.dart';
 import '../widgets/scenario_endpoint_editor.dart';
+import '../widgets/tv_text_input.dart';
 import '../widgets/unsaved_changes_guard.dart';
 import 'chain_proxy_screen.dart';
 import 'profiles_hub_screen.dart'
@@ -320,7 +321,7 @@ class _ScenarioEditorScreenState extends State<ScenarioEditorScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    TextFormField(
+                    tvTextFormField(
                       key: const ValueKey('scenario-name'),
                       controller: _name,
                       enabled: !_saving,

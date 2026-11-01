@@ -3,6 +3,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../core/app_strings.dart';
 import 'section_navigator.dart';
+import 'tv_input_scope.dart';
 import 'usque_dialog.dart';
 
 /// Intercepts both the visible back link and platform back navigation.
@@ -54,6 +55,9 @@ class UnsavedChangesGuardState extends State<UnsavedChangesGuard> {
 
   /// Shares the route's discard decision with navigation outside this route.
   Future<bool> confirmLeave() async {
+    if (TvInputScope.maybeOf(context)?.consumeBack(context) ?? false) {
+      return false;
+    }
     if (widget.saving) return false;
     if (_discarding || !widget.dirty) return true;
     final pending = _confirmation;

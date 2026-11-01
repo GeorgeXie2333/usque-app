@@ -14,6 +14,7 @@ import '../widgets/controller_selector.dart';
 import '../widgets/direct_dns_editor.dart';
 import '../widgets/endpoint_fields.dart';
 import '../widgets/save_changes_bar.dart';
+import '../widgets/tv_text_input.dart';
 import '../widgets/unsaved_changes_guard.dart';
 import '../widgets/usque_dialog.dart';
 import '../widgets/warp_dns_editor.dart';
@@ -486,7 +487,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
           const SizedBox(height: 12),
           ResponsiveEndpointFields(
             children: <Widget>[
-              TextFormField(
+              tvTextFormField(
                 key: _fieldKeys[4],
                 focusNode: _focus[4],
                 enabled: !_saving,
@@ -496,7 +497,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
                 validator: (value) =>
                     _validateIp(value, InternetAddressType.IPv4),
               ),
-              TextFormField(
+              tvTextFormField(
                 key: _fieldKeys[5],
                 focusNode: _focus[5],
                 enabled: !_saving,
@@ -546,7 +547,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
       fields: ResponsiveEndpointFields(
         children: <Widget>[
           if (_usingPreset)
-            TextFormField(
+            tvTextFormField(
               key: ValueKey(
                 'endpoint-preset-fallback-${widget.controller.activeProfile.endpointIpv4}',
               ),
@@ -557,7 +558,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
               ),
             ),
           if (addresses)
-            TextFormField(
+            tvTextFormField(
               key: _fieldKeys[0],
               focusNode: _focus[0],
               enabled: !_saving,
@@ -571,7 +572,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
                   _validateIp(value, InternetAddressType.IPv4),
             ),
           if (addresses)
-            TextFormField(
+            tvTextFormField(
               key: _fieldKeys[1],
               focusNode: _focus[1],
               enabled: !_saving,
@@ -584,7 +585,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
               validator: (value) =>
                   _validateIp(value, InternetAddressType.IPv6),
             ),
-          TextFormField(
+          tvTextFormField(
             key: _fieldKeys[2],
             focusNode: _focus[2],
             enabled: !_saving,
@@ -598,7 +599,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
             validator: _validatePort,
           ),
           if (_dataPlane == DataPlaneMode.l4Proxy)
-            TextFormField(
+            tvTextFormField(
               key: ValueKey(managed),
               initialValue: managed
                   ? 'zt-masque-proxy.cloudflareclient.com'
@@ -611,7 +612,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
               ),
             )
           else
-            TextFormField(
+            tvTextFormField(
               key: _fieldKeys[3],
               focusNode: _focus[3],
               enabled: !_saving,
@@ -875,7 +876,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
                 _edited();
               },
       );
-      final mtu = TextFormField(
+      final mtu = tvTextFormField(
         key: _fieldKeys[6],
         focusNode: _focus[6],
         enabled: !_saving,

@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+
 import '../core/chain_strings.dart';
 import '../core/proton_strings.dart';
 import '../core/usque_motion.dart';
@@ -17,6 +19,7 @@ import '../widgets/chain_source_picker.dart';
 import '../widgets/common.dart';
 import '../widgets/proton_vpn_panel.dart';
 import '../widgets/save_changes_bar.dart';
+import '../widgets/tv_text_input.dart';
 import '../widgets/unsaved_changes_guard.dart';
 import '../widgets/usque_dialog.dart';
 import '../widgets/warp_wireguard_panel.dart';
@@ -720,7 +723,7 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
         subtitle: profile.name,
         content: action == 'remove'
             ? Text(strings.chain('delete_confirm'))
-            : TextField(
+            : tvTextField(
                 controller: name,
                 maxLength: 64,
                 autofocus: true,
@@ -1630,7 +1633,7 @@ class _ImportDialogState extends State<_ImportDialog> {
     VoidCallback toggle,
   ) {
     final s = widget.controller.strings;
-    return TextField(
+    return tvTextField(
       controller: controller,
       enabled: !_busy,
       obscureText: !visible,
@@ -1672,7 +1675,7 @@ class _ImportDialogState extends State<_ImportDialog> {
             children: [
               if (importing) ...[
                 if (widget.configuration == null) ...[
-                  TextField(
+                  tvTextField(
                     controller: _configuration,
                     enabled: !_busy,
                     minLines: 6,
@@ -1731,7 +1734,7 @@ class _ImportDialogState extends State<_ImportDialog> {
               if (profile != null) ...[
                 if (importing) ...[
                   const SizedBox(height: 16),
-                  TextField(
+                  tvTextField(
                     controller: _name,
                     enabled: !_busy,
                     maxLength: 64,
@@ -1749,7 +1752,7 @@ class _ImportDialogState extends State<_ImportDialog> {
                     widget.credentialsFor != null &&
                         profile.source == ChainSource.openvpnCustom) ...[
                   const SizedBox(height: 16),
-                  TextField(
+                  tvTextField(
                     controller: _username,
                     enabled: !_busy,
                     autocorrect: false,

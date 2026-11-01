@@ -157,6 +157,29 @@ required.
 Linux/WSL 可运行上述命令预览界面并热重载，切换模拟连接状态和重新开始首次引导。
 数据仅在内存中保存，Windows golden 基线仍须在 Windows 验证。
 
+## Android TV text input
+
+On Android TV and Fire TV, D-pad focus highlights a text field without opening
+the keyboard. Press Select, Enter or gamepad A to edit; pointer and accessibility
+activation also work. The first Back ends editing, keeps the draft and returns
+to the same field. Directional navigation then reaches adjacent controls. A
+later Back follows the existing page/dialog and unsaved-changes rules. IME
+submission keeps the field's existing action; Next without a custom action
+moves to the next focus target without automatically editing it.
+
+All Material text inputs use the shared `TvTextInput` adapter. Native TV
+detection and a UI-only editing-session channel handle legacy pre-IME Back and
+Android 33+ system Back separately. Phone and desktop input keep their normal
+behavior. The channel carries no field contents or credentials. Widget tests
+and JVM policy tests use fake inputs and do not establish Fire OS IME behavior;
+device and emulator validation remains separate.
+
+Android TV／Fire TV 的方向键只移动焦点，按确认、Enter 或手柄 A 才进入编辑；
+点击和无障碍激活同样可用。第一次返回结束编辑并保留草稿及当前字段焦点，之后
+可以继续用方向键访问其他控件。再次返回才执行页面／弹窗返回和未保存修改保护。
+手机和桌面保留原有输入交互。自动化测试使用模拟输入及 JVM 策略夹具，不等于
+Fire OS 输入法实测。
+
 ## Editing and navigation
 
 - Ads downloads missing verified rules when applying its enabled preference. While enabled, the running app checks every seven days, retries failed checks after one hour, and persists deadlines across restarts. The switch and downloaded rules apply to new requests without reconnecting. Status uses the native loaded revision; a first download failure remains visibly inactive with Retry. Rule details holds source, timestamps and manual update. Existing country update actions remain separate.

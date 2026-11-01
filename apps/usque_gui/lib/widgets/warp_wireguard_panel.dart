@@ -1,12 +1,15 @@
 import 'dart:async';
 import 'dart:io';
+
 import 'package:flutter/material.dart';
+
 import '../core/chain_strings.dart';
 import '../core/warp_strings.dart';
 import '../models/app_models.dart';
 import '../services/engine_client.dart';
 import '../state/app_controller.dart';
 import 'common.dart';
+import 'tv_text_input.dart';
 
 class WarpWireguardPanel extends StatefulWidget {
   const WarpWireguardPanel({
@@ -160,7 +163,7 @@ class WarpWireguardPanelState extends State<WarpWireguardPanel> {
         if (widget.endpoint == null)
           HintText(strings.chain('endpoint_select_first'))
         else ...[
-          TextField(
+          tvTextField(
             key: const ValueKey('warp-endpoint-ip'),
             controller: _ip,
             decoration: InputDecoration(
@@ -169,7 +172,7 @@ class WarpWireguardPanelState extends State<WarpWireguardPanel> {
             onChanged: (_) => _edit(),
           ),
           const SizedBox(height: 12),
-          TextField(
+          tvTextField(
             key: const ValueKey('warp-endpoint-port'),
             controller: _port,
             keyboardType: TextInputType.number,

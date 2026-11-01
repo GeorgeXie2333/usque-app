@@ -9,6 +9,7 @@ import '../core/usque_theme.dart';
 import '../models/app_models.dart';
 import '../state/app_controller.dart';
 import '../widgets/common.dart';
+import '../widgets/tv_text_input.dart';
 
 class PerAppProxyScreen extends StatefulWidget {
   const PerAppProxyScreen({required this.controller, super.key});
@@ -184,7 +185,7 @@ class _PerAppProxyScreenState extends State<PerAppProxyScreen> {
                             : (value) => setState(() => _enabled = value),
                       ),
                       const SizedBox(height: 16),
-                      TextField(
+                      tvTextField(
                         controller: _search,
                         decoration: InputDecoration(
                           labelText: strings.get('per_app_search'),

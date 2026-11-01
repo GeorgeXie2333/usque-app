@@ -17,6 +17,7 @@ import '../widgets/controller_selector.dart';
 import '../widgets/external_link.dart';
 import '../widgets/linux_service_section.dart';
 import '../widgets/setup_handoff.dart';
+import '../widgets/tv_text_input.dart';
 import '../widgets/usque_logo.dart';
 import '../widgets/zero_trust_enrollment_editor.dart';
 import 'shell_screen.dart';
@@ -1428,7 +1429,7 @@ class _IdentityStep extends StatelessWidget {
               ),
               IdentityProvisioningMethod.registerWithLicense => Padding(
                 padding: const EdgeInsets.only(top: 20),
-                child: TextField(
+                child: tvTextField(
                   controller: licenseController,
                   enabled: enabled,
                   obscureText: !licenseVisible,

@@ -9,6 +9,7 @@ import '../models/app_models.dart';
 import '../state/app_controller.dart';
 import '../widgets/common.dart';
 import '../widgets/profile_identity_dialog.dart';
+import '../widgets/tv_text_input.dart';
 import '../widgets/usque_dialog.dart';
 
 export 'profiles_hub_screen.dart' show ProfilesScreen;
@@ -255,7 +256,7 @@ class _ProfileEditDialogState extends State<_ProfileEditDialog> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          TextField(
+          tvTextField(
             controller: _controller,
             focusNode: _focusNode,
             autofocus: true,
@@ -441,7 +442,7 @@ class _IdentityManagementDialogState extends State<_IdentityManagementDialog> {
             ),
           ] else ...<Widget>[
             const SizedBox(height: 12),
-            TextField(
+            tvTextField(
               controller: _licenseController,
               enabled: !_busy,
               obscureText: !_showLicense,

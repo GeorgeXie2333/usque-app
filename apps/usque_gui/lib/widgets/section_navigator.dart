@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
+import 'tv_input_scope.dart';
 import 'unsaved_changes_guard.dart';
 
 /// Keeps a shell section's subpages inside the shell, so desktop navigation
@@ -94,6 +95,9 @@ class SectionNavigatorState extends State<SectionNavigator> {
 
   /// Returns to the root page after every guarded subpage agrees to leave.
   Future<bool> closeSubpages() async {
+    if (TvInputScope.maybeOf(context)?.consumeBack(context) ?? false) {
+      return false;
+    }
     final navigator = _navigator.currentState;
     if (navigator == null) return true;
     if (_closing) return false;
@@ -145,6 +149,7 @@ class SectionNavigatorState extends State<SectionNavigator> {
   Widget build(BuildContext context) => NavigatorPopHandler<void>(
     enabled: widget.active,
     onPopWithResult: (_) {
+      if (TvInputScope.maybeOf(context)?.consumeBack(context) ?? false) return;
       if (widget.active && !_closing) {
         unawaited(_navigator.currentState!.maybePop());
       }

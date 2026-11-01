@@ -14,6 +14,7 @@ import '../widgets/common.dart';
 import '../widgets/country_flag.dart';
 import '../widgets/routing_rules_editor.dart';
 import '../widgets/save_changes_bar.dart';
+import '../widgets/tv_text_input.dart';
 import '../widgets/unsaved_changes_guard.dart';
 
 class GeoDirectSettingsScreen extends StatefulWidget {
@@ -361,7 +362,7 @@ class _GeoDirectSettingsScreenState extends State<GeoDirectSettingsScreen> {
             padding: const EdgeInsets.symmetric(
               horizontal: RowInsets.horizontal,
             ),
-            child: TextField(
+            child: tvTextField(
               key: const ValueKey('bypass-country-search'),
               controller: _search,
               onChanged: (_) => setState(() {}),

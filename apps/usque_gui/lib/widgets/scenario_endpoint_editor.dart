@@ -7,6 +7,7 @@ import '../core/app_strings.dart';
 import '../models/app_models.dart';
 import 'common.dart';
 import 'endpoint_fields.dart';
+import 'tv_text_input.dart';
 import 'zero_trust_endpoint_warning.dart';
 
 /// A pure scene draft. It has no controller, engine or global save operation.
@@ -176,11 +177,11 @@ class ScenarioEndpointEditorState extends State<ScenarioEndpointEditor> {
     final s = widget.strings;
     final addresses =
         (_managed || _selection == EndpointSelection.custom) && !_usingPreset;
-    TextFormField address(
+    Widget address(
       TextEditingController controller,
       InternetAddressType type,
       String key,
-    ) => TextFormField(
+    ) => tvTextFormField(
       key: ValueKey('scenario-$key'),
       controller: controller,
       focusNode: type == InternetAddressType.IPv4 ? _v4Focus : null,
@@ -219,7 +220,7 @@ class ScenarioEndpointEditorState extends State<ScenarioEndpointEditor> {
       fields: ResponsiveEndpointFields(
         children: [
           if (_usingPreset)
-            TextFormField(
+            tvTextFormField(
               initialValue: _savedV4,
               readOnly: true,
               decoration: InputDecoration(
@@ -230,7 +231,7 @@ class ScenarioEndpointEditorState extends State<ScenarioEndpointEditor> {
             address(_v4, InternetAddressType.IPv4, 'endpoint_ipv4'),
           if (addresses)
             address(_v6, InternetAddressType.IPv6, 'endpoint_ipv6'),
-          TextFormField(
+          tvTextFormField(
             key: const ValueKey('scenario-endpoint-port'),
             controller: _port,
             enabled: widget.enabled,
@@ -246,7 +247,7 @@ class ScenarioEndpointEditorState extends State<ScenarioEndpointEditor> {
             },
           ),
           if (widget.value.dataPlane == DataPlaneMode.l4Proxy)
-            TextFormField(
+            tvTextFormField(
               key: ValueKey(_managed),
               readOnly: true,
               initialValue: _managed
@@ -259,7 +260,7 @@ class ScenarioEndpointEditorState extends State<ScenarioEndpointEditor> {
               ),
             )
           else
-            TextFormField(
+            tvTextFormField(
               key: const ValueKey('scenario-endpoint-sni'),
               controller: _sni,
               enabled: widget.enabled,

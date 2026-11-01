@@ -99,14 +99,14 @@ class _ProxyDialogState extends State<_ProxyDialog> {
           spacing: 12,
           children: [
             Text(s.chain('proxy_hint')),
-            TextField(
+            tvTextField(
               key: const ValueKey('chain-proxy-name'),
               controller: _name,
               enabled: !_busy,
               maxLength: 64,
               decoration: InputDecoration(labelText: s.chain('name')),
             ),
-            TextField(
+            tvTextField(
               key: const ValueKey('chain-proxy-host'),
               controller: _host,
               enabled: !_busy,
@@ -114,7 +114,7 @@ class _ProxyDialogState extends State<_ProxyDialog> {
               enableSuggestions: false,
               decoration: InputDecoration(labelText: s.chain('endpoint')),
             ),
-            TextField(
+            tvTextField(
               key: const ValueKey('chain-proxy-port'),
               controller: _port,
               enabled: !_busy,
@@ -130,7 +130,7 @@ class _ProxyDialogState extends State<_ProxyDialog> {
                   : (value) => setState(() => _auth = value),
             ),
             if (_auth) ...[
-              TextField(
+              tvTextField(
                 key: const ValueKey('chain-proxy-username'),
                 controller: _username,
                 enabled: !_busy,
@@ -138,7 +138,7 @@ class _ProxyDialogState extends State<_ProxyDialog> {
                 enableSuggestions: false,
                 decoration: InputDecoration(labelText: s.chain('username')),
               ),
-              TextField(
+              tvTextField(
                 key: const ValueKey('chain-proxy-password'),
                 controller: _password,
                 enabled: !_busy,
@@ -195,7 +195,7 @@ class _ProxyDialogState extends State<_ProxyDialog> {
                 ),
                 if (_dnsTransport != 'doh') const SizedBox(height: 12),
                 if (_dnsTransport != 'doh')
-                  TextField(
+                  tvTextField(
                     key: const ValueKey('chain-proxy-dns'),
                     controller: _dns,
                     enabled: !_busy,

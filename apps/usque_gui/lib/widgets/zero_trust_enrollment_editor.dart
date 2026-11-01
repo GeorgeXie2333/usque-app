@@ -12,6 +12,7 @@ import '../services/engine_client.dart';
 import '../services/zero_trust_callback.dart';
 import '../state/app_controller.dart';
 import 'common.dart';
+import 'tv_text_input.dart';
 import 'usque_dialog.dart';
 
 class ZeroTrustEnrollmentDraft {
@@ -427,7 +428,7 @@ class ZeroTrustEnrollmentEditorState extends State<ZeroTrustEnrollmentEditor>
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
-              TextField(
+              tvTextField(
                 controller: _teamController,
                 focusNode: _teamFocusNode,
                 enabled: widget.enabled,
@@ -477,7 +478,7 @@ class ZeroTrustEnrollmentEditorState extends State<ZeroTrustEnrollmentEditor>
                 style: Theme.of(context).textTheme.bodySmall,
               ),
               const SizedBox(height: 6),
-              TextField(
+              tvTextField(
                 controller: _callbackController,
                 focusNode: _callbackFocusNode,
                 enabled: widget.enabled,

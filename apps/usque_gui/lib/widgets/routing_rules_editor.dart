@@ -5,6 +5,7 @@ import '../core/app_strings.dart';
 import '../models/app_models.dart';
 import '../models/bypass_targets.dart';
 import 'common.dart';
+import 'tv_text_input.dart';
 
 /// Localized name of a rule action; the wire names stay in the model.
 String routingActionLabel(AppStrings strings, RoutingAction action) =>
@@ -104,7 +105,7 @@ class RoutingRulesEditor extends StatelessWidget {
                     onChanged: (value) => update(() => action = value!),
                   ),
                   const SizedBox(height: 16),
-                  TextFormField(
+                  tvTextFormField(
                     key: const ValueKey('routing-target-input'),
                     initialValue: text,
                     onChanged: (value) => text = value,
