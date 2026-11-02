@@ -158,5 +158,5 @@ if ($LASTEXITCODE -ne 0) {
     throw "Timer fixture result validation failed with exit code $LASTEXITCODE."
 }
 Write-Output "Original expected contract failures reproduced; 10 candidate cases passed."
-Write-Output "Candidate is not integrated into the SDK or Usque. Engine GN/GTest/DLL integration: not_run."
+Write-Output "This standalone run does not integrate or validate the SDK or application. Engine GN/GTest/DLL integration in this run: not_run."
 Write-Output "Evidence: $runDirectory"

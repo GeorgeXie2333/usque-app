@@ -1,5 +1,5 @@
 // Copyright 2026. Standalone test harness for the attributed Flutter excerpts.
-// Candidate only: not integrated into the Flutter SDK or Usque application.
+// Standalone fixture only; this run does not integrate or validate an application.
 // The excerpts retain their BSD-style license in LICENSE.flutter.
 #include <atomic>
 #include <cstdlib>

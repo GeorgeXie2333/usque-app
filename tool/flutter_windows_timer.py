@@ -1,6 +1,6 @@
 """Prepare an inert timer candidate fixture; never read or modify a Flutter SDK.
 
-The candidate is NOT integrated into Usque or its SDK. This helper applies the
+This helper does not integrate or validate an SDK or application. It applies the
 checked-in patch to frozen sources, then extracts both algorithms mechanically.
 Only the standalone C++ harness is built by test_flutter_windows_timer.ps1.
 """

@@ -493,17 +493,21 @@ both architectures. Pass only the Base64 quiet-launcher script through WiX
 ### Windows Flutter and runner
 
 For Flutter or Windows-runner changes, run the Windows Rust gates above and
-the complete sequence below on Windows with the pinned Flutter SDK. Do not
+the complete sequence below on Windows with the pinned Flutter SDK. First build
+the patched engine as described in the following source-build section. Do not
 substitute a build-only command for format, analysis, and tests:
 
 ```powershell
 Set-Location apps/usque_gui
-flutter pub get --enforce-lockfile
+$engineSource = (Resolve-Path ../../target/flutter-engine/flutter/engine/src).Path
+$engineArguments = @("--local-engine-src-path=$engineSource", "--local-engine=host_release", "--local-engine-host=host_release")
+flutter @engineArguments pub get --enforce-lockfile
 dart format --output=none --set-exit-if-changed lib test
 flutter analyze --no-pub
 flutter test --no-pub
 & ../../tool/prepare_windows_plugin_junctions.ps1 -FlutterProject .
-flutter build windows --release --no-pub --split-debug-info=build/symbols/windows
+flutter @engineArguments build windows --release --no-pub --split-debug-info=build/symbols/windows
+python ../../tool/flutter_windows_engine.py verify-staged --dll build/windows/x64/runner/Release/flutter_windows.dll --build-manifest ../../target/flutter-engine/engine-build-x64.json --architecture x64
 ```
 
 For Windows Proton verification runner changes, additionally build and run its
@@ -542,6 +546,43 @@ Create a local validation MSI only when explicitly requested and only after
 fresh Rust and Flutter artifacts pass their applicable checks. Follow the
 requirements in [Local validation packages](#local-validation-packages).
 
+### Windows Flutter engine source build
+
+For Windows engine recipe, patch, helper, or integration changes, run the
+applicable Python, PowerShell, workflow-policy and documentation checks, the
+standalone timer fixture below, and the complete Windows Rust and Flutter gates.
+From the repository root, build and run the full native x64 engine tests:
+
+```powershell
+python tool/flutter_windows_engine.py verify-framework <resolved-pinned-flutter-sdk>
+& ./tool/build_flutter_windows_engine.ps1 -Architecture x64 -Jobs 2 -RunTests
+```
+
+Replace the SDK placeholder with the pinned SDK resolved as described above.
+The helper uses a fresh owned `target/flutter-engine` directory, downloads the
+pinned dependencies, verifies and applies the checked-in patches, then runs GN,
+Ninja and the full engine test driver. It does not modify the shared SDK or run
+an application. See [prerequisites and provenance](docs/FLUTTER_WINDOWS_TIMER.md#windows-engine-integration).
+Use `-Phase Prepare` and then `-Phase Build` to separate dependency preparation
+from compilation. A changed recipe requires a fresh directory. Pass `-Python`,
+`-WindowsSdkRoot`, or `-VisualStudioDirectory` for verified local prerequisites;
+these overrides do not install or reconfigure the system.
+
+Plan at least 40 GiB of free space for a fresh source build with x64 engine tests.
+The Windows workflows use `create-build-directory` in
+`tool/flutter_windows_engine.py` to select a sufficiently large volume under
+`RUNNER_TEMP` or `LOCALAPPDATA`. They export the fresh owned directory as
+`USQUE_FLUTTER_ENGINE_ROOT` for all later engine inputs. Insufficient capacity is
+an explicit preparation failure; no global tool directories are removed.
+
+For ARM64, build with `-Architecture arm64` and use `host_release_arm64` for
+both Flutter local-engine arguments and `engine-build-arm64.json` for staging.
+Cross compilation does not run ARM64 tests. The full engine test configuration
+requires native x64 Windows; ARM64 application fixtures run on the native ARM64
+CI runner. Report the two results separately. A recipe or successful compile
+does not replace the isolated actual-GUI visibility comparison required to
+establish that the reported CPU regression is repaired.
+
 ### Flutter Windows timer regression fixture
 
 For changes to the retained Flutter timer patch or its reproduction tooling, run
@@ -558,7 +599,7 @@ upstream sources, applies the retained patch only in a fresh `target/` directory
 and compiles and runs the bounded timer regressions. It neither accesses a shared
 Flutter SDK nor rebuilds the application engine. See the
 [candidate record](docs/FLUTTER_WINDOWS_TIMER.md) for provenance and integration
-limits. A future application or toolchain integration still requires the complete
+limits. Application or toolchain integration also requires the complete
 Windows Rust, Flutter and runner checks above.
 
 ### Local validation packages

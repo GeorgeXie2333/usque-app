@@ -1,10 +1,12 @@
-# Windows Flutter timer regression candidate
+# Windows Flutter timer repair and source build
 
-Status, 2026-11-02: the repository retains a reproducible dependency patch and
-standalone regression tests for [#142](https://github.com/GeorgeXie2333/usque-app/issues/142).
-The application still uses the original prebuilt Flutter engine. This material
-does not replace an installed SDK, rebuild `flutter_windows.dll`, or change a
-shipping application's behavior.
+The repository retains the dependency repair, standalone regression tests, and
+a Windows engine source-build recipe for
+[#142](https://github.com/GeorgeXie2333/usque-app/issues/142). Windows build and
+release workflows compile this pinned engine and verify that the application
+contains its exact DLL. The helper builds in a separate directory and does not
+replace an installed Flutter SDK. A source patch or successful compile alone is
+not evidence that the application regression is resolved.
 
 ## Reproduced scheduling defect
 
@@ -95,16 +97,98 @@ for the earlier traces; only their internal timestamp/stack association and
 whole-trace module direction were used. Raw traces and process-memory observations
 remain private; this document contains only the sanitized summary.
 
-## Integration boundary
+### Rebuilt-engine comparison
+
+On 2026-11-02, three alternating pairs used the same simulated-Engine GUI and
+configuration in that VM, changing only `flutter_windows.dll`. Each run sampled
+the three states below for approximately 30 seconds each. All six runs exited
+normally; the source-built engine's DLL hash matched the build receipt.
+
+| One-core process CPU, three runs | Original engine | Rebuilt engine |
+| --- | --- | --- |
+| Initially hidden, never shown | 62.46–85.98% | 1.45–1.56% |
+| Hidden after showing | 65.02–84.59% | 0.47–0.73% |
+| Minimized after showing | 84.96–85.61% | 0.10–0.21% |
+
+This controlled comparison supports the dependency repair for the reproduced
+CPU symptom. It uses the real Windows Flutter GUI with a simulated Engine and
+does not establish native VPN behavior. The production application was also
+compiled through the local-engine path and its staged DLL passed the exact hash
+and PE architecture check. Full engine tests and connected lifecycle validation
+remain separate from these results.
+
+## Windows engine integration
+
+The [engine recipe](../tool/flutter_windows_engine_manifest.json) pins the
+framework, engine, and depot_tools revisions, each patch hash, and the exact
+patched source contents. The build helper checks those identities before GN and
+Ninja. Fresh dependency synchronization resolves the pinned DEPS and CIPD inputs;
+a resumed local `Build` checks the preparation receipt and configuration, not
+every dependency working tree recursively. Release workflows prepare fresh
+checkouts. The separate engine checkout contains the timer repair, two engine GoogleTest
+regressions, and small build-tool adjustments for Windows SDK 26100 and the
+Visual Studio 2026 DIA DLL name. These adjustments do not change timer behavior.
+The existing delayed-task test derives its deadline and elapsed measurement from
+one start timestamp and checks the callback-entry timestamp against that exact
+deadline. Its strict 50 ms lower bound is retained.
+
+Use [the contributing commands](../CONTRIBUTING.md#windows-flutter-engine-source-build)
+for a source build. Prerequisites include PowerShell 7, Python 3.10+, Git, Visual
+Studio C++ tools with matching ATL and target CRT libraries, Windows SDK 26100
+with debugging tools, long
+path support, and permission to create the symlinks in official dependency
+archives. The helper checks prerequisites without installing components or
+changing machine policy. A prepared SDK or Visual Studio overlay can be passed
+explicitly; its MSVC version must match the selected installation. Dependency
+downloads and all build caches remain under the owned build directory.
+
+CI uses the shared `create-build-directory` command to compare the volumes behind
+`RUNNER_TEMP` and `LOCALAPPDATA`, then creates a fresh owned subdirectory on one
+with at least 40 GiB free. Local regular-file sizes totaled about 15.2 GiB for
+source and dependencies, 11.2 GiB for x64 release and test outputs, plus caches;
+these figures do not deduplicate hardlinks or measure filesystem compression.
+40 GiB provides space for these inputs and build temporaries. This is larger than
+the standard runner's [documented 14 GB workspace](https://docs.github.com/en/actions/reference/runners/github-hosted-runners).
+All subsequent engine source, receipt, and PDB input paths use the selected
+`USQUE_FLUTTER_ENGINE_ROOT`. If neither volume has enough space, engine preparation
+fails before downloading engine dependencies or compiling engine targets. It
+does not delete global tools, select paid
+runners, or substitute an unpatched DLL. Capacity selection does not establish
+that a standard hosted runner or native ARM64 CI build has actually passed.
+
+Both `--local-engine` and `--local-engine-host` must select `host_release` for
+x64 or `host_release_arm64` for ARM64. Flutter resolves the Windows DLL and C++
+wrapper through the host output. Selecting an x64 host output for an ARM64
+application would select the wrong DLL. The recipe also builds the kernel
+platform files, `sky_engine`, font tools, and tessellator needed by the framework.
+
+`engine-build-<architecture>.json` records the recipe, source, toolchain files,
+required output hashes, DLL architecture, and engine test status. Assembly checks
+the actual staged DLL against that record before signing. The build record and
+matching engine PDB join the existing separate Windows symbols artifact; they
+are not added to the installable payload. Workflow builds use fresh compiled
+outputs; no uploaded binary replaces this provenance. Standard release signing
+and approval rules continue to apply. The engine build step receives no release
+PFX or password.
+
+The full x64 engine test configuration uses `host_debug_test`; the helper invokes
+the engine's own `flutter/testing/run_tests.py --type engine` after compilation.
+ARM64 compilation is separate from native test execution. The workflow runs
+native application fixtures on its ARM64 runner; this does not imply that the
+x64-only full engine test configuration ran on ARM64.
+
+## Validation boundary
 
 The candidate's standalone checks do not establish an integrated application fix.
-The full Flutter engine GN/GoogleTest build, a rebuilt Flutter DLL, and application
-validation with that DLL have not run. The shared SDK, dependency pins, application
-connection logic, authentication, leases, and network-generation checks are
-unchanged.
+Full engine tests, application build and tests, and the isolated VM comparison
+are distinct results. Inspect their actual commands and output records before
+claiming they passed. A local source-built DLL does not mean a repaired
+application has been published. The shared SDK, application connection logic,
+authentication, leases, and network-generation checks are unchanged by this
+dependency repair.
 
 Before closing #142, integrate an engine version containing the repair or a
 reviewed, reproducible engine build, record its source and binary identities, and
 run the applicable complete Windows checks from Contributing plus the actual
-visibility/connection comparison. No custom engine distribution or upstream PR
-is created by this repository fixture.
+visibility/connection comparison. No Flutter upstream PR or separate engine
+distribution is created by these helpers.

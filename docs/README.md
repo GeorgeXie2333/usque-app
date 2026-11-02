@@ -63,7 +63,7 @@ Continuous connection behavior and control compatibility: [English / 简体中�
 | [v0.3.2 readiness review](RELEASE_V0.3.2_READINESS.md) | Baseline and final-candidate evidence, schema-26/journal-6 compatibility and release gates / 基线与最终候选证据、schema 26／日志 6 兼容性及发布门禁 |
 | [v0.3.1 readiness review](RELEASE_V0.3.1_READINESS.md) | Documentation checks, planned version synchronization, schema-24 upgrade limits and remaining release requirements / 文档检查、版本同步计划、schema 24 升级限制与发布待办 |
 | [Flutter release symbols](FLUTTER_SYMBOLS.md) | Separate and archive matching Dart symbols; restore stack traces / 分离、归档 Dart 符号与还原堆栈 |
-| [Windows Flutter timer candidate](FLUTTER_WINDOWS_TIMER.md) | Reproduced timer rearming defect, retained patch, standalone tests and pending engine integration / 定时器重排缺陷、候选补丁、独立测试与待完成的引擎集成 |
+| [Windows Flutter timer repair](FLUTTER_WINDOWS_TIMER.md) | Timer rearming defect, pinned source build, regressions and application validation boundaries / 定时器重排缺陷、固定版本源码构建、回归测试与应用验证边界 |
 | [Code signing policy](CODE_SIGNING.md) | Official identities, key handling, and rotation / 官方签名身份、密钥管理与轮换 |
 | [GitHub governance](GITHUB_GOVERNANCE.md) | Repository checks, permissions, and maintainer rules / 仓库检查、权限与维护规则 |
 | [Reliability testing](RELIABILITY_TESTING.md) | Deterministic checks, isolated environments, and result requirements / 确定性检查、隔离环境与结果要求 |

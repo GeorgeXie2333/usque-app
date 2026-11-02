@@ -1,0 +1,21 @@
+--- a/engine/src/build/toolchain/win/setup_toolchain.py
++++ b/engine/src/build/toolchain/win/setup_toolchain.py
+@@ -22,7 +22,7 @@
+ import gn_helpers
+ 
+ SCRIPT_DIR = os.path.dirname(__file__)
+-SDK_VERSION = '10.0.22621.0'
++SDK_VERSION = '10.0.26100.0'
+ 
+ 
+ def _ExtractImportantEnvironment(output_of_set):
+--- a/engine/src/flutter/tools/dia_dll.py
++++ b/engine/src/flutter/tools/dia_dll.py
+@@ -31,6 +31,7 @@
+       '2017': 'msdia140.dll',
+       '2019': 'msdia140.dll',
+       '2022': 'msdia140.dll',
++      '2026': 'msdia140.dll',
+       '18': 'msdia140.dll',
+   }
+ 
