@@ -433,7 +433,7 @@ class AndroidEngineMethodHandlerTest {
         controlClient =
             VpnControlClient(
                 scheduler = scheduler,
-                serviceBinder = { _: ServiceConnection -> true },
+                serviceBinder = { _: ServiceConnection, _: Boolean -> true },
                 serviceUnbinder = { },
                 endpointFromBinder = { _, _ -> error("unused") },
             )
@@ -467,6 +467,87 @@ class AndroidEngineMethodHandlerTest {
         handler.handle(MethodCall("snapshot", null), result)
         assertEquals(listOf(UsqueVpnService.MSG_SNAPSHOT), endpoint.whats)
         assertNull(result.errorCode)
+    }
+
+    private fun passiveHandler(
+        executor: Executor =
+            Executor {
+                it.run()
+            },
+    ): Pair<AndroidEngineMethodHandler, VpnControlClient> {
+        val local =
+            VpnControlClient(
+                scheduler,
+                { _, creating ->
+                    assertFalse(creating)
+                    false
+                },
+                {},
+                { _, _ -> error("No live service") },
+            )
+        return AndroidEngineMethodHandler(
+            profileConfigPath = "/tmp/profiles-v2.json",
+            initialIdentityLease = { AutoCloseable {} },
+            identityStore = identityStore,
+            identityExecutor = executor,
+            mainScheduler = scheduler,
+            controlClient = local,
+            activityCommands = activityCommands,
+            engineBridge = engineBridge,
+            maintenanceBridge = maintenance,
+        ) to local
+    }
+
+    @Test
+    fun absentSettingsAndSceneReadsUseOnlyPersistedMetadataWithoutStartingService() {
+        engineBridge.persistedSettingsJson =
+            """{"source_epoch":"ui-owner","sequence":7,"stored_profile":{"id":"saved"},"applied_profile":{"id":"live"},"persisted":true,"persisted_operation_ids":["op"]}"""
+        engineBridge.persistedScenariosJson =
+            """{"source_epoch":"ui-owner","scenarios":[{"id":"saved"}],"applied_scene_confirmed":true,"persisted_operation_id":"op"}"""
+        val (local, client) = passiveHandler()
+        val settings = RecordingResult()
+        local.handle(MethodCall("getNetworkSettingsState", null), settings)
+        val settingsValue = settings.successValue as Map<*, *>
+        assertEquals(false, settingsValue["runtime_observed"])
+        assertFalse(settingsValue.containsKey("source_epoch"))
+        assertFalse(settingsValue.containsKey("persisted_operation_ids"))
+        val scenes = RecordingResult()
+        local.handle(MethodCall("scenarioCommand", mapOf("action" to "list", "known_revision" to "cached")), scenes)
+        val scenesValue = scenes.successValue as Map<*, *>
+        assertEquals(false, scenesValue["runtime_observed"])
+        assertEquals(listOf(mapOf("id" to "saved")), scenesValue["scenarios"])
+        assertFalse(scenesValue.containsKey("persisted_operation_id"))
+        assertEquals(2, engineBridge.persistedReadCount)
+        assertFalse(client.isBound)
+    }
+
+    @Test
+    fun aLiveSettingsReplyKeepsItsRealEpochAndReceipt() {
+        val result = RecordingResult()
+        handler.handle(MethodCall("getNetworkSettingsState", null), result)
+        controlClient.deliverSettingsReply(
+            endpoint.messages.single().second,
+            """{"source_epoch":"live-owner","sequence":4,"persisted":true,"persisted_operation_ids":["op"]}""",
+        )
+        val value = result.successValue as Map<*, *>
+        assertEquals("live-owner", value["source_epoch"])
+        assertEquals(listOf("op"), value["persisted_operation_ids"])
+        assertEquals(0, engineBridge.persistedReadCount)
+    }
+
+    @Test
+    fun aPersistedReadCannotCompleteAfterItsUiOwnerIsDestroyed() {
+        val tasks = mutableListOf<Runnable>()
+        engineBridge.persistedSettingsJson = """{"stored_profile":{"id":"saved"}}"""
+        val (local, client) = passiveHandler(Executor { tasks += it })
+        val result = RecordingResult()
+        local.handle(MethodCall("getNetworkSettingsState", null), result)
+        assertEquals(0, result.completionCount)
+        client.destroy()
+        tasks.single().run()
+        assertEquals("ENGINE_REQUEST_CANCELLED", result.errorCode)
+        assertEquals(1, result.completionCount)
+        assertEquals(0, engineBridge.persistedReadCount)
     }
 
     @Test
@@ -1695,7 +1776,7 @@ class AndroidEngineMethodHandlerTest {
         val localClient =
             VpnControlClient(
                 scheduler = localScheduler,
-                serviceBinder = { true },
+                serviceBinder = { _, _ -> true },
                 serviceUnbinder = { },
                 endpointFromBinder = { _, _ -> error("unused") },
             )
@@ -1745,7 +1826,7 @@ class AndroidEngineMethodHandlerTest {
         val localClient =
             VpnControlClient(
                 scheduler = localScheduler,
-                serviceBinder = { true },
+                serviceBinder = { _, _ -> true },
                 serviceUnbinder = { },
                 endpointFromBinder = { _, _ -> error("unused") },
             )
@@ -1809,7 +1890,7 @@ class AndroidEngineMethodHandlerTest {
         val localClient =
             VpnControlClient(
                 scheduler = localScheduler,
-                serviceBinder = { true },
+                serviceBinder = { _, _ -> true },
                 serviceUnbinder = { },
                 endpointFromBinder = { _, _ -> error("unused") },
             )
@@ -1987,6 +2068,9 @@ class AndroidEngineMethodHandlerTest {
         var ready = true
         var linked = true
         var capabilitiesJson: String? = null
+        var persistedSettingsJson: String? = null
+        var persistedScenariosJson: String? = null
+        var persistedReadCount = 0
         var zeroTrustFailure: IOException? = null
         var zeroTrustRegistrationCount = 0
         var consumerLicenseFailure: IOException? = null
@@ -1998,6 +2082,16 @@ class AndroidEngineMethodHandlerTest {
         override fun isReady(): Boolean = ready
 
         override fun capabilities(): String? = capabilitiesJson
+
+        override fun readPersistedNetworkSettings(configPath: String): String? {
+            persistedReadCount++
+            return persistedSettingsJson
+        }
+
+        override fun readPersistedScenarios(configPath: String): String? {
+            persistedReadCount++
+            return persistedScenariosJson
+        }
 
         override fun applyProfileCommand(
             configPath: String,

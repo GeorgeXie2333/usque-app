@@ -524,7 +524,6 @@ class MainActivity : FlutterFragmentActivity() {
     override fun onStart() {
         super.onStart()
         ensureEngineComponents()
-        controlClient.bind()
         controlClient.setUiVisible(true)
     }
 

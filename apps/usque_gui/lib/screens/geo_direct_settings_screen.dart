@@ -186,7 +186,7 @@ class _GeoDirectSettingsScreenState extends State<GeoDirectSettingsScreen> {
           ? controller.retry
           : null;
       final onRefresh = controller.networkSettings.canRefresh
-          ? controller.networkSettings.refresh
+          ? () => controller.networkSettings.refresh(requireRuntime: true)
           : null;
       return UnsavedChangesGuard(
         strings: strings,

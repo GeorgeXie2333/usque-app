@@ -339,7 +339,9 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
             final onReconnect = widget.controller.networkSettingsCanReconnect
                 ? widget.controller.retry
                 : null;
-            final onRefresh = settings.canRefresh ? settings.refresh : null;
+            final onRefresh = settings.canRefresh
+                ? () => settings.refresh(requireRuntime: true)
+                : null;
             return RevealedSaveBar(
               visible: RevealedSaveBar.hasContent(
                 dirty: _dirty,

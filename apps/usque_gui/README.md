@@ -72,6 +72,16 @@ permissions. Scene VPN Gate leases are tied to the native owner epoch; stale
 leases are prepared again before selection or save, and cleanup requests cannot
 release a newer owner's reference.
 
+Android passive observation binds without creating the VPN service. When no live
+control endpoint is available, saved network settings and scene templates can be
+read in the UI process. These replies carry `runtime_observed: false` and contain
+no native owner epoch, applied-session claims or operation receipts. They cannot
+settle an uncertain write or authorize a scene resource lease. Explicit refresh,
+connection recovery, scene preview/confirmation and draft-resource preparation
+obtain a control owner for the work that needs one; ordinary observation never
+does. Active connections retain their own service lifetime independently of UI
+bindings.
+
 配置首页固定展示场景，右上“账号管理”打开账号二级页。首页账号和账号启动入口直达
 账号页，返回回到配置首页；普通导航和 Ctrl+2 均回到配置首页，离开编辑器仍检查草稿。
 配置页与首页都以引擎确认状态区分已选目标和当前连接。场景编辑保留独立草稿，
@@ -80,6 +90,12 @@ release a newer owner's reference.
 账号与链式代理子页面支持完整资源管理，选择只更新草稿，明确保存的资源独立持久化。
 首页将所选场景放在 Kill Switch 正上方，以同级状态行展示：桌面端位于会话卡内，
 手机端位于状态卡内；点击该行进入场景配置。
+
+Android 的被动观察绑定不会创建 VPN 服务。控制服务不可用时，UI 进程可读取已保存的
+网络设置和场景模板，响应以 `runtime_observed: false` 标记，不包含原生所有者代次、
+会话已应用状态或操作回执，因此不能确认结果未知的写入或授权场景资源租约。
+用户明确刷新、恢复连接、预览并确认场景或准备草稿资源时，才为所需工作持有控制服务；
+普通观察不获取这种所有权。活动连接独立于 UI 绑定维持服务生命周期。
 
 ## Linux desktop
 

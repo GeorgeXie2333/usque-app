@@ -344,7 +344,9 @@ Widget? _networkSettingsProblem(AppController controller) {
         Align(
           alignment: AlignmentDirectional.centerEnd,
           child: OutlinedButton(
-            onPressed: settings.refreshing ? null : settings.refresh,
+            onPressed: settings.refreshing
+                ? null
+                : () => settings.refresh(requireRuntime: true),
             child: Text(controller.strings.get('settings_refresh')),
           ),
         ),

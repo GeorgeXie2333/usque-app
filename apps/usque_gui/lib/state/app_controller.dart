@@ -180,6 +180,58 @@ class AppController extends ChangeNotifier {
   ];
 
   final EngineClient _engine;
+  final Set<AsyncCallback> _controlOperationReleases = {};
+
+  /// Returns a release callback only on platforms with a bound-service owner.
+  Future<AsyncCallback?> acquireControlOperation() async {
+    final engine = _engine;
+    if (engine is! ControlOperationClient) return null;
+    final control = engine as ControlOperationClient;
+    if (_disposed) {
+      throw const EngineException('ENGINE_IPC_CLOSED', 'The UI is closed.');
+    }
+    final token = await control.beginControlOperation();
+    if (_disposed) {
+      await control.endControlOperation(token);
+      throw const EngineException('ENGINE_IPC_CLOSED', 'The UI is closed.');
+    }
+    var released = false;
+    Future<void>? releasing;
+    late final AsyncCallback release;
+    release = () {
+      if (released) return Future.value();
+      return releasing ??= () async {
+        try {
+          await control.endControlOperation(token);
+          released = true;
+          _controlOperationReleases.remove(release);
+        } finally {
+          releasing = null;
+        }
+      }();
+    };
+    _controlOperationReleases.add(release);
+    return release;
+  }
+
+  Future<T> withControlOperation<T>(Future<T> Function() work) async {
+    final release = await acquireControlOperation();
+    try {
+      return await work();
+    } finally {
+      await releaseControlOperation(release);
+    }
+  }
+
+  Future<void> releaseControlOperation(AsyncCallback? release) async {
+    try {
+      await release?.call();
+    } on Object {
+      // acquireControlOperation retains this callback for disposal. Local
+      // cleanup failure must not replace an accepted operation result.
+    }
+  }
+
   late final ScenariosController scenarios;
   ProfilesDestination? _profilesDestination;
 
@@ -1491,27 +1543,30 @@ class AppController extends ChangeNotifier {
 
     snapshot = const EngineSnapshot(phase: ConnectionPhase.preparing);
     _notifyListeners();
-    final success = await _run(() async {
-      await _ensureConnectionInputs();
-      if (intent != _connectionIntent) return;
-      await flushProfileWrites();
-      if (!await scenarios.synchronizeActivation()) {
-        throw EngineException(
-          'SCENARIO_RESULT_UNKNOWN',
-          strings.get('scenario_confirm_before_connect'),
-        );
-      }
-      if (intent != _connectionIntent) return;
-      if (identityState(activeProfile.id) != ProfileIdentityState.ready) {
-        throw const EngineException(
-          'IDENTITY_SETUP_REQUIRED',
-          'This profile needs a valid Consumer WARP identity before it can connect.',
-        );
-      }
-      _requireDataPlaneCapability(activeProfile);
-      final next = await _engine.connect(activeProfile);
-      if (intent == _connectionIntent) snapshot = next;
-    }, connectionIntent: intent);
+    final success = await _run(
+      () => withControlOperation(() async {
+        await _ensureConnectionInputs();
+        if (intent != _connectionIntent) return;
+        await flushProfileWrites();
+        if (!await scenarios.synchronizeActivation()) {
+          throw EngineException(
+            'SCENARIO_RESULT_UNKNOWN',
+            strings.get('scenario_confirm_before_connect'),
+          );
+        }
+        if (intent != _connectionIntent) return;
+        if (identityState(activeProfile.id) != ProfileIdentityState.ready) {
+          throw const EngineException(
+            'IDENTITY_SETUP_REQUIRED',
+            'This profile needs a valid Consumer WARP identity before it can connect.',
+          );
+        }
+        _requireDataPlaneCapability(activeProfile);
+        final next = await _engine.connect(activeProfile);
+        if (intent == _connectionIntent) snapshot = next;
+      }),
+      connectionIntent: intent,
+    );
     if (success && (snapshot.isConnected || snapshot.isTransitional)) {
       if (!_engine.supportsSnapshotEvents || snapshotStreamDegraded) {
         _startPolling(force: snapshotStreamDegraded);
@@ -1521,20 +1576,23 @@ class AppController extends ChangeNotifier {
 
   Future<void> retry() async {
     final intent = ++_connectionIntent;
-    final success = await _run(() async {
-      await _ensureConnectionInputs();
-      await flushProfileWrites();
-      if (!await scenarios.synchronizeActivation()) {
-        throw EngineException(
-          'SCENARIO_RESULT_UNKNOWN',
-          strings.get('scenario_confirm_before_connect'),
-        );
-      }
-      if (intent != _connectionIntent) return;
-      _requireDataPlaneCapability(activeProfile);
-      final next = await _engine.retry();
-      if (intent == _connectionIntent) snapshot = next;
-    }, connectionIntent: intent);
+    final success = await _run(
+      () => withControlOperation(() async {
+        await _ensureConnectionInputs();
+        await flushProfileWrites();
+        if (!await scenarios.synchronizeActivation()) {
+          throw EngineException(
+            'SCENARIO_RESULT_UNKNOWN',
+            strings.get('scenario_confirm_before_connect'),
+          );
+        }
+        if (intent != _connectionIntent) return;
+        _requireDataPlaneCapability(activeProfile);
+        final next = await _engine.retry();
+        if (intent == _connectionIntent) snapshot = next;
+      }),
+      connectionIntent: intent,
+    );
     if (success && (snapshot.isConnected || snapshot.isTransitional)) {
       if (!_engine.supportsSnapshotEvents || snapshotStreamDegraded) {
         _startPolling(force: snapshotStreamDegraded);
@@ -3257,7 +3315,18 @@ class AppController extends ChangeNotifier {
     quality.dispose();
     scenarios.dispose();
     networkSettings.dispose();
-    unawaited(networkSettings.flushed.whenComplete(_engine.dispose));
+    final controlReleases = _controlOperationReleases.toList().map(
+      (release) => release().catchError((Object _) {
+        // Activity destruction independently releases every native owner. A
+        // disappearing MethodChannel cannot acknowledge additional cleanup.
+      }),
+    );
+    unawaited(
+      Future.wait<void>([
+        networkSettings.flushed,
+        ...controlReleases,
+      ]).whenComplete(_engine.dispose),
+    );
     super.dispose();
   }
 }

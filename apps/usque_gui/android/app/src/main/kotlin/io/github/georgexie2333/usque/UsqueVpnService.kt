@@ -205,6 +205,8 @@ class UsqueVpnService : VpnService() {
         )
 
     @Volatile private var destroyed = false
+
+    @Volatile private var startedConnectionOwner = false
     private val statusTaskLock = Any()
     private var statusTaskGeneration = 0L
     private var statusTask: ScheduledFuture<*>? = null
@@ -489,6 +491,27 @@ class UsqueVpnService : VpnService() {
         flags: Int,
         startId: Int,
     ): Int {
+        if (intent?.action == ACTION_RETAIN_TILE_CONNECTION && intent.hasExtra("control_owner_generation")) {
+            val expected = intent.getLongExtra("control_owner_generation", -1)
+            val decision =
+                ControlServiceStart.decide(
+                    expected,
+                    connectionGeneration.get(),
+                    connectionWanted =
+                        activeProfileJson.get() != null ||
+                            (startedConnectionOwner && recoveryPreferences.contains(RECOVERY_PROFILE)),
+                    runtimeActive = nativeRuntimeActive.get(),
+                    tunOwned = tunnel.get() != null,
+                    handoffRetained = accountHandoff.retained,
+                    reconfiguring = runtimeReconfigureInFlight,
+                    cleanupPending = nativeStops.pendingCleanup() || snapshotState.phase == "disconnecting",
+                )
+            if (decision == ControlServiceStart.Decision.STOP_IDLE) {
+                if (stopSelfResult(startId)) startedConnectionOwner = false
+                return START_NOT_STICKY
+            }
+        }
+        startedConnectionOwner = true
         when (intent?.action) {
             ACTION_CONNECT -> {
                 beginConnection(intent.getStringExtra(EXTRA_PROFILE_JSON) ?: "{}")
@@ -511,8 +534,8 @@ class UsqueVpnService : VpnService() {
             }
 
             ACTION_RETAIN_TILE_CONNECTION -> {
-                // Keep the foreground service alive while the tile-triggered
-                // connection is handed over to the regular service lifecycle.
+                // A tile or Binder command hands its accepted connection to
+                // started-service ownership, independently of a UI binding.
             }
 
             null -> {
@@ -528,7 +551,7 @@ class UsqueVpnService : VpnService() {
                 ) {
                     beginConnection(recoveryProfile, newSession = false)
                 } else {
-                    stopSelf()
+                    stopStartedSelf()
                     return START_NOT_STICKY
                 }
             }
@@ -540,6 +563,27 @@ class UsqueVpnService : VpnService() {
         recordLog(AndroidLogStore.Event.VPN_PERMISSION_REVOKED, phase = snapshotState.phase)
         disconnect(stopService = true)
         super.onRevoke()
+    }
+
+    private fun stopStartedSelf() {
+        startedConnectionOwner = false
+        stopSelf()
+    }
+
+    private fun retainControlConnection(request: Message): Boolean {
+        val accepted =
+            ControlServiceStart.requestOwnership(startedConnectionOwner) {
+                ContextCompat.startForegroundService(
+                    this,
+                    Intent(this, UsqueVpnService::class.java)
+                        .setAction(ACTION_RETAIN_TILE_CONNECTION)
+                        .putExtra("control_owner_generation", connectionGeneration.get() + 1),
+                )
+            }
+        if (!accepted) {
+            replyControlError(request, "ANDROID_RUNTIME_FAILED", "Android could not retain the requested connection.")
+        }
+        return accepted
     }
 
     override fun onDestroy() {
@@ -804,6 +848,7 @@ class UsqueVpnService : VpnService() {
                 if (profile == null) {
                     replyControlError(request, "PROFILE_STORE_FAILED", "The current account could not be loaded.")
                 } else {
+                    if (!retainControlConnection(request)) return@post
                     beginConnection(
                         JSONObject(profile).put("continuous", request.data.getBoolean("continuous", false)).toString(),
                     )
@@ -822,6 +867,7 @@ class UsqueVpnService : VpnService() {
             replyWithSnapshot(request)
             return
         }
+        if (!retainControlConnection(request)) return
         val token =
             accountHandoff.request(
                 appliedProfile = establishedTunProtection.profileFor(tunnel.get()),
@@ -932,6 +978,7 @@ class UsqueVpnService : VpnService() {
                 replyControlError(request, "INVALID_PROFILE", "The reconfigure profile is invalid.")
                 return
             }
+        if (!retainControlConnection(request)) return
         if (
             !recoveryPreferences
                 .edit()
@@ -1242,7 +1289,7 @@ class UsqueVpnService : VpnService() {
                     AndroidLocaleController.getString(this, R.string.tile_profile_required),
                 )
             }
-            stopSelf()
+            stopStartedSelf()
             return
         }
 
@@ -1259,7 +1306,7 @@ class UsqueVpnService : VpnService() {
                     "The last active profile does not have the Android VPN frontend enabled.",
                 )
             }
-            stopSelf()
+            stopStartedSelf()
             return
         }
 
@@ -1281,7 +1328,7 @@ class UsqueVpnService : VpnService() {
                     AndroidLocaleController.getString(this, R.string.tile_identity_required),
                 )
             }
-            stopSelf()
+            stopStartedSelf()
             return
         }
 
@@ -1299,7 +1346,7 @@ class UsqueVpnService : VpnService() {
                     startActivity(launch)
                 }
             }
-            stopSelf()
+            stopStartedSelf()
             return
         }
         val retained =
@@ -1318,7 +1365,7 @@ class UsqueVpnService : VpnService() {
                     "Android did not allow the VPN service to start from Quick Settings.",
                 )
             }
-            stopSelf()
+            stopStartedSelf()
             return
         }
         beginConnection(profileJson)
@@ -1936,7 +1983,7 @@ class UsqueVpnService : VpnService() {
             mainHandler.post {
                 if (connectionGeneration.get() == generation) {
                     broadcastSnapshot()
-                    if (confirmed && stopService) stopSelf()
+                    if (confirmed && stopService) stopStartedSelf()
                     if (!confirmed) {
                         val cleanupWarning = "Native cleanup is not confirmed. Retry before reconnecting."
                         if (terminalFailure == null) {
@@ -2032,7 +2079,7 @@ class UsqueVpnService : VpnService() {
                                     broadcastSnapshot()
                                     replyWithSnapshot(request)
                                     stopForeground(STOP_FOREGROUND_REMOVE)
-                                    stopSelf()
+                                    stopStartedSelf()
                                 }
                             }
                         }
