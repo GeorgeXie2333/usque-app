@@ -542,6 +542,25 @@ Create a local validation MSI only when explicitly requested and only after
 fresh Rust and Flutter artifacts pass their applicable checks. Follow the
 requirements in [Local validation packages](#local-validation-packages).
 
+### Flutter Windows timer regression fixture
+
+For changes to the retained Flutter timer patch or its reproduction tooling, run
+the applicable Python, PowerShell and documentation checks above, plus this inert
+native fixture from the repository root:
+
+```powershell
+& ./tool/test_flutter_windows_timer.ps1
+```
+
+Pass `-Python` with a verified Python 3.10+ executable if `python` is not available.
+The helper selects the x64 MSVC environment through `vswhere`, verifies the frozen
+upstream sources, applies the retained patch only in a fresh `target/` directory,
+and compiles and runs the bounded timer regressions. It neither accesses a shared
+Flutter SDK nor rebuilds the application engine. See the
+[candidate record](docs/FLUTTER_WINDOWS_TIMER.md) for provenance and integration
+limits. A future application or toolchain integration still requires the complete
+Windows Rust, Flutter and runner checks above.
+
 ### Local validation packages
 
 Create a local validation MSI only when explicitly requested, after fresh Rust
