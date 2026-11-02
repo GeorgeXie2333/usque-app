@@ -28,6 +28,7 @@ class WindowFrame extends ChangeNotifier {
   bool _maximized = false;
   bool _active = true;
   CaptionHover _captionHover = CaptionHover.none;
+  int _revision = 0;
 
   /// True when Flutter owns the caption and the shell must draw a title bar.
   bool get enabled => _enabled;
@@ -53,6 +54,7 @@ class WindowFrame extends ChangeNotifier {
     bool active = true,
     CaptionHover captionHover = CaptionHover.none,
   }) {
+    _revision++;
     _enabled = true;
     _maximized = maximized;
     _active = active;
@@ -62,6 +64,7 @@ class WindowFrame extends ChangeNotifier {
 
   @visibleForTesting
   void debugReset() {
+    _revision++;
     _enabled = false;
     _maximized = false;
     _active = true;
@@ -75,6 +78,8 @@ class WindowFrame extends ChangeNotifier {
     required bool active,
     CaptionHover captionHover = CaptionHover.none,
   }) {
+    // Even an unchanged native push supersedes an older in-flight read.
+    _revision++;
     if (_maximized == maximized &&
         _active == active &&
         _captionHover == captionHover) {
@@ -88,15 +93,16 @@ class WindowFrame extends ChangeNotifier {
 
   Future<void> refresh() async {
     if (!_enabled) return;
+    final revision = ++_revision;
     final Map<Object?, Object?>? state = await _invoke<Map<Object?, Object?>>(
       'windowFrameState',
     );
-    if (state == null) return;
+    if (!_enabled || revision != _revision || state == null) return;
     _applyMap(state);
   }
 
   Future<Object?> _onMethod(MethodCall call) async {
-    if (call.method == 'windowFrameChanged') {
+    if (_enabled && call.method == 'windowFrameChanged') {
       final Object? arguments = call.arguments;
       if (arguments is Map) {
         _applyMap(arguments);
