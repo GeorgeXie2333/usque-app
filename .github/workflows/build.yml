@@ -30,7 +30,7 @@ jobs:
     name: Windows ${{ matrix.label }} compile
     if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 240
+    timeout-minutes: 360
     strategy:
       fail-fast: false
       matrix:

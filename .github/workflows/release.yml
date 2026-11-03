@@ -132,7 +132,7 @@ jobs:
     name: Windows ${{ matrix.variant }}
     needs: release-gate
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 180
+    timeout-minutes: 360
     environment: release-signing
     permissions:
       contents: read
