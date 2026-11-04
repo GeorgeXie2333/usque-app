@@ -61,6 +61,12 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Install pinned Python
+        id: python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12.10"
+
       - name: Verify vendored native sources and notices
         run: python tool/check_openvpn_sources.py
 
@@ -190,7 +196,8 @@ jobs:
             $runEngineTests = "${{ matrix.flutter_arch }}" -eq "x64"
             & ./tool/build_flutter_windows_engine.ps1 `
               -Architecture "${{ matrix.flutter_arch }}" `
-              -BuildDirectory $engineDirectory -Jobs 2 -RunTests:$runEngineTests
+              -BuildDirectory $engineDirectory -Jobs 2 -RunTests:$runEngineTests `
+              -Python "${{ steps.python.outputs.python-path }}"
           }
           "USQUE_FLUTTER_ENGINE_ROOT=$engineDirectory" | Out-File -FilePath $env:GITHUB_ENV -Append
 

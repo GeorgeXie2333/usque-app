@@ -362,6 +362,35 @@ class EnginePackageTests(unittest.TestCase):
         self.assertNotIn("secrets.", consumer)
         self.assertIn("tool/flutter_windows_engine.py verify-staged", consumer)
 
+    def test_windows_workflows_install_python_and_pass_its_executable_to_native_helpers(self):
+        for name in (
+            package.WORKFLOW,
+            ".github/workflows/build.yml",
+            ".github/workflows/release.yml",
+        ):
+            with self.subTest(workflow=name):
+                workflow = (engine.ROOT / name).read_text(encoding="utf-8")
+                # Inspect the Windows job, not another platform's Python setup.
+                job = (
+                    workflow
+                    if name == package.WORKFLOW
+                    else workflow.split("\n  windows:\n", 1)[1].split("\n  android:\n", 1)[0]
+                )
+                setup = job.index("uses: actions/setup-python@")
+                self.assertIn("id: python", job[:setup])
+                self.assertIn('python-version: "3.12.10"', job)
+                native = job.index("& ./tool/build_flutter_windows_engine.ps1")
+                self.assertLess(setup, native)
+                block = job[native:].split("\n      - name:", 1)[0]
+                self.assertIn('-Python "${{ steps.python.outputs.python-path }}"', block)
+                if name == package.WORKFLOW:
+                    fixture = job.index("& ./tool/test_flutter_windows_timer.ps1")
+                    self.assertLess(setup, job.index("python -m unittest"))
+                    self.assertIn(
+                        '-Python "${{ steps.python.outputs.python-path }}"',
+                        job[fixture:].split("\n", 1)[0],
+                    )
+
 
 if __name__ == "__main__":
     unittest.main()

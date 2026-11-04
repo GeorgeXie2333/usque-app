@@ -166,6 +166,15 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Install pinned Python
+        id: python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        env:
+          WINDOWS_SIGNING_PFX_BASE64: ""
+          WINDOWS_SIGNING_PFX_PASSWORD: ""
+        with:
+          python-version: "3.12.10"
+
       - name: Install pinned .NET SDK
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
@@ -211,7 +220,8 @@ jobs:
           $runEngineTests = "${{ matrix.flutter_arch }}" -eq "x64"
           & ./tool/build_flutter_windows_engine.ps1 `
             -Architecture "${{ matrix.flutter_arch }}" `
-            -BuildDirectory $engineDirectory -Jobs 2 -RunTests:$runEngineTests
+            -BuildDirectory $engineDirectory -Jobs 2 -RunTests:$runEngineTests `
+            -Python "${{ steps.python.outputs.python-path }}"
 
       - name: Build locked Flutter host
         working-directory: apps/usque_gui

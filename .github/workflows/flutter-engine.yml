@@ -48,13 +48,19 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Install pinned Python
+        id: python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12.10"
+
       - name: Validate recipe and regression tooling
         shell: pwsh
         run: |
           python -m unittest discover -s tool -p "test_flutter_windows*.py" -v
           if ($LASTEXITCODE -ne 0) { throw "Engine tooling tests failed." }
           if ("${{ matrix.architecture }}" -eq "x64") {
-            & ./tool/test_flutter_windows_timer.ps1
+            & ./tool/test_flutter_windows_timer.ps1 -Python "${{ steps.python.outputs.python-path }}"
           }
 
       - name: Build pinned engine and applicable native tests
@@ -68,7 +74,8 @@ jobs:
           $runEngineTests = "${{ matrix.architecture }}" -eq "x64"
           & ./tool/build_flutter_windows_engine.ps1 `
             -Architecture "${{ matrix.architecture }}" `
-            -BuildDirectory $engineDirectory -Jobs 2 -RunTests:$runEngineTests
+            -BuildDirectory $engineDirectory -Jobs 2 -RunTests:$runEngineTests `
+            -Python "${{ steps.python.outputs.python-path }}"
 
       - name: Package complete local-engine application inputs
         id: package
