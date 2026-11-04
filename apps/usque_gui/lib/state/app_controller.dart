@@ -457,13 +457,16 @@ class AppController extends ChangeNotifier {
     _snapshotRevision++;
     final becameConnected = !_snapshot.isConnected && value.isConnected;
     _snapshot = value;
+    if (value.isConnected && _lastErrorFromConnection) lastError = null;
     if (becameConnected && initialized) unawaited(maintainAdsRules());
     if (value.phase == ConnectionPhase.error &&
         (value.errorCode != null || value.warning?.isNotEmpty == true)) {
-      lastError = userFacingFailure(
-        strings,
-        code: value.errorCode,
-        details: value.warning,
+      _setConnectionError(
+        userFacingFailure(
+          strings,
+          code: value.errorCode,
+          details: value.warning,
+        ),
       );
     }
     quality.updateConnection(value, observeQuality: observeQuality);
@@ -494,7 +497,19 @@ class AppController extends ChangeNotifier {
     AppSection.proxy,
     AppSection.settings,
   ];
-  String? lastError;
+  String? _lastError;
+  bool _lastErrorFromConnection = false;
+  String? get lastError => _lastError;
+  set lastError(String? value) {
+    _lastError = value;
+    _lastErrorFromConnection = false;
+  }
+
+  void _setConnectionError(String message) {
+    lastError = message;
+    _lastErrorFromConnection = true;
+  }
+
   String? lastNotice;
   bool snapshotStreamDegraded = false;
   bool _userDisconnectedThisSession = false;
@@ -2551,7 +2566,11 @@ class AppController extends ChangeNotifier {
       }
       // Preserve exception-specific context after the snapshot setter maps its
       // structured code, including timeouts and localized adapter cleanup.
-      lastError = message;
+      if (affectsConnection && connectionIntent != null) {
+        _setConnectionError(message);
+      } else {
+        lastError = message;
+      }
       return false;
     } finally {
       if (generation == _dataGeneration) _activeOperations -= 1;
@@ -3244,7 +3263,7 @@ class AppController extends ChangeNotifier {
     }
     snapshot = next;
     if (errorChanged) {
-      lastError = nextError;
+      _setConnectionError(nextError);
     }
     _notifyListeners();
   }

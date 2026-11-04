@@ -1983,7 +1983,10 @@ async fn wait_for_idle_exit_after<Backend>(
             continue;
         }
 
-        let remaining = if service.coordinator.device_retirement_finished() {
+        let remaining = if service
+            .coordinator
+            .device_retirement_allows_immediate_exit()
+        {
             Duration::ZERO
         } else {
             idle_timeout
