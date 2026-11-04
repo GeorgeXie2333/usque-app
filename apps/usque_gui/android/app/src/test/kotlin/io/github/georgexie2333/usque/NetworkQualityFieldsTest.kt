@@ -11,6 +11,66 @@ import java.util.concurrent.Executor
 import java.util.concurrent.atomic.AtomicInteger
 
 class NetworkQualityFieldsTest {
+    @Test fun expandedCapabilityObjectsPreserveSupportedFlags() {
+        val source =
+            JSONObject()
+                .put("automatic_endpoints", true)
+                .put("vpn_gate_epoch_requests", true)
+                .put("routing_rules", true)
+                .put("tls_fingerprints", JSONArray(List(100) { "fingerprint_$it" }))
+                .toString()
+        assertTrue(source.length > 1024)
+        assertTrue(source.toByteArray(Charsets.UTF_8).size < NetworkQualityFields.MAX_CAPABILITIES_JSON_BYTES)
+        val result = NetworkQualityFields.capabilities(source)
+        assertEquals(
+            setOf("automatic_endpoints", "vpn_gate_epoch_requests", "routing_rules"),
+            result.filterValues { it }.keys,
+        )
+        assertFalse(result.containsKey("tls_fingerprints"))
+    }
+
+    @Test fun capabilityJsonAcceptsTheByteBoundaryAndRejectsOneByteMore() {
+        val limit = NetworkQualityFields.MAX_CAPABILITIES_JSON_BYTES
+        val overhead = capabilitiesWithPadding("").toByteArray(Charsets.UTF_8).size
+        val exact = capabilitiesWithPadding("x".repeat(limit - overhead))
+        val excessive = capabilitiesWithPadding("x".repeat(limit - overhead + 1))
+        assertEquals(limit, exact.toByteArray(Charsets.UTF_8).size)
+        assertEquals(limit + 1, excessive.toByteArray(Charsets.UTF_8).size)
+        assertTrue(NetworkQualityFields.capabilities(exact).getValue("automatic_endpoints"))
+        assertTrue(NetworkQualityFields.capabilities(excessive).values.none { it })
+    }
+
+    @Test fun capabilityJsonBoundsUtf8BytesForMultibyteText() {
+        val limit = NetworkQualityFields.MAX_CAPABILITIES_JSON_BYTES
+        val overhead = capabilitiesWithPadding("").toByteArray(Charsets.UTF_8).size
+        val padding = "界".repeat((limit - overhead) / 3)
+        val accepted = capabilitiesWithPadding(padding)
+        val excessive = capabilitiesWithPadding(padding + "界")
+        assertTrue(accepted.toByteArray(Charsets.UTF_8).size <= limit)
+        assertTrue(excessive.length < limit)
+        assertTrue(excessive.toByteArray(Charsets.UTF_8).size > limit)
+        assertTrue(NetworkQualityFields.capabilities(accepted).getValue("automatic_endpoints"))
+        assertTrue(NetworkQualityFields.capabilities(excessive).values.none { it })
+    }
+
+    @Test fun capabilityProjectionOmitsUnknownFieldsAndRequiresBooleanValues() {
+        val source =
+            """{"automatic_endpoints":"true","routing_rules":1,"vpn_gate_epoch_requests":null,"endpoint_presets":true,"future_capability":true}"""
+        val result = NetworkQualityFields.capabilities(source)
+        assertEquals(setOf("endpoint_presets"), result.filterValues { it }.keys)
+        assertFalse(result.containsKey("future_capability"))
+    }
+
+    @Test fun malformedCapabilityObjectsNeverSalvageSupportedFlags() {
+        val truncated = """{"automatic_endpoints":true,"padding":"${"x".repeat(1100)}"""
+        for (source in listOf(null, "", "not json", truncated, """[{"automatic_endpoints":true}]""")) {
+            assertTrue(NetworkQualityFields.capabilities(source).values.none { it })
+        }
+    }
+
+    private fun capabilitiesWithPadding(padding: String): String =
+        """{"automatic_endpoints":true,"padding":"$padding"}"""
+
     @Test
     fun vpnGateEpochRequestsRequireAnExplicitNativeBoolean() {
         val key = "vpn_gate_epoch_requests"

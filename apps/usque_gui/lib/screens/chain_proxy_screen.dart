@@ -941,7 +941,7 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
                 dirty: _sceneDraft || _dirty || _modeConflict,
                 saving: _saving,
                 onRefresh: !_sceneDraft && _app.networkSettings.canRefresh
-                    ? _app.networkSettings.refresh
+                    ? () => _app.networkSettings.refresh(requireRuntime: true)
                     : null,
                 refreshing: _app.networkSettings.refreshing,
                 error: _error,

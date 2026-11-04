@@ -154,19 +154,36 @@ class ScenarioCatalog {
            : null,
        currentSettingsError = value['current_settings_error'] as String?,
        currentAccountId = value['current_account_id'] as String?,
-       appliedAccountId = value['applied_account_id'] as String?,
-       appliedScenarioId = value['applied_scenario_id'] as String?,
-       appliedSceneConfirmed = value['applied_scene_confirmed'] == true,
-       sourceEpoch = value['source_epoch'] as String,
-       sessionId = value['session_id'] as String?,
+       runtimeObserved = value['runtime_observed'] != false,
+       appliedAccountId = value['runtime_observed'] == false
+           ? null
+           : value['applied_account_id'] as String?,
+       appliedScenarioId = value['runtime_observed'] == false
+           ? null
+           : value['applied_scenario_id'] as String?,
+       appliedSceneConfirmed =
+           value['runtime_observed'] != false &&
+           value['applied_scene_confirmed'] == true,
+       sourceEpoch = value['runtime_observed'] == false
+           ? ''
+           : value['source_epoch'] as String,
+       sessionId = value['runtime_observed'] == false
+           ? null
+           : value['session_id'] as String?,
        observationSessionId = _observationSession(value),
-       state = scenarioMap(value['state']),
-       canRestore = value['can_restore'] == true,
-       lastOperationId = value['last_operation_id'] as String?;
+       state = value['runtime_observed'] == false
+           ? const {'apply_status': 'unknown'}
+           : scenarioMap(value['state']),
+       canRestore =
+           value['runtime_observed'] != false && value['can_restore'] == true,
+       lastOperationId = value['runtime_observed'] == false
+           ? null
+           : value['last_operation_id'] as String?;
   final List<ConnectionScenario> scenarios;
   final String? revision;
 
   static String? _observationSession(Map<String, Object?> value) {
+    if (value['runtime_observed'] == false) return null;
     if (!value.containsKey('observation_session_id')) {
       throw const FormatException('Missing scene observation identity');
     }
@@ -183,6 +200,7 @@ class ScenarioCatalog {
       currentSettingsError;
   final Map<String, Object?> state;
   final bool canRestore;
+  final bool runtimeObserved;
   final String sourceEpoch;
   final String? appliedScenarioId, sessionId;
 

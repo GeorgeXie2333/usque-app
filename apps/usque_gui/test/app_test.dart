@@ -530,6 +530,9 @@ class FakeEngineClient
   Future<void> setCloseToTray(bool enabled) async {}
 
   @override
+  Future<void> setHideFromRecents(bool enabled) async {}
+
+  @override
   Future<void> requestAddQuickSettingsTile() async {}
 
   PerAppProxySettings storedPerAppProxy = const PerAppProxySettings();

@@ -70,6 +70,28 @@ internal object ScenarioFields {
         return objectMap(source)
     }
 
+    /** Saved templates remain readable without manufacturing a live owner or receipt. */
+    fun persistedOnly(value: String): Map<String, Any?> {
+        require(value.toByteArray(Charsets.UTF_8).size <= 384 * 1024)
+        val source = JSONObject(value)
+        val projected =
+            JSONObject()
+                .put("runtime_observed", false)
+                .put("state", JSONObject().put("apply_status", "unknown"))
+        for (key in listOf(
+            "scenarios",
+            "invalid_scenario_ids",
+            "catalogue_revision",
+            "selection",
+            "current_settings",
+            "current_account_id",
+            "current_settings_error",
+        )) {
+            if (source.has(key)) projected.put(key, source.get(key))
+        }
+        return objectMap(projected)
+    }
+
     private fun objectMap(source: JSONObject): Map<String, Any?> =
         source.keys().asSequence().associateWith { convert(source.get(it)) }
 

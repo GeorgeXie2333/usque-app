@@ -5,6 +5,7 @@ import org.json.JSONObject
 /** Bounded native/Messenger/Flutter bridge. Unknown keys and raw text never cross it. */
 internal object NetworkQualityFields {
     const val MAX_JSON_BYTES = 16 * 1024
+    const val MAX_CAPABILITIES_JSON_BYTES = 16 * 1024
     private val availability = setOf("unknown", "available", "unsupported", "notReady", "stale")
     private val levels = setOf("unknown", "good", "fair", "poor", "limitedData", "disconnected")
     private val queueKinds =
@@ -136,7 +137,14 @@ internal object NetworkQualityFields {
     }
 
     fun capabilities(value: String?): Map<String, Boolean> {
-        val source = if (value != null && value.length <= 1024) runCatching { JSONObject(value) }.getOrNull() else null
+        val source =
+            if (value != null && value.length <= MAX_CAPABILITIES_JSON_BYTES &&
+                value.toByteArray(Charsets.UTF_8).size <= MAX_CAPABILITIES_JSON_BYTES
+            ) {
+                runCatching { JSONObject(value) }.getOrNull()
+            } else {
+                null
+            }
         return listOf(
             "network_quality",
             "encrypted_direct_dns",

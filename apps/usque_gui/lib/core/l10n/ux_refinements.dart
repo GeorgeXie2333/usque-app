@@ -2,6 +2,12 @@
 /// Bypass, Network quality and onboarding.
 const kUxRefinementCatalogs = <String, Map<String, String>>{
   'en': {
+    'hide_from_recents': "Hide from recent tasks",
+    'hide_from_recents_help':
+        "Hide Usque from the recent tasks list. Open it again using the app icon.",
+    'hide_recents_failed':
+        "Could not confirm the recent tasks setting. Retry before relying on it.",
+    'hide_recents_loading': "Checking recent tasks setting…",
     'ks_standby': 'Engages when connected',
     'home_exit_unknown': 'Not detected yet',
     'proxy_device_outputs': 'Device traffic',
@@ -19,6 +25,10 @@ const kUxRefinementCatalogs = <String, Map<String, String>>{
     'nq_attention_hint': 'Run diagnostics to find the cause.',
   },
   'zh_CN': {
+    'hide_from_recents': "从最近任务中隐藏",
+    'hide_from_recents_help': "在最近任务列表中隐藏 Usque，可通过应用图标重新打开。",
+    'hide_recents_failed': "无法确认最近任务设置，请重试后再使用此功能。",
+    'hide_recents_loading': "正在确认最近任务设置…",
     'ks_standby': '连接后生效',
     'home_exit_unknown': '尚未获取',
     'proxy_device_outputs': '本机流量',
@@ -35,6 +45,10 @@ const kUxRefinementCatalogs = <String, Map<String, String>>{
     'nq_attention_hint': '运行诊断以定位原因。',
   },
   'zh_TW': {
+    'hide_from_recents': "從最近使用的應用程式中隱藏",
+    'hide_from_recents_help': "在最近使用的應用程式清單中隱藏 Usque，可透過應用程式圖示重新開啟。",
+    'hide_recents_failed': "無法確認最近使用的應用程式設定，請重試後再使用此功能。",
+    'hide_recents_loading': "正在確認最近使用的應用程式設定…",
     'ks_standby': '連線後生效',
     'home_exit_unknown': '尚未取得',
     'proxy_device_outputs': '本機流量',
@@ -51,6 +65,10 @@ const kUxRefinementCatalogs = <String, Map<String, String>>{
     'nq_attention_hint': '執行診斷以找出原因。',
   },
   'zh_HK': {
+    'hide_from_recents': "從最近使用的應用程式中隱藏",
+    'hide_from_recents_help': "在最近使用的應用程式清單中隱藏 Usque，可透過應用程式圖示重新開啟。",
+    'hide_recents_failed': "無法確認最近使用的應用程式設定，請重試後再使用此功能。",
+    'hide_recents_loading': "正在確認最近使用的應用程式設定…",
     'ks_standby': '連線後生效',
     'home_exit_unknown': '尚未取得',
     'proxy_device_outputs': '本機流量',
@@ -67,6 +85,10 @@ const kUxRefinementCatalogs = <String, Map<String, String>>{
     'nq_attention_hint': '執行診斷以找出原因。',
   },
   'ja': {
+    'hide_from_recents': "最近使ったアプリから非表示",
+    'hide_from_recents_help': "最近使ったアプリの一覧から Usque を非表示にします。アプリアイコンから再び開けます。",
+    'hide_recents_failed': "最近使ったアプリの設定を確認できません。この機能を使う前に再試行してください。",
+    'hide_recents_loading': "最近使ったアプリの設定を確認中…",
     'ks_standby': '接続時に有効',
     'home_exit_unknown': 'まだ取得していません',
     'proxy_device_outputs': 'このデバイスの通信',
@@ -83,6 +105,10 @@ const kUxRefinementCatalogs = <String, Map<String, String>>{
     'nq_attention_hint': '診断を実行して原因を調べます。',
   },
   'ko': {
+    'hide_from_recents': "최근 앱에서 숨기기",
+    'hide_from_recents_help': "최근 앱 목록에서 Usque를 숨깁니다. 앱 아이콘으로 다시 열 수 있습니다.",
+    'hide_recents_failed': "최근 앱 설정을 확인할 수 없습니다. 이 기능을 사용하기 전에 다시 시도하세요.",
+    'hide_recents_loading': "최근 앱 설정 확인 중…",
     'ks_standby': '연결 시 활성화',
     'home_exit_unknown': '아직 확인되지 않음',
     'proxy_device_outputs': '이 기기의 트래픽',
@@ -99,6 +125,12 @@ const kUxRefinementCatalogs = <String, Map<String, String>>{
     'nq_attention_hint': '진단을 실행해 원인을 찾으세요.',
   },
   'es': {
+    'hide_from_recents': "Ocultar de las aplicaciones recientes",
+    'hide_from_recents_help':
+        "Oculta Usque de la lista de aplicaciones recientes. Puedes volver a abrirlo con el icono de la aplicación.",
+    'hide_recents_failed':
+        "No se pudo confirmar el ajuste de aplicaciones recientes. Reinténtalo antes de confiar en esta función.",
+    'hide_recents_loading': "Comprobando el ajuste de aplicaciones recientes…",
     'ks_standby': 'Se activa al conectar',
     'home_exit_unknown': 'Aún no detectada',
     'proxy_device_outputs': 'Tráfico del dispositivo',
@@ -116,6 +148,12 @@ const kUxRefinementCatalogs = <String, Map<String, String>>{
     'nq_attention_hint': 'Ejecuta el diagnóstico para encontrar la causa.',
   },
   'pt': {
+    'hide_from_recents': "Ocultar dos apps recentes",
+    'hide_from_recents_help':
+        "Oculta o Usque da lista de apps recentes. Abra-o novamente pelo ícone do app.",
+    'hide_recents_failed':
+        "Não foi possível confirmar a configuração de apps recentes. Tente novamente antes de confiar neste recurso.",
+    'hide_recents_loading': "Verificando a configuração de apps recentes…",
     'ks_standby': 'Ativa ao conectar',
     'home_exit_unknown': 'Ainda não detectada',
     'proxy_device_outputs': 'Tráfego do dispositivo',
@@ -133,6 +171,13 @@ const kUxRefinementCatalogs = <String, Map<String, String>>{
     'nq_attention_hint': 'Execute o diagnóstico para encontrar a causa.',
   },
   'fr': {
+    'hide_from_recents': "Masquer des applications récentes",
+    'hide_from_recents_help':
+        "Masque Usque dans la liste des applications récentes. Rouvrez-le avec son icône.",
+    'hide_recents_failed':
+        "Impossible de confirmer ce réglage. Réessayez avant de vous fier à cette fonction.",
+    'hide_recents_loading':
+        "Vérification du réglage des applications récentes…",
     'ks_standby': "S'active à la connexion",
     'home_exit_unknown': 'Pas encore détectée',
     'proxy_device_outputs': "Trafic de l'appareil",
@@ -150,6 +195,13 @@ const kUxRefinementCatalogs = <String, Map<String, String>>{
     'nq_attention_hint': 'Lancez le diagnostic pour en trouver la cause.',
   },
   'de': {
+    'hide_from_recents': "Aus zuletzt verwendeten Apps ausblenden",
+    'hide_from_recents_help':
+        "Blendet Usque aus der Liste zuletzt verwendeter Apps aus. Über das App-Symbol kannst du es wieder öffnen.",
+    'hide_recents_failed':
+        "Die Einstellung konnte nicht bestätigt werden. Versuche es erneut, bevor du dich darauf verlässt.",
+    'hide_recents_loading':
+        "Einstellung für zuletzt verwendete Apps wird geprüft…",
     'ks_standby': 'Aktiv nach Verbindung',
     'home_exit_unknown': 'Noch nicht ermittelt',
     'proxy_device_outputs': 'Geräteverkehr',
@@ -167,6 +219,12 @@ const kUxRefinementCatalogs = <String, Map<String, String>>{
     'nq_attention_hint': 'Starte die Diagnose, um die Ursache zu finden.',
   },
   'nl': {
+    'hide_from_recents': "Verbergen in recente apps",
+    'hide_from_recents_help':
+        "Verberg Usque in de lijst met recente apps. Open de app opnieuw via het app-pictogram.",
+    'hide_recents_failed':
+        "De instelling voor recente apps kon niet worden bevestigd. Probeer het opnieuw voordat je erop vertrouwt.",
+    'hide_recents_loading': "Instelling voor recente apps controleren…",
     'ks_standby': 'Actief na verbinden',
     'home_exit_unknown': 'Nog niet vastgesteld',
     'proxy_device_outputs': 'Apparaatverkeer',
@@ -184,6 +242,12 @@ const kUxRefinementCatalogs = <String, Map<String, String>>{
     'nq_attention_hint': 'Voer de diagnose uit om de oorzaak te vinden.',
   },
   'it': {
+    'hide_from_recents': "Nascondi dalle app recenti",
+    'hide_from_recents_help':
+        "Nasconde Usque dall’elenco delle app recenti. Puoi riaprirlo tramite l’icona dell’app.",
+    'hide_recents_failed':
+        "Impossibile confermare l’impostazione delle app recenti. Riprova prima di affidarti a questa funzione.",
+    'hide_recents_loading': "Verifica dell’impostazione delle app recenti…",
     'ks_standby': 'Si attiva alla connessione',
     'home_exit_unknown': 'Non ancora rilevata',
     'proxy_device_outputs': 'Traffico del dispositivo',
@@ -201,6 +265,12 @@ const kUxRefinementCatalogs = <String, Map<String, String>>{
     'nq_attention_hint': 'Esegui la diagnostica per trovare la causa.',
   },
   'ru': {
+    'hide_from_recents': "Скрывать из недавних приложений",
+    'hide_from_recents_help':
+        "Скрывает Usque из списка недавних приложений. Открыть его снова можно через значок приложения.",
+    'hide_recents_failed':
+        "Не удалось подтвердить настройку недавних приложений. Повторите попытку, прежде чем полагаться на эту функцию.",
+    'hide_recents_loading': "Проверка настройки недавних приложений…",
     'ks_standby': 'Включится при подключении',
     'home_exit_unknown': 'Ещё не определён',
     'proxy_device_outputs': 'Трафик устройства',
@@ -218,6 +288,12 @@ const kUxRefinementCatalogs = <String, Map<String, String>>{
     'nq_attention_hint': 'Запустите диагностику, чтобы найти причину.',
   },
   'uk': {
+    'hide_from_recents': "Приховувати з нещодавніх програм",
+    'hide_from_recents_help':
+        "Приховує Usque зі списку нещодавніх програм. Відкрити його знову можна через значок програми.",
+    'hide_recents_failed':
+        "Не вдалося підтвердити налаштування нещодавніх програм. Спробуйте ще раз, перш ніж покладатися на цю функцію.",
+    'hide_recents_loading': "Перевірка налаштування нещодавніх програм…",
     'ks_standby': 'Увімкнеться під час підключення',
     'home_exit_unknown': 'Ще не визначено',
     'proxy_device_outputs': 'Трафік пристрою',
@@ -235,6 +311,12 @@ const kUxRefinementCatalogs = <String, Map<String, String>>{
     'nq_attention_hint': 'Запустіть діагностику, щоб знайти причину.',
   },
   'pl': {
+    'hide_from_recents': "Ukryj w ostatnich aplikacjach",
+    'hide_from_recents_help':
+        "Ukrywa Usque na liście ostatnich aplikacji. Otwórz ponownie za pomocą ikony aplikacji.",
+    'hide_recents_failed':
+        "Nie udało się potwierdzić ustawienia ostatnich aplikacji. Spróbuj ponownie, zanim polegasz na tej funkcji.",
+    'hide_recents_loading': "Sprawdzanie ustawienia ostatnich aplikacji…",
     'ks_standby': 'Włączy się po połączeniu',
     'home_exit_unknown': 'Jeszcze nie ustalono',
     'proxy_device_outputs': 'Ruch urządzenia',
@@ -252,6 +334,12 @@ const kUxRefinementCatalogs = <String, Map<String, String>>{
     'nq_attention_hint': 'Uruchom diagnostykę, aby znaleźć przyczynę.',
   },
   'fa': {
+    'hide_from_recents': "پنهان کردن از برنامه‌های اخیر",
+    'hide_from_recents_help':
+        "Usque را از فهرست برنامه‌های اخیر پنهان می‌کند. با نماد برنامه دوباره آن را باز کنید.",
+    'hide_recents_failed':
+        "تنظیم برنامه‌های اخیر تأیید نشد. پیش از اتکا به این قابلیت دوباره تلاش کنید.",
+    'hide_recents_loading': "در حال بررسی تنظیم برنامه‌های اخیر…",
     'ks_standby': 'پس از اتصال فعال می‌شود',
     'home_exit_unknown': 'هنوز شناسایی نشده',
     'proxy_device_outputs': 'ترافیک دستگاه',
@@ -269,6 +357,12 @@ const kUxRefinementCatalogs = <String, Map<String, String>>{
     'nq_attention_hint': 'برای یافتن علت، عیب‌یابی را اجرا کنید.',
   },
   'ar': {
+    'hide_from_recents': "الإخفاء من التطبيقات الأخيرة",
+    'hide_from_recents_help':
+        "يخفي Usque من قائمة التطبيقات الأخيرة. يمكنك فتحه مجددًا باستخدام أيقونة التطبيق.",
+    'hide_recents_failed':
+        "تعذّر تأكيد إعداد التطبيقات الأخيرة. أعد المحاولة قبل الاعتماد على هذه الميزة.",
+    'hide_recents_loading': "جارٍ التحقق من إعداد التطبيقات الأخيرة…",
     'ks_standby': 'يُفعَّل عند الاتصال',
     'home_exit_unknown': 'لم يُحدَّد بعد',
     'proxy_device_outputs': 'حركة بيانات الجهاز',
@@ -286,6 +380,12 @@ const kUxRefinementCatalogs = <String, Map<String, String>>{
     'nq_attention_hint': 'شغّل التشخيص لمعرفة السبب.',
   },
   'id': {
+    'hide_from_recents': "Sembunyikan dari aplikasi terbaru",
+    'hide_from_recents_help':
+        "Sembunyikan Usque dari daftar aplikasi terbaru. Buka kembali melalui ikon aplikasi.",
+    'hide_recents_failed':
+        "Pengaturan aplikasi terbaru tidak dapat dikonfirmasi. Coba lagi sebelum mengandalkan fitur ini.",
+    'hide_recents_loading': "Memeriksa pengaturan aplikasi terbaru…",
     'ks_standby': 'Aktif saat terhubung',
     'home_exit_unknown': 'Belum terdeteksi',
     'proxy_device_outputs': 'Lalu lintas perangkat',
@@ -303,6 +403,12 @@ const kUxRefinementCatalogs = <String, Map<String, String>>{
     'nq_attention_hint': 'Jalankan diagnosis untuk menemukan penyebabnya.',
   },
   'vi': {
+    'hide_from_recents': "Ẩn khỏi ứng dụng gần đây",
+    'hide_from_recents_help':
+        "Ẩn Usque khỏi danh sách ứng dụng gần đây. Mở lại bằng biểu tượng ứng dụng.",
+    'hide_recents_failed':
+        "Không thể xác nhận cài đặt ứng dụng gần đây. Hãy thử lại trước khi dựa vào tính năng này.",
+    'hide_recents_loading': "Đang kiểm tra cài đặt ứng dụng gần đây…",
     'ks_standby': 'Bật khi kết nối',
     'home_exit_unknown': 'Chưa xác định',
     'proxy_device_outputs': 'Lưu lượng thiết bị',
@@ -320,6 +426,12 @@ const kUxRefinementCatalogs = <String, Map<String, String>>{
     'nq_attention_hint': 'Chạy chẩn đoán để tìm nguyên nhân.',
   },
   'tr': {
+    'hide_from_recents': "Son uygulamalardan gizle",
+    'hide_from_recents_help':
+        "Usque uygulamasını son uygulamalar listesinden gizler. Uygulama simgesinden yeniden açabilirsiniz.",
+    'hide_recents_failed':
+        "Son uygulamalar ayarı doğrulanamadı. Bu özelliğe güvenmeden önce yeniden deneyin.",
+    'hide_recents_loading': "Son uygulamalar ayarı denetleniyor…",
     'ks_standby': 'Bağlanınca etkinleşir',
     'home_exit_unknown': 'Henüz belirlenmedi',
     'proxy_device_outputs': 'Cihaz trafiği',
@@ -337,6 +449,12 @@ const kUxRefinementCatalogs = <String, Map<String, String>>{
     'nq_attention_hint': 'Nedeni bulmak için tanılamayı çalıştırın.',
   },
   'th': {
+    'hide_from_recents': "ซ่อนจากแอปล่าสุด",
+    'hide_from_recents_help':
+        "ซ่อน Usque จากรายการแอปล่าสุด เปิดอีกครั้งได้จากไอคอนแอป",
+    'hide_recents_failed':
+        "ยืนยันการตั้งค่าแอปล่าสุดไม่ได้ โปรดลองอีกครั้งก่อนใช้คุณสมบัตินี้",
+    'hide_recents_loading': "กำลังตรวจสอบการตั้งค่าแอปล่าสุด…",
     'ks_standby': 'ทำงานเมื่อเชื่อมต่อ',
     'home_exit_unknown': 'ยังไม่ทราบ',
     'proxy_device_outputs': 'ทราฟฟิกของอุปกรณ์',

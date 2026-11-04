@@ -28,6 +28,7 @@ class ScenarioGateLeases {
   Future<void> _tail = Future.value();
   final _uncertainCleanup = <(String, String, String)>{};
   final _released = Expando<bool>();
+  final _controlReleases = Expando<Future<void> Function()>();
 
   Future<T> _enqueue<T>(Future<T> Function() work) {
     final result = Completer<T>();
@@ -47,14 +48,18 @@ class ScenarioGateLeases {
         !app.networkSettings.observationEnabled) {
       return null;
     }
-    await app.networkSettings.refresh();
+    // A passive startup read may predate our explicit control owner. Join it,
+    // then obtain a live observation before certifying this resource lease.
+    await app.networkSettings.refresh(requireRuntime: true);
     if (!app.uiVisible ||
         app.engineCapabilities?.vpnGateEpochRequests != true ||
         !app.networkSettings.observationEnabled ||
         app.networkSettings.unconfirmed) {
       return null;
     }
-    final epoch = app.networkSettings.state?.sourceEpoch;
+    final state = app.networkSettings.state;
+    if (state?.runtimeObserved != true) return null;
+    final epoch = state?.sourceEpoch;
     return epoch == null || epoch.isEmpty ? null : epoch;
   }
 
@@ -66,29 +71,52 @@ class ScenarioGateLeases {
     required bool Function() isCurrent,
     Future<bool> Function(String epoch)? prepare,
   }) => _enqueue(() async {
-    if (!selection.hasSelection || !isCurrent()) return null;
-    final epoch = await _epoch();
-    if (epoch == null || !isCurrent()) return null;
-    _uncertainCleanup.removeWhere((key) => key.$1 != epoch);
-    final key = (epoch, selection.serverId, selection.configSha256);
-    // A timed-out same-owner release may still be running. Do not prepare the
-    // same key until that owner is retired; epoch guards make its late work inert.
-    if (_uncertainCleanup.contains(key)) return null;
-    if (existing?.sourceEpoch == epoch &&
-        existing!.matches(selection) &&
-        _released[existing] != true) {
-      return existing;
-    }
-    final prepared =
-        await (prepare?.call(epoch) ?? _prepare(selection, epoch, isCurrent));
-    final confirmed = await _epoch();
-    if (!prepared || confirmed != epoch || !isCurrent()) {
-      if (prepared && confirmed == epoch) {
-        await _release(ScenarioGateLease(selection, epoch));
-      }
+    if (!selection.hasSelection ||
+        !isCurrent() ||
+        !app.uiVisible ||
+        app.engineCapabilities?.vpnGateEpochRequests != true ||
+        !app.networkSettings.observationEnabled) {
       return null;
     }
-    return ScenarioGateLease(selection, epoch);
+    Future<void> Function()? releaseControl;
+    try {
+      try {
+        releaseControl = await app.acquireControlOperation();
+      } on Object {
+        return null;
+      }
+      final epoch = await _epoch();
+      if (epoch == null || !isCurrent()) return null;
+      _uncertainCleanup.removeWhere((key) => key.$1 != epoch);
+      final key = (epoch, selection.serverId, selection.configSha256);
+      // A timed-out same-owner release may still be running. Do not prepare the
+      // same key until that owner is retired; epoch guards make its late work inert.
+      if (_uncertainCleanup.contains(key)) return null;
+      if (existing?.sourceEpoch == epoch &&
+          existing!.matches(selection) &&
+          _released[existing] != true) {
+        if (_controlReleases[existing] == null && releaseControl != null) {
+          _controlReleases[existing] = releaseControl;
+          releaseControl = null;
+        }
+        return existing;
+      }
+      final prepared =
+          await (prepare?.call(epoch) ?? _prepare(selection, epoch, isCurrent));
+      final confirmed = await _epoch();
+      if (!prepared || confirmed != epoch || !isCurrent()) {
+        if (prepared && confirmed == epoch) {
+          await _release(ScenarioGateLease(selection, epoch));
+        }
+        return null;
+      }
+      final lease = ScenarioGateLease(selection, epoch);
+      _controlReleases[lease] = releaseControl;
+      releaseControl = null;
+      return lease;
+    } finally {
+      await app.releaseControlOperation(releaseControl);
+    }
   });
 
   Future<bool> _prepare(
@@ -149,24 +177,30 @@ class ScenarioGateLeases {
   }
 
   Future<void> _release(ScenarioGateLease lease) async {
-    final current = await _epoch();
-    if (current == null || current != lease.sourceEpoch) return;
+    final releaseControl = _controlReleases[lease];
+    _controlReleases[lease] = null;
     try {
-      await app.vpnGateNode(
-        VpnGateNodeRequest(
-          operationId: app.newVpnGateOperationId(),
-          action: 'release',
-          serverId: lease.selection.serverId,
-          configSha256: lease.selection.configSha256,
-          expectedSourceEpoch: lease.sourceEpoch,
-        ),
-      );
-    } on Object {
-      _uncertainCleanup.add((
-        lease.sourceEpoch,
-        lease.selection.serverId,
-        lease.selection.configSha256,
-      ));
+      final current = await _epoch();
+      if (current == null || current != lease.sourceEpoch) return;
+      try {
+        await app.vpnGateNode(
+          VpnGateNodeRequest(
+            operationId: app.newVpnGateOperationId(),
+            action: 'release',
+            serverId: lease.selection.serverId,
+            configSha256: lease.selection.configSha256,
+            expectedSourceEpoch: lease.sourceEpoch,
+          ),
+        );
+      } on Object {
+        _uncertainCleanup.add((
+          lease.sourceEpoch,
+          lease.selection.serverId,
+          lease.selection.configSha256,
+        ));
+      }
+    } finally {
+      await app.releaseControlOperation(releaseControl);
     }
   }
 }

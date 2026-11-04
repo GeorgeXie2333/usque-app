@@ -766,9 +766,18 @@ Future<bool> previewAndUseScenario(
 ) async {
   if (_scenePreviewLocks[app] == true) return false;
   _scenePreviewLocks[app] = true;
+  Future<void> Function()? releaseControl;
   try {
+    try {
+      releaseControl = await app.acquireControlOperation();
+    } on Object {
+      app.scenarios.previewUnavailable();
+      return false;
+    }
+    if (!context.mounted) return false;
     return await _previewAndUseScenario(context, app, scene);
   } finally {
+    await app.releaseControlOperation(releaseControl);
     _scenePreviewLocks[app] = false;
   }
 }

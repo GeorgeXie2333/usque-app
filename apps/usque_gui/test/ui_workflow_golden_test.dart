@@ -17,6 +17,7 @@ import 'package:usque/screens/diagnostics_screen.dart';
 import 'package:usque/screens/geo_direct_settings_screen.dart';
 import 'package:usque/screens/home_screen.dart';
 import 'package:usque/screens/onboarding_screen.dart';
+import 'package:usque/screens/settings_screen.dart';
 import 'package:usque/screens/shell_screen.dart';
 import 'package:usque/screens/vpn_gate_chain_editor.dart';
 import 'package:usque/state/app_controller.dart';
@@ -1894,6 +1895,71 @@ void main() {
       }
     }, tags: 'golden');
   }
+  testWidgets(
+    'Android recent task settings',
+    (tester) async {
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
+      for (final scene in [
+        (
+          name: 'phone',
+          size: const Size(390, 844),
+          locale: LocalePreference.english,
+          scale: 1.0,
+        ),
+        (
+          name: 'zh',
+          size: const Size(390, 844),
+          locale: LocalePreference.simplifiedChinese,
+          scale: 1.0,
+        ),
+        (
+          name: 'rtl_large',
+          size: const Size(390, 844),
+          locale: LocalePreference.persian,
+          scale: 2.0,
+        ),
+        (
+          name: 'tv',
+          size: const Size(1280, 900),
+          locale: LocalePreference.english,
+          scale: 1.0,
+        ),
+      ]) {
+        tester.view.physicalSize = scene.size;
+        final app = AppController(WorkflowEngine())
+          ..localePreference = scene.locale;
+        await app.refreshHideFromRecents();
+        const boundary = ValueKey('recents-settings-golden');
+        await tester.pumpWidget(
+          RepaintBoundary(
+            key: boundary,
+            child: workflowHost(
+              app,
+              scale: scene.scale,
+              home: SettingsScreen(controller: app),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await Scrollable.ensureVisible(
+          tester.element(find.byKey(const ValueKey('settings-hide-recents'))),
+          alignment: 0.35,
+        );
+        await tester.pumpAndSettle();
+        await expectLater(
+          find.byKey(boundary),
+          matchesGoldenFile('goldens/settings_recents_${scene.name}.png'),
+        );
+        await tester.pumpWidget(const SizedBox.shrink());
+        app.dispose();
+      }
+    },
+    tags: 'golden',
+    variant: TargetPlatformVariant.only(TargetPlatform.android),
+  );
+
   for (final phone in [true, false]) {
     for (final page in ['onboarding', 'diagnostics', 'dialog']) {
       final name = '${page}_${phone ? 'phone_light' : 'desktop_dark'}';

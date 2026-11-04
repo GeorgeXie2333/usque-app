@@ -24,6 +24,7 @@ class NetworkSettingsState {
   const NetworkSettingsState({
     required this.sourceEpoch,
     required this.sequence,
+    this.runtimeObserved = true,
     this.operationId,
     this.sessionId,
     this.storedProfile,
@@ -40,6 +41,25 @@ class NetworkSettingsState {
   static const maxPersistedOperations = 64;
 
   factory NetworkSettingsState.fromMap(Map<Object?, Object?> map) {
+    if (map['runtime_observed'] == false) {
+      // An offline configuration read has no native owner or application receipt.
+      // Keep its absent identity empty so it cannot certify an owner-bound lease.
+      return NetworkSettingsState(
+        sourceEpoch: '',
+        sequence: 0,
+        runtimeObserved: false,
+        storedProfile: map['stored_profile'] is Map
+            ? UsqueProfile.fromMap(
+                Map<String, Object?>.from(map['stored_profile'] as Map),
+              )
+            : null,
+        sharedNetwork: map['shared_network_profile'] is Map
+            ? UsqueProfile.fromMap(
+                Map<String, Object?>.from(map['shared_network_profile'] as Map),
+              )
+            : null,
+      );
+    }
     final epoch = map['source_epoch'];
     final sequence = map['sequence'];
     if (epoch is! String || epoch.isEmpty || sequence is! int || sequence < 0) {
@@ -75,6 +95,7 @@ class NetworkSettingsState {
 
   final String sourceEpoch;
   final int sequence;
+  final bool runtimeObserved;
   final String? operationId;
   final String? sessionId;
   final UsqueProfile? storedProfile;

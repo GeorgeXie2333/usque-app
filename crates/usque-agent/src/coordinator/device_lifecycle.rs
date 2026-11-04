@@ -41,6 +41,16 @@ impl<Backend: PrivilegedBackend + 'static> AgentCoordinator<Backend> {
             || self.device_retirement_completed.load(Ordering::Acquire)
     }
 
+    pub fn device_retirement_allows_immediate_exit(&self) -> bool {
+        // Successful startup cleanup precedes the first Engine's admission.
+        // Keep the normal idle window until this service has granted an owner
+        // lease. Deferred cleanup still permits exit so native ownership can
+        // end before the next service generation retries retirement.
+        self.device_retirement_deferred()
+            || (self.device_retirement_completed.load(Ordering::Acquire)
+                && self.device_lease_epoch.load(Ordering::Acquire) != 0)
+    }
+
     pub fn device_retirement_retry_pending(&self) -> bool {
         self.device_retirement_retry_pending.load(Ordering::Acquire)
     }

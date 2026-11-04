@@ -30,7 +30,7 @@ jobs:
     name: Windows ${{ matrix.label }} compile
     if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 240
+    timeout-minutes: 360
     strategy:
       fail-fast: false
       matrix:
@@ -161,14 +161,34 @@ jobs:
             -OutputDirectory (Join-Path $env:RUNNER_TEMP "windows-bootstrapper-${{ matrix.variant }}") `
             -Test
 
+      - name: Build patched Flutter Windows engine from pinned sources
+        shell: pwsh
+        run: |
+          python tool/flutter_windows_engine.py verify-framework "$env:USQUE_FLUTTER_ROOT"
+          if ($LASTEXITCODE -ne 0) { throw "Flutter framework and engine recipe differ." }
+          $selectionText = python tool/flutter_windows_engine.py create-build-directory `
+            --parent "$env:RUNNER_TEMP" --parent "$env:LOCALAPPDATA"
+          if ($LASTEXITCODE -ne 0) { throw "A fresh engine build directory with at least 40 GiB free is required." }
+          $engineDirectory = ($selectionText -join "`n" | ConvertFrom-Json).path
+          "USQUE_FLUTTER_ENGINE_ROOT=$engineDirectory" | Out-File -FilePath $env:GITHUB_ENV -Append
+          $runEngineTests = "${{ matrix.flutter_arch }}" -eq "x64"
+          & ./tool/build_flutter_windows_engine.ps1 `
+            -Architecture "${{ matrix.flutter_arch }}" `
+            -BuildDirectory $engineDirectory -Jobs 2 -RunTests:$runEngineTests
+
       - name: Build Flutter Windows Release
         working-directory: apps/usque_gui
         shell: pwsh
         run: |
-          flutter --suppress-analytics pub get --enforce-lockfile
+          $engineSource = Join-Path $env:USQUE_FLUTTER_ENGINE_ROOT "flutter/engine/src"
+          $engineRecipe = Get-Content ../../tool/flutter_windows_engine_manifest.json -Raw | ConvertFrom-Json
+          $localEngine = $engineRecipe.architectures."${{ matrix.flutter_arch }}"
+          $engineArguments = @("--local-engine-src-path=$engineSource", "--local-engine=$localEngine", "--local-engine-host=$localEngine")
+          flutter --suppress-analytics @engineArguments pub get --enforce-lockfile
+          if ($LASTEXITCODE -ne 0) { throw "Flutter dependency resolution failed." }
           & ../../tool/prepare_windows_plugin_junctions.ps1 -FlutterProject .
           $symbolDirectory = Join-Path $env:RUNNER_TEMP "flutter-symbols-windows-${{ matrix.variant }}"
-          flutter --suppress-analytics build windows --release --no-pub --split-debug-info="$symbolDirectory"
+          flutter --suppress-analytics @engineArguments build windows --release --no-pub --split-debug-info="$symbolDirectory"
           if ($LASTEXITCODE -ne 0) { throw "Flutter Windows build failed." }
           cmake --build "build/windows/${{ matrix.flutter_arch }}" --config Release --target usque_proton_verification_test
           if ($LASTEXITCODE -ne 0) { throw "Proton policy fixture build failed." }
@@ -187,6 +207,10 @@ jobs:
             --version $version --source-commit $sourceCommit `
             --platform windows --kind windows --architecture "windows-${{ matrix.flutter_arch }}"
           if ($LASTEXITCODE -ne 0) { throw "Flutter symbol validation failed." }
+          $engineSymbols = Join-Path $env:RUNNER_TEMP "flutter-symbol-archives/windows-engine-${{ matrix.variant }}"
+          New-Item -ItemType Directory -Path $engineSymbols -Force | Out-Null
+          Copy-Item (Join-Path $env:USQUE_FLUTTER_ENGINE_ROOT "engine-build-${{ matrix.flutter_arch }}.json") $engineSymbols
+          Copy-Item (Join-Path $engineSource "out/$localEngine/flutter_windows.dll.pdb") $engineSymbols
 
       # These tests use fake engines and inert shell fixtures, not a live VPN.
       - name: Run Windows runner and shell integration tests
@@ -207,6 +231,11 @@ jobs:
           $directory = (
             Resolve-Path "apps/usque_gui/build/windows/${{ matrix.flutter_arch }}/runner/Release"
           ).Path
+          python tool/flutter_windows_engine.py verify-staged `
+            --dll (Join-Path $directory "flutter_windows.dll") `
+            --build-manifest (Join-Path $env:USQUE_FLUTTER_ENGINE_ROOT "engine-build-${{ matrix.flutter_arch }}.json") `
+            --architecture "${{ matrix.flutter_arch }}"
+          if ($LASTEXITCODE -ne 0) { throw "Application does not contain the verified patched engine." }
           Copy-Item `
             "target/${{ matrix.rust_target }}/release/usque-engine.exe" `
             $directory

@@ -1,0 +1,197 @@
+--- a/engine/src/flutter/shell/platform/windows/task_runner_window.h
++++ b/engine/src/flutter/shell/platform/windows/task_runner_window.h
+@@ -21,6 +21,7 @@
+ 
+ namespace testing {
+ class TestTaskRunnerWindow;
++class TestTimerThread;
+ }
+ 
+ // Background timer thread. Necessary because neither SetTimer nor
+@@ -42,6 +43,8 @@
+       std::chrono::time_point<std::chrono::high_resolution_clock> time_point);
+ 
+  private:
++  friend class testing::TestTimerThread;
++
+   void TimerThreadMain();
+ 
+   std::mutex mutex_;
+--- a/engine/src/flutter/shell/platform/windows/task_runner_unittests.cc
++++ b/engine/src/flutter/shell/platform/windows/task_runner_unittests.cc
+@@ -6,6 +6,11 @@
+ 
+ #include <atomic>
+ #include <chrono>
++#include <condition_variable>
++#include <memory>
++#include <mutex>
++#include <thread>
++#include <vector>
+ 
+ #include "flutter/fml/macros.h"
+ #include "flutter/shell/platform/windows/task_runner_window.h"
+@@ -116,6 +121,128 @@
+   timer_thread.Stop();
+ }
+ 
++namespace {
++using TimerDeadlineClock = std::chrono::high_resolution_clock;
++using TimerDeadlineTime = TimerDeadlineClock::time_point;
++
++struct TimerDeadlineGate {
++  std::mutex mutex;
++  std::condition_variable cv;
++  std::vector<TimerDeadlineTime> times;
++  size_t calls = 0;
++  bool released = false;
++  bool timed_out = false;
++
++  void Run() {
++    std::unique_lock<std::mutex> lock(mutex);
++    ++calls;
++    if (times.size() < 2) {
++      times.push_back(TimerDeadlineClock::now());
++    }
++    cv.notify_all();
++    if (calls == 1 &&
++        !cv.wait_for(lock, std::chrono::seconds(3), [&] { return released; })) {
++      timed_out = true;
++    }
++  }
++
++  bool WaitFor(size_t expected) {
++    std::unique_lock<std::mutex> lock(mutex);
++    return cv.wait_for(lock, std::chrono::seconds(3),
++                       [&] { return calls >= expected; });
++  }
++
++  void Release() {
++    std::lock_guard<std::mutex> lock(mutex);
++    released = true;
++    cv.notify_all();
++  }
++};
++}  // namespace
++
++// Only observes callback state under the same lock used by Stop. This makes
++// the lifetime test independent of whether the stopping thread ran promptly.
++class TestTimerThread : public TimerThread {
++ public:
++  using TimerThread::TimerThread;
++
++  bool HasCallback() {
++    std::lock_guard<std::mutex> lock(mutex_);
++    return callback_ != nullptr;
++  }
++};
++
++TEST(TaskRunnerTest, TimerThreadRearmDuringCallbackKeepsEarliestFutureDeadline) {
++  TimerDeadlineGate gate;
++  TimerThread timer([&] { gate.Run(); });
++  timer.Start();
++  timer.ScheduleAt(TimerDeadlineClock::now());
++  if (!gate.WaitFor(1)) {
++    gate.Release();
++    timer.Stop();
++    FAIL() << "Callback did not reach the bounded gate";
++  }
++
++  const auto now = TimerDeadlineClock::now();
++  const auto earliest = now + std::chrono::milliseconds(200);
++  // All calls return while callback1 is still blocked outside TimerThread's
++  // mutex. Neither the old expiry nor a later request may replace earliest.
++  timer.ScheduleAt(now + std::chrono::seconds(10));
++  timer.ScheduleAt(earliest);
++  timer.ScheduleAt(now + std::chrono::seconds(20));
++  gate.Release();
++  const bool fired = gate.WaitFor(2);
++  timer.Stop();
++
++  ASSERT_TRUE(fired);
++  ASSERT_EQ(gate.calls, 2u);
++  ASSERT_EQ(gate.times.size(), 2u);
++  EXPECT_FALSE(gate.timed_out);
++  EXPECT_GE(gate.times[1], earliest);
++}
++
++TEST(TaskRunnerTest, TimerThreadStopKeepsDispatchedCallbackAlive) {
++  TimerDeadlineGate gate;
++  auto lifetime = std::make_shared<int>(42);
++  std::weak_ptr<int> witness = lifetime;
++  TestTimerThread timer([keep = lifetime, &gate] {
++    // The captured object remains part of the callable while gate.Run blocks.
++    // Do not dereference it after the gate; the unpatched code may destroy it.
++    (void)keep;
++    gate.Run();
++  });
++  lifetime.reset();
++  timer.Start();
++  timer.ScheduleAt(TimerDeadlineClock::now());
++  if (!gate.WaitFor(1)) {
++    gate.Release();
++    timer.Stop();
++    FAIL() << "Callback did not reach the bounded gate";
++  }
++
++  std::atomic_bool stopped = false;
++  std::thread stopper([&] {
++    timer.Stop();
++    stopped.store(true, std::memory_order_release);
++  });
++  const auto limit = TimerDeadlineClock::now() + std::chrono::seconds(2);
++  while (timer.HasCallback() && TimerDeadlineClock::now() < limit) {
++    std::this_thread::sleep_for(std::chrono::milliseconds(1));
++  }
++  const bool member_cleared = !timer.HasCallback();
++  const bool capture_alive = !witness.expired();
++  const bool stop_waited = !stopped.load(std::memory_order_acquire);
++  gate.Release();
++  stopper.join();
++
++  EXPECT_TRUE(member_cleared);
++  EXPECT_TRUE(capture_alive);
++  EXPECT_TRUE(stop_waited);
++  EXPECT_TRUE(witness.expired());
++  EXPECT_FALSE(gate.timed_out);
++  EXPECT_EQ(gate.calls, 1u);
++}
++
+ class TestTaskRunnerWindow : public TaskRunnerWindow {
+  public:
+   TestTaskRunnerWindow() : TaskRunnerWindow() {}
+--- a/engine/src/flutter/shell/platform/windows/flutter_windows_engine_unittests.cc
++++ b/engine/src/flutter/shell/platform/windows/flutter_windows_engine_unittests.cc
+@@ -66,22 +66,27 @@
+ 
+ TEST_F(FlutterWindowsEngineTest, TaskRunnerDelayedTask) {
+   bool finished = false;
++  fml::TimePoint fired_at;
+   auto runner = std::make_unique<TaskRunner>(
+       [] {
+         return static_cast<uint64_t>(
+             fml::TimePoint::Now().ToEpochDelta().ToNanoseconds());
+       },
+-      [&](const FlutterTask*) { finished = true; });
++      [&](const FlutterTask*) {
++        fired_at = fml::TimePoint::Now();
++        finished = true;
++      });
++  const auto start = fml::TimePoint::Now();
++  const auto target = start + fml::TimeDelta::FromMilliseconds(50);
+   runner->PostFlutterTask(
+       FlutterTask{},
+-      static_cast<uint64_t>((fml::TimePoint::Now().ToEpochDelta() +
+-                             fml::TimeDelta::FromMilliseconds(50))
+-                                .ToNanoseconds()));
+-  auto start = fml::TimePoint::Now();
++      static_cast<uint64_t>(target.ToEpochDelta().ToNanoseconds()));
+   while (!finished) {
+     PumpMessage();
+   }
+   auto duration = fml::TimePoint::Now() - start;
++  EXPECT_GE(fired_at.ToEpochDelta().ToNanoseconds(),
++            target.ToEpochDelta().ToNanoseconds());
+   EXPECT_GE(duration, fml::TimeDelta::FromMilliseconds(50));
+ }
+ 
