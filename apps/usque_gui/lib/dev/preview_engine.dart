@@ -368,6 +368,8 @@ class PreviewEngine
   @override
   Future<void> setCloseToTray(bool enabled) async => _unavailable();
   @override
+  Future<void> setHideFromRecents(bool enabled) async => _unavailable();
+  @override
   Future<void> requestAddQuickSettingsTile() async => _unavailable();
   @override
   Future<PerAppProxySettings> perAppProxy() async =>

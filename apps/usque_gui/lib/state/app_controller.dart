@@ -180,6 +180,58 @@ class AppController extends ChangeNotifier {
   ];
 
   final EngineClient _engine;
+  final Set<AsyncCallback> _controlOperationReleases = {};
+
+  /// Returns a release callback only on platforms with a bound-service owner.
+  Future<AsyncCallback?> acquireControlOperation() async {
+    final engine = _engine;
+    if (engine is! ControlOperationClient) return null;
+    final control = engine as ControlOperationClient;
+    if (_disposed) {
+      throw const EngineException('ENGINE_IPC_CLOSED', 'The UI is closed.');
+    }
+    final token = await control.beginControlOperation();
+    if (_disposed) {
+      await control.endControlOperation(token);
+      throw const EngineException('ENGINE_IPC_CLOSED', 'The UI is closed.');
+    }
+    var released = false;
+    Future<void>? releasing;
+    late final AsyncCallback release;
+    release = () {
+      if (released) return Future.value();
+      return releasing ??= () async {
+        try {
+          await control.endControlOperation(token);
+          released = true;
+          _controlOperationReleases.remove(release);
+        } finally {
+          releasing = null;
+        }
+      }();
+    };
+    _controlOperationReleases.add(release);
+    return release;
+  }
+
+  Future<T> withControlOperation<T>(Future<T> Function() work) async {
+    final release = await acquireControlOperation();
+    try {
+      return await work();
+    } finally {
+      await releaseControlOperation(release);
+    }
+  }
+
+  Future<void> releaseControlOperation(AsyncCallback? release) async {
+    try {
+      await release?.call();
+    } on Object {
+      // acquireControlOperation retains this callback for disposal. Local
+      // cleanup failure must not replace an accepted operation result.
+    }
+  }
+
   late final ScenariosController scenarios;
   ProfilesDestination? _profilesDestination;
 
@@ -366,6 +418,17 @@ class AppController extends ChangeNotifier {
   bool startOnBoot = false;
   bool closeToTray = true;
   bool trayAvailable = true;
+  bool hideFromRecents = false;
+  bool hideFromRecentsKnown = false;
+  bool hideFromRecentsBusy = false;
+  bool recentsSettingsError = false;
+  Future<void>? _recentsWork;
+  bool get canRefreshRecents =>
+      defaultTargetPlatform == TargetPlatform.android &&
+      !_clearing &&
+      !_disposed &&
+      !hideFromRecentsBusy;
+  bool get canSetHideFromRecents => canRefreshRecents && hideFromRecentsKnown;
   bool get supportsLinuxServiceMaintenance =>
       defaultTargetPlatform == TargetPlatform.linux &&
       _engine is LinuxServiceClient;
@@ -405,13 +468,16 @@ class AppController extends ChangeNotifier {
     _snapshotRevision++;
     final becameConnected = !_snapshot.isConnected && value.isConnected;
     _snapshot = value;
+    if (value.isConnected && _lastErrorFromConnection) lastError = null;
     if (becameConnected && initialized) unawaited(maintainAdsRules());
     if (value.phase == ConnectionPhase.error &&
         (value.errorCode != null || value.warning?.isNotEmpty == true)) {
-      lastError = userFacingFailure(
-        strings,
-        code: value.errorCode,
-        details: value.warning,
+      _setConnectionError(
+        userFacingFailure(
+          strings,
+          code: value.errorCode,
+          details: value.warning,
+        ),
       );
     }
     quality.updateConnection(value, observeQuality: observeQuality);
@@ -442,7 +508,19 @@ class AppController extends ChangeNotifier {
     AppSection.proxy,
     AppSection.settings,
   ];
-  String? lastError;
+  String? _lastError;
+  bool _lastErrorFromConnection = false;
+  String? get lastError => _lastError;
+  set lastError(String? value) {
+    _lastError = value;
+    _lastErrorFromConnection = false;
+  }
+
+  void _setConnectionError(String message) {
+    lastError = message;
+    _lastErrorFromConnection = true;
+  }
+
   String? lastNotice;
   bool snapshotStreamDegraded = false;
   bool _userDisconnectedThisSession = false;
@@ -723,8 +801,14 @@ class AppController extends ChangeNotifier {
       startOnBoot = platformPreferences.startOnBoot;
       closeToTray = platformPreferences.closeToTray;
       trayAvailable = platformPreferences.trayAvailable;
+      hideFromRecents = platformPreferences.hideFromRecents;
+      hideFromRecentsKnown = true;
     } on Object {
-      // Native shell preferences are optional in unsupported test hosts.
+      if (_disposed || dataGeneration != _dataGeneration) return;
+      if (defaultTargetPlatform == TargetPlatform.android) {
+        recentsSettingsError = true;
+        lastError = strings.get('hide_recents_failed');
+      }
     }
     try {
       final perApp = await _engine.perAppProxy();
@@ -1491,27 +1575,30 @@ class AppController extends ChangeNotifier {
 
     snapshot = const EngineSnapshot(phase: ConnectionPhase.preparing);
     _notifyListeners();
-    final success = await _run(() async {
-      await _ensureConnectionInputs();
-      if (intent != _connectionIntent) return;
-      await flushProfileWrites();
-      if (!await scenarios.synchronizeActivation()) {
-        throw EngineException(
-          'SCENARIO_RESULT_UNKNOWN',
-          strings.get('scenario_confirm_before_connect'),
-        );
-      }
-      if (intent != _connectionIntent) return;
-      if (identityState(activeProfile.id) != ProfileIdentityState.ready) {
-        throw const EngineException(
-          'IDENTITY_SETUP_REQUIRED',
-          'This profile needs a valid Consumer WARP identity before it can connect.',
-        );
-      }
-      _requireDataPlaneCapability(activeProfile);
-      final next = await _engine.connect(activeProfile);
-      if (intent == _connectionIntent) snapshot = next;
-    }, connectionIntent: intent);
+    final success = await _run(
+      () => withControlOperation(() async {
+        await _ensureConnectionInputs();
+        if (intent != _connectionIntent) return;
+        await flushProfileWrites();
+        if (!await scenarios.synchronizeActivation()) {
+          throw EngineException(
+            'SCENARIO_RESULT_UNKNOWN',
+            strings.get('scenario_confirm_before_connect'),
+          );
+        }
+        if (intent != _connectionIntent) return;
+        if (identityState(activeProfile.id) != ProfileIdentityState.ready) {
+          throw const EngineException(
+            'IDENTITY_SETUP_REQUIRED',
+            'This profile needs a valid Consumer WARP identity before it can connect.',
+          );
+        }
+        _requireDataPlaneCapability(activeProfile);
+        final next = await _engine.connect(activeProfile);
+        if (intent == _connectionIntent) snapshot = next;
+      }),
+      connectionIntent: intent,
+    );
     if (success && (snapshot.isConnected || snapshot.isTransitional)) {
       if (!_engine.supportsSnapshotEvents || snapshotStreamDegraded) {
         _startPolling(force: snapshotStreamDegraded);
@@ -1521,20 +1608,23 @@ class AppController extends ChangeNotifier {
 
   Future<void> retry() async {
     final intent = ++_connectionIntent;
-    final success = await _run(() async {
-      await _ensureConnectionInputs();
-      await flushProfileWrites();
-      if (!await scenarios.synchronizeActivation()) {
-        throw EngineException(
-          'SCENARIO_RESULT_UNKNOWN',
-          strings.get('scenario_confirm_before_connect'),
-        );
-      }
-      if (intent != _connectionIntent) return;
-      _requireDataPlaneCapability(activeProfile);
-      final next = await _engine.retry();
-      if (intent == _connectionIntent) snapshot = next;
-    }, connectionIntent: intent);
+    final success = await _run(
+      () => withControlOperation(() async {
+        await _ensureConnectionInputs();
+        await flushProfileWrites();
+        if (!await scenarios.synchronizeActivation()) {
+          throw EngineException(
+            'SCENARIO_RESULT_UNKNOWN',
+            strings.get('scenario_confirm_before_connect'),
+          );
+        }
+        if (intent != _connectionIntent) return;
+        _requireDataPlaneCapability(activeProfile);
+        final next = await _engine.retry();
+        if (intent == _connectionIntent) snapshot = next;
+      }),
+      connectionIntent: intent,
+    );
     if (success && (snapshot.isConnected || snapshot.isTransitional)) {
       if (!_engine.supportsSnapshotEvents || snapshotStreamDegraded) {
         _startPolling(force: snapshotStreamDegraded);
@@ -2258,6 +2348,7 @@ class AppController extends ChangeNotifier {
       success = await _run(
         () async {
           await _onboardingPreferenceWrites;
+          await _recentsWork;
           await _engine.clearAllData(confirmed: true);
           final preferences =
               _preferences ?? await SharedPreferences.getInstance();
@@ -2281,6 +2372,9 @@ class AppController extends ChangeNotifier {
           _onboardingSubmissionToken = null;
           _onboardingPollTimer?.cancel();
           updateChecksEnabled = true;
+          hideFromRecents = false;
+          hideFromRecentsKnown = true;
+          recentsSettingsError = false;
           themePreference = ThemePreference.system;
           localePreference = LocalePreference.system;
           section = AppSection.home;
@@ -2345,6 +2439,13 @@ class AppController extends ChangeNotifier {
           await networkSettings.refresh();
           await diagnostics.restore(silent: true);
           await refreshSnapshot(silent: true);
+          // A failed clear can still have changed native UI preferences. Do not
+          // leave a value confirmed before the pending write/reset completed.
+          if (defaultTargetPlatform == TargetPlatform.android) {
+            final clearError = lastError;
+            await refreshHideFromRecents();
+            if (clearError != null) lastError = clearError;
+          }
         }
       }
     }
@@ -2493,7 +2594,11 @@ class AppController extends ChangeNotifier {
       }
       // Preserve exception-specific context after the snapshot setter maps its
       // structured code, including timeouts and localized adapter cleanup.
-      lastError = message;
+      if (affectsConnection && connectionIntent != null) {
+        _setConnectionError(message);
+      } else {
+        lastError = message;
+      }
       return false;
     } finally {
       if (generation == _dataGeneration) _activeOperations -= 1;
@@ -2573,6 +2678,56 @@ class AppController extends ChangeNotifier {
       startOnBoot = previous;
       lastError = userFacingError(strings, error);
       _notifyListeners();
+    }
+  }
+
+  Future<void> refreshHideFromRecents() {
+    if (!canRefreshRecents) return Future<void>.value();
+    return _recentsWork = _changeRecentsVisibility(null);
+  }
+
+  Future<void> setHideFromRecents(bool value) {
+    if (!canSetHideFromRecents) return Future<void>.value();
+    return _recentsWork = _changeRecentsVisibility(value);
+  }
+
+  Future<void> _changeRecentsVisibility(bool? value) async {
+    final generation = _dataGeneration;
+    hideFromRecentsBusy = true;
+    recentsSettingsError = false;
+    _notifyListeners();
+    try {
+      if (value == null) {
+        final preferences = await _engine.platformPreferences();
+        if (_disposed || generation != _dataGeneration) return;
+        hideFromRecents = preferences.hideFromRecents;
+      } else {
+        await _engine.setHideFromRecents(value);
+        if (_disposed || generation != _dataGeneration) return;
+        hideFromRecents = value;
+      }
+      hideFromRecentsKnown = true;
+      if (lastError == strings.get('hide_recents_failed')) lastError = null;
+    } on Object {
+      if (_disposed || generation != _dataGeneration) return;
+      hideFromRecentsKnown = false;
+      // Restore/read back after a failed or uncertain write. A failed recovery
+      // leaves the switch disabled until the user explicitly retries.
+      if (value != null) {
+        try {
+          final preferences = await _engine.platformPreferences();
+          if (_disposed || generation != _dataGeneration) return;
+          hideFromRecents = preferences.hideFromRecents;
+          hideFromRecentsKnown = true;
+        } on Object {
+          if (_disposed || generation != _dataGeneration) return;
+        }
+      }
+      recentsSettingsError = true;
+      lastError = strings.get('hide_recents_failed');
+    } finally {
+      hideFromRecentsBusy = false;
+      if (!_disposed) _notifyListeners();
     }
   }
 
@@ -3034,6 +3189,7 @@ class AppController extends ChangeNotifier {
       _snapshotSubscriptionGeneration++;
       unawaited(_cancelSnapshotSubscription());
     } else if (initialized) {
+      unawaited(refreshHideFromRecents());
       if (_engine.supportsSnapshotEvents) {
         unawaited(_subscribeToSnapshotEvents());
       }
@@ -3186,7 +3342,7 @@ class AppController extends ChangeNotifier {
     }
     snapshot = next;
     if (errorChanged) {
-      lastError = nextError;
+      _setConnectionError(nextError);
     }
     _notifyListeners();
   }
@@ -3257,7 +3413,18 @@ class AppController extends ChangeNotifier {
     quality.dispose();
     scenarios.dispose();
     networkSettings.dispose();
-    unawaited(networkSettings.flushed.whenComplete(_engine.dispose));
+    final controlReleases = _controlOperationReleases.toList().map(
+      (release) => release().catchError((Object _) {
+        // Activity destruction independently releases every native owner. A
+        // disappearing MethodChannel cannot acknowledge additional cleanup.
+      }),
+    );
+    unawaited(
+      Future.wait<void>([
+        networkSettings.flushed,
+        ...controlReleases,
+      ]).whenComplete(_engine.dispose),
+    );
     super.dispose();
   }
 }

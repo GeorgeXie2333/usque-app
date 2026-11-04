@@ -243,6 +243,40 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         onChanged: controller.setStartOnBoot,
                       ),
                     ),
+                    if (android)
+                      ContentSection(
+                        padding: RowInsets.tile,
+                        children: [
+                          SwitchListTile(
+                            key: const ValueKey('settings-hide-recents'),
+                            contentPadding: EdgeInsets.zero,
+                            secondary: const Icon(LucideIcons.layers3),
+                            title: Text(strings.get('hide_from_recents')),
+                            subtitle: Text(
+                              controller.recentsSettingsError
+                                  ? strings.get('hide_recents_failed')
+                                  : !controller.hideFromRecentsKnown
+                                  ? strings.get('hide_recents_loading')
+                                  : strings.get('hide_from_recents_help'),
+                            ),
+                            value: controller.hideFromRecents,
+                            onChanged: controller.canSetHideFromRecents
+                                ? controller.setHideFromRecents
+                                : null,
+                          ),
+                          if (controller.recentsSettingsError)
+                            Align(
+                              alignment: AlignmentDirectional.centerEnd,
+                              child: TextButton(
+                                key: const ValueKey('settings-recents-retry'),
+                                onPressed: controller.canRefreshRecents
+                                    ? controller.refreshHideFromRecents
+                                    : null,
+                                child: Text(strings.get('retry')),
+                              ),
+                            ),
+                        ],
+                      ),
                     if (desktop)
                       ContentSection(
                         padding: RowInsets.tile,
@@ -344,7 +378,9 @@ Widget? _networkSettingsProblem(AppController controller) {
         Align(
           alignment: AlignmentDirectional.centerEnd,
           child: OutlinedButton(
-            onPressed: settings.refreshing ? null : settings.refresh,
+            onPressed: settings.refreshing
+                ? null
+                : () => settings.refresh(requireRuntime: true),
             child: Text(controller.strings.get('settings_refresh')),
           ),
         ),

@@ -35,3 +35,9 @@ third_party/smoltcp-0.14.0/LICENSE-0BSD.txt whitespace=-blank-at-eof
 # Preserve their bytes when staging and checking out on any host.
 third_party/lz4-1.10.0/lib/dll/example/fullbench-dll.sln -text
 third_party/lz4-1.10.0/lib/dll/example/fullbench-dll.vcxproj -text
+
+# Unified patch context represents an empty source line with one space.
+tool/fixtures/flutter_windows_timer/candidate.patch whitespace=-blank-at-eol
+# These patches also end with a required empty-source-line context record.
+tool/fixtures/flutter_windows_engine/timer-unittests.patch whitespace=-blank-at-eol,-blank-at-eof
+tool/fixtures/flutter_windows_engine/windows-build-tools.patch whitespace=-blank-at-eol,-blank-at-eof

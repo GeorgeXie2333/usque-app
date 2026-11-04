@@ -624,17 +624,20 @@ class PlatformPreferences {
     this.startOnBoot = false,
     this.closeToTray = true,
     this.trayAvailable = true,
+    this.hideFromRecents = false,
   });
 
   final bool startOnBoot;
   final bool closeToTray;
   final bool trayAvailable;
+  final bool hideFromRecents;
 
   factory PlatformPreferences.fromMap(Map<Object?, Object?> map) {
     return PlatformPreferences(
       startOnBoot: map['start_on_boot'] as bool? ?? false,
       closeToTray: map['close_to_tray'] as bool? ?? true,
       trayAvailable: map['tray_available'] as bool? ?? true,
+      hideFromRecents: map['hide_from_recents'] as bool? ?? false,
     );
   }
 }

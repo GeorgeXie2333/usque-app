@@ -237,7 +237,7 @@ class _HomeDesktopControlsState extends State<HomeDesktopControls> {
       _saveFailure = null;
     });
     try {
-      await widget.controller.networkSettings.refresh();
+      await widget.controller.networkSettings.refresh(requireRuntime: true);
     } finally {
       if (mounted) setState(() => _saving = false);
     }
