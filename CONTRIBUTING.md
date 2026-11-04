@@ -514,6 +514,11 @@ For Windows Proton verification runner changes, additionally build and run its
 pure native policy fixture after the complete sequence above. From the
 repository root:
 
+Use the same CMake executable reported by Flutter's verbose Windows build, and
+put its directory on PATH for the fixture commands. With Visual Studio 2026,
+the global Android SDK CMake 3.22 cannot load the Visual Studio 18 generator;
+Flutter selects Visual Studio's bundled CMake instead.
+
 ```powershell
 cmake --build apps/usque_gui/build/windows/x64 --config Release --target usque_proton_verification_test
 & ./apps/usque_gui/build/windows/x64/tests/Release/usque_proton_verification_test.exe
@@ -567,6 +572,25 @@ Use `-Phase Prepare` and then `-Phase Build` to separate dependency preparation
 from compilation. A changed recipe requires a fresh directory. Pass `-Python`,
 `-WindowsSdkRoot`, or `-VisualStudioDirectory` for verified local prerequisites;
 these overrides do not install or reconfigure the system.
+
+For repeated local builds of the same recipe, retain that owned directory and
+run `-Phase Build` with the same architecture, Python executable, prerequisite
+paths and test requirements. Ninja can reuse its outputs; do not recreate the
+directory or repeat dependency preparation for ordinary application changes.
+
+Compile-only PR builds can reuse the complete attested engine dependency from
+[the engine workflow](.github/workflows/flutter-engine.yml). Its exact reuse key
+covers the recipe, patches, build/packaging tools and regression/producer code.
+Missing or expired dependencies fall back to fresh source builds; integrity or
+provenance failures fail explicitly. Official releases retain fresh source
+compilation. Package completeness, trust, retention and bootstrap behavior are
+described in [engine reuse](docs/FLUTTER_WINDOWS_TIMER.md#compile-only-engine-reuse).
+Engine packaging changes require the same checks as engine integration changes,
+including these deterministic package tests:
+
+```shell
+python -m unittest discover -s tool -p "test_flutter_windows_engine_package.py" -v
+```
 
 Plan at least 40 GiB of free space for a fresh source build with x64 engine tests.
 The Windows workflows use `create-build-directory` in

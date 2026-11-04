@@ -3,10 +3,11 @@
 The repository retains the dependency repair, standalone regression tests, and
 a Windows engine source-build recipe for
 [#142](https://github.com/GeorgeXie2333/usque-app/issues/142). Windows build and
-release workflows compile this pinned engine and verify that the application
-contains its exact DLL. The helper builds in a separate directory and does not
-replace an installed Flutter SDK. A source patch or successful compile alone is
-not evidence that the application regression is resolved.
+release workflows verify that the application contains this pinned engine's
+exact DLL. Compile-only application builds can reuse a verified engine package;
+release workflows compile fresh sources. The helper builds in a separate
+directory and does not replace an installed Flutter SDK. A source patch or
+successful compile alone is not evidence that the application regression is resolved.
 
 ## Reproduced scheduling defect
 
@@ -124,10 +125,11 @@ framework, engine, and depot_tools revisions, each patch hash, and the exact
 patched source contents. The build helper checks those identities before GN and
 Ninja. Fresh dependency synchronization resolves the pinned DEPS and CIPD inputs;
 a resumed local `Build` checks the preparation receipt and configuration, not
-every dependency working tree recursively. Release workflows prepare fresh
-checkouts. The separate engine checkout contains the timer repair, two engine GoogleTest
-regressions, and small build-tool adjustments for Windows SDK 26100 and the
-Visual Studio 2026 DIA DLL name. These adjustments do not change timer behavior.
+every dependency working tree recursively. Release workflows and the trusted
+engine-package producer prepare fresh checkouts. The separate engine checkout
+contains the timer repair, two engine GoogleTest regressions, and small
+build-tool adjustments for Windows SDK 26100 and the Visual Studio 2026 DIA DLL
+name. These adjustments do not change timer behavior.
 The existing delayed-task test derives its deadline and elapsed measurement from
 one start timestamp and checks the callback-entry timestamp against that exact
 deadline. Its strict 50 ms lower bound is retained.
@@ -166,16 +168,62 @@ platform files, `sky_engine`, font tools, and tessellator needed by the framewor
 required output hashes, DLL architecture, and engine test status. Assembly checks
 the actual staged DLL against that record before signing. The build record and
 matching engine PDB join the existing separate Windows symbols artifact; they
-are not added to the installable payload. Workflow builds use fresh compiled
-outputs; no uploaded binary replaces this provenance. Standard release signing
-and approval rules continue to apply. The engine build step receives no release
-PFX or password.
+are not added to the installable payload. Release workflows use fresh compiled
+outputs; no uploaded binary replaces release source-build provenance. Standard
+release signing and approval rules continue to apply. The engine build step
+receives no release PFX or password.
 
 The full x64 engine test configuration uses `host_debug_test`; the helper invokes
 the engine's own `flutter/testing/run_tests.py --type engine` after compilation.
 ARM64 compilation is separate from native test execution. The workflow runs
 native application fixtures on its ARM64 runner; this does not imply that the
 x64-only full engine test configuration ran on ARM64.
+
+### Compile-only engine reuse
+
+The [engine workflow](../.github/workflows/flutter-engine.yml) builds separate
+x64 and ARM64 local-engine packages after engine-input changes reach `main` or
+`dev`. It can also be dispatched on either branch to refresh an expired package.
+It never runs on PR source, receives no release signing material, and does not
+publish an application or an official package. The x64 producer runs the full
+native engine tests; the ARM64 receipt continues to record those tests as
+`not_run`.
+
+The [package helper](../tool/flutter_windows_engine_package.py) computes an exact
+reuse key from the canonical recipe and the checked-in build, packaging,
+regression and producer-workflow code. Patch hashes and pinned SDK/toolchain
+inputs are part of the recipe. Checkout newline differences are normalized in
+the build-code key. Ordinary application commits do not change it. The package
+contains the local-engine headers, C++ wrapper, tools, shader includes, kernel
+files, `sky_engine`, matching prebuilt Dart SDK, license notices, PDB and source-build receipt,
+without dependency checkouts or compiler object trees. All package files are hashed.
+
+[Build](../.github/workflows/build.yml) discovers an exact-name artifact from a
+successful engine-workflow push or dispatch on this repository's `main` or `dev`.
+It pins that immutable artifact ID and checks the download digest, then uses
+`gh attestation verify` to require this repository, exact producer workflow,
+branch, source and signer commit, and a GitHub-hosted runner. Verification
+precedes unpacking or executing any packaged tool. Extraction rejects unsafe
+paths, links, case collisions, excess expansion and incomplete or changed files.
+The full engine receipt, required assets, test status, PDB and architecture are
+checked again. Application/native fixtures and the final staged-DLL check still
+run for each build. The restore receipt records the selected artifact and
+producer identities separately from the current application commit.
+
+If no successful matching package exists, or all matches have expired, Build
+uses its existing fresh source compilation and applicable full engine tests.
+An invalid download, failed provenance check or corrupt package fails the job;
+it never counts as a cache miss. Lookup or download service failures also fail
+explicitly. PRs cannot create trusted engine packages. A changed recipe or build
+tool naturally misses until a trusted producer has built the new input set.
+Artifacts are retained for 90 days; the first build before the new workflow is
+available also follows the source path. Restore/packaging checks are deterministic
+tests, not evidence that a newly introduced hosted producer or consumer has run.
+
+For local engine iteration, keep the owned directory for the same recipe and
+use `-Phase Build` to retain Ninja's incremental outputs and skip dependency
+preparation. A changed recipe still requires a fresh directory. Release builds
+always use their fresh source path and never call the package restore helper.
 
 ## Validation boundary
 

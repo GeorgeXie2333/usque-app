@@ -31,6 +31,10 @@ jobs:
     if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 360
+    permissions:
+      contents: read
+      actions: read
+      attestations: read
     strategy:
       fail-fast: false
       matrix:
@@ -161,20 +165,34 @@ jobs:
             -OutputDirectory (Join-Path $env:RUNNER_TEMP "windows-bootstrapper-${{ matrix.variant }}") `
             -Test
 
-      - name: Build patched Flutter Windows engine from pinned sources
+      - name: Restore verified patched Flutter Windows engine or build from source
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           python tool/flutter_windows_engine.py verify-framework "$env:USQUE_FLUTTER_ROOT"
           if ($LASTEXITCODE -ne 0) { throw "Flutter framework and engine recipe differ." }
-          $selectionText = python tool/flutter_windows_engine.py create-build-directory `
-            --parent "$env:RUNNER_TEMP" --parent "$env:LOCALAPPDATA"
-          if ($LASTEXITCODE -ne 0) { throw "A fresh engine build directory with at least 40 GiB free is required." }
-          $engineDirectory = ($selectionText -join "`n" | ConvertFrom-Json).path
+          $engineDirectory = Join-Path $env:RUNNER_TEMP ("engine-package-" + [Guid]::NewGuid().ToString("N"))
+          $restoreText = python tool/flutter_windows_engine_package.py restore `
+            --architecture "${{ matrix.flutter_arch }}" --destination $engineDirectory
+          if ($LASTEXITCODE -ne 0) { throw "Engine package integrity or provenance validation failed." }
+          $restore = $restoreText -join "`n" | ConvertFrom-Json
+          if ($restore.restored) {
+            "Reused verified engine: artifact $($restore.artifact_id), producer run $($restore.producer_run_id)" |
+              Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          } else {
+            "Engine package unavailable for these inputs; compiling fresh sources and applicable native tests." |
+              Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+            $selectionText = python tool/flutter_windows_engine.py create-build-directory `
+              --parent "$env:RUNNER_TEMP" --parent "$env:LOCALAPPDATA"
+            if ($LASTEXITCODE -ne 0) { throw "A fresh engine build directory with at least 40 GiB free is required." }
+            $engineDirectory = ($selectionText -join "`n" | ConvertFrom-Json).path
+            $runEngineTests = "${{ matrix.flutter_arch }}" -eq "x64"
+            & ./tool/build_flutter_windows_engine.ps1 `
+              -Architecture "${{ matrix.flutter_arch }}" `
+              -BuildDirectory $engineDirectory -Jobs 2 -RunTests:$runEngineTests
+          }
           "USQUE_FLUTTER_ENGINE_ROOT=$engineDirectory" | Out-File -FilePath $env:GITHUB_ENV -Append
-          $runEngineTests = "${{ matrix.flutter_arch }}" -eq "x64"
-          & ./tool/build_flutter_windows_engine.ps1 `
-            -Architecture "${{ matrix.flutter_arch }}" `
-            -BuildDirectory $engineDirectory -Jobs 2 -RunTests:$runEngineTests
 
       - name: Build Flutter Windows Release
         working-directory: apps/usque_gui
