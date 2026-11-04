@@ -418,6 +418,17 @@ class AppController extends ChangeNotifier {
   bool startOnBoot = false;
   bool closeToTray = true;
   bool trayAvailable = true;
+  bool hideFromRecents = false;
+  bool hideFromRecentsKnown = false;
+  bool hideFromRecentsBusy = false;
+  bool recentsSettingsError = false;
+  Future<void>? _recentsWork;
+  bool get canRefreshRecents =>
+      defaultTargetPlatform == TargetPlatform.android &&
+      !_clearing &&
+      !_disposed &&
+      !hideFromRecentsBusy;
+  bool get canSetHideFromRecents => canRefreshRecents && hideFromRecentsKnown;
   bool get supportsLinuxServiceMaintenance =>
       defaultTargetPlatform == TargetPlatform.linux &&
       _engine is LinuxServiceClient;
@@ -790,8 +801,14 @@ class AppController extends ChangeNotifier {
       startOnBoot = platformPreferences.startOnBoot;
       closeToTray = platformPreferences.closeToTray;
       trayAvailable = platformPreferences.trayAvailable;
+      hideFromRecents = platformPreferences.hideFromRecents;
+      hideFromRecentsKnown = true;
     } on Object {
-      // Native shell preferences are optional in unsupported test hosts.
+      if (_disposed || dataGeneration != _dataGeneration) return;
+      if (defaultTargetPlatform == TargetPlatform.android) {
+        recentsSettingsError = true;
+        lastError = strings.get('hide_recents_failed');
+      }
     }
     try {
       final perApp = await _engine.perAppProxy();
@@ -2331,6 +2348,7 @@ class AppController extends ChangeNotifier {
       success = await _run(
         () async {
           await _onboardingPreferenceWrites;
+          await _recentsWork;
           await _engine.clearAllData(confirmed: true);
           final preferences =
               _preferences ?? await SharedPreferences.getInstance();
@@ -2354,6 +2372,9 @@ class AppController extends ChangeNotifier {
           _onboardingSubmissionToken = null;
           _onboardingPollTimer?.cancel();
           updateChecksEnabled = true;
+          hideFromRecents = false;
+          hideFromRecentsKnown = true;
+          recentsSettingsError = false;
           themePreference = ThemePreference.system;
           localePreference = LocalePreference.system;
           section = AppSection.home;
@@ -2418,6 +2439,13 @@ class AppController extends ChangeNotifier {
           await networkSettings.refresh();
           await diagnostics.restore(silent: true);
           await refreshSnapshot(silent: true);
+          // A failed clear can still have changed native UI preferences. Do not
+          // leave a value confirmed before the pending write/reset completed.
+          if (defaultTargetPlatform == TargetPlatform.android) {
+            final clearError = lastError;
+            await refreshHideFromRecents();
+            if (clearError != null) lastError = clearError;
+          }
         }
       }
     }
@@ -2650,6 +2678,56 @@ class AppController extends ChangeNotifier {
       startOnBoot = previous;
       lastError = userFacingError(strings, error);
       _notifyListeners();
+    }
+  }
+
+  Future<void> refreshHideFromRecents() {
+    if (!canRefreshRecents) return Future<void>.value();
+    return _recentsWork = _changeRecentsVisibility(null);
+  }
+
+  Future<void> setHideFromRecents(bool value) {
+    if (!canSetHideFromRecents) return Future<void>.value();
+    return _recentsWork = _changeRecentsVisibility(value);
+  }
+
+  Future<void> _changeRecentsVisibility(bool? value) async {
+    final generation = _dataGeneration;
+    hideFromRecentsBusy = true;
+    recentsSettingsError = false;
+    _notifyListeners();
+    try {
+      if (value == null) {
+        final preferences = await _engine.platformPreferences();
+        if (_disposed || generation != _dataGeneration) return;
+        hideFromRecents = preferences.hideFromRecents;
+      } else {
+        await _engine.setHideFromRecents(value);
+        if (_disposed || generation != _dataGeneration) return;
+        hideFromRecents = value;
+      }
+      hideFromRecentsKnown = true;
+      if (lastError == strings.get('hide_recents_failed')) lastError = null;
+    } on Object {
+      if (_disposed || generation != _dataGeneration) return;
+      hideFromRecentsKnown = false;
+      // Restore/read back after a failed or uncertain write. A failed recovery
+      // leaves the switch disabled until the user explicitly retries.
+      if (value != null) {
+        try {
+          final preferences = await _engine.platformPreferences();
+          if (_disposed || generation != _dataGeneration) return;
+          hideFromRecents = preferences.hideFromRecents;
+          hideFromRecentsKnown = true;
+        } on Object {
+          if (_disposed || generation != _dataGeneration) return;
+        }
+      }
+      recentsSettingsError = true;
+      lastError = strings.get('hide_recents_failed');
+    } finally {
+      hideFromRecentsBusy = false;
+      if (!_disposed) _notifyListeners();
     }
   }
 
@@ -3111,6 +3189,7 @@ class AppController extends ChangeNotifier {
       _snapshotSubscriptionGeneration++;
       unawaited(_cancelSnapshotSubscription());
     } else if (initialized) {
+      unawaited(refreshHideFromRecents());
       if (_engine.supportsSnapshotEvents) {
         unawaited(_subscribeToSnapshotEvents());
       }

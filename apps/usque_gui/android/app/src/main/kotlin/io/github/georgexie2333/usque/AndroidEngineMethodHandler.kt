@@ -128,6 +128,10 @@ internal class AndroidEngineMethodHandler(
 
         fun setStartOnBoot(enabled: Boolean)
 
+        fun setHideFromRecents(enabled: Boolean)
+
+        fun restoreRecentsVisibility()
+
         fun requestAddQuickSettingsTile(result: MethodChannel.Result)
 
         fun openAlwaysOnVpnSettings()
@@ -656,7 +660,25 @@ internal class AndroidEngineMethodHandler(
             }
 
             "platformPreferences" -> {
-                result.success(activityCommands.platformPreferences())
+                try {
+                    result.success(activityCommands.platformPreferences())
+                } catch (_: Exception) {
+                    result.error("RECENTS_SETTINGS_FAILED", "UI preferences could not be confirmed.", null)
+                }
+            }
+
+            "setHideFromRecents" -> {
+                val enabled = (call.arguments as? Map<*, *>)?.get("enabled") as? Boolean
+                if (enabled == null) {
+                    result.error("INVALID_ARGUMENT", "The recent tasks setting is malformed.", null)
+                } else {
+                    try {
+                        activityCommands.setHideFromRecents(enabled)
+                        result.success(null)
+                    } catch (_: Exception) {
+                        result.error("RECENTS_SETTINGS_FAILED", "The recent tasks setting could not be saved.", null)
+                    }
+                }
             }
 
             "setStartOnBoot" -> {
@@ -890,7 +912,12 @@ internal class AndroidEngineMethodHandler(
                 mainScheduler.post {
                     if (!controlClient.takeClaimedClearAll(result)) return@post
                     controlClient.resetAfterClear()
-                    result.success(null)
+                    try {
+                        activityCommands.restoreRecentsVisibility()
+                        result.success(null)
+                    } catch (_: Exception) {
+                        result.error("CLEAR_ALL_FAILED", "The recent tasks setting could not be reset.", null)
+                    }
                 }
             } catch (error: Exception) {
                 mainScheduler.post {

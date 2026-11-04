@@ -45,6 +45,53 @@ class AndroidEngineMethodHandlerTest {
     }
 
     @Test
+    fun recentsSettingStaysLocalAndRejectsMalformedArguments() {
+        for (enabled in listOf(true, false)) {
+            val result = RecordingResult()
+            handler.handle(MethodCall("setHideFromRecents", mapOf("enabled" to enabled)), result)
+            assertEquals(enabled, activityCommands.recentsHidden)
+            assertNull(result.errorCode)
+            assertEquals(1, result.completionCount)
+        }
+        for (arguments in listOf(
+            null,
+            true,
+            emptyMap<String, Any>(),
+            mapOf("enabled" to "true"),
+            mapOf("enabled" to 1),
+        )) {
+            val result = RecordingResult()
+            handler.handle(MethodCall("setHideFromRecents", arguments), result)
+            assertEquals("INVALID_ARGUMENT", result.errorCode)
+            assertEquals(1, result.completionCount)
+        }
+        val preferences = RecordingResult()
+        handler.handle(MethodCall("platformPreferences", null), preferences)
+        assertEquals(false, (preferences.successValue as Map<*, *>)["hide_from_recents"])
+        assertEquals(0, activityCommands.connectCount)
+        assertTrue(endpoint.whats.isEmpty())
+        assertTrue(engineBridge.commands.isEmpty())
+    }
+
+    @Test
+    fun recentsFailuresHaveStructuredErrorsWithoutPrivateDetails() {
+        activityCommands.failRecents = true
+        for (call in listOf(
+            MethodCall("setHideFromRecents", mapOf("enabled" to true)),
+            MethodCall("platformPreferences", null),
+        )) {
+            val result = RecordingResult()
+            handler.handle(call, result)
+            assertEquals("RECENTS_SETTINGS_FAILED", result.errorCode)
+            assertNull(result.errorDetails)
+            assertFalse(result.errorMessage.orEmpty().contains("private"))
+            assertEquals(1, result.completionCount)
+        }
+        assertTrue(endpoint.whats.isEmpty())
+        assertTrue(engineBridge.commands.isEmpty())
+    }
+
+    @Test
     fun protonAccountFallbackCapabilityReachesFlutterOnlyWithExplicitNativeSupport() {
         val cases =
             listOf(
@@ -1772,6 +1819,16 @@ class AndroidEngineMethodHandlerTest {
 
     @Test
     fun finishClearAllDataCompletesOnlyWhenStillInFlight() {
+        finishClearWithRecentsReset(false)
+    }
+
+    @Test
+    fun finishClearAllDataReportsFailureWhenTaskVisibilityCannotBeReset() {
+        finishClearWithRecentsReset(true)
+    }
+
+    private fun finishClearWithRecentsReset(failRecentsReset: Boolean) {
+        activityCommands.failRecents = failRecentsReset
         val localScheduler = ImmediateScheduler()
         val localClient =
             VpnControlClient(
@@ -1810,10 +1867,11 @@ class AndroidEngineMethodHandlerTest {
         )
 
         assertEquals(1, wipeResult.completionCount)
-        assertNull(wipeResult.errorCode)
+        assertEquals(if (failRecentsReset) "CLEAR_ALL_FAILED" else null, wipeResult.errorCode)
         assertTrue(identityStore.clearAllCount >= 1)
         assertTrue(engineBridge.commands.any { it.contains("clear_all_data") })
         assertTrue(maintenance.clearCount >= 1)
+        assertEquals(if (failRecentsReset) 0 else 1, activityCommands.restoreRecentsCount)
     }
 
     @Test
@@ -2033,7 +2091,24 @@ class AndroidEngineMethodHandlerTest {
 
         override fun cancelZeroTrustLogin() = Unit
 
-        override fun platformPreferences(): Map<String, Any?> = mapOf("start_on_boot" to false, "close_to_tray" to true)
+        var recentsHidden = false
+        var failRecents = false
+        var restoreRecentsCount = 0
+
+        override fun platformPreferences(): Map<String, Any?> {
+            if (failRecents) throw IOException("private path")
+            return mapOf("start_on_boot" to false, "close_to_tray" to true, "hide_from_recents" to recentsHidden)
+        }
+
+        override fun setHideFromRecents(enabled: Boolean) {
+            if (failRecents) throw IOException("private path")
+            recentsHidden = enabled
+        }
+
+        override fun restoreRecentsVisibility() {
+            if (failRecents) throw IOException("private path")
+            restoreRecentsCount += 1
+        }
 
         override fun setStartOnBoot(enabled: Boolean) = Unit
 

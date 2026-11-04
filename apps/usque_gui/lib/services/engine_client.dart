@@ -182,6 +182,8 @@ abstract interface class EngineClient {
 
   Future<void> setCloseToTray(bool enabled);
 
+  Future<void> setHideFromRecents(bool enabled);
+
   Future<void> requestAddQuickSettingsTile();
 
   Future<PerAppProxySettings> perAppProxy();
@@ -771,6 +773,10 @@ class MethodChannelEngineClient
 
   @override
   Future<void> setCloseToTray(bool enabled) async {}
+
+  @override
+  Future<void> setHideFromRecents(bool enabled) =>
+      _invoke<void>('setHideFromRecents', <String, Object>{'enabled': enabled});
 
   @override
   Future<void> requestAddQuickSettingsTile() =>

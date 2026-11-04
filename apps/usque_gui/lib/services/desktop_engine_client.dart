@@ -629,6 +629,11 @@ class DesktopEngineClient
   Future<void> requestAddQuickSettingsTile() async {}
 
   @override
+  Future<void> setHideFromRecents(bool enabled) async => throw UnsupportedError(
+    'Recent task visibility is only supported on Android.',
+  );
+
+  @override
   Future<PerAppProxySettings> perAppProxy() async =>
       const PerAppProxySettings();
 

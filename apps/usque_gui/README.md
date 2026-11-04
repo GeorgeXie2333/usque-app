@@ -203,6 +203,20 @@ Fire OS 输入法实测。
 
 ## Editing and navigation
 
+- Android **Settings → Application → Hide from recent tasks** hides Usque's
+  task card, including on Android TV systems with a recent-tasks interface.
+  It is off by default and takes effect immediately. Reopen Usque using its
+  app icon or the existing notification/shortcut entries. Turning it off
+  restores normal task visibility. The preference survives app restarts;
+  **About → Clear all data** resets it. If the setting cannot be confirmed,
+  use **Retry** before relying on it. The launcher icon, VPN notification and
+  connection stay unchanged; this does not erase system usage records.
+- Android **设置 → 应用 → 从最近任务中隐藏**会隐藏 Usque 的最近任务卡片，也适用于
+  提供最近任务界面的 Android TV。默认关闭，切换后立即生效；可通过应用图标、现有
+  通知或快捷入口重新打开，关闭开关后恢复正常显示。设置在重启应用后保留，
+  **关于 → 清除全部数据**会将其重置。无法确认设置时，请先点击**重试**。
+  启动器图标、VPN 通知和连接保持原样，此功能不会清除系统使用记录。
+
 - Ads downloads missing verified rules when applying its enabled preference. While enabled, the running app checks every seven days, retries failed checks after one hour, and persists deadlines across restarts. The switch and downloaded rules apply to new requests without reconnecting. Status uses the native loaded revision; a first download failure remains visibly inactive with Retry. Rule details holds source, timestamps and manual update. Existing country update actions remain separate.
 - 广告拦截在应用开启设置时自动准备规则，启用期间每 7 天检查、失败后 1 小时重试，期限跨重启保存。开关和规则更新直接用于当前连接的新请求，无需重连；状态按原生实际加载结果显示，首次失败提供重试，手动更新收进规则详情。
 
