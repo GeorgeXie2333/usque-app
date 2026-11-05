@@ -30,6 +30,9 @@ class UnsavedChangesGuardState extends State<UnsavedChangesGuard> {
 
   bool get canLeave => !widget.saving && (_discarding || !widget.dirty);
 
+  bool get blocksNativeNetworkActions =>
+      widget.dirty || widget.saving || _confirmation != null;
+
   /// A section departure may be cancelled by another guarded page. Its
   /// earlier confirmations must not authorize later edits or back navigation.
   bool cancelLeave() {
@@ -45,6 +48,14 @@ class UnsavedChangesGuardState extends State<UnsavedChangesGuard> {
     if (section == _section) return;
     _section?.unregisterGuard(this);
     _section = section?..registerGuard(this);
+  }
+
+  @override
+  void didUpdateWidget(covariant UnsavedChangesGuard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.dirty != widget.dirty || oldWidget.saving != widget.saving) {
+      _section?.interactionChanged();
+    }
   }
 
   @override

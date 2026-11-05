@@ -6,7 +6,26 @@ This change fixes catalogue error reporting and packet-session isolation. It
 does not enable production system VPN, publish replacement DMGs, or establish
 successful connections to public VPN Gate volunteers.
 
-## VPN Gate in the development build
+## Current VPN Gate workflow
+
+Open **Proxy → Chain proxy → VPN Gate** and use **Refresh list**. macOS reuses
+an existing connected WARP underlay, or opens a temporary authenticated WARP
+connection with the active account. You do not need to disable the saved chain
+or connect WARP manually. The temporary runtime has no listeners, uses remote
+DNS inside WARP and closes after completion, failure or cancellation. No list
+or profile request falls back to the physical network.
+
+An active/retained system VPN or pending system-proxy cleanup cannot be bypassed
+with another runtime. Retry **Disconnect** to finish that recovery first, then
+refresh. Cached browsing, prepared profiles, favorites and removal remain local;
+a cache disappearing during preparation fails without starting a new session.
+
+This workflow is covered by synthetic admission, headless-runtime and downloader
+cleanup fixtures. Actual directory downloads and public VPN Gate sessions still
+need service acceptance. The original validation below remains bound to its
+2026-10-30 source baseline and does not validate this later workflow.
+
+## Original VPN Gate workflow (2026-10-30)
 
 Use proxy mode with chain proxy disabled to connect WARP first. Then refresh
 the VPN Gate list, choose a TCP node, and apply the chain configuration. Public

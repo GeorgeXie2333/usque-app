@@ -668,7 +668,14 @@ impl ActiveRuntime {
                         .shutdown(interactive)
                         .await
                         .map_err(ControlServiceError::MacSystemProxy),
-                    None => Ok(()),
+                    // A failed start/hot update may own only its durable
+                    // journal. It must still confirm restoration before the
+                    // runtime cleanup owner can be released.
+                    None => runtime
+                        .system_proxy_context
+                        .recover(interactive)
+                        .await
+                        .map_err(ControlServiceError::MacSystemProxy),
                 };
                 runtime.runtime.shutdown().await;
                 #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
@@ -932,6 +939,11 @@ impl ActiveRuntime {
                 {
                     if let Some(proxy) = runtime.system_proxy.as_mut() {
                         proxy.shutdown(true).await?;
+                    } else {
+                        // Disabling the option must also recover a failed
+                        // start that committed settings without returning a
+                        // guard; otherwise a rollback could falsely succeed.
+                        runtime.system_proxy_context.recover(true).await?;
                     }
                     runtime.system_proxy = None;
                     if profile.frontends.http && profile.proxy.system_proxy {

@@ -188,6 +188,15 @@ impl ControlService {
         } else {
             None
         };
+        #[cfg(target_os = "macos")]
+        if applying {
+            // Scene activation is an explicit connection action too. Resolve
+            // startup rollback and retained teardown owners before committing
+            // another target; disabling system proxy in shared settings must
+            // not let a scene bypass recovery of its previous owner.
+            self.retry_macos_proxy_recovery().await?;
+            self.await_disconnect_cleanup().await?;
+        }
         let mut context = self.scenario_context().await;
         let mut candidate = self.config.read().await.clone();
         if let Some(target) = scenarios::candidate_profile(&candidate, &command)? {

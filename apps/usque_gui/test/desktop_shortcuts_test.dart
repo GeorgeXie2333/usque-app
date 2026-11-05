@@ -42,6 +42,24 @@ void main() {
       expect(app.section, AppSection.profiles);
       await _chord(
         tester,
+        LogicalKeyboardKey.digit3,
+        modifier: LogicalKeyboardKey.metaLeft,
+      );
+      expect(app.section, AppSection.proxy);
+      await _chord(
+        tester,
+        LogicalKeyboardKey.digit4,
+        modifier: LogicalKeyboardKey.metaLeft,
+      );
+      expect(app.section, AppSection.settings);
+      await _chord(
+        tester,
+        LogicalKeyboardKey.digit2,
+        modifier: LogicalKeyboardKey.metaLeft,
+      );
+      expect(app.section, AppSection.profiles);
+      await _chord(
+        tester,
         LogicalKeyboardKey.digit1,
         modifier: LogicalKeyboardKey.controlLeft,
       );
@@ -57,6 +75,23 @@ void main() {
       await tester.pumpAndSettle();
       app.requestSettingsNavigation();
       await tester.pumpAndSettle();
+      expect(
+        find.text(app.strings.get('discard_changes_title')),
+        findsOneWidget,
+      );
+      await _chord(
+        tester,
+        LogicalKeyboardKey.digit1,
+        modifier: LogicalKeyboardKey.metaLeft,
+      );
+      await _chord(
+        tester,
+        LogicalKeyboardKey.keyS,
+        modifier: LogicalKeyboardKey.metaLeft,
+      );
+      app.requestSettingsNavigation();
+      await tester.pumpAndSettle();
+      expect(app.section, AppSection.settings);
       expect(
         find.text(app.strings.get('discard_changes_title')),
         findsOneWidget,

@@ -77,12 +77,16 @@ enum DesktopContractMain {
 
   private static func trayCapabilities() throws {
     try require(DesktopTrayState(arguments: ["connected": true]) == nil, "malformed tray update accepted")
+    let unavailable = DesktopTrayState(arguments: ["status": "Disconnected", "connected": false])!
+    try require(!unavailable.connectionEnabled, "uninitialized connection action is enabled")
     let state = DesktopTrayState(arguments: [
       "status": "Connected", "connected": true, "outputs_enabled": true,
+      "connection_enabled": true,
       "tunnel_available": false, "system_proxy_available": true,
     ])!
     try require(!state.canToggleTunnel, "menu bypasses unavailable VPN capability")
     try require(state.canToggleSystemProxy, "available system proxy cannot be enabled")
+    try require(state.connectionEnabled, "available disconnect action is disabled")
     var selected = state
     selected.tunnel = true
     try require(selected.canToggleTunnel, "selected unavailable output cannot be disabled")
@@ -91,6 +95,11 @@ enum DesktopContractMain {
   }
 
   private static func quitAcknowledgements() throws {
+    for value: Any? in [nil, true, NSNull(), [:], ["cleanup_complete": false],
+      ["cleanup_complete": 1], ["cleanup_complete": "true"], ["phase": "disconnected"]] {
+      try require(!DesktopQuitState.cleanupCompleted(value), "missing or malformed cleanup acknowledgement accepted")
+    }
+    try require(DesktopQuitState.cleanupCompleted(["cleanup_complete": true]), "completed cleanup acknowledgement rejected")
     var quit = DesktopQuitState()
     let first = quit.begin()!
     try require(quit.begin() == nil, "parallel quit attempt admitted")

@@ -156,6 +156,7 @@ pub struct ControlServiceState {
     disconnect_cleanup: Mutex<Option<tokio::task::JoinHandle<Result<(), ControlServiceError>>>>,
     disconnect_owners: Arc<Mutex<std::collections::VecDeque<disconnect_cleanup::ShutdownOwner>>>,
     disconnect_cleanup_failed: std::sync::atomic::AtomicBool,
+    continuous_retirement: Mutex<Option<tokio::task::JoinHandle<()>>>,
     exit_probe_task: Mutex<Option<tokio::task::JoinHandle<()>>>,
     maintenance: maintenance::Maintenance,
     diagnostics: diagnostics::DiagnosticsManager,
@@ -560,6 +561,7 @@ impl ControlService {
                 disconnect_cleanup: Mutex::new(None),
                 disconnect_owners: Arc::default(),
                 disconnect_cleanup_failed: std::sync::atomic::AtomicBool::new(false),
+                continuous_retirement: Mutex::new(None),
                 exit_probe_task: Mutex::new(None),
                 gate_directory: usque_core::vpngate::DirectoryDownloader::new(
                     usque_core::vpngate::CatalogueStore::new(&cache_dir),
@@ -1120,6 +1122,9 @@ impl ControlService {
                 )))
             }
             control_request::Payload::Disconnect(_) => {
+                #[cfg(target_os = "macos")]
+                let snapshot = self.disconnect_confirmed().await?;
+                #[cfg(not(target_os = "macos"))]
                 let snapshot = self.disconnect().await?;
                 Ok(control_response::Payload::Status(Box::new(
                     self.snapshot_with_quality_to_proto(&snapshot),
@@ -2909,11 +2914,8 @@ impl ControlService {
                         match result {
                             Ok(guard) => Some(guard),
                             Err(error) => {
+                                let error = self.record_macos_proxy_start_failure(error).await;
                                 runtime.shutdown().await;
-                                let error = ControlServiceError::MacSystemProxy(error);
-                                if !startup_cancel.is_cancelled() {
-                                    self.mark_connection_error(&error).await;
-                                }
                                 return Err(error);
                             }
                         }
@@ -2924,18 +2926,32 @@ impl ControlService {
                         && !startup_cancel.is_cancelled()
                         && let Err(error) = runtime.activate_final().await
                     {
+                        // Keep the complete macOS cleanup owner when final
+                        // activation fails after preferences were applied.
+                        // The queued shutdown retains a failed proxy guard
+                        // instead of discarding its rollback result.
+                        #[cfg(target_os = "macos")]
+                        self.queue_runtime_shutdown(
+                            ActiveRuntime::Proxy(Box::new(ActiveProxyRuntime {
+                                runtime,
+                                system_proxy,
+                                system_proxy_context,
+                            })),
+                            None,
+                        )
+                        .await;
+                        #[cfg(not(target_os = "macos"))]
                         runtime.shutdown().await;
-                        #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
+                        #[cfg(any(windows, target_os = "linux"))]
                         if let Some(mut guard) = system_proxy {
-                            #[cfg(target_os = "macos")]
-                            let _ = guard.shutdown(false).await;
-                            #[cfg(any(windows, target_os = "linux"))]
                             let _ = guard.shutdown().await;
                         }
                         let error = ControlServiceError::Transport(error);
                         if !startup_cancel.is_cancelled() {
                             self.mark_connection_error(&error).await;
                         }
+                        #[cfg(target_os = "macos")]
+                        self.start_queued_shutdown().await;
                         return Err(error);
                     }
                     ActiveRuntime::Proxy(Box::new(ActiveProxyRuntime {
@@ -3135,13 +3151,35 @@ impl ControlService {
         }
     }
 
+    #[cfg(any(test, not(target_os = "macos")))]
     async fn disconnect(&self) -> Result<ConnectionSnapshot, ControlServiceError> {
+        self.disconnect_with_confirmation(false).await
+    }
+
+    /// A macOS Disconnect RPC is also the native Quit acknowledgement. It
+    /// cannot report success while proxy restoration is merely queued.
+    #[cfg(target_os = "macos")]
+    async fn disconnect_confirmed(&self) -> Result<ConnectionSnapshot, ControlServiceError> {
+        self.disconnect_with_confirmation(true).await
+    }
+
+    async fn disconnect_with_confirmation(
+        &self,
+        confirm_cleanup: bool,
+    ) -> Result<ConnectionSnapshot, ControlServiceError> {
         #[cfg(target_os = "macos")]
         self.macos_detaching.store(false, Ordering::Release);
         // The startup owner must finish/retain its platform guard before the
         // serialized teardown runs. Signal it without waiting for that lock.
         self.gate_startup_cancel.lock().await.cancel();
         self.disable_continuous().await;
+        if confirm_cleanup {
+            // Startup can temporarily release mutation_lock while it owns
+            // unpublished proxy preferences. Join that owner before taking
+            // the lock, so Quit cannot acknowledge an empty data_plane while
+            // an earlier start is still able to finish applying preferences.
+            self.retire_continuous_startup().await;
+        }
         self.settings_intent.fetch_add(1, Ordering::SeqCst);
         #[cfg(windows)]
         self.clear_windows_connection_intent().await;
@@ -3160,8 +3198,26 @@ impl ControlService {
         *self.session_profile.lock().await = None;
         let retry_cleanup = self.data_plane.lock().await.is_none();
         self.disconnect_locked().await?;
-        if retry_cleanup {
-            self.retry_disconnect_cleanup().await;
+        let retried_cleanup = if retry_cleanup {
+            self.retry_disconnect_cleanup().await
+        } else {
+            false
+        };
+        if confirm_cleanup {
+            let cleanup = self.await_disconnect_cleanup().await;
+            if cleanup.is_err() && !retried_cleanup {
+                // This explicit Stop/Quit is permission to renew an expired
+                // right once. A cancelled/failed retry remains an RPC error;
+                // its exact owner and encrypted journal stay retryable.
+                self.retry_disconnect_cleanup().await;
+                self.await_disconnect_cleanup().await?;
+            } else {
+                cleanup?;
+            }
+            #[cfg(target_os = "macos")]
+            // Check durable ownership even if a cancelled/panicking startup
+            // never reached the in-memory recovery registration.
+            self.recover_macos_proxy(true).await?;
         }
         #[cfg(all(target_os = "linux", not(test)))]
         if retry_cleanup && self.disconnect_owners.lock().await.is_empty() {
@@ -3422,6 +3478,8 @@ impl ControlService {
         let _mutation = self.mutation_lock.lock().await;
         self.disconnect_locked().await?;
         self.await_disconnect_cleanup().await?;
+        #[cfg(target_os = "macos")]
+        self.retry_macos_proxy_recovery().await?;
         #[cfg(all(target_os = "linux", not(test)))]
         self.recover_linux_user_state().await?;
         *self.retained_connection_evidence.lock().await = None;
@@ -3653,6 +3711,25 @@ impl ControlService {
             .get(profile_id, record)
             .await?
             .ok_or(ControlServiceError::MissingCredential(record.key()))
+    }
+
+    #[cfg(target_os = "macos")]
+    async fn record_macos_proxy_start_failure(
+        &self,
+        error: macos_system_proxy::Error,
+    ) -> ControlServiceError {
+        let error = if self.macos_proxy_context.recovery_pending() {
+            let error = macos_system_proxy::Error::RecoveryPending;
+            *self.macos_proxy_recovery_error.lock().await = Some(error);
+            error
+        } else {
+            error
+        };
+        let error = ControlServiceError::MacSystemProxy(error);
+        // A cancelled startup can still have left committed preferences. Its
+        // recovery ownership must remain visible even after Stop was pressed.
+        self.mark_connection_error(&error).await;
+        error
     }
 
     #[cfg(target_os = "linux")]
@@ -5096,7 +5173,7 @@ pub enum ControlServiceError {
     MacSystemProxy(#[from] macos_system_proxy::Error),
     #[cfg(target_os = "macos")]
     #[error(
-        "Connect WARP before downloading VPN Gate servers on macOS; an unverified physical-network fallback is not allowed"
+        "VPN protection is retained; disconnect it before starting a temporary VPN Gate WARP session"
     )]
     MacWarpConnectionRequired,
     #[cfg(target_os = "linux")]
@@ -6116,7 +6193,7 @@ async fn runtime_capabilities() -> v1::Capabilities {
 
 fn current_capabilities() -> v1::Capabilities {
     v1::Capabilities {
-        connection_scenarios: cfg!(any(windows, target_os = "linux")),
+        connection_scenarios: cfg!(any(windows, target_os = "macos", target_os = "linux")),
         continuous_connection: true,
         chain_profile_import: cfg!(any(windows, target_os = "macos", target_os = "linux")),
         chain_openvpn_udp: cfg!(any(windows, target_os = "macos", target_os = "linux")),

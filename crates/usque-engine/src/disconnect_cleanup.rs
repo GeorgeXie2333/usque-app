@@ -44,16 +44,19 @@ impl ControlService {
         }
     }
 
-    pub(crate) async fn retry_disconnect_cleanup(&self) {
+    pub(crate) async fn retry_disconnect_cleanup(&self) -> bool {
         let mut pending = self.disconnect_cleanup.lock().await;
         if pending.as_ref().is_some_and(|task| !task.is_finished()) {
-            return;
+            return false;
         }
         if let Some(task) = pending.take() {
             let _ = task.await;
         }
         if !self.disconnect_owners.lock().await.is_empty() {
             *pending = Some(self.spawn_runtime_shutdown(true));
+            true
+        } else {
+            false
         }
     }
 

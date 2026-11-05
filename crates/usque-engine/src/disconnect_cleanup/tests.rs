@@ -13,6 +13,132 @@ fn service() -> (tempfile::TempDir, ControlService) {
     (directory, service)
 }
 
+#[cfg(target_os = "macos")]
+#[tokio::test]
+async fn macos_disconnect_rpc_waits_for_cleanup_and_returns_failure_until_owner_is_recovered() {
+    use usque_ipc::v1::{self, control_request, control_response};
+
+    let (_directory, service) = service();
+    let mut profile = service.config_snapshot().await.active_profile().unwrap();
+    profile.frontends.tunnel = false;
+    profile.canonicalize_mode();
+    service
+        .install_test_session(profile, false, 0)
+        .await
+        .unwrap();
+    let release = CancellationToken::new();
+    let attempts = {
+        let mut active = service.data_plane.lock().await;
+        let ActiveRuntime::Harness(runtime) = &mut active.as_mut().unwrap().runtime else {
+            unreachable!()
+        };
+        // Both the first background attempt and the explicit authorization
+        // retry fail. The RPC must return an error and retain the same owner.
+        runtime.shutdown_failures = 2;
+        runtime.shutdown_release = Some(release.clone());
+        runtime.shutdown_attempts.clone()
+    };
+    let disconnect = || v1::ControlRequest {
+        request_id: "quit-cleanup-proof".into(),
+        payload: Some(control_request::Payload::Disconnect(
+            v1::DisconnectRequest {},
+        )),
+    };
+    let request = {
+        let service = service.clone();
+        let request = disconnect();
+        tokio::spawn(async move { service.handle(request).await })
+    };
+    tokio::time::timeout(std::time::Duration::from_secs(1), async {
+        while attempts.load(Ordering::SeqCst) == 0 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    assert!(
+        !request.is_finished(),
+        "accepting Stop is not cleanup proof"
+    );
+    release.cancel();
+    let response = request.await.unwrap();
+    assert_eq!(response.error.unwrap().code, "DISCONNECT_CLEANUP_FAILED");
+    assert!(response.payload.is_none());
+    assert_eq!(attempts.load(Ordering::SeqCst), 2);
+    assert_eq!(service.disconnect_owners.lock().await.len(), 1);
+    assert!(service.await_disconnect_cleanup().await.is_err());
+
+    let response = service.handle(disconnect()).await;
+    assert!(response.error.is_none());
+    let Some(control_response::Payload::Status(snapshot)) = response.payload else {
+        panic!("cleanup-completed status acknowledgement");
+    };
+    assert_eq!(snapshot.phase, v1::ConnectionPhase::Disconnected as i32);
+    assert!(snapshot.error.is_none());
+    assert_eq!(attempts.load(Ordering::SeqCst), 3);
+    assert!(service.disconnect_owners.lock().await.is_empty());
+}
+
+#[cfg(target_os = "macos")]
+#[tokio::test]
+async fn cancelled_macos_disconnect_waiter_keeps_cleanup_owned_for_the_next_quit() {
+    let (_directory, service) = service();
+    let mut profile = service.config_snapshot().await.active_profile().unwrap();
+    profile.frontends.tunnel = false;
+    profile.canonicalize_mode();
+    service
+        .install_test_session(profile, false, 0)
+        .await
+        .unwrap();
+    let release = CancellationToken::new();
+    let attempts = {
+        let mut active = service.data_plane.lock().await;
+        let ActiveRuntime::Harness(runtime) = &mut active.as_mut().unwrap().runtime else {
+            unreachable!()
+        };
+        runtime.shutdown_release = Some(release.clone());
+        runtime.shutdown_attempts.clone()
+    };
+    let request = {
+        let service = service.clone();
+        tokio::spawn(async move { service.disconnect_confirmed().await })
+    };
+    tokio::time::timeout(std::time::Duration::from_secs(1), async {
+        while attempts.load(Ordering::SeqCst) == 0 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    request.abort();
+    assert!(request.await.unwrap_err().is_cancelled());
+    assert!(service.disconnect_cleanup.lock().await.is_some());
+    assert_eq!(attempts.load(Ordering::SeqCst), 1);
+    release.cancel();
+    service.disconnect_confirmed().await.unwrap();
+    assert_eq!(attempts.load(Ordering::SeqCst), 1);
+    assert!(service.disconnect_owners.lock().await.is_empty());
+}
+
+#[cfg(target_os = "macos")]
+#[tokio::test]
+async fn macos_quit_retries_a_new_startup_cleanup_owner_before_confirming() {
+    let (_directory, service) = service();
+    let profile = service.config_snapshot().await.active_profile().unwrap();
+    let mut runtime = HarnessRuntime::from_profile(&profile, false, 0);
+    runtime.shutdown_failures = 1;
+    let attempts = runtime.shutdown_attempts.clone();
+    let stopped = runtime.stopped.clone();
+    service
+        .queue_runtime_shutdown(ActiveRuntime::Harness(Box::new(runtime)), None)
+        .await;
+    assert!(service.data_plane.lock().await.is_none());
+    service.disconnect_confirmed().await.unwrap();
+    assert_eq!(attempts.load(Ordering::SeqCst), 2);
+    assert!(stopped.is_cancelled());
+    assert!(service.disconnect_owners.lock().await.is_empty());
+}
+
 #[tokio::test]
 async fn repeated_disconnect_retries_exact_failed_owner_and_connect_cannot_consume_the_failure() {
     for vpn in [false, true] {

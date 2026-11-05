@@ -35,10 +35,24 @@ impl ControlService {
     /// Startup may own an unpublished platform guard while the mutation lock is
     /// released. Join it before teardown acquires that lock or deletes state.
     pub(super) async fn retire_continuous_startup(&self) {
+        // The state owns the join across caller cancellation. Taking an
+        // AbortOnDropHandle into an RPC waiter would abort unpublished startup
+        // when that waiter timed out, losing its chance to register cleanup.
+        let mut retirement = self.continuous_retirement.lock().await;
+        if let Some(task) = retirement.as_mut() {
+            let _ = task.await;
+            retirement.take();
+        }
         let retiring = self.continuous_connection.lock().await.take();
         if let Some(intent) = retiring {
             intent.cancellation.cancel();
-            let _ = intent.task.await;
+            *retirement = Some(tokio::spawn(async move {
+                let _ = intent.task.await;
+            }));
+            if let Some(task) = retirement.as_mut() {
+                let _ = task.await;
+            }
+            retirement.take();
         }
     }
     pub(super) async fn continuous_requested(&self, profile_id: Uuid) -> bool {
@@ -446,5 +460,71 @@ mod tests {
             .unwrap()
             .unwrap();
         assert!(service.continuous_connection.lock().await.is_none());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[tokio::test]
+    async fn confirmed_macos_disconnect_joins_unpublished_startup_before_acknowledging() {
+        let directory = tempfile::tempdir().unwrap();
+        let service = ControlService::open_with_vault(
+            ConfigStore::new(directory.path().join("config.json")),
+            Arc::new(crate::tests::MemoryVault::default()),
+        )
+        .unwrap();
+        let profile_id = service.config_snapshot().await.active_profile_id.unwrap();
+        let cancellation = service.gate_startup_cancel.lock().await.clone();
+        let worker_cancel = cancellation.clone();
+        let (entered, observed) = tokio::sync::oneshot::channel();
+        let (release, cleanup) = tokio::sync::oneshot::channel();
+        let worker = service.clone();
+        let task = tokio::spawn(async move {
+            worker_cancel.cancelled().await;
+            entered.send(()).unwrap();
+            cleanup.await.unwrap();
+            // A real unpublished startup reacquires this lock before handing
+            // its cancelled runtime to retained cleanup. Quit must not hold
+            // it while joining startup, or either acknowledge before it ends.
+            let _mutation = worker.mutation_lock.lock().await;
+            let profile = worker.config_snapshot().await.active_profile().unwrap();
+            worker
+                .queue_runtime_shutdown(
+                    ActiveRuntime::Harness(Box::new(active_runtime::HarnessRuntime::from_profile(
+                        &profile, false, 0,
+                    ))),
+                    None,
+                )
+                .await;
+        });
+        *service.continuous_connection.lock().await = Some(ConnectionIntent {
+            enabled: true,
+            profile_id,
+            cancellation,
+            wake: Arc::new(tokio::sync::Notify::new()),
+            task: AbortOnDropHandle::new(task),
+        });
+        let request = service.clone();
+        let stopping = tokio::spawn(async move { request.disconnect_confirmed().await });
+        observed.await.unwrap();
+        tokio::task::yield_now().await;
+        assert!(!stopping.is_finished());
+        // A timed-out/cancelled IPC waiter must not abort the unpublished
+        // startup. The following Quit still waits for its retained join.
+        stopping.abort();
+        assert!(stopping.await.unwrap_err().is_cancelled());
+        assert!(service.continuous_retirement.lock().await.is_some());
+        let request = service.clone();
+        let stopping = tokio::spawn(async move { request.disconnect_confirmed().await });
+        tokio::task::yield_now().await;
+        assert!(!stopping.is_finished());
+        release.send(()).unwrap();
+        let snapshot = tokio::time::timeout(Duration::from_secs(2), stopping)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert_eq!(snapshot.phase, ConnectionPhase::Disconnected);
+        assert!(service.continuous_connection.lock().await.is_none());
+        assert!(service.continuous_retirement.lock().await.is_none());
+        assert!(service.disconnect_owners.lock().await.is_empty());
     }
 }

@@ -5,7 +5,7 @@ import 'package:usque/services/engine_client.dart';
 
 import 'vpngate_test.dart' show GateEngine, host, showGateControl;
 
-class WarpRequiredEngine extends GateEngine {
+class RetainedProtectionEngine extends GateEngine {
   @override
   Future<void> refreshVpnGate({bool cancel = false}) async {
     if (!cancel) {
@@ -18,12 +18,12 @@ class WarpRequiredEngine extends GateEngine {
 }
 
 void main() {
-  testWidgets('macOS catalogue refresh explains the WARP prerequisite', (
+  testWidgets('macOS catalogue refresh explains retained VPN protection', (
     tester,
   ) async {
     final app = await host(
       tester,
-      WarpRequiredEngine(),
+      RetainedProtectionEngine(),
       locale: LocalePreference.english,
     );
     await showGateControl(

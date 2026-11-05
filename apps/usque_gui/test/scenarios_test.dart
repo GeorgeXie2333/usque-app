@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -10,12 +11,58 @@ import 'package:usque/screens/profiles_hub_screen.dart';
 import 'package:usque/screens/profiles_screen.dart' show AccountsPage;
 import 'package:usque/screens/scenario_editor_screen.dart';
 import 'package:usque/services/engine_client.dart';
+import 'package:usque/services/platform_shell_bridge.dart';
 import 'package:usque/state/app_controller.dart';
 import 'package:usque/state/scenarios_controller.dart';
 import 'package:usque/widgets/common.dart';
 import 'package:usque/widgets/usque_dialog.dart';
 
 import 'ui_workflow_test.dart' show WorkflowEngine, pumpWorkflow;
+
+const _shellChannel = MethodChannel('io.github.georgexie2333.usque/engine');
+
+Future<Object?> nativeTrayCommand(WidgetTester tester, String command) {
+  final reply = Completer<Object?>();
+  const codec = StandardMethodCodec();
+  tester.binding.channelBuffers.push(
+    _shellChannel.name,
+    codec.encodeMethodCall(MethodCall('trayCommand', command)),
+    (value) {
+      try {
+        reply.complete(codec.decodeEnvelope(value!));
+      } on Object catch (error, stack) {
+        reply.completeError(error, stack);
+      }
+    },
+  );
+  return reply.future;
+}
+
+void attachNativeShell(
+  WidgetTester tester,
+  AppController app,
+  List<Map<Object?, Object?>> published,
+) {
+  app.initialized = true;
+  tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+    _shellChannel,
+    (call) async {
+      if (call.method == 'getWindowVisibility') return true;
+      if (call.method == 'updateTrayState') {
+        published.add(Map<Object?, Object?>.from(call.arguments as Map));
+      }
+      return null;
+    },
+  );
+  final bridge = PlatformShellBridge(app);
+  addTearDown(() {
+    bridge.dispose();
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      _shellChannel,
+      null,
+    );
+  });
+}
 
 Map<String, Object?> fixture({
   String account = 'account-a',
@@ -259,26 +306,145 @@ void main() {
     expect(engine.sceneCalls.where((r) => r['action'] == 'activate'), isEmpty);
   });
 
-  Future<void> controlKey(WidgetTester tester, LogicalKeyboardKey key) async {
-    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+  Future<void> primaryKey(WidgetTester tester, LogicalKeyboardKey key) async {
+    final modifier = defaultTargetPlatform == TargetPlatform.macOS
+        ? LogicalKeyboardKey.metaLeft
+        : LogicalKeyboardKey.controlLeft;
+    await tester.sendKeyDownEvent(modifier);
     await tester.sendKeyEvent(key);
-    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendKeyUpEvent(modifier);
     await tester.pumpAndSettle();
   }
 
   testWidgets(
-    'Ctrl+2 opens scenes while home account and scene entries select their pages',
+    'macOS native Settings and Cmd navigation preserve unsaved scene edits',
+    (tester) async {
+      final engine = SceneEngine();
+      final app = await pumpWorkflow(
+        tester,
+        engine,
+        section: AppSection.profiles,
+      );
+      final published = <Map<Object?, Object?>>[];
+      attachNativeShell(tester, app, published);
+      app.engineCapabilities = await engine.getCapabilities();
+      await app.scenarios.refresh();
+      await tester.pumpAndSettle();
+      expect(app.nativeNetworkActionsAllowed, true);
+      await tester.tap(find.byKey(const ValueKey('scenario-create')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const ValueKey('scenario-name')),
+        'Keep my Mac scene',
+      );
+      await tester.pumpAndSettle();
+      expect(app.nativeNetworkActionsAllowed, false);
+      expect(published.last['connection_enabled'], false);
+      expect(published.last['outputs_enabled'], false);
+      final calls = List.of(engine.calls);
+      for (final command in ['toggle', 'toggleTunnel', 'toggleSystemProxy']) {
+        await nativeTrayCommand(tester, command);
+      }
+      expect(engine.calls, calls);
+      expect(engine.writes, 0);
+      app.setUiVisible(false);
+      expect(app.nativeNetworkActionsAllowed, false);
+      app.setUiVisible(true);
+      app.requestSettingsNavigation();
+      await tester.pumpAndSettle();
+      expect(
+        find.text(app.strings.get('discard_changes_title')),
+        findsOneWidget,
+      );
+      await primaryKey(tester, LogicalKeyboardKey.digit1);
+      await primaryKey(tester, LogicalKeyboardKey.keyS);
+      expect(app.section, AppSection.profiles);
+      expect(engine.sceneCalls.where((r) => r['action'] == 'save'), isEmpty);
+      await tester.tap(find.text(app.strings.get('keep_editing')));
+      await tester.pumpAndSettle();
+      expect(find.text('Keep my Mac scene'), findsOneWidget);
+      await primaryKey(tester, LogicalKeyboardKey.comma);
+      await tester.tap(find.text(app.strings.get('discard_changes')));
+      await tester.pumpAndSettle();
+      expect(app.section, AppSection.settings);
+      expect(app.nativeNetworkActionsAllowed, true);
+      expect(published.last['connection_enabled'], true);
+      expect(
+        find.byType(ScenarioEditorScreen, skipOffstage: false),
+        findsNothing,
+      );
+      expect(engine.sceneCalls.where((r) => r['action'] == 'save'), isEmpty);
+      expect(engine.writes, 0);
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.macOS),
+  );
+
+  testWidgets(
+    'macOS scene preview requires confirmation and blocks shell menu and keys',
+    (tester) async {
+      final engine = SceneEngine();
+      final app = await pumpWorkflow(
+        tester,
+        engine,
+        section: AppSection.profiles,
+      );
+      final published = <Map<Object?, Object?>>[];
+      attachNativeShell(tester, app, published);
+      app.engineCapabilities = await engine.getCapabilities();
+      await app.scenarios.refresh();
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('scenario-use-scene-a')));
+      await tester.pumpAndSettle();
+      expect(app.nativeNetworkActionsAllowed, false);
+      expect(published.last['connection_enabled'], false);
+      final calls = List.of(engine.calls);
+      for (final command in ['toggle', 'toggleTunnel', 'toggleSystemProxy']) {
+        await nativeTrayCommand(tester, command);
+      }
+      expect(engine.calls, calls);
+      expect(
+        find.byKey(const ValueKey('scenario-confirm-use')),
+        findsOneWidget,
+      );
+      expect(
+        engine.sceneCalls.where((r) => r['action'] == 'activate'),
+        isEmpty,
+      );
+      await primaryKey(tester, LogicalKeyboardKey.digit1);
+      await primaryKey(tester, LogicalKeyboardKey.comma);
+      app.requestSettingsNavigation();
+      await tester.pumpAndSettle();
+      expect(app.section, AppSection.profiles);
+      expect(
+        find.byKey(const ValueKey('scenario-confirm-use')),
+        findsOneWidget,
+      );
+      await tester.tap(find.byKey(const ValueKey('scenario-confirm-use')));
+      await tester.pumpAndSettle();
+      expect(app.nativeNetworkActionsAllowed, true);
+      expect(published.last['connection_enabled'], true);
+      expect(
+        engine.sceneCalls.where((r) => r['action'] == 'activate'),
+        hasLength(1),
+      );
+      expect(engine.writes, 0);
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.macOS),
+  );
+
+  testWidgets(
+    'primary+2 opens scenes while home account and scene entries select their pages',
     (tester) async {
       final engine = SceneEngine();
       final app = await pumpWorkflow(tester, engine, section: AppSection.home);
       app.engineCapabilities = await engine.getCapabilities();
       await app.scenarios.refresh();
       await tester.pumpAndSettle();
-      await controlKey(tester, LogicalKeyboardKey.digit2);
+      await primaryKey(tester, LogicalKeyboardKey.digit2);
       expect(app.section, AppSection.profiles);
       expect(find.byType(AccountsPage), findsNothing);
       expect(find.text('Daily'), findsOneWidget);
-      await controlKey(tester, LogicalKeyboardKey.digit1);
+      await primaryKey(tester, LogicalKeyboardKey.digit1);
       await tester.tap(
         find.descendant(
           of: find.byKey(const ValueKey('home-active-account')),
@@ -288,7 +454,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byType(AccountsPage), findsOneWidget);
       expect(find.text(app.strings.get('new_profile')), findsOneWidget);
-      await controlKey(tester, LogicalKeyboardKey.digit1);
+      await primaryKey(tester, LogicalKeyboardKey.digit1);
       final sceneLink = find.byKey(const ValueKey('home-scene-link'));
       await tester.ensureVisible(sceneLink);
       await tester.tap(sceneLink);
@@ -296,11 +462,14 @@ void main() {
       expect(find.byType(AccountsPage), findsNothing);
       expect(find.text('Daily'), findsOneWidget);
     },
-    variant: TargetPlatformVariant.only(TargetPlatform.windows),
+    variant: TargetPlatformVariant({
+      TargetPlatform.windows,
+      TargetPlatform.macOS,
+    }),
   );
 
   testWidgets(
-    'Ctrl+S saves the visible scene draft once without applying live settings',
+    'primary+S saves the visible scene draft once without applying live settings',
     (tester) async {
       final engine = SceneEngine();
       final app = await pumpWorkflow(
@@ -318,7 +487,7 @@ void main() {
         'Work',
       );
       await tester.pumpAndSettle();
-      await controlKey(tester, LogicalKeyboardKey.keyS);
+      await primaryKey(tester, LogicalKeyboardKey.keyS);
       final saves = engine.sceneCalls.where(
         (request) => request['action'] == 'save',
       );
@@ -329,10 +498,13 @@ void main() {
         engine.sceneCalls.where((request) => request['action'] == 'activate'),
         isEmpty,
       );
-      await controlKey(tester, LogicalKeyboardKey.keyS);
+      await primaryKey(tester, LogicalKeyboardKey.keyS);
       expect(saves, hasLength(1));
     },
-    variant: TargetPlatformVariant.only(TargetPlatform.windows),
+    variant: TargetPlatformVariant({
+      TargetPlatform.windows,
+      TargetPlatform.macOS,
+    }),
   );
 
   testWidgets(
@@ -384,7 +556,10 @@ void main() {
         isEmpty,
       );
     },
-    variant: TargetPlatformVariant.only(TargetPlatform.windows),
+    variant: TargetPlatformVariant({
+      TargetPlatform.windows,
+      TargetPlatform.macOS,
+    }),
   );
 
   testWidgets(
@@ -637,6 +812,10 @@ void main() {
       );
       expect(engine.writes, 0);
     },
+    variant: TargetPlatformVariant({
+      TargetPlatform.android,
+      TargetPlatform.macOS,
+    }),
   );
 
   test('late query cannot replace a newer saved catalogue', () async {

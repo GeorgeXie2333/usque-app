@@ -29,8 +29,9 @@ hardware. None of the isolated results establishes physical-egress safety.
 | IPv4/IPv6 and encrypted DNS | Shared runtime and separate DNS provider; encrypted-upstream errors do not request plaintext fallback | IPv6 loopback and policy contracts; physical/tunnel DNS, leakage and LAN device acceptance pending |
 | Kill Switch and reconnect | Independent protection before tunnel admission, credential-less restart blocked; Engine loss is not Stop | Isolated lifecycle/fault contracts; actual provider crash, sleep and network-change protection pending |
 | Chain exits and account managers | macOS wires the shared HTTP, SOCKS, OpenVPN, WireGuard, WARP WireGuard, VPN Gate and Proton handlers; numeric WARP endpoint overrides survive the dedicated secret handoff | Engine preparation/DTO tests across all families; live service acceptance pending; existing experimental flags retained |
-| Account bootstrap protection | Existing connected WARP runtime can be reused; unprotected standalone physical bootstrap remains refused | No fallback that bypasses authenticated protection |
+| Account bootstrap protection | Existing connected WARP runtime can be reused; VPN Gate may create a listener-free base WARP runtime while retaining saved chain settings | Directory requests stay inside WARP; no direct physical-network catalogue fallback; active/retained VPN and pending recovery still block bootstrap |
 | Credentials and configuration | User Engine owns Keychain and encrypted chain storage; bounded zeroizing cache reuses unlocked records across connection changes; dedicated secret transfer and durable refresh acknowledgement | Injected Keychain and in-memory test vault; no host credentials read or replaced by tests |
+| Connection scenes | Shared save/select/preview/apply workflow, account and chain binding, stale-session fencing and uncertain-write settlement enabled on macOS | Backend and macOS widget regressions; scene activation does not bypass output capabilities or pending proxy recovery |
 | System proxy | Per-service SystemConfiguration transaction, Engine-lifetime network authorization reuse, silent rights preflight on cleanup, encrypted ownership journal, compare-and-restore; pending recovery blocks new sessions and key deletion | Fake preferences/authorization/failure injection; real authorization cancellation and crash recovery pending; newly created services require reapply |
 | Continuous desktop events | Authenticated per-user Unix control/events sockets; bounded, fragmented/coalesced frame decoder | Engine and Dart tests; hidden-window event loop is implemented |
 | Tray/background controls | Native menu bar status, connect/disconnect, VPN/proxy actions, hidden-window updates, explicit disconnect-and-quit | Native contract/type checks; real tray interaction pending |
@@ -46,6 +47,28 @@ hardware. None of the isolated results establishes physical-egress safety.
 | Update selection and recovery | Maintenance foundation verifies version, native hardware architecture, name, size, hash and signing; same-volume atomic swap, retained backup and durable, candidate-bound health receipts | Temporary injected-verifier tests including Intel-to-arm64 migration and confirmation retries across restarts; live health authentication is not integrated and production installation remains disabled |
 | Extension update and uninstall | Application transaction leaves extensions/user data separate; manual app removal preserves user data | Extension approval/restart orchestration and managed uninstall remain pending |
 | Signed production distribution | Development packages are explicitly ad-hoc and not notarized | Developer ID, notarization, Gatekeeper distribution and full two-architecture acceptance pending |
+
+## PR #147 follow-up (2026-11-05)
+
+This follow-up addresses the [November 4 review](https://github.com/GeorgeXie2333/usque-app/pull/147#pullrequestreview-5765085399).
+It does not establish Windows-equivalent system-wide networking. The existing
+development installer predates this source; no replacement installer was built
+or published.
+
+| Requested behavior | Current source and acceptance status |
+| --- | --- |
+| System-wide capture and Kill Switch | Provider implementation remains a signed experiment with unresolved physical-egress acceptance. `vpn`, platform lockdown and TUN capability remain false. Proxy-only limitations remain visible. Signed activation, routing/DNS, protection/crash and external IPv4/IPv6 leak results are `not_run`. |
+| Connection scenarios | macOS uses shared save/select/preview/apply, account/chain binding, stale-session and uncertain-write settlement. Activation waits for proxy recovery. Unavailable outputs remain unavailable. |
+| Keyboard and Settings | Cmd+1–4, Cmd+S and Cmd+, retain the corresponding shared actions. Native Settings uses the same unsaved-change guard. Native connection/output commands are disabled during dialogs and unsaved/saving edits, and checked again when received. |
+| Menu bar, background and quit | Home and menu bar share connection availability, retaining cancellation while connecting. macOS Disconnect now acknowledges completed cleanup. A disconnected cached snapshot cannot skip Engine cleanup; empty or non-completed replies cannot approve Quit. Pending Quit blocks new connection/output actions. Failure keeps the window and retry path. Native window/Dock/multi-display interaction remains `not_run`. |
+| Keychain and proxy authorization | Existing bounded successful-read cache and process-local authorization remain unchanged. A failed startup rollback registers the encrypted journal before stopping its listener; final-activation failure retains its runtime and guard. Hot-update cleanup also recovers a journal without a live guard. Stop retries authorization and Clear All cannot delete recovery keys first. Actual permission dialogs, locked/managed Keychain behavior and host restoration remain `not_run`. |
+| VPN Gate directory | Reuse a connected base WARP or automatically create a temporary WARP runtime without proxy listeners. Saved chain/output settings stay intact. Active or retained system-VPN ownership and pending proxy cleanup block a new temporary runtime. Cached preparation, listing, favorites and removal remain offline. Live directory/node service acceptance is `not_run`. |
+| Chain exits and account login | Shared HTTP/SOCKS, OpenVPN, WireGuard, VPN Gate, Proton and Zero Trust entry points remain subject to their existing capability/prerequisite checks. Real authentication, traffic, DNS, guest registration and browser acceptance are `not_run`. The historical complete CEF authentication-proxy/exit smoke is still unproven; fresh compilation and browser-free handoff checks do not resolve it. |
+
+These limitations require signing resources, an appropriate test environment or
+interactive real-service/device acceptance. A protected-runner report is not a
+publication prerequisite; unavailable checks must remain `not_run`, and no
+capability flag substitutes for implementation or acceptance.
 
 ## Keychain access
 

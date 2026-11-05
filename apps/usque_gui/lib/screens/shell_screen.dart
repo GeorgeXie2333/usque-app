@@ -91,6 +91,28 @@ class _ShellScreenState extends State<ShellScreen> {
   bool _openingDiagnostics = false;
   bool _profilesNavigationScheduled = false;
   PageRoute<void>? _accountsRoute;
+  late final bool Function() _nativeNetworkActionGuard =
+      _canRunNativeNetworkAction;
+  bool _nativeActionNotificationScheduled = false;
+
+  void _nativeActionAvailabilityChanged() {
+    if (_nativeActionNotificationScheduled) return;
+    _nativeActionNotificationScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _nativeActionNotificationScheduled = false;
+      if (mounted) controller.notifyNativeNetworkActionGuardChanged();
+    });
+    WidgetsBinding.instance.ensureVisualUpdate();
+  }
+
+  bool _canRunNativeNetworkAction() =>
+      mounted &&
+      !_changingSection &&
+      routeChainIsCurrent(context) &&
+      (_sectionNavigators[controller.section]
+              ?.currentState
+              ?.nativeNetworkActionsAllowed ??
+          true);
 
   static const _sectionKeys = <LogicalKeyboardKey>[
     LogicalKeyboardKey.digit1,
@@ -102,6 +124,7 @@ class _ShellScreenState extends State<ShellScreen> {
   @override
   void initState() {
     super.initState();
+    controller.nativeNetworkActionGuard = _nativeNetworkActionGuard;
     controller.settingsNavigationRequests.addListener(_openNativeSettings);
     controller.addListener(_profilesRequested);
     _profilesRequested();
@@ -111,9 +134,23 @@ class _ShellScreenState extends State<ShellScreen> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Most dialogs use the root navigator; section observers cover local
+    // popups and edits, while this subscription tracks those outer dialogs.
+    ModalRoute.of(context);
+    _nativeActionAvailabilityChanged();
+  }
+
+  @override
   void didUpdateWidget(covariant ShellScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.controller != controller) {
+      if (oldWidget.controller.nativeNetworkActionGuard ==
+          _nativeNetworkActionGuard) {
+        oldWidget.controller.nativeNetworkActionGuard = null;
+      }
+      controller.nativeNetworkActionGuard = _nativeNetworkActionGuard;
       oldWidget.controller.settingsNavigationRequests.removeListener(
         _openNativeSettings,
       );
@@ -153,6 +190,9 @@ class _ShellScreenState extends State<ShellScreen> {
 
   @override
   void dispose() {
+    if (controller.nativeNetworkActionGuard == _nativeNetworkActionGuard) {
+      controller.nativeNetworkActionGuard = null;
+    }
     controller.settingsNavigationRequests.removeListener(_openNativeSettings);
     controller.removeListener(_profilesRequested);
     if (desktopShortcutsSupported) {
@@ -344,6 +384,7 @@ class _ShellScreenState extends State<ShellScreen> {
       return true;
     } finally {
       _changingSection = false;
+      _nativeActionAvailabilityChanged();
     }
   }
 
@@ -454,6 +495,7 @@ class _ShellScreenState extends State<ShellScreen> {
             active: section == AppSection.profiles,
             rootName: '/profiles',
             onSubpageChanged: _onSubpageChanged(AppSection.profiles),
+            onInteractionChanged: _nativeActionAvailabilityChanged,
             builder: (context) => ProfilesScreen(
               controller: controller,
               gateObservation: true,
@@ -466,12 +508,14 @@ class _ShellScreenState extends State<ShellScreen> {
             controller: controller,
             active: section == AppSection.proxy,
             onSubpageChanged: _onSubpageChanged(AppSection.proxy),
+            onInteractionChanged: _nativeActionAvailabilityChanged,
           ),
           SectionNavigator(
             key: _sectionNavigators[AppSection.settings],
             active: section == AppSection.settings,
             rootName: '/settings',
             onSubpageChanged: _onSubpageChanged(AppSection.settings),
+            onInteractionChanged: _nativeActionAvailabilityChanged,
             builder: (context) =>
                 ControllerSelector<
                   ({

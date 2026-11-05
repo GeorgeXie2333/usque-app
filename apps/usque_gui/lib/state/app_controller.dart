@@ -38,6 +38,16 @@ class AppController extends ChangeNotifier {
     if (!_disposed) settingsNavigationRequests.value++;
   }
 
+  /// The mounted desktop shell checks its current dialogs and unsaved drafts
+  /// before native menu commands mutate connection settings.
+  bool Function()? nativeNetworkActionGuard;
+  bool get nativeNetworkActionsAllowed =>
+      _exitCleanup == null && (nativeNetworkActionGuard?.call() ?? true);
+
+  void notifyNativeNetworkActionGuardChanged() {
+    if (!_disposed) _notifyListeners();
+  }
+
   String? _lastProtonCompletedJob;
   Future<ProtonVpnResult> protonVpn(
     Map<String, Object?> command, {
@@ -310,9 +320,18 @@ class AppController extends ChangeNotifier {
       networkSettings.state?.persisted == true &&
       networkSettings.state?.status == NetworkSettingsApplyStatus.failed;
 
+  /// Shared by the Home control and native menu-bar connection action. An
+  /// in-flight connection remains cancellable while unrelated writes are busy.
+  bool get connectionActionEnabled =>
+      _exitCleanup == null &&
+      (!busy || snapshot.isTransitional) &&
+      snapshot.phase != ConnectionPhase.disconnecting &&
+      snapshot.errorCode != 'WINDOWS_RECOVERY_BLOCKED';
+
   /// True while the Home and tray output shortcuts must not start a save.
   bool get networkShortcutsLocked =>
       !initialized ||
+      _exitCleanup != null ||
       busy ||
       snapshot.isTransitional ||
       snapshot.errorCode == 'WINDOWS_RECOVERY_BLOCKED' ||
@@ -339,6 +358,7 @@ class AppController extends ChangeNotifier {
   bool _startupUpdateCheckStarted = false;
   bool _disposed = false;
   int _connectionIntent = 0;
+  Future<void>? _exitCleanup;
   int _updateOperationGeneration = 0;
   UpdateDownloadCancellation? _updateCancellation;
 
@@ -1485,7 +1505,7 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> connectOrDisconnect() async {
-    if (snapshot.phase == ConnectionPhase.disconnecting) return;
+    if (!connectionActionEnabled) return;
     final intent = ++_connectionIntent;
     if (snapshot.isConnected || snapshot.isTransitional) {
       snapshot = EngineSnapshot(
@@ -1564,16 +1584,43 @@ class AppController extends ChangeNotifier {
     }
   }
 
-  Future<void> disconnectForExit() async {
+  Future<void> disconnectForExit() {
+    final pending = _exitCleanup;
+    if (pending != null) return pending;
+    late final Future<void> cleanup;
+    cleanup = _disconnectForExit().whenComplete(() {
+      if (identical(_exitCleanup, cleanup)) _exitCleanup = null;
+      _notifyListeners();
+    });
+    _exitCleanup = cleanup;
+    _notifyListeners();
+    return cleanup;
+  }
+
+  Future<void> _disconnectForExit() async {
     _connectionIntent++;
     await _onboardingPreferenceWrites;
     await LinuxPreferencesStore.flushPending();
-    if (snapshot.phase != ConnectionPhase.disconnected) {
+    final requiresCleanupConfirmation =
+        defaultTargetPlatform == TargetPlatform.macOS;
+    // A disconnected snapshot can still have a startup rollback or proxy
+    // restoration pending. macOS Disconnect acknowledges completed cleanup,
+    // so always ask the Engine rather than trusting the cached phase.
+    if (requiresCleanupConfirmation ||
+        snapshot.phase != ConnectionPhase.disconnected) {
       try {
         snapshot = await _engine.disconnect();
         _notifyListeners();
+        if (requiresCleanupConfirmation &&
+            (snapshot.phase != ConnectionPhase.disconnected ||
+                snapshot.errorCode != null)) {
+          throw const EngineException(
+            'DISCONNECT_CLEANUP_FAILED',
+            'Disconnection cleanup has not completed. Retry Disconnect before quitting.',
+          );
+        }
       } on Object {
-        if (defaultTargetPlatform == TargetPlatform.macOS) rethrow;
+        if (requiresCleanupConfirmation) rethrow;
         // The native disconnect path is fail-fast; exit must not leave the UI
         // alive indefinitely if the cleanup acknowledgement is unavailable.
       }

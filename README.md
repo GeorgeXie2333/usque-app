@@ -201,6 +201,10 @@ The compact images reduce downloads by 46.6% / 43.2%; see the
 [size explanation and validation](docs/MACOS_PACKAGE_SIZE.md). CEF verification
 and all application languages remain included.
 
+Current `dev` source adds macOS connection scenes, confirmed cleanup before
+quitting, and automatic protected WARP preparation for VPN Gate. The download
+above predates these updates; no replacement installer has been published.
+
 The [macOS test checklist](docs/MACOS_QA_CHECKLIST.md) separates isolated tests
 from actual device acceptance. The following items remain open:
 
@@ -209,8 +213,9 @@ from actual device acceptance. The following items remain open:
   does not provide system-wide Kill Switch protection.
 - **System proxy and chain exits:** isolated configuration, recovery and transport
   tests do not establish a successful live connection. Real authorization and
-  each external exit still need device tests. On macOS, connect WARP before
-  refreshing or downloading VPN Gate servers; unprotected bootstrap is refused.
+  each external exit still need device tests. Current macOS source reuses WARP
+  or opens a temporary WARP connection for VPN Gate, retaining saved chain
+  settings; direct physical-network catalogue fallback remains disabled.
 - **Zero Trust:** callback validation and cancel/retry tests use synthetic data;
   an actual organization login and callback remain unverified.
 - **Proton guest registration:** official CAPTCHA and successful registration

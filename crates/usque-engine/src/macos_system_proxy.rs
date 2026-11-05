@@ -106,15 +106,21 @@ trait Backend: Send + Sync {
 pub(crate) struct Context {
     path: PathBuf,
     cipher: Arc<dyn ProfileCipher>,
-    backend: Arc<native::NativeBackend>,
+    backend: Arc<dyn Backend>,
 }
 impl Context {
     pub(crate) fn new(directory: &Path, cipher: Arc<dyn ProfileCipher>) -> Self {
         Self {
             path: directory.join("macos-system-proxy-v1.sealed"),
             cipher,
-            backend: Arc::default(),
+            backend: Arc::new(native::NativeBackend::default()),
         }
+    }
+    /// A failed start can have committed preferences before native apply or
+    /// rollback failed. The durable intent is then a cleanup owner even though
+    /// no live guard was returned. Treat an unreadable path as pending too.
+    pub(crate) fn recovery_pending(&self) -> bool {
+        self.path.try_exists().unwrap_or(true)
     }
     pub(crate) async fn start(&self, listener: SocketAddr) -> Result<MacSystemProxyGuard> {
         if !listener.ip().is_loopback() || listener.port() == 0 {

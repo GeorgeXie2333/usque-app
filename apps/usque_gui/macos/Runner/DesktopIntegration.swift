@@ -90,8 +90,7 @@ final class DesktopIntegration: NSObject, NSWindowDelegate, UNUserNotificationCe
     protonVerification.cancel()
     channel.invokeMethod("trayCommand", arguments: "disconnectAndExit") { [weak self] value in
       guard let self else { return }
-      let failed = value is FlutterError || (value as AnyObject?) === FlutterMethodNotImplemented
-      self.finishQuit(identifier, success: !failed)
+      self.finishQuit(identifier, success: DesktopQuitState.cleanupCompleted(value))
     }
     // Leave time for preference flushes plus the shared 120-second macOS Stop
     // request. A timeout cancels quitting and keeps the protection guard.
@@ -310,7 +309,9 @@ final class DesktopIntegration: NSObject, NSWindowDelegate, UNUserNotificationCe
     menu.addItem(status)
     menu.addItem(.separator())
     menu.addItem(item(tray.open, #selector(openWindow)))
-    menu.addItem(item(tray.connected ? tray.disconnect : tray.connect, #selector(toggleConnection)))
+    let connection = item(tray.connected ? tray.disconnect : tray.connect, #selector(toggleConnection))
+    connection.isEnabled = tray.connectionEnabled
+    menu.addItem(connection)
     if !tray.tunnelLabel.isEmpty || !tray.systemProxyLabel.isEmpty { menu.addItem(.separator()) }
     if !tray.tunnelLabel.isEmpty {
       let tunnel = item(tray.tunnelLabel, #selector(toggleTunnel))
@@ -348,7 +349,9 @@ final class DesktopIntegration: NSObject, NSWindowDelegate, UNUserNotificationCe
     showWindow()
     channel.invokeMethod("openSettings", arguments: nil)
   }
-  @objc private func toggleConnection() { channel.invokeMethod("trayCommand", arguments: "toggle") }
+  @objc private func toggleConnection() {
+    if tray.connectionEnabled { channel.invokeMethod("trayCommand", arguments: "toggle") }
+  }
   @objc private func toggleTunnel() {
     if tray.canToggleTunnel { channel.invokeMethod("trayCommand", arguments: "toggleTunnel") }
   }

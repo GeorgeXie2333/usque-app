@@ -520,3 +520,88 @@ async fn explicit_guard_retry_renews_expired_authorization_and_preserves_cancell
     assert_eq!(state.interactive_requests, prompts + 2);
     assert_eq!(state.services[0].values, original);
 }
+
+#[tokio::test]
+async fn failed_start_and_failed_rollback_register_recovery_before_connect_or_key_purge() {
+    use usque_core::storage::ConfigStore;
+    use usque_ipc::v1::{self, control_request, control_response};
+
+    let directory = tempfile::tempdir().unwrap();
+    let mut service = crate::ControlService::open_with_vault(
+        ConfigStore::new(directory.path().join("config.json")),
+        Arc::new(crate::tests::MemoryVault::default()),
+    )
+    .unwrap();
+    let path = directory.path().join("macos-system-proxy-v1.sealed");
+    let backend = Arc::new(FakeBackend::new(&path));
+    let cipher = service.chain_cipher.clone().unwrap();
+    Arc::get_mut(&mut service.inner)
+        .unwrap()
+        .macos_proxy_context = Context {
+        path: path.clone(),
+        cipher: cipher.clone(),
+        backend: backend.clone(),
+    };
+    let original = backend.state.lock().unwrap().services[0].values.clone();
+    {
+        let mut state = backend.state.lock().unwrap();
+        state.fail_after = Some(1);
+        state.fail_restore = true;
+    }
+    let error = Transaction::start(path.clone(), cipher, backend.clone(), listener())
+        .err()
+        .unwrap();
+    assert!(
+        path.exists(),
+        "failed rollback retains durable cleanup ownership"
+    );
+    let error = service.record_macos_proxy_start_failure(error).await;
+    assert_eq!(
+        error.as_structured_error().code,
+        "SYSTEM_PROXY_RECOVERY_PENDING"
+    );
+    assert_eq!(
+        *service.macos_proxy_recovery_error.lock().await,
+        Some(Error::RecoveryPending)
+    );
+    let profile_id = service.config_snapshot().await.active_profile_id.unwrap();
+    assert!(matches!(
+        service.connect(profile_id).await,
+        Err(crate::ControlServiceError::MacSystemProxy(
+            Error::RecoveryPending
+        ))
+    ));
+    assert!(service.data_plane.lock().await.is_none());
+    backend.state.lock().unwrap().cancel_once = true;
+    assert!(service.clear_all_data(true).await.is_err());
+    assert!(path.exists());
+    assert_eq!(
+        service.config_snapshot().await.active_profile_id,
+        Some(profile_id)
+    );
+
+    let disconnect = || v1::ControlRequest {
+        request_id: "recover-failed-start".into(),
+        payload: Some(control_request::Payload::Disconnect(
+            v1::DisconnectRequest {},
+        )),
+    };
+    backend.state.lock().unwrap().cancel_once = true;
+    let response = service.handle(disconnect()).await;
+    assert_eq!(
+        response.error.unwrap().code,
+        "SYSTEM_PROXY_PERMISSION_CANCELLED"
+    );
+    assert!(path.exists());
+    assert!(service.macos_proxy_recovery_error.lock().await.is_some());
+    let response = service.handle(disconnect()).await;
+    assert!(response.error.is_none());
+    let Some(control_response::Payload::Status(snapshot)) = response.payload else {
+        panic!("recovered status");
+    };
+    assert_eq!(snapshot.phase, v1::ConnectionPhase::Disconnected as i32);
+    assert!(snapshot.error.is_none());
+    assert!(!path.exists());
+    assert!(service.macos_proxy_recovery_error.lock().await.is_none());
+    assert_eq!(backend.state.lock().unwrap().services[0].values, original);
+}

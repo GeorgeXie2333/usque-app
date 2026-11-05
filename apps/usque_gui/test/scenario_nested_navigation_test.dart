@@ -153,7 +153,10 @@ void main() {
           isEmpty,
         );
       },
-      variant: TargetPlatformVariant.only(TargetPlatform.windows),
+      variant: TargetPlatformVariant({
+        TargetPlatform.windows,
+        TargetPlatform.macOS,
+      }),
     );
   }
 

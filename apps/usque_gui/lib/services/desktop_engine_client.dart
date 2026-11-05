@@ -672,7 +672,14 @@ class DesktopEngineClient
     // Disconnect is a priority safety operation. Do not queue it behind
     // profile persistence, status reads, or other non-critical requests.
     final response = await _request(13, Uint8List(0));
-    return response.snapshot ?? const EngineSnapshot();
+    final snapshot = response.snapshot;
+    if (snapshot == null) {
+      throw const EngineException(
+        'DISCONNECT_CLEANUP_UNCONFIRMED',
+        'The Engine did not confirm disconnection cleanup. Retry Disconnect.',
+      );
+    }
+    return snapshot;
   }
 
   @override

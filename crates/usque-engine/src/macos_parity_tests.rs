@@ -258,16 +258,28 @@ async fn provider_handoff_rejects_unapproved_or_malformed_endpoint_changes() {
 }
 
 #[tokio::test]
-async fn vpn_gate_download_requires_reusable_warp_without_releasing_retained_protection() {
-    for retained in [false, true] {
+async fn vpn_gate_download_refuses_bootstrap_without_releasing_retained_protection() {
+    for owner in ["reservation", "active_provider", "proxy_recovery"] {
         let directory = tempfile::tempdir().unwrap();
         let service = open_service(directory.path(), Arc::new(tests::MemoryVault::default()));
-        let reservation = retained.then(|| usque_macos_runtime::SessionKey {
+        let cleanup_pending = owner == "proxy_recovery";
+        let reservation = (owner == "reservation").then(|| usque_macos_runtime::SessionKey {
             session_id: Uuid::new_v4(),
             config_revision: 3,
             network_generation: 7,
         });
         *service.macos_reserved.lock().await = reservation.clone();
+        if cleanup_pending {
+            *service.macos_proxy_recovery_error.lock().await =
+                Some(macos_system_proxy::Error::RecoveryPending);
+        }
+        if owner == "active_provider" {
+            let profile = service.config_snapshot().await.active_profile().unwrap();
+            service
+                .install_test_session(profile, true, 0)
+                .await
+                .unwrap();
+        }
         for payload in [
             control_request::Payload::RefreshVpnGate(v1::RefreshVpnGateRequest { cancel: false }),
             control_request::Payload::VpnGateNode(v1::VpnGateNodeRequest {
@@ -282,10 +294,20 @@ async fn vpn_gate_download_requires_reusable_warp_without_releasing_retained_pro
             let error = reply
                 .error
                 .expect("unverified physical bootstrap is refused");
-            assert_eq!(error.code, "MACOS_WARP_CONNECTION_REQUIRED");
+            assert_eq!(
+                error.code,
+                if cleanup_pending {
+                    "SYSTEM_PROXY_RECOVERY_PENDING"
+                } else {
+                    "MACOS_WARP_CONNECTION_REQUIRED"
+                }
+            );
             assert!(error.retryable);
             assert!(service.gate_fetch_task.lock().await.is_none());
-            assert!(service.data_plane.lock().await.is_none());
+            assert_eq!(
+                service.data_plane.lock().await.is_some(),
+                owner == "active_provider"
+            );
             assert_eq!(*service.macos_reserved.lock().await, reservation);
             assert_eq!(
                 service.gate_directory.progress().stage,
@@ -300,6 +322,48 @@ async fn vpn_gate_download_requires_reusable_warp_without_releasing_retained_pro
             "cached browsing remains local"
         );
     }
+}
+
+#[tokio::test]
+async fn vpn_gate_bootstrap_keeps_saved_chain_and_never_uses_direct_catalogue_access() {
+    let directory = tempfile::tempdir().unwrap();
+    // No account secrets: the asynchronous WARP preparation must fail before
+    // opening a socket. A direct catalogue fallback would instead do network IO.
+    let service = open_service(directory.path(), Arc::new(tests::MemoryVault::default()));
+    service.config.write().await.network.vpn_gate.enabled = true;
+    let before = serde_json::to_value(service.config_snapshot().await).unwrap();
+    service
+        .refresh_vpn_gate()
+        .await
+        .expect("temporary WARP bootstrap admitted");
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            if service.gate_directory.progress().stage == usque_core::vpngate::DownloadStage::Failed
+            {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("missing synthetic credentials fail without network fallback");
+    let progress = service.gate_directory.progress();
+    assert_eq!(progress.stage, usque_core::vpngate::DownloadStage::Failed);
+    assert!(
+        progress
+            .failures
+            .iter()
+            .any(|failure| failure.stage == usque_core::vpngate::DownloadStage::PreparingWarp)
+    );
+    assert!(progress.failures.iter().all(
+        |failure| failure.error == usque_core::vpngate::DirectoryError::Unavailable.to_string()
+    ));
+    assert_eq!(
+        serde_json::to_value(service.config_snapshot().await).unwrap(),
+        before
+    );
+    assert!(service.data_plane.lock().await.is_none());
+    assert!(service.macos_reserved.lock().await.is_none());
 }
 
 #[test]
@@ -326,14 +390,16 @@ fn vpn_gate_retry_uses_connected_base_warp_when_the_final_exit_is_reconnecting()
         ),
     };
     assert!(
-        vpngate::require_catalogue_warp(Some((reconnecting.clone(), connected.clone()))).is_ok(),
+        vpngate::admit_catalogue_warp(Some((reconnecting.clone(), connected.clone())), true)
+            .is_ok(),
         "a blocked/reconnecting final exit retains its explicit base-WARP control path"
     );
     assert!(
-        vpngate::require_catalogue_warp(Some((connected, reconnecting))).is_err(),
+        vpngate::admit_catalogue_warp(Some((connected, reconnecting)), false).is_err(),
         "a final-exit observation cannot authorize a disconnected WARP underlay"
     );
-    assert!(vpngate::require_catalogue_warp(None).is_err());
+    assert!(vpngate::admit_catalogue_warp(None, false).is_ok());
+    assert!(vpngate::admit_catalogue_warp(None, true).is_err());
 }
 
 #[tokio::test]
@@ -449,6 +515,8 @@ async fn cached_vpn_gate_profile_prepares_and_handoffs_without_a_download() {
     assert_eq!(recovered.0.id, server.id);
     assert_eq!(recovered.1.content(), prepared.content());
     assert!(service.gate_fetch_task.lock().await.is_none());
+    *service.macos_proxy_recovery_error.lock().await =
+        Some(macos_system_proxy::Error::RecoveryPending);
     for action in ["prepare", "favorite"] {
         let reply = service
             .handle(request(control_request::Payload::VpnGateNode(
@@ -480,6 +548,11 @@ async fn cached_vpn_gate_profile_prepares_and_handoffs_without_a_download() {
         .unwrap();
         assert!(service.data_plane.lock().await.is_none());
         assert!(service.macos_reserved.lock().await.is_none());
+        assert_eq!(
+            *service.macos_proxy_recovery_error.lock().await,
+            Some(macos_system_proxy::Error::RecoveryPending),
+            "offline preparation cannot clear unrelated recovery ownership"
+        );
     }
 }
 

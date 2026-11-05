@@ -1876,10 +1876,24 @@ mod tests {
     async fn headless_discovery_ignores_unloaded_listener_credentials() {
         let mut saved = Profile::default();
         saved.proxy.auth_username = Some("protected-local-proxy".into());
+        saved.proxy.system_proxy = true;
+        saved.frontends = usque_core::FrontendSettings {
+            tunnel: true,
+            socks5: true,
+            http: true,
+        };
+        saved.vpn_gate.enabled = true;
         assert!(saved.proxy.listener_credentials().is_err());
+        let headless = DataPlaneRuntime::headless_profile(&saved);
+        assert!(!headless.chain_enabled());
+        assert!(
+            !headless.frontends.tunnel && !headless.frontends.socks5 && !headless.frontends.http
+        );
+        assert!(!headless.proxy.system_proxy);
         let (mut runtime, _packets) = memory_warp_with_profile(&saved).await;
         assert!(runtime.listeners().is_empty());
-        assert!(saved.proxy.auth_username.is_some());
+        assert!(saved.proxy.auth_username.is_some() && saved.proxy.system_proxy);
+        assert!(saved.vpn_gate.enabled && saved.frontends.tunnel);
         runtime.shutdown().await;
     }
 

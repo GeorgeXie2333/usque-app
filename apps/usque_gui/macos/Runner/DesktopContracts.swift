@@ -5,13 +5,14 @@ import Foundation
 struct DesktopTrayState {
   var status = "Disconnected"
   var connected = false
+  var connectionEnabled = false
   var badge = "idle"
   var open = "Open Usque"
   var connect = "Connect"
   var disconnect = "Disconnect"
   var disconnectExit = "Disconnect and Quit"
   var settings = "Settings…"
-  var quitFailed = "Usque could not confirm disconnection. Retry Disconnect before quitting."
+  var quitFailed = "Disconnection cleanup is incomplete. Retry Disconnect and Quit; your window stays open until cleanup succeeds."
   var tunnelLabel = ""
   var systemProxyLabel = ""
   var tunnel = false
@@ -30,6 +31,7 @@ struct DesktopTrayState {
     else { return nil }
     self.status = status
     self.connected = connected
+    connectionEnabled = values["connection_enabled"] as? Bool ?? false
     func label(_ key: String, _ fallback: String = "") -> String {
       guard let value = values[key] as? String, value.utf8.count <= 1024 else {
         return fallback
@@ -60,6 +62,14 @@ struct DesktopTrayState {
 struct DesktopQuitState {
   private(set) var pending: UUID?
   private(set) var confirmed = false
+
+  static func cleanupCompleted(_ value: Any?) -> Bool {
+    guard let acknowledgement = value as? [String: Any],
+      let complete = acknowledgement["cleanup_complete"] as? NSNumber,
+      CFGetTypeID(complete) == CFBooleanGetTypeID()
+    else { return false }
+    return complete.boolValue
+  }
 
   mutating func begin() -> UUID? {
     guard !confirmed, pending == nil else { return nil }
