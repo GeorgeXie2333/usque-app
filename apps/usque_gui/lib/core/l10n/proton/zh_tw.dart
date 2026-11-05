@@ -34,7 +34,7 @@ const kProtonZhTw = <String, String>{
   'cancelled': '已取消設定',
   'failed': 'Proton 設定失敗，可稍後重試。',
   'result_unconfirmed': 'Proton 設定結果尚未確認。請重新整理狀態以繼續，或取消現有設定後重新開始。',
-  'unavailable': '此引擎不支援 Proton VPN。',
+  'unavailable': '此版本的 Usque 不支援 Proton VPN。',
   'bad_credentials': '請檢查 Proton 使用者名稱、密碼或驗證器驗證碼。',
   'rate_limited': 'Proton 限制了此請求，請稍後再試。',
   'network': '無法連線至 Proton，請檢查網路或 VPN 後重試。',

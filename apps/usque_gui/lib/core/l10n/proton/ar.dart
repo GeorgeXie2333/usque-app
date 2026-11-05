@@ -47,14 +47,14 @@ const kProtonAr = <String, String>{
   'failed': 'فشل إعداد Proton. أعد المحاولة عندما تكون مستعدًا.',
   'result_unconfirmed':
       'لم تُؤكّد نتيجة إعداد Proton. حدّث الحالة للمتابعة أو ألغِ الإعداد الحالي قبل البدء مجددًا.',
-  'unavailable': 'Proton VPN غير متاح في هذا المحرك.',
+  'unavailable': 'Proton VPN غير متاح في هذا الإصدار من Usque.',
   'bad_credentials':
       'تحقق من اسم مستخدم Proton أو كلمة المرور أو رمز المصادقة.',
   'rate_limited': 'قيّد Proton هذا الطلب. انتظر قبل إعادة المحاولة.',
   'network': 'تعذر الوصول إلى Proton. تحقق من الشبكة أو VPN، ثم أعد المحاولة.',
   'verification_failed': 'تعذر إكمال التحقق. ابدأ الإعداد مجددًا.',
   'verification_invalid':
-      'رفض Proton نتيجة التحقق. ابدأ الإعداد مجددًا للحصول على تحدٍّ جديد.',
+      'رفض Proton نتيجة التحقق. ابدأ الإعداد مجددًا للحصول على تحقق جديد.',
   'accounts': 'حسابات Proton',
   'add_account': 'إضافة حساب',
   'account_actions': 'إجراءات الحساب',

@@ -1607,7 +1607,7 @@ void main() {
       'Setelan',
     );
     expect(AppStrings(LocalePreference.italian).get('nav_settings'), 'Opzioni');
-    expect(AppStrings(LocalePreference.japanese).get('nav_profiles'), '構成');
+    expect(AppStrings(LocalePreference.japanese).get('nav_profiles'), 'プロファイル');
     expect(AppStrings(LocalePreference.dutch).get('nav_settings'), 'Opties');
     expect(AppStrings(LocalePreference.polish).get('nav_settings'), 'Opcje');
     expect(
@@ -1830,8 +1830,8 @@ void main() {
     expect(tw.get('close_to_tray'), contains('系統匣'));
     expect(hk.get('geo_direct_help'), contains('網絡'));
     expect(tw.get('geo_direct_help'), contains('網路'));
-    expect(hk.get('diag_family'), 'IP 版本');
-    expect(tw.get('diag_family'), 'IP 版本');
+    expect(hk.get('diag_family'), 'IP 類型');
+    expect(tw.get('diag_family'), 'IP 類型');
   });
 
   testWidgets('Persian and Arabic locales select RTL directionality', (
@@ -3779,7 +3779,7 @@ void main() {
       final context = tester.element(find.byType(Scaffold).first);
       expect(Theme.of(context).brightness, Brightness.dark);
 
-      await tester.tap(find.text('配置').first);
+      await tester.tap(find.text('场景').first);
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
       expect(find.text('添加账号'), findsOneWidget);
@@ -4486,9 +4486,13 @@ void main() {
       expect(countrySwitch.value, isTrue);
       expect(countrySwitch.onChanged, isNotNull);
 
-      await tester.tap(
-        find.descendant(of: countryTile, matching: find.byType(Switch)),
+      final countryToggle = find.descendant(
+        of: countryTile,
+        matching: find.byType(Switch),
       );
+      await tester.ensureVisible(countryToggle);
+      await tester.pumpAndSettle();
+      await tester.tap(countryToggle);
       await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(FilledButton, 'Apply changes'));
       await tester.pumpAndSettle();

@@ -25,12 +25,12 @@ const Map<String, String> kUiWorkflowNl = <String, String>{
   'unsaved_changes': 'Niet-toegepaste wijzigingen',
   'changes_applied': 'Wijzigingen toegepast',
   'changes_apply_hint':
-      'Bewerkingen worden van kracht nadat u “Wijzigingen toepassen” kiest.',
+      'Bewerkingen worden van kracht nadat je “Wijzigingen toepassen” kiest.',
   'changes_failed':
       'Wijzigingen konden niet worden toegepast. Controleer de opgeslagen '
       'waarden en probeer het opnieuw.',
   'form_errors':
-      'Controleer de gemarkeerde velden voordat u de wijzigingen toepast.',
+      'Controleer de gemarkeerde velden voordat je de wijzigingen toepast.',
   'discard_changes_title': 'Niet-toegepaste wijzigingen verwerpen?',
   'discard_changes_body': 'Niet-toegepaste bewerkingen gaan verloren.',
   'keep_editing': 'Blijven bewerken',
@@ -80,7 +80,7 @@ const Map<String, String> kNetworkQualityNl = <String, String>{
   'diag_check_quality_queue_pressure': 'Wachtrijdruk',
   'diag_check_quality_pmtu': 'Pad-MTU',
   'diag_check_transport_migration_capability':
-      'Migratie binnen dezelfde familie',
+      'Migratie binnen dezelfde IP-versie',
   'diag_check_dns_direct_encrypted_configuration':
       'Configuratie van directe DNS',
   'diag_check_dns_direct_encrypted_runtime_state':
@@ -128,8 +128,7 @@ const Map<String, String> kNetworkQualityNl = <String, String>{
   'diag_fix_nq_retry':
       'Wacht op een stabiel netwerk en probeer het daarna opnieuw.',
   'diag_fix_nq_network':
-      'Controleer de lokale connectiviteit en vergelijk een nieuwe meting '
-      'voordat u instellingen wijzigt.',
+      'Controleer de lokale connectiviteit en vergelijk een nieuwe meting voordat je instellingen wijzigt.',
   'diag_fix_nq_reconnect':
       'Maak opnieuw verbinding om de opgeslagen configuratie toe te passen.',
   'nav_network_quality': 'Kwaliteit',
@@ -188,7 +187,7 @@ const Map<String, String> kNetworkQualityNl = <String, String>{
       'Dit is de pakketgrootte die het netwerkpad aankan. Usque controleert die automatisch om pakketverlies te beperken. Dit verhoogt niet de VPN-MTU in Geavanceerde netwerkinstellingen.',
   'nq_migration': 'Netwerkmigratie',
   'nq_migration_help':
-      'Usque probeert de verbinding te behouden als u van netwerk wisselt, bijvoorbeeld van wifi naar mobiele data. Beide netwerken moeten dezelfde IP-versie gebruiken: IPv4 of IPv6.',
+      'Usque probeert de verbinding te behouden als je van netwerk wisselt, bijvoorbeeld van wifi naar mobiele data. Beide netwerken moeten dezelfde IP-versie gebruiken: IPv4 of IPv6.',
   'nq_attempts': 'Pogingen',
   'nq_successes': 'Geslaagd',
   'nq_failures': 'Mislukt',
@@ -200,7 +199,7 @@ const Map<String, String> kNetworkQualityNl = <String, String>{
   'nq_ready': 'Gereed',
   'nq_degraded': 'Gedegradeerd',
   'nq_timeouts': 'Time-outs',
-  'nq_last_rtt': 'Laatste RTT',
+  'nq_last_rtt': 'Laatste retourtijd',
   'nq_dns_redacted':
       'Domeinnamen en IP-adressen van DNS-servers worden alleen in Instellingen getoond.',
   'nq_queues': 'Wachtrijdruk',
@@ -228,7 +227,7 @@ const Map<String, String> kNetworkQualityNl = <String, String>{
   'nq_gaps': 'Ontbrekende metingen zijn hiaten.',
   'nq_phase_idle': 'Inactief',
   'nq_phase_preparing_socket': 'Pad voorbereiden',
-  'nq_phase_probing': 'Aan het toetsen',
+  'nq_phase_probing': 'Testen',
   'nq_phase_validated': 'Gevalideerd',
   'nq_phase_promoting': 'Pad wisselen',
   'nq_phase_stable': 'Stabiel',
@@ -300,15 +299,11 @@ const Map<String, String> kWindowsRecoveryNl = <String, String>{
       'geen nieuwe VPN-verbinding gestart. Probeer de verbinding opnieuw of '
       'bekijk de lokale diagnostiek.',
   'WINDOWS_RECOVERY_EXHAUSTED':
-      'Windows kon de vorige VPN-netwerkstatus na drie automatische pogingen '
-      'niet herstellen. Probeer het opnieuw wanneer u klaar bent, of bekijk de '
-      'lokale diagnostiek.',
+      'Windows kon de vorige VPN-netwerkstatus na drie automatische pogingen niet herstellen. Probeer het opnieuw wanneer je klaar bent, of bekijk de lokale diagnostiek.',
   'WINDOWS_RECOVERY_BLOCKED':
-      'Automatisch herstel is gestopt omdat niet kon worden bevestigd dat de vorige VPN-instellingen veilig hersteld konden worden. Controleer op updates bij Instellingen; exporteer bij aanhoudende problemen een diagnosepakket.',
+      'Usque heeft automatisch herstel gestopt omdat niet kon worden bevestigd dat de vorige VPN-instellingen veilig hersteld konden worden. Controleer op updates bij Instellingen; open bij aanhoudende problemen Diagnostiek en exporteer een diagnostisch pakket.',
   'WINDOWS_RECOVERY_TIMEOUT':
-      'Het herstel van het Windows-netwerk duurt langer dan verwacht. Er is '
-      'geen nieuwe VPN-verbinding gestart. Wacht tot het herstel is voltooid '
-      'voordat u het opnieuw probeert.',
+      'Het herstel van het Windows-netwerk duurt langer dan verwacht. Er is geen nieuwe VPN-verbinding gestart. Wacht tot het herstel is voltooid voordat je het opnieuw probeert.',
   'WINDOWS_RECOVERY_CONFLICT':
       'De netwerkstatus is gewijzigd of wordt nog gebruikt door een andere '
       'sessie. Het automatische herstel is gestopt om de actieve verbinding te '
@@ -369,7 +364,7 @@ const Map<String, String> kNetworkSettingsNl = <String, String>{
   'settings_unsupported':
       'Sluit Usque volledig, open het opnieuw en sla nogmaals op. Controleer bij problemen op updates in Instellingen.',
   'settings_save_failed':
-      'Instellingen konden niet worden opgeslagen. Uw wijzigingen blijven behouden.',
+      'Instellingen konden niet worden opgeslagen. Je wijzigingen blijven behouden.',
   'settings_reconnect': 'Opnieuw verbinden',
 };
 
@@ -381,10 +376,10 @@ const Map<String, String> kChainNl = <String, String>{
       'Gebruik een configuratie die past bij het gekozen type uitgang.',
   'invalid_dns': 'Controleer de DNS-serveradressen en de gekozen DNS-modus.',
   'unexpected_credentials':
-      'Schakel verificatie met gebruikersnaam en wachtwoord in of wis de inloggegevens.',
+      'Schakel verificatie met gebruikersnaam en wachtwoord in of wis de aanmeldgegevens.',
   'missing_credentials': 'Voer zowel een gebruikersnaam als een wachtwoord in.',
   'invalid_credential':
-      'Controleer of de inloggegevens ongeldige tekens bevatten of te lang zijn.',
+      'Controleer of de aanmeldgegevens ongeldige tekens bevatten of te lang zijn.',
   "dns_auto": "Automatisch (standaard DoH)",
   "dns_doh": "Versleutelde DNS · Cloudflare",
   "dns_tcp": "DNS via TCP",
@@ -397,13 +392,13 @@ const Map<String, String> kChainNl = <String, String>{
   "dns_inherit":
       "Laat leeg om netwerk-DNS te gebruiken. Vragen gaan via deze uitgang.",
   "scope_proxy_only":
-      "Usque stuurt alleen verbindingen door die apps ernaartoe sturen. Andere verbindingen kunnen uw openbare IP-adres onthullen.",
+      "Usque stuurt alleen verbindingen door die apps ernaartoe sturen. Andere verbindingen kunnen je openbare IP-adres onthullen.",
   "scope_bypass":
-      "Uw regels voor directe verbindingen en afzonderlijke apps blijven gelden.",
+      "Je regels voor directe verbindingen en afzonderlijke apps blijven gelden.",
   "scope_interrupted":
-      "De verbinding is verbroken. Uw apparaat kan terugkeren naar de gewone netwerkverbinding.",
+      "De verbinding is verbroken. Je apparaat kan terugkeren naar de gewone netwerkverbinding.",
   "scope_android_settings":
-      "Om na het stoppen van de dienst te blijven blokkeren, schakelt u Altijd-aan-VPN en Verbindingen zonder VPN blokkeren in de systeeminstellingen in.",
+      "Schakel in de systeeminstellingen “Always-on VPN” en “Verbindingen zonder VPN blokkeren” in om te blijven blokkeren nadat de dienst stopt.",
 
   "batch_title": "Configuraties importeren",
   "batch_counts":
@@ -416,7 +411,7 @@ const Map<String, String> kChainNl = <String, String>{
   "batch_checking": "Controleren: {done} van {total}",
   "batch_saving": "Configuraties opslaan…",
   "batch_uncertain":
-      "Opslaan onderbroken. Sluit en controleer de bibliotheek voordat u opnieuw importeert; sommige items zijn mogelijk al opgeslagen.",
+      "Opslaan onderbroken. Sluit en controleer de bibliotheek voordat je opnieuw importeert; sommige items zijn mogelijk al opgeslagen.",
   "file_count_limit": "Selecteer maximaal 128 bestanden tegelijk.",
   'duplicate_directive': 'Deze richtlijn mag maar één keer voorkomen.',
   'mixed_protocols':
@@ -429,15 +424,16 @@ const Map<String, String> kChainNl = <String, String>{
   'serialized_size_limit':
       'De versleutelde record zou de opslaglimiet overschrijden.',
   'multi_endpoint_unavailable':
-      'Werk de engine bij om configuraties met meerdere eindpunten te gebruiken.',
-  'candidates': 'Starteindpunten',
+      'Deze configuratie bevat meerdere servers. Werk Usque bij om deze te gebruiken.',
+  'candidates': 'Te proberen servers',
   'random_order':
-      'Eindpunten worden bij elke verbinding in een nieuwe willekeurige volgorde geprobeerd.',
-  'file_order': 'Eindpunten worden in de volgorde van het bestand geprobeerd.',
-  'attempting': 'Eindpunt wordt geprobeerd',
-  'actual_endpoint': 'Verbonden eindpunt',
+      'Bij elke verbinding worden deze servers in een nieuwe willekeurige volgorde geprobeerd.',
+  'file_order':
+      'Bij elke verbinding worden deze servers in de vermelde volgorde geprobeerd.',
+  'attempting': 'Server wordt geprobeerd',
+  'actual_endpoint': 'Verbonden server',
   'attempt_failures': 'Mislukte pogingen',
-  'failure_transport': 'transport gesloten',
+  'failure_transport': 'verbinding verbroken',
   'failure_authentication': 'authenticatie',
   'failure_certificate': 'certificaat',
   'failure_configuration': 'configuratie',
@@ -450,9 +446,10 @@ const Map<String, String> kChainNl = <String, String>{
   'dns_unavailable':
       'Er is geen DNS-server bereikbaar via deze uitgang. Gebruik IP-adressen of kies een andere uitgang met bereikbare DNS.',
   'authentication_failed':
-      'Authenticatie mislukt. Werk de aanmeldgegevens bij voordat u opnieuw verbindt.',
+      'Authenticatie mislukt. Werk de aanmeldgegevens bij voordat je opnieuw verbindt.',
   'profile_limit': 'De configuratiebibliotheek is vol (128 configuraties).',
-  'metadata_limit': 'De metadata van de configuratiebibliotheek is vol.',
+  'metadata_limit':
+      'De configuratiebibliotheek heeft geen ruimte voor meer items.',
   'title': 'Ketenproxy',
   'subtitle': 'Kies een uitgang die via WARP wordt bereikt.',
   'source': 'Uitgangsbron',
@@ -466,7 +463,7 @@ const Map<String, String> kChainNl = <String, String>{
   'empty_hint_wireguard':
       'Importeer een .conf-bestand of plak de tekst. Eén sectie [Interface] en één sectie [Peer] worden ondersteund.',
   'import_limits':
-      'Configuraties moeten UTF-8-tekst van maximaal 128 KiB zijn. Zonder bestandskeuze kunt u de tekst plakken.',
+      'Configuraties moeten UTF-8-tekst van maximaal 128 KiB zijn. Zonder bestandskeuze kun je de tekst plakken.',
   'select_required': 'Selecteer een opgeslagen configuratie om toe te passen.',
   'pending_disable': 'In afwachting: ketenproxy uitschakelen',
   'apply_reconnect': 'Toepassen en opnieuw verbinden',
@@ -512,7 +509,7 @@ const Map<String, String> kChainNl = <String, String>{
   'allowed': 'Toegestane bestemmingen',
   'dns': 'DNS',
   'addresses': 'Tunneladressen',
-  'address_family': 'Adresfamilie',
+  'address_family': 'IP-versie',
   'transport': 'Overdracht',
   'endpoint': 'Doelserver',
   'restricted':
@@ -520,7 +517,7 @@ const Map<String, String> kChainNl = <String, String>{
   'delete_confirm':
       'Deze opgeslagen configuratie verwijderen? Het oorspronkelijk geïmporteerde bestand blijft ongewijzigd.',
   'profile_in_use':
-      'Kies een andere configuratie of wis de opgeslagen selectie voordat u deze configuratie verwijdert.',
+      'Kies een andere configuratie of wis de opgeslagen selectie voordat je deze configuratie verwijdert.',
   'stale_revision':
       'De configuratie is gewijzigd. Vernieuw de lijst en probeer het opnieuw.',
   'secure_storage_failed':
@@ -549,7 +546,7 @@ const Map<String, String> kChainNl = <String, String>{
       'De sleutel moet een geldige Base64-sleutel van 32 bytes zijn.',
   'checking': 'Configuratie wordt gecontroleerd…',
   'changed': 'Wijzigingen opgeslagen',
-  "source_group_custom": "Uw configuraties",
+  "source_group_custom": "Jouw configuraties",
   "source_group_service": "Diensten",
   "endpoint_ip": "Eindpunt-IP",
   "endpoint_select_first":
@@ -563,5 +560,5 @@ const Map<String, String> kChainNl = <String, String>{
   "not_verified": "Niet geverifieerd",
   "unavailable": "Niet beschikbaar",
   "udp_association":
-      "Associatie geaccepteerd; end-to-end-doorgifte niet geverifieerd",
+      "UDP-relay geaccepteerd; end-to-end-doorgifte niet geverifieerd",
 };

@@ -27,7 +27,7 @@ const kEndpointPresetCatalogs = <String, Map<String, String>>{
     "endpoint_preset_prefer_hint": "失败时回退 IPv4，地区可能变化。",
     "endpoint_preset_fallback": "IPv4 回退地址",
     "endpoint_preset_unsupported": "请更新 Usque 以使用预设。",
-    "endpoint_preset_verify": "请先完成账号验证。",
+    "endpoint_preset_verify": "完成账号验证后才能使用预设。",
     "endpoint_preset_fallback_active": "已回退至 IPv4，可能不在所选国家。",
   },
   "zh_TW": {
@@ -55,7 +55,7 @@ const kEndpointPresetCatalogs = <String, Map<String, String>>{
     "endpoint_preset_policy": "使用 IPv6",
     "endpoint_preset_only_hint": "預設無法使用時停止連線。",
     "endpoint_preset_prefer_hint": "失敗時改用 IPv4，地區可能改變。",
-    "endpoint_preset_fallback": "IPv4 後備位址",
+    "endpoint_preset_fallback": "IPv4 後備地址",
     "endpoint_preset_unsupported": "請更新 Usque 以使用預設。",
     "endpoint_preset_verify": "請先完成帳戶驗證。",
     "endpoint_preset_fallback_active": "已改用 IPv4，可能不在所選國家。",
@@ -136,7 +136,7 @@ const kEndpointPresetCatalogs = <String, Map<String, String>>{
     "endpoint_preset_unsupported": "Atualize o Usque para usar predefinições.",
     "endpoint_preset_verify": "Verifique a conta primeiro.",
     "endpoint_preset_fallback_active":
-        "A usar IPv4; o país pode ser diferente.",
+        "Usando IPv4; o país pode ser diferente.",
   },
   "fr": {
     "endpoint_manual": "Saisie manuelle",
@@ -199,7 +199,8 @@ const kEndpointPresetCatalogs = <String, Map<String, String>>{
     "endpoint_preset_prefer_hint": "Przełącz na IPv4; kraj może się zmienić.",
     "endpoint_preset_fallback": "Zapasowy adres IPv4",
     "endpoint_preset_unsupported": "Zaktualizuj Usque, aby użyć ustawień.",
-    "endpoint_preset_verify": "Najpierw zweryfikuj konto.",
+    "endpoint_preset_verify":
+        "Zweryfikuj konto, aby używać ustawień wbudowanych.",
     "endpoint_preset_fallback_active":
         "Przełączono na IPv4; kraj może być inny.",
   },
@@ -278,7 +279,7 @@ const kEndpointPresetCatalogs = <String, Map<String, String>>{
     "endpoint_preset_prefer_hint": "Beralih ke IPv4; negara dapat berubah.",
     "endpoint_preset_fallback": "Alamat cadangan IPv4",
     "endpoint_preset_unsupported": "Perbarui Usque untuk memakai prasetel.",
-    "endpoint_preset_verify": "Verifikasi akun terlebih dahulu.",
+    "endpoint_preset_verify": "Verifikasi akun Anda untuk memakai prasetel.",
     "endpoint_preset_fallback_active":
         "Beralih ke IPv4; negara mungkin berbeda.",
   },
@@ -294,7 +295,8 @@ const kEndpointPresetCatalogs = <String, Map<String, String>>{
     "endpoint_preset_prefer_hint": "Chuyển sang IPv4; quốc gia có thể đổi.",
     "endpoint_preset_fallback": "Địa chỉ IPv4 dự phòng",
     "endpoint_preset_unsupported": "Cập nhật Usque để dùng thiết lập có sẵn.",
-    "endpoint_preset_verify": "Hãy xác minh tài khoản trước.",
+    "endpoint_preset_verify":
+        "Hãy xác minh tài khoản để dùng thiết lập có sẵn.",
     "endpoint_preset_fallback_active":
         "Đã chuyển sang IPv4; quốc gia có thể khác.",
   },
@@ -310,7 +312,7 @@ const kEndpointPresetCatalogs = <String, Map<String, String>>{
     "endpoint_preset_prefer_hint": "ใช้ IPv4 สำรอง; ประเทศอาจเปลี่ยน",
     "endpoint_preset_fallback": "ที่อยู่ IPv4 สำรอง",
     "endpoint_preset_unsupported": "อัปเดต Usque เพื่อใช้ค่าที่ตั้งไว้",
-    "endpoint_preset_verify": "โปรดยืนยันบัญชีก่อน",
+    "endpoint_preset_verify": "ยืนยันบัญชีก่อนเพื่อใช้ค่าที่ตั้งไว้",
     "endpoint_preset_fallback_active":
         "เปลี่ยนไปใช้ IPv4 แล้ว; ประเทศอาจต่างออกไป",
   },
@@ -322,8 +324,8 @@ const kEndpointPresetCatalogs = <String, Map<String, String>>{
     "endpoint_preset_de": "Almanya",
     "endpoint_preset_fi": "Finlandiya",
     "endpoint_preset_policy": "IPv6 kullan",
-    "endpoint_preset_only_hint": "Hazır ayar başarısız olursa dur.",
-    "endpoint_preset_prefer_hint": "IPv4 yedeğine geç; ülke değişebilir.",
+    "endpoint_preset_only_hint": "Hazır ayar başarısız olursa durur.",
+    "endpoint_preset_prefer_hint": "IPv4 yedeğine geçer; ülke değişebilir.",
     "endpoint_preset_fallback": "IPv4 yedek adresi",
     "endpoint_preset_unsupported":
         "Hazır ayarlar için Usque uygulamasını güncelleyin.",

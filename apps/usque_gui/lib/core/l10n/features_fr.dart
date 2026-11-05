@@ -81,7 +81,8 @@ const Map<String, String> kNetworkQualityFr = <String, String>{
   'diag_check_quality_packet_loss': 'Perte de paquets',
   'diag_check_quality_queue_pressure': 'Pression des files',
   'diag_check_quality_pmtu': 'MTU du chemin',
-  'diag_check_transport_migration_capability': 'Migration dans la même famille',
+  'diag_check_transport_migration_capability':
+      'Migration dans la même version IP',
   'diag_check_dns_direct_encrypted_configuration':
       'Configuration du DNS direct',
   'diag_check_dns_direct_encrypted_runtime_state': 'Exécution du DNS direct',
@@ -174,7 +175,7 @@ const Map<String, String> kNetworkQualityFr = <String, String>{
       'Mesuré sur le dernier intervalle ; pas une perte cumulée.',
   'nq_congestion': 'Encombrement',
   'nq_cwnd': 'Fenêtre de congestion',
-  'nq_in_flight': 'Bytes en transit',
+  'nq_in_flight': 'Octets en transit',
   'nq_send_rate': 'Débit de livraison',
   'nq_h2_window': 'Fenêtres de réception HTTP/2',
   'nq_stream_window': "Fenêtre du flux",
@@ -303,7 +304,7 @@ const Map<String, String> kWindowsRecoveryFr = <String, String>{
       'tentatives automatiques. Réessayez lorsque vous serez prêt, ou '
       'inspectez les diagnostics locaux.',
   'WINDOWS_RECOVERY_BLOCKED':
-      'La réparation automatique s’est arrêtée car la restauration sûre des anciens paramètres VPN n’a pas pu être confirmée. Recherchez une mise à jour dans Paramètres ; si le problème persiste, exportez un paquet depuis Diagnostics.',
+      'Usque a arrêté la réparation automatique, car il n’a pas pu confirmer que les anciens paramètres VPN pouvaient être restaurés en toute sécurité. Recherchez une mise à jour dans Paramètres ; si le problème persiste, ouvrez Diagnostics et exportez une archive de diagnostic.',
   'WINDOWS_RECOVERY_TIMEOUT':
       'La récupération réseau Windows prend plus de temps que prévu. Aucune '
       'nouvelle connexion VPN n’a été démarrée. Attendez la fin de la '
@@ -403,7 +404,7 @@ const Map<String, String> kChainFr = <String, String>{
   "scope_interrupted":
       "La connexion a été interrompue. Votre appareil peut reprendre sa connexion réseau habituelle.",
   "scope_android_settings":
-      "Pour maintenir le blocage après l’arrêt du service, activez VPN permanent et Bloquer les connexions sans VPN dans les paramètres système.",
+      "Pour maintenir le blocage après l’arrêt du service, activez « VPN permanent » et « Bloquer les connexions sans VPN » dans les paramètres système.",
 
   "batch_title": "Importer des configurations",
   "batch_counts":
@@ -420,22 +421,22 @@ const Map<String, String> kChainFr = <String, String>{
   "file_count_limit": "Sélectionnez au maximum 128 fichiers à la fois.",
   'duplicate_directive': 'Cette directive ne peut apparaître qu’une fois.',
   'mixed_protocols':
-      'Tous les points remote doivent utiliser le même transport TCP ou UDP.',
+      'Tous les serveurs remote doivent utiliser le même transport TCP ou UDP.',
   'conflicting_protocol':
       'Le remote entre en conflit avec le transport global.',
-  'too_many_endpoints': 'Utilisez au plus 16 points remote.',
+  'too_many_endpoints': 'Utilisez au plus 16 serveurs remote.',
   'conflicting_authentication':
       'CLIENT_CERT entre en conflit avec le certificat intégré ou le mode d’authentification.',
   'serialized_size_limit':
-      'L’enregistrement chiffré dépasserait la limite de stockage.',
+      'La configuration est trop volumineuse pour être enregistrée.',
   'multi_endpoint_unavailable':
-      'Mettez le moteur à jour pour utiliser des configurations à plusieurs points.',
-  'candidates': 'Points de démarrage',
+      'Cette configuration contient plusieurs serveurs. Mettez Usque à jour pour l’utiliser.',
+  'candidates': 'Serveurs à essayer',
   'random_order':
-      'Les points sont essayés dans un nouvel ordre aléatoire à chaque connexion.',
-  'file_order': 'Les points sont essayés dans l’ordre du fichier.',
-  'attempting': 'Point en cours d’essai',
-  'actual_endpoint': 'Point connecté',
+      'Les serveurs sont essayés dans un nouvel ordre aléatoire à chaque connexion.',
+  'file_order': 'Les serveurs sont essayés dans l’ordre du fichier.',
+  'attempting': 'Serveur en cours d’essai',
+  'actual_endpoint': 'Serveur connecté',
   'attempt_failures': 'Essais échoués',
   'failure_transport': 'transport fermé',
   'failure_authentication': 'authentification',
@@ -454,7 +455,7 @@ const Map<String, String> kChainFr = <String, String>{
   'profile_limit':
       'La bibliothèque de configurations est pleine (128 configurations).',
   'metadata_limit':
-      'Les métadonnées de la bibliothèque de configurations sont pleines.',
+      'La bibliothèque de configurations n’a plus de place pour de nouvelles entrées.',
   'title': 'Proxy en chaîne',
   'subtitle': 'Choisissez une sortie atteinte via WARP.',
   'source': 'Source de sortie',
@@ -464,7 +465,7 @@ const Map<String, String> kChainFr = <String, String>{
   'profiles': 'Configurations enregistrées',
   'empty': 'Importez une configuration pour choisir une sortie.',
   'empty_hint_openvpn':
-      'Importez un fichier .ovpn ou collez son texte. Les points TCP et UDP, les certificats intégrés et l’identifiant avec mot de passe sont pris en charge.',
+      'Importez un fichier .ovpn ou collez son texte. Les serveurs TCP et UDP, les certificats intégrés et l’identifiant avec mot de passe sont pris en charge.',
   'empty_hint_wireguard':
       'Importez un fichier .conf ou collez son texte. Une section [Interface] et une section [Peer] sont prises en charge.',
   'import_limits':
@@ -512,15 +513,15 @@ const Map<String, String> kChainFr = <String, String>{
   'unsupported':
       'Cette version d’Usque ne peut pas utiliser cette source de sortie. Recherchez une mise à jour dans Paramètres.',
   'scope':
-      'Les règles directes explicites restent en vigueur. Le reste du trafic utilise la sortie choisie.',
+      'Vos règles de connexion directe restent applicables. Le reste du trafic utilise la sortie choisie.',
   'allowed': 'Destinations autorisées',
   'dns': 'DNS',
   'addresses': 'Adresses du tunnel',
-  'address_family': 'Famille d’adresses',
+  'address_family': 'Version IP',
   'transport': 'Acheminement',
   'endpoint': 'Serveur',
   'restricted':
-      'Les destinations hors de AllowedIPs sont bloquées sur le chemin du proxy.',
+      'Les destinations hors de AllowedIPs ne sont pas joignables par cette sortie.',
   'delete_confirm':
       'Supprimer cette configuration enregistrée ? Le fichier importé d’origine reste inchangé.',
   'profile_in_use':
@@ -528,7 +529,7 @@ const Map<String, String> kChainFr = <String, String>{
   'stale_revision':
       'La configuration a changé. Actualisez la liste et réessayez.',
   'secure_storage_failed':
-      'La configuration chiffrée n’a pas pu être lue ni enregistrée.',
+      'Les configurations enregistrées n’ont pas pu être lues ni écrites.',
   'invalid_configuration':
       'La configuration est invalide ou contient des options non prises en charge.',
   'looks_like_wireguard':
@@ -566,5 +567,5 @@ const Map<String, String> kChainFr = <String, String>{
   "not_verified": "Non vérifié",
   "unavailable": "Indisponible",
   "udp_association":
-      "Association acceptée ; transfert de bout en bout non vérifié",
+      "Relais UDP accepté ; transfert de bout en bout non vérifié",
 };

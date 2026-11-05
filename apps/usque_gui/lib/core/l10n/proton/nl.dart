@@ -9,9 +9,9 @@ const kProtonNl = <String, String>{
   'connection_api':
       'Een Proton-API-aanvraag is mislukt. Probeer opnieuw of controleer het Proton-account bij Ketenproxy.',
   'connection_authentication':
-      'Proton-autorisatie mislukt. Open Ketenproxy en meld u opnieuw aan bij Proton.',
+      'Proton-autorisatie mislukt. Open Ketenproxy en meld je opnieuw aan bij Proton.',
   'connection_certificate':
-      'Proton heeft het verbindingscertificaat geweigerd en het herstel is mislukt. Maak opnieuw verbinding of meld u opnieuw aan bij Proton.',
+      'Proton heeft het verbindingscertificaat geweigerd en het herstel is mislukt. Maak opnieuw verbinding of meld je opnieuw aan bij Proton.',
   'connection_restricted':
       'De Proton-server is tijdelijk beperkt. Probeer opnieuw of kies een andere server.',
   'connection_sessions':
@@ -25,7 +25,7 @@ const kProtonNl = <String, String>{
   'connection_protocol':
       'Het verbindingsantwoord van Proton kon niet worden gevalideerd. Probeer opnieuw of kies een andere server.',
   'connection_transport':
-      'Proton is niet bereikbaar. Controleer uw netwerk of kies een andere server.',
+      'Proton is niet bereikbaar. Controleer je netwerk of kies een andere server.',
   'connection_reconnect': 'Proton-autorisatie vernieuwd. Opnieuw verbinden…',
   'connection_review':
       'Open Ketenproxy om het Proton-account en de geselecteerde server te controleren.',
@@ -42,27 +42,27 @@ const kProtonNl = <String, String>{
   'verification_hint': 'Los de puzzel op in het officiële verificatievenster.',
   'choose_node': 'Een gratis server kiezen',
   'working': 'Proton VPN voorbereiden…',
-  'waiting_totp': 'Voer de code uit uw authenticator-app in om door te gaan.',
+  'waiting_totp': 'Voer de code uit je authenticator-app in om door te gaan.',
   'waiting_verification': 'Verificatie vereist',
-  'waiting_node': 'Kies een server om de configuratie te voltooien.',
+  'waiting_node': 'Kies een server om het instellen te voltooien.',
   'completed':
       'Account opgeslagen. Selecteer het en pas de wijzigingen toe om Proton VPN te gebruiken.',
-  'cancelled': 'Configuratie geannuleerd',
+  'cancelled': 'Instellen geannuleerd',
   'failed':
-      'Proton-configuratie mislukt. Probeer het opnieuw wanneer u klaar bent.',
+      'Instellen van Proton mislukt. Probeer het opnieuw wanneer je klaar bent.',
   'result_unconfirmed':
-      'Het resultaat van de Proton-configuratie is niet bevestigd. Vernieuw de status om door te gaan of annuleer de huidige configuratie voordat u opnieuw begint.',
-  'unavailable': 'Proton VPN is niet beschikbaar in deze engine.',
+      'Het resultaat van het instellen van Proton is niet bevestigd. Vernieuw de status om door te gaan of annuleer het lopende instellen voordat je opnieuw begint.',
+  'unavailable': 'Proton VPN is niet beschikbaar in deze versie van Usque.',
   'bad_credentials':
-      'Controleer uw Proton-gebruikersnaam, wachtwoord of authenticatiecode.',
+      'Controleer je Proton-gebruikersnaam, wachtwoord of authenticatiecode.',
   'rate_limited':
-      'Proton heeft deze aanvraag beperkt. Wacht voordat u opnieuw probeert.',
+      'Proton heeft deze aanvraag beperkt. Wacht voordat je het opnieuw probeert.',
   'network':
-      'Proton is niet bereikbaar. Controleer uw netwerk of VPN en probeer opnieuw.',
+      'Proton is niet bereikbaar. Controleer je netwerk of VPN en probeer opnieuw.',
   'verification_failed':
-      'De verificatie kon niet worden voltooid. Start de configuratie opnieuw.',
+      'De verificatie kon niet worden voltooid. Begin opnieuw met instellen.',
   'verification_invalid':
-      'Proton heeft het verificatieresultaat geweigerd. Start de configuratie opnieuw voor een nieuwe verificatieopdracht.',
+      'Proton heeft het verificatieresultaat geweigerd. Begin opnieuw met instellen om een nieuwe verificatie te krijgen.',
   'accounts': 'Proton-accounts',
   'add_account': 'Account toevoegen',
   'account_actions': 'Accountacties',
@@ -89,9 +89,9 @@ const kProtonNl = <String, String>{
   'saved_account': 'Opgeslagen keuze',
   'next_connection': 'Serverkeuze opgeslagen voor de volgende verbinding.',
   'disconnect_to_change':
-      'Verbreek de verbinding van dit account voordat u de server wijzigt of het account verwijdert.',
+      'Verbreek de verbinding van dit account voordat je de server wijzigt of het account verwijdert.',
   'cleanup_pending':
-      'Het intrekken van een eerdere sessie kon niet worden bevestigd. Meld u opnieuw af of kies uitdrukkelijk voor alleen lokaal verwijderen.',
+      'Het intrekken van een eerdere sessie kon niet worden bevestigd. Meld je opnieuw af of kies uitdrukkelijk voor alleen lokaal verwijderen.',
   'selected_server_unavailable':
       'De geselecteerde server is niet beschikbaar. Kies een andere server of Automatisch.',
   'close': 'Sluiten',
@@ -107,9 +107,9 @@ const kProtonNl = <String, String>{
   'unsupported_second_factor':
       'Dit account vereist een aanmeldmethode die hier niet wordt ondersteund.',
   'reauthentication_required':
-      'Meld u opnieuw aan om deze Proton-sessie te vernieuwen.',
+      'Meld je opnieuw aan om deze Proton-sessie te vernieuwen.',
   'profile_in_use':
-      'Verbreek de verbinding van dit account voordat u het wijzigt of verwijdert.',
+      'Verbreek de verbinding van dit account voordat je het wijzigt of verwijdert.',
   'session_busy':
       'Er loopt nog een andere Proton-bewerking. Wacht of annuleer deze eerst.',
   'api_rejected':
@@ -139,15 +139,15 @@ const kProtonNl = <String, String>{
   'stage_secure_storage': 'Configuratie opslaan',
   'stage_session_revoke': 'Sessie intrekken',
   'expired':
-      'Het verificatie- of invoerverzoek is verlopen. Start de configuratie opnieuw.',
+      'Het verificatie- of invoerverzoek is verlopen. Begin opnieuw met instellen.',
   'underlay_changed':
-      'De netwerkomgeving is gewijzigd. Start de configuratie opnieuw.',
+      'De netwerkomgeving is gewijzigd. Begin opnieuw met instellen.',
   'remote_unknown':
       'Het intrekken van de externe sessie kon niet worden bevestigd.',
   'cancelled_remote_unknown':
       'Geannuleerd op dit apparaat. Het intrekken van de externe sessie kon niet worden bevestigd.',
   'privacy':
-      'Uw wachtwoord wordt alleen voor het aanmelden gebruikt. Sessies en sleutels zijn op dit apparaat beveiligd.',
+      'Je wachtwoord wordt alleen voor het aanmelden gebruikt. Sessies en sleutels zijn op dit apparaat beveiligd.',
   'empty':
-      'Meld u aan of ga door als gast om een Proton-account toe te voegen.',
+      'Meld je aan of ga door als gast om een Proton-account toe te voegen.',
 };

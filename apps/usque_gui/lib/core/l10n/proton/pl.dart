@@ -52,7 +52,7 @@ const kProtonPl = <String, String>{
       'Konfiguracja Proton nie powiodła się. Spróbuj ponownie w dogodnym momencie.',
   'result_unconfirmed':
       'Wynik konfiguracji Proton nie jest potwierdzony. Odśwież stan, aby kontynuować, lub anuluj obecną konfigurację przed ponownym rozpoczęciem.',
-  'unavailable': 'Proton VPN jest niedostępny w tym silniku.',
+  'unavailable': 'Proton VPN jest niedostępny w tej wersji Usque.',
   'bad_credentials':
       'Sprawdź nazwę użytkownika Proton, hasło lub kod uwierzytelniający.',
   'rate_limited': 'Proton ograniczył to żądanie. Odczekaj przed ponowną próbą.',
@@ -61,7 +61,7 @@ const kProtonPl = <String, String>{
   'verification_failed':
       'Nie można dokończyć weryfikacji. Rozpocznij konfigurację ponownie.',
   'verification_invalid':
-      'Proton odrzucił wynik weryfikacji. Rozpocznij konfigurację ponownie, aby otrzymać nowe zadanie.',
+      'Proton odrzucił wynik weryfikacji. Rozpocznij konfigurację ponownie, aby otrzymać nową weryfikację.',
   'accounts': 'Konta Proton',
   'add_account': 'Dodaj konto',
   'account_actions': 'Działania na koncie',

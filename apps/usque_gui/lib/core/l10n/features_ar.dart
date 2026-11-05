@@ -72,7 +72,7 @@ const kNetworkQualityAr = <String, String>{
   'diag_check_quality_packet_loss': 'فقدان الرزم',
   'diag_check_quality_queue_pressure': 'ضغط قائمة الانتظار',
   'diag_check_quality_pmtu': 'MTU المسار',
-  'diag_check_transport_migration_capability': 'الترحيل ضمن العائلة نفسها',
+  'diag_check_transport_migration_capability': 'الترحيل ضمن إصدار IP نفسه',
   'diag_check_dns_direct_encrypted_configuration': 'تكوين DNS المباشر',
   'diag_check_dns_direct_encrypted_runtime_state': 'تشغيل DNS المباشر',
   'diag_check_dns_direct_encrypted_reachability':
@@ -272,13 +272,13 @@ const Map<String, String> kWindowsRecoveryAr = <String, String>{
   'WINDOWS_RECOVERY_EXHAUSTED':
       'تعذّر على Windows استعادة حالة شبكة VPN السابقة بعد ثلاث محاولات تلقائية. أعد المحاولة عندما تكون جاهزًا، أو راجع التشخيص المحلي.',
   'WINDOWS_RECOVERY_BLOCKED':
-      'توقف الإصلاح التلقائي لأن الاستعادة الآمنة لم تُؤكَّد. حدّث Usque من الإعدادات. إذا استمرت المشكلة، فصدّر السجلات من التشخيص.',
+      'أوقف Usque الإصلاح التلقائي لأنه تعذّر التأكد من أن استعادة إعدادات VPN السابقة آمنة. افتح الإعدادات وتحقق من وجود تحديثات، ثم افتح التشخيص وصدّر حزمة تشخيص إذا استمرت المشكلة.',
   'WINDOWS_RECOVERY_TIMEOUT':
       'يستغرق استرداد شبكة Windows وقتًا أطول من المتوقع. لم يبدأ أي اتصال VPN جديد. انتظر حتى يكتمل الاسترداد قبل إعادة المحاولة.',
   'WINDOWS_RECOVERY_CONFLICT':
       'تغيّرت حالة الشبكة أو ما زالت قيد الاستخدام من جلسة أخرى. أُوقف الاسترداد التلقائي لحماية الاتصال النشط.',
   'WINDOWS_RECOVERY_UNSUPPORTED':
-      'لا يستطيع هذا التثبيت استعادة اتصال VPN السابق تلقائيًا. حدّث Usque من الإعدادات وحاول مجددًا.',
+      'لا يستطيع هذا التثبيت استعادة إعدادات VPN السابقة تلقائيًا. حدّث Usque من الإعدادات وحاول مجددًا.',
 };
 
 const String kWindowsAdapterCleanupAr =
@@ -359,7 +359,7 @@ const Map<String, String> kChainAr = <String, String>{
   "scope_bypass": "تظل قواعد الاتصال المباشر والقواعد الخاصة بكل تطبيق سارية.",
   "scope_interrupted": "انقطع الاتصال. قد يعود جهازك إلى اتصال الشبكة المعتاد.",
   "scope_android_settings":
-      "لمواصلة الحظر بعد توقف الخدمة، فعّل VPN دائم التشغيل وحظر الاتصالات بدون VPN في إعدادات النظام.",
+      "لمواصلة الحظر بعد توقف الخدمة، فعّل «شبكة VPN قيد التشغيل دائمًا» و«حظر أي اتصالات بدون شبكة VPN» في إعدادات النظام.",
 
   "batch_title": "استيراد الإعدادات",
   "batch_counts":
@@ -380,21 +380,22 @@ const Map<String, String> kChainAr = <String, String>{
   'too_many_endpoints': 'استخدم 16 نقطة remote كحد أقصى.',
   'conflicting_authentication':
       'يتعارض CLIENT_CERT مع الشهادة المضمّنة أو وضع المصادقة.',
-  'serialized_size_limit': 'سيتجاوز السجل المشفّر حد حجم التخزين.',
-  'multi_endpoint_unavailable': 'حدّث المحرك لاستخدام إعدادات تتضمن عدة نقاط.',
-  'candidates': 'نقاط البدء',
-  'random_order': 'تُجرَّب النقاط بترتيب عشوائي جديد عند كل اتصال.',
-  'file_order': 'تُجرَّب النقاط بترتيب الملف.',
-  'attempting': 'النقطة قيد التجربة',
-  'actual_endpoint': 'النقطة المتصلة',
+  'serialized_size_limit': 'الإعداد أكبر من أن يُخزَّن.',
+  'multi_endpoint_unavailable':
+      'يتضمن هذا الإعداد عدة خوادم. حدّث Usque لاستخدامه.',
+  'candidates': 'الخوادم المراد تجربتها',
+  'random_order': 'يجرّب كل اتصال هذه الخوادم بترتيب عشوائي جديد.',
+  'file_order': 'يجرّب كل اتصال هذه الخوادم بالترتيب المدرج.',
+  'attempting': 'الخادم قيد التجربة',
+  'actual_endpoint': 'الخادم المتصل',
   'attempt_failures': 'المحاولات الفاشلة',
-  'failure_transport': 'أُغلق النقل',
-  'failure_authentication': 'مصادقة',
-  'failure_certificate': 'شهادة',
-  'failure_configuration': 'إعداد',
-  'failure_address_changed': 'تغيّر العنوان',
-  'failure_protocol': 'بروتوكول',
-  'failure_cleanup': 'تنظيف',
+  'failure_transport': 'انقطع الاتصال',
+  'failure_authentication': 'فشلت المصادقة',
+  'failure_certificate': 'رُفضت الشهادة',
+  'failure_configuration': 'الإعداد غير صالح',
+  'failure_address_changed': 'تغيّر عنوان الخادم',
+  'failure_protocol': 'خطأ في البروتوكول',
+  'failure_cleanup': 'فشل التنظيف',
   'failure_reason': 'سبب الفشل: {reason}.',
   'dns_fallback': 'DNS النفق (قد يتفاوض OpenVPN على DNS)',
   'dns_unavailable_title': 'لا يوجد DNS عبر هذا المخرج',
@@ -403,7 +404,7 @@ const Map<String, String> kChainAr = <String, String>{
   'authentication_failed':
       'فشلت المصادقة. حدّث بيانات الاعتماد قبل الاتصال مرة أخرى.',
   'profile_limit': 'مكتبة الإعدادات ممتلئة (128 إعدادًا).',
-  'metadata_limit': 'بيانات تعريف مكتبة الإعدادات ممتلئة.',
+  'metadata_limit': 'لا توجد مساحة في مكتبة الإعدادات لمزيد من العناصر.',
   'title': 'وكيل متسلسل',
   'subtitle': 'اختر مخرجًا يُبلَغ عبر WARP.',
   'source': 'مصدر المخرج',
@@ -463,7 +464,7 @@ const Map<String, String> kChainAr = <String, String>{
   'allowed': 'الوجهات المسموح بها',
   'dns': 'DNS',
   'addresses': 'عناوين النفق',
-  'address_family': 'عائلة العناوين',
+  'address_family': 'إصدار IP',
   'transport': 'النقل',
   'endpoint': 'الخادم',
   'restricted': 'تُحظر الوجهات خارج AllowedIPs على مسار الوكيل.',
@@ -472,7 +473,7 @@ const Map<String, String> kChainAr = <String, String>{
   'profile_in_use':
       'اختر إعدادًا آخر أو امسح الاختيار المحفوظ قبل حذف هذا الإعداد.',
   'stale_revision': 'تغيّر الإعداد. حدّث القائمة ثم أعد المحاولة.',
-  'secure_storage_failed': 'تعذّر قراءة الإعداد المشفّر أو حفظه.',
+  'secure_storage_failed': 'تعذّرت قراءة الإعدادات المحفوظة أو كتابتها.',
   'invalid_configuration': 'الإعداد غير صالح أو يتضمن خيارات غير مدعومة.',
   'looks_like_wireguard':
       'يبدو هذا إعداد WireGuard. بدّل مصدر المخرج إلى WireGuard.',
@@ -502,5 +503,6 @@ const Map<String, String> kChainAr = <String, String>{
   "verified": "تم التحقق",
   "not_verified": "لم يتم التحقق",
   "unavailable": "غير متاح",
-  "udp_association": "تم قبول الارتباط؛ لم يتم التحقق من التمرير بين الطرفين",
+  "udp_association":
+      "تم قبول نقل UDP عبر الوكيل؛ لم يتم التحقق من التمرير بين الطرفين",
 };

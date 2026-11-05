@@ -1,37 +1,37 @@
 const kProtonDe = <String, String>{
   'fallback_account':
-      'Proton ist nicht erreichbar. Wählen Sie ein vorhandenes WARP-Konto und versuchen Sie es erneut.',
+      'Proton ist nicht erreichbar. Wähle ein vorhandenes WARP-Konto und versuche es erneut.',
   'fallback_failed':
-      'Verbindung über WARP fehlgeschlagen. Prüfen Sie das gewählte WARP-Konto und das Netzwerk und versuchen Sie es erneut.',
+      'Verbindung über WARP fehlgeschlagen. Prüfe das gewählte WARP-Konto und das Netzwerk und versuche es erneut.',
   'fallback_starting': 'Verbindung über WARP wird hergestellt…',
   'fallback_active':
       'Dieser Kontovorgang läuft einschließlich Verifizierung über WARP.',
   'connection_api':
-      'Eine Proton-API-Anfrage ist fehlgeschlagen. Versuchen Sie es erneut oder prüfen Sie das Proton-Konto unter Kettenproxy.',
+      'Eine Proton-API-Anfrage ist fehlgeschlagen. Versuche es erneut oder prüfe das Proton-Konto unter Kettenproxy.',
   'connection_authentication':
-      'Proton-Autorisierung fehlgeschlagen. Öffnen Sie Kettenproxy und melden Sie sich erneut bei Proton an.',
+      'Proton-Autorisierung fehlgeschlagen. Öffne Kettenproxy und melde dich erneut bei Proton an.',
   'connection_certificate':
-      'Proton hat das Verbindungszertifikat abgelehnt und die Wiederherstellung ist fehlgeschlagen. Verbinden Sie sich neu oder melden Sie sich erneut bei Proton an.',
+      'Proton hat das Verbindungszertifikat abgelehnt und die Wiederherstellung ist fehlgeschlagen. Verbinde dich neu oder melde dich erneut bei Proton an.',
   'connection_restricted':
-      'Der Proton-Server ist vorübergehend eingeschränkt. Versuchen Sie es erneut oder wählen Sie einen anderen Server.',
+      'Der Proton-Server ist vorübergehend eingeschränkt. Versuche es erneut oder wähle einen anderen Server.',
   'connection_sessions':
-      'Protons Limit gleichzeitiger Verbindungen wurde erreicht. Trennen Sie eine andere Proton-Sitzung und versuchen Sie es erneut.',
+      'Protons Limit gleichzeitiger Verbindungen wurde erreicht. Trenne eine andere Proton-Sitzung und versuche es erneut.',
   'connection_key':
-      'Proton hat diesen Verbindungsschlüssel in mehreren Sitzungen erkannt. Trennen Sie die andere Sitzung und versuchen Sie es erneut.',
+      'Proton hat diesen Verbindungsschlüssel in mehreren Sitzungen erkannt. Trenne die andere Sitzung und versuche es erneut.',
   'connection_policy':
-      'Proton hat diese Verbindung aufgrund seiner Konto- oder Nutzungsrichtlinien eingeschränkt. Prüfen Sie das Konto oder wählen Sie einen anderen Server.',
+      'Proton hat diese Verbindung aufgrund seiner Konto- oder Nutzungsrichtlinien eingeschränkt. Prüfe das Konto oder wähle einen anderen Server.',
   'connection_server':
-      'Der Proton-Server konnte die Verbindung nicht autorisieren. Versuchen Sie einen anderen Server.',
+      'Der Proton-Server konnte die Verbindung nicht autorisieren. Versuche einen anderen Server.',
   'connection_protocol':
-      'Die Proton-Verbindungsantwort konnte nicht geprüft werden. Versuchen Sie es erneut oder wählen Sie einen anderen Server.',
+      'Die Proton-Verbindungsantwort konnte nicht geprüft werden. Versuche es erneut oder wähle einen anderen Server.',
   'connection_transport':
-      'Proton ist nicht erreichbar. Prüfen Sie das Netzwerk oder wählen Sie einen anderen Server.',
+      'Proton ist nicht erreichbar. Prüfe das Netzwerk oder wähle einen anderen Server.',
   'connection_reconnect':
       'Proton-Autorisierung erneuert. Verbindung wird wiederhergestellt…',
   'connection_review':
-      'Öffnen Sie Kettenproxy, um das Proton-Konto und den gewählten Server zu prüfen.',
+      'Öffne Kettenproxy, um das Proton-Konto und den gewählten Server zu prüfen.',
   'connection_retry':
-      'Versuchen Sie die Proton-Verbindung erneut oder wählen Sie einen anderen Server.',
+      'Versuche die Proton-Verbindung erneut oder wähle einen anderen Server.',
   'title': 'Proton VPN',
   'guest': 'Als Gast fortfahren',
   'login': 'Bei Proton anmelden',
@@ -40,32 +40,31 @@ const kProtonDe = <String, String>{
   'totp': 'Code der Authentifizierungs-App',
   'submit': 'Weiter',
   'verify': 'Verifizierung abschließen',
-  'verification_hint':
-      'Lösen Sie das Rätsel im offiziellen Verifizierungsfenster.',
+  'verification_hint': 'Löse das Rätsel im offiziellen Verifizierungsfenster.',
   'choose_node': 'Kostenlosen Server wählen',
   'working': 'Proton VPN wird vorbereitet…',
   'waiting_totp':
-      'Geben Sie den Code Ihrer Authentifizierungs-App ein, um fortzufahren.',
+      'Gib den Code deiner Authentifizierungs-App ein, um fortzufahren.',
   'waiting_verification': 'Verifizierung erforderlich',
-  'waiting_node': 'Wählen Sie einen Server, um die Einrichtung abzuschließen.',
+  'waiting_node': 'Wähle einen Server, um die Einrichtung abzuschließen.',
   'completed':
-      'Konto gespeichert. Wählen Sie es aus und wenden Sie die Änderungen an, um Proton VPN zu nutzen.',
+      'Konto gespeichert. Wähle es aus und wende die Änderungen an, um Proton VPN zu nutzen.',
   'cancelled': 'Einrichtung abgebrochen',
   'failed':
-      'Proton-Einrichtung fehlgeschlagen. Versuchen Sie es erneut, wenn Sie bereit sind.',
+      'Proton-Einrichtung fehlgeschlagen. Versuche es erneut, wenn du bereit bist.',
   'result_unconfirmed':
-      'Das Ergebnis der Proton-Einrichtung ist unbestätigt. Aktualisieren Sie den Status, um fortzufahren, oder brechen Sie die laufende Einrichtung vor einem Neustart ab.',
-  'unavailable': 'Proton VPN ist in dieser Engine nicht verfügbar.',
+      'Das Ergebnis der Proton-Einrichtung ist unbestätigt. Aktualisiere den Status, um fortzufahren, oder brich die laufende Einrichtung vor einem Neustart ab.',
+  'unavailable': 'Proton VPN ist in dieser Version von Usque nicht verfügbar.',
   'bad_credentials':
-      'Prüfen Sie Ihren Proton-Benutzernamen, Ihr Passwort oder den Code der Authentifizierungs-App.',
+      'Prüfe deinen Proton-Benutzernamen, dein Passwort oder den Code der Authentifizierungs-App.',
   'rate_limited':
-      'Proton hat diese Anfrage begrenzt. Warten Sie vor einem erneuten Versuch.',
+      'Proton hat diese Anfrage begrenzt. Warte vor einem erneuten Versuch.',
   'network':
-      'Proton ist nicht erreichbar. Prüfen Sie Netzwerk oder VPN und versuchen Sie es erneut.',
+      'Proton ist nicht erreichbar. Prüfe Netzwerk oder VPN und versuche es erneut.',
   'verification_failed':
-      'Die Verifizierung konnte nicht abgeschlossen werden. Starten Sie die Einrichtung erneut.',
+      'Die Verifizierung konnte nicht abgeschlossen werden. Starte die Einrichtung erneut.',
   'verification_invalid':
-      'Proton hat das Verifizierungsergebnis abgelehnt. Starten Sie die Einrichtung für eine neue Aufgabe erneut.',
+      'Proton hat das Verifizierungsergebnis abgelehnt. Starte die Einrichtung erneut, um eine neue Verifizierung zu erhalten.',
   'accounts': 'Proton-Konten',
   'add_account': 'Konto hinzufügen',
   'account_actions': 'Kontoaktionen',
@@ -93,11 +92,11 @@ const kProtonDe = <String, String>{
   'saved_account': 'Gespeicherte Auswahl',
   'next_connection': 'Serverauswahl für die nächste Verbindung gespeichert.',
   'disconnect_to_change':
-      'Trennen Sie dieses Konto, bevor Sie den Server wechseln oder das Konto entfernen.',
+      'Trenne dieses Konto, bevor du den Server wechselst oder das Konto entfernst.',
   'cleanup_pending':
-      'Der Widerruf einer früheren Sitzung konnte nicht bestätigt werden. Melden Sie sich erneut ab oder wählen Sie ausdrücklich das lokale Entfernen.',
+      'Der Widerruf einer früheren Sitzung konnte nicht bestätigt werden. Melde dich erneut ab oder wähle ausdrücklich das lokale Entfernen.',
   'selected_server_unavailable':
-      'Der gewählte Server ist nicht verfügbar. Wählen Sie einen anderen Server oder Automatisch.',
+      'Der gewählte Server ist nicht verfügbar. Wähle einen anderen Server oder Automatisch.',
   'close': 'Schließen',
   'verification_error': 'Verifizierungsfehler',
   'refresh': 'Autorisierung erneuern oder Server wechseln',
@@ -111,11 +110,10 @@ const kProtonDe = <String, String>{
   'unsupported_second_factor':
       'Dieses Konto erfordert eine hier nicht unterstützte Anmeldemethode.',
   'reauthentication_required':
-      'Melden Sie sich erneut an, um diese Proton-Sitzung zu erneuern.',
-  'profile_in_use':
-      'Trennen Sie dieses Konto, bevor Sie es ändern oder entfernen.',
+      'Melde dich erneut an, um diese Proton-Sitzung zu erneuern.',
+  'profile_in_use': 'Trenne dieses Konto, bevor du es änderst oder entfernst.',
   'session_busy':
-      'Ein anderer Proton-Vorgang läuft noch. Warten Sie oder brechen Sie ihn zuerst ab.',
+      'Ein anderer Proton-Vorgang läuft noch. Warte oder brich ihn zuerst ab.',
   'api_rejected':
       'Proton hat diese Anfrage abgelehnt. Die folgenden Codes kennzeichnen die Serverantwort.',
   'session_not_allowed':
@@ -143,15 +141,15 @@ const kProtonDe = <String, String>{
   'stage_secure_storage': 'Konfiguration speichern',
   'stage_session_revoke': 'Sitzung widerrufen',
   'expired':
-      'Die Verifizierungs- oder Eingabeanforderung ist abgelaufen. Starten Sie die Einrichtung erneut.',
+      'Die Verifizierungs- oder Eingabeanforderung ist abgelaufen. Starte die Einrichtung erneut.',
   'underlay_changed':
-      'Die Netzwerkumgebung hat sich geändert. Starten Sie die Einrichtung erneut.',
+      'Die Netzwerkumgebung hat sich geändert. Starte die Einrichtung erneut.',
   'remote_unknown':
       'Der Widerruf der entfernten Sitzung konnte nicht bestätigt werden.',
   'cancelled_remote_unknown':
       'Auf diesem Gerät abgebrochen. Der Widerruf der entfernten Sitzung konnte nicht bestätigt werden.',
   'privacy':
-      'Ihr Passwort wird nur zur Anmeldung verwendet. Sitzungen und Schlüssel sind auf diesem Gerät geschützt.',
+      'Dein Passwort wird nur zur Anmeldung verwendet. Sitzungen und Schlüssel sind auf diesem Gerät geschützt.',
   'empty':
-      'Melden Sie sich an oder fahren Sie als Gast fort, um ein Proton-Konto hinzuzufügen.',
+      'Melde dich an oder fahre als Gast fort, um ein Proton-Konto hinzuzufügen.',
 };

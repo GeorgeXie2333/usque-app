@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="vpn_channel_name">Dịch vụ mạng Usque</string>
-    <string name="vpn_channel_description">Trạng thái bền của VPN Usque đang chạy hoặc proxy cục bộ</string>
+    <string name="vpn_channel_description">Trạng thái thường trực của VPN Usque đang chạy hoặc proxy cục bộ</string>
     <string name="vpn_notif_disconnect">Ngắt kết nối</string>
-    <string name="vpn_notif_preparing">Đang chuẩn bị đường hầm an toàn</string>
+    <string name="vpn_notif_preparing">Đang chuẩn bị đường hầm bảo mật</string>
     <string name="vpn_notif_connecting_h3">Đang kết nối bằng HTTP/3</string>
     <string name="vpn_notif_connecting_h2">Đang kết nối bằng HTTP/2</string>
     <string name="vpn_notif_connected">Đã kết nối</string>
@@ -17,10 +17,10 @@
     <string name="vpn_notif_invalid_network_profile">Hồ sơ mạng không hợp lệ</string>
     <string name="vpn_notif_recovery_unavailable">Không khôi phục được VPN</string>
     <string name="tile_connected">Đã kết nối</string>
-    <string name="tile_disconnected">Đã ngắt</string>
+    <string name="tile_disconnected">Đã ngắt kết nối</string>
     <string name="tile_connecting">Đang kết nối</string>
     <string name="tile_reconnecting">Đang kết nối lại</string>
-    <string name="tile_disconnecting">Đang ngắt</string>
+    <string name="tile_disconnecting">Đang ngắt kết nối</string>
     <string name="tile_checking">Đang kiểm tra</string>
     <string name="tile_working">Đang xử lý</string>
     <string name="tile_open_app">Mở Usque</string>

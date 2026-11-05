@@ -4,7 +4,7 @@ const kProtonTh = <String, String>{
   'fallback_failed':
       'ไม่สามารถเชื่อมต่อผ่าน WARP ได้ ตรวจสอบบัญชี WARP ที่เลือกและเครือข่าย แล้วลองอีกครั้ง',
   'fallback_starting': 'กำลังเชื่อมต่อผ่าน WARP…',
-  'fallback_active': 'การดำเนินการกับบัญชีนี้ใช้ WARP รวมถึงการยืนยันตัวตน',
+  'fallback_active': 'การดำเนินการกับบัญชีนี้ใช้ WARP รวมถึงการยืนยัน',
   'connection_api':
       'คำขอ API ของ Proton ล้มเหลว ลองอีกครั้งหรือตรวจสอบบัญชี Proton ในพร็อกซีแบบลูกโซ่',
   'connection_authentication':
@@ -41,7 +41,7 @@ const kProtonTh = <String, String>{
   'choose_node': 'เลือกเซิร์ฟเวอร์ฟรี',
   'working': 'กำลังเตรียม Proton VPN…',
   'waiting_totp': 'ป้อนรหัสจากแอปยืนยันตัวตนเพื่อดำเนินการต่อ',
-  'waiting_verification': 'ต้องยืนยันตัวตน',
+  'waiting_verification': 'ต้องทำการยืนยัน',
   'waiting_node': 'เลือกเซิร์ฟเวอร์เพื่อตั้งค่าให้เสร็จสิ้น',
   'completed':
       'บันทึกบัญชีแล้ว เลือกบัญชีนี้และใช้การเปลี่ยนแปลงเพื่อใช้งาน Proton VPN',
@@ -49,7 +49,7 @@ const kProtonTh = <String, String>{
   'failed': 'ตั้งค่า Proton ไม่สำเร็จ ลองอีกครั้งเมื่อพร้อม',
   'result_unconfirmed':
       'ยังไม่ยืนยันผลการตั้งค่า Proton รีเฟรชสถานะเพื่อดำเนินการต่อ หรือยกเลิกการตั้งค่าปัจจุบันก่อนเริ่มใหม่',
-  'unavailable': 'Proton VPN ไม่พร้อมใช้งานในเอนจินนี้',
+  'unavailable': 'Proton VPN ไม่พร้อมใช้งานใน Usque เวอร์ชันนี้',
   'bad_credentials':
       'ตรวจสอบชื่อผู้ใช้ Proton รหัสผ่าน หรือรหัสจากแอปยืนยันตัวตน',
   'rate_limited': 'Proton จำกัดคำขอนี้ โปรดรอก่อนลองอีกครั้ง',
@@ -57,7 +57,7 @@ const kProtonTh = <String, String>{
       'ไม่สามารถติดต่อ Proton ได้ ตรวจสอบเครือข่ายหรือ VPN แล้วลองอีกครั้ง',
   'verification_failed': 'ยืนยันไม่สำเร็จ เริ่มการตั้งค่าอีกครั้ง',
   'verification_invalid':
-      'Proton ปฏิเสธผลการยืนยัน เริ่มการตั้งค่าอีกครั้งเพื่อรับโจทย์ยืนยันใหม่',
+      'Proton ปฏิเสธผลการยืนยัน เริ่มการตั้งค่าอีกครั้งเพื่อรับการยืนยันใหม่',
   'accounts': 'บัญชี Proton',
   'add_account': 'เพิ่มบัญชี',
   'account_actions': 'การดำเนินการกับบัญชี',

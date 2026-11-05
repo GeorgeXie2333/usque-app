@@ -202,12 +202,13 @@ const kDiagnosticsCatalogs = <String, Map<String, String>>{
   },
   'es': <String, String>{
     'diag_fail_ENDPOINT_PIN_REFRESH_FAILED':
-        'Error al actualizar el pin del endpoint',
+        'Error al actualizar el pin del extremo',
     'diag_fail_ENDPOINT_PIN_RETRY_FAILED':
         'Error de conexión tras actualizar el pin',
     'diag_event_candidate_rejected': 'Candidato rechazado',
-    'diag_event_pin_refresh_started': 'Actualizando el pin del endpoint',
-    'diag_event_pin_refresh_succeeded': 'Pin del endpoint actualizado',
+    'diag_event_pin_refresh_started':
+        'Actualización del pin del extremo iniciada',
+    'diag_event_pin_refresh_succeeded': 'Pin del extremo actualizado',
     'diag_event_pin_refresh_failed': 'Error al actualizar el pin',
     'diag_event_pin_retry_started': 'Reintentando con el pin actualizado',
     'diag_event_pin_retry_failed': 'Error al reintentar con el pin actualizado',
@@ -541,12 +542,12 @@ const kDiagnosticsCatalogs = <String, Map<String, String>>{
         'In dieser Ansicht ausgeblendete frühere Ereignisse: {count}',
   },
   'id': <String, String>{
-    'diag_fail_ENDPOINT_PIN_REFRESH_FAILED': 'Pembaruan pin titik akhir gagal',
+    'diag_fail_ENDPOINT_PIN_REFRESH_FAILED': 'Pembaruan pin endpoint gagal',
     'diag_fail_ENDPOINT_PIN_RETRY_FAILED':
         'Percobaan koneksi setelah pembaruan pin gagal',
     'diag_event_candidate_rejected': 'Kandidat ditolak',
     'diag_event_pin_refresh_started': 'Pembaruan pin dimulai',
-    'diag_event_pin_refresh_succeeded': 'Pin titik akhir diperbarui',
+    'diag_event_pin_refresh_succeeded': 'Pin endpoint diperbarui',
     'diag_event_pin_refresh_failed': 'Pembaruan pin gagal',
     'diag_event_pin_retry_started': 'Mencoba lagi dengan pin baru',
     'diag_event_pin_retry_failed': 'Percobaan dengan pin baru gagal',
@@ -731,21 +732,21 @@ const kDiagnosticsCatalogs = <String, Map<String, String>>{
   },
   'vi': <String, String>{
     'diag_fail_ENDPOINT_PIN_REFRESH_FAILED':
-        'Không thể cập nhật khóa ghim đầu cuối',
+        'Không thể cập nhật ghim điểm cuối',
     'diag_fail_ENDPOINT_PIN_RETRY_FAILED':
-        'Thử kết nối lại sau khi cập nhật khóa ghim thất bại',
+        'Thử kết nối lại sau khi cập nhật ghim thất bại',
     'diag_event_candidate_rejected': 'Đã từ chối ứng viên',
-    'diag_event_pin_refresh_started': 'Bắt đầu cập nhật khóa ghim',
-    'diag_event_pin_refresh_succeeded': 'Đã cập nhật khóa ghim đầu cuối',
-    'diag_event_pin_refresh_failed': 'Cập nhật khóa ghim thất bại',
-    'diag_event_pin_retry_started': 'Đang thử lại với khóa ghim mới',
-    'diag_event_pin_retry_failed': 'Thử lại với khóa ghim mới thất bại',
+    'diag_event_pin_refresh_started': 'Bắt đầu cập nhật ghim điểm cuối',
+    'diag_event_pin_refresh_succeeded': 'Đã cập nhật ghim điểm cuối',
+    'diag_event_pin_refresh_failed': 'Cập nhật ghim điểm cuối thất bại',
+    'diag_event_pin_retry_started': 'Đang thử lại với ghim mới',
+    'diag_event_pin_retry_failed': 'Thử lại với ghim mới thất bại',
     'diag_timeline_retained': 'Kết nối gần nhất',
     'diag_source_config': 'Cấu hình',
     'diag_source_runtime': 'Trạng thái khi chạy',
     'diag_source_platform': 'Quan sát nền tảng',
     'diag_source_active_probe': 'Kiểm tra chủ động',
-    'diag_source_frontend': 'Bộ lắng nghe cục bộ',
+    'diag_source_frontend': 'Trình lắng nghe cục bộ',
     'diag_availability_observed': 'Đã quan sát',
     'diag_availability_inferred': 'Suy luận',
     'diag_availability_unavailable': 'Không khả dụng',

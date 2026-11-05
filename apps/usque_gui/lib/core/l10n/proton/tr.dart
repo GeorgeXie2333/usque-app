@@ -54,7 +54,7 @@ const kProtonTr = <String, String>{
       'Proton kurulumu başarısız oldu. Hazır olduğunuzda yeniden deneyin.',
   'result_unconfirmed':
       'Proton kurulum sonucu doğrulanmadı. Devam etmek için durumu yenileyin veya yeniden başlamadan önce mevcut kurulumu iptal edin.',
-  'unavailable': 'Bu motorda Proton VPN kullanılamıyor.',
+  'unavailable': 'Proton VPN, Usque’nin bu sürümünde kullanılamıyor.',
   'bad_credentials':
       'Proton kullanıcı adınızı, parolanızı veya kimlik doğrulama kodunuzu kontrol edin.',
   'rate_limited':
@@ -63,7 +63,7 @@ const kProtonTr = <String, String>{
       'Proton’a ulaşılamadı. Ağınızı veya VPN’inizi kontrol edip yeniden deneyin.',
   'verification_failed': 'Doğrulama tamamlanamadı. Kurulumu yeniden başlatın.',
   'verification_invalid':
-      'Proton doğrulama sonucunu reddetti. Yeni bir doğrulama görevi almak için kurulumu yeniden başlatın.',
+      'Proton doğrulama sonucunu reddetti. Yeni bir doğrulama almak için kurulumu yeniden başlatın.',
   'accounts': 'Proton hesapları',
   'add_account': 'Hesap ekle',
   'account_actions': 'Hesap işlemleri',
@@ -73,7 +73,7 @@ const kProtonTr = <String, String>{
   'session_requires_login': 'Oturum için giriş gerekli',
   'selected_server': 'Sunucu',
   'automatic_server': 'Otomatik',
-  'automatic_hint': 'Bağlanırken en düşük gecikmeli sunucuyu seç.',
+  'automatic_hint': 'Bağlanırken en düşük gecikmeli sunucuyu seçer.',
   'available_servers': 'Kullanılabilir sunucular',
   'choose_server': 'Sunucu seç',
   'search_servers': 'Ad, ülke veya şehre göre ara',

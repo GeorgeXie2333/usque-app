@@ -52,7 +52,7 @@ const kProtonFa = <String, String>{
       'راه‌اندازی Proton ناموفق بود. هر زمان آماده بودید دوباره تلاش کنید.',
   'result_unconfirmed':
       'نتیجهٔ راه‌اندازی Proton تأیید نشده است. برای ادامه وضعیت را تازه‌سازی کنید یا پیش از شروع دوباره، راه‌اندازی فعلی را لغو کنید.',
-  'unavailable': 'Proton VPN در این موتور در دسترس نیست.',
+  'unavailable': 'Proton VPN در این نسخه از Usque در دسترس نیست.',
   'bad_credentials':
       'نام کاربری Proton، گذرواژه یا کد احراز هویت را بررسی کنید.',
   'rate_limited':
@@ -62,7 +62,7 @@ const kProtonFa = <String, String>{
   'verification_failed':
       'تأیید هویت تکمیل نشد. راه‌اندازی را دوباره شروع کنید.',
   'verification_invalid':
-      'Proton نتیجهٔ تأیید هویت را رد کرد. برای دریافت چالش جدید راه‌اندازی را دوباره شروع کنید.',
+      'Proton نتیجهٔ تأیید هویت را رد کرد. برای دریافت تأیید هویت جدید، راه‌اندازی را دوباره شروع کنید.',
   'accounts': 'حساب‌های Proton',
   'add_account': 'افزودن حساب',
   'account_actions': 'عملیات حساب',
@@ -111,13 +111,13 @@ const kProtonFa = <String, String>{
       'عملیات دیگری در Proton هنوز در حال اجراست. صبر کنید یا ابتدا آن را لغو کنید.',
   'api_rejected':
       'Proton این درخواست را رد کرد. کدهای زیر پاسخ سرور را مشخص می‌کنند.',
-  'session_not_allowed': 'Proton به این کارخواه اجازهٔ ایجاد نشست نمی‌دهد.',
+  'session_not_allowed': 'Proton به این کلاینت اجازهٔ ایجاد نشست نمی‌دهد.',
   'credentialless_disabled': 'دسترسی مهمان Proton در حال حاضر در دسترس نیست.',
   'no_free_nodes':
       'Proton هیچ سرور WireGuard در دسترسی برای این حساب برنگرداند.',
   'invalid_directory': 'Proton فهرست سروری با قالب پشتیبانی‌نشده برگرداند.',
   'invalid_client_configuration':
-      'Proton هیچ درگاه WireGuard قابل استفاده‌ای برنگرداند.',
+      'Proton هیچ پورت WireGuard قابل استفاده‌ای برنگرداند.',
   'stage': 'مرحلهٔ ناموفق',
   'stage_anonymous_session': 'ایجاد نشست ناشناس',
   'stage_credentialless': 'ایجاد حساب مهمان',

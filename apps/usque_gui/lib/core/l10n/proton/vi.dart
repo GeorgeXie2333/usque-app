@@ -49,7 +49,7 @@ const kProtonVi = <String, String>{
   'failed': 'Thiết lập Proton thất bại. Hãy thử lại khi sẵn sàng.',
   'result_unconfirmed':
       'Kết quả thiết lập Proton chưa được xác nhận. Làm mới trạng thái để tiếp tục hoặc hủy thiết lập hiện tại trước khi bắt đầu lại.',
-  'unavailable': 'Proton VPN không khả dụng trong bộ máy này.',
+  'unavailable': 'Proton VPN không khả dụng trong phiên bản Usque này.',
   'bad_credentials':
       'Kiểm tra tên người dùng Proton, mật khẩu hoặc mã xác thực.',
   'rate_limited': 'Proton đã giới hạn yêu cầu này. Hãy đợi trước khi thử lại.',
@@ -58,7 +58,7 @@ const kProtonVi = <String, String>{
   'verification_failed':
       'Không thể hoàn tất xác minh. Hãy bắt đầu lại thiết lập.',
   'verification_invalid':
-      'Proton từ chối kết quả xác minh. Bắt đầu lại thiết lập để nhận thử thách mới.',
+      'Proton từ chối kết quả xác minh. Bắt đầu lại thiết lập để nhận lượt xác minh mới.',
   'accounts': 'Tài khoản Proton',
   'add_account': 'Thêm tài khoản',
   'account_actions': 'Thao tác tài khoản',

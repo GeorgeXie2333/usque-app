@@ -52,7 +52,7 @@ const kProtonIt = <String, String>{
   'failed': 'Configurazione Proton non riuscita. Riprova quando vuoi.',
   'result_unconfirmed':
       'Il risultato della configurazione Proton non è confermato. Aggiorna lo stato per continuare o annulla la configurazione corrente prima di ricominciare.',
-  'unavailable': 'Proton VPN non è disponibile in questo motore.',
+  'unavailable': 'Proton VPN non è disponibile in questa versione di Usque.',
   'bad_credentials':
       'Controlla il nome utente Proton, la password o il codice di autenticazione.',
   'rate_limited':

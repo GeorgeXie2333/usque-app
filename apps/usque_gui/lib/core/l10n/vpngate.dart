@@ -510,13 +510,13 @@ const kVpnGateCatalogs = <String, Map<String, String>>{
     "gate_configuring_network": "Aplicando ajustes de red",
   },
   "pt": {
-    "gate_enabled_idle": "Ativado · sem ligação",
-    "gate_saved_server": "Servidor guardado",
+    "gate_enabled_idle": "Ativado · sem conexão",
+    "gate_saved_server": "Servidor salvo",
     "gate_node_details": "Detalhes",
     "gate_local_time": "Hora local",
     'gate_first_seen': 'Primeira inclusão no VPN Gate',
     'gate_last_seen_short': 'Última inclusão',
-    "gate_pool_absent_short": "Já não consta da lista",
+    "gate_pool_absent_short": "Não consta mais na lista",
     'gate_probe_expired': 'Resultado do teste desatualizado',
     "gate_just_now": "Agora mesmo",
     "gate_minutes_ago": "há {count} min",
@@ -556,18 +556,18 @@ const kVpnGateCatalogs = <String, Map<String, String>>{
         'Passar no teste não garante uma conexão VPN a partir deste dispositivo.',
     "gate_favorites_empty": "Ainda não há favoritos salvos",
     "gate_quality_scope":
-        "O tráfego é medido no VPN Gate. RTT, perda e métricas de transporte descrevem a ligação WARP ao Cloudflare.",
+        "O tráfego é medido no VPN Gate. RTT, perda e métricas de transporte descrevem a conexão WARP com a Cloudflare.",
     "gate_scope":
-        "As regras de ligação direta continuam ativas. Se o VPN Gate falhar, o tráfego por proxy para.",
-    "gate_current": "Servidor ligado",
+        "As regras de conexão direta continuam ativas. Se o VPN Gate falhar, o tráfego por proxy é interrompido.",
+    "gate_current": "Servidor conectado",
     "gate_draft": "Seleção pendente",
-    "gate_no_connection": "Sem ligação ao VPN Gate",
-    "gate_saved": "Seleção guardada",
+    "gate_no_connection": "Sem conexão com o VPN Gate",
+    "gate_saved": "Seleção salva",
     "gate_choose": "Selecione um servidor abaixo",
-    "gate_save": "Guardar seleção",
-    "gate_disable_reconnect": "Desativar e voltar a ligar",
-    "gate_switch": "Mudar servidor",
-    "gate_enable_reconnect": "Ativar e voltar a ligar",
+    "gate_save": "Salvar seleção",
+    "gate_disable_reconnect": "Desativar e reconectar",
+    "gate_switch": "Trocar servidor",
+    "gate_enable_reconnect": "Ativar e reconectar",
     "gate_refresh": "Atualizar lista",
     'gate_servers': 'Servidores disponíveis',
     'gate_source_metrics':
@@ -578,7 +578,7 @@ const kVpnGateCatalogs = <String, Map<String, String>>{
     "gate_empty": "Nenhum servidor compatível com este filtro",
     "gate_paging": "{current} de {total}",
     "gate_previous": "Página anterior",
-    "gate_next": "Página seguinte",
+    "gate_next": "Próxima página",
     'gate_directory': 'Detalhes da atualização da lista',
     'gate_received': 'Horário do download',
     "gate_source": "URL de origem",
@@ -588,15 +588,15 @@ const kVpnGateCatalogs = <String, Map<String, String>>{
         'A lista pode ser mais antiga que o horário do download. Confira o horário da coleta.',
     'gate_fetch_error': 'Não foi possível atualizar a lista de servidores',
     "gate_select_again":
-        "Esta configuração já não está disponível. Atualize e selecione novamente.",
+        "Esta configuração não está mais disponível. Atualize e selecione novamente.",
     'gate_score': 'Avaliação',
     'gate_no_cache': 'Nenhuma lista de servidores salva',
     "gate_save_error":
-        "Não foi possível aplicar a seleção. Consulte o erro de ligação.",
-    "gate_connecting_warp": "A ligar ao WARP",
-    "gate_connecting_server": "A ligar ao VPN Gate",
+        "Não foi possível aplicar a seleção. Consulte o erro de conexão.",
+    "gate_connecting_warp": "Conectando ao WARP",
+    "gate_connecting_server": "Conectando ao VPN Gate",
     'gate_negotiating': 'Conectando ao VPN Gate',
-    "gate_configuring_network": "A aplicar definições de rede",
+    "gate_configuring_network": "Aplicando configurações de rede",
   },
   "fr": {
     "gate_enabled_idle": "Activé · non connecté",
@@ -1032,7 +1032,7 @@ const kVpnGateCatalogs = <String, Map<String, String>>{
     'gate_cached': 'Gespeicherte Serverliste wird verwendet',
     'gate_verified': 'Download der Serverliste geprüft',
     'gate_freshness':
-        'Die Liste kann älter sein als ihr Download. Prüfen Sie die Erfassungszeit.',
+        'Die Liste kann älter sein als ihr Download. Prüfe die Erfassungszeit.',
     'gate_fetch_error': 'Serverliste konnte nicht aktualisiert werden',
     "gate_select_again":
         "Diese Konfiguration ist nicht mehr verfügbar. Aktualisieren und erneut auswählen.",
@@ -1094,7 +1094,7 @@ const kVpnGateCatalogs = <String, Map<String, String>>{
     "gate_quality_scope":
         "Lalu lintas diukur pada VPN Gate. RTT, kehilangan paket, dan metrik transportasi menggambarkan koneksi WARP ke Cloudflare.",
     "gate_scope":
-        "Aturan koneksi langsung tetap aktif. Jika VPN Gate gagal, trafik proksi berhenti.",
+        "Aturan koneksi langsung tetap aktif. Jika VPN Gate gagal, lalu lintas proksi berhenti.",
     "gate_current": "Server terhubung",
     "gate_draft": "Pilihan yang akan diterapkan",
     "gate_no_connection": "Tidak ada koneksi VPN Gate",
@@ -1709,9 +1709,9 @@ const kVpnGateCatalogs = <String, Map<String, String>>{
         'موفقیت این آزمون تضمین نمی‌کند که از این دستگاه بتوان اتصال VPN برقرار کرد.',
     "gate_favorites_empty": "هنوز علاقه‌مندی ذخیره نشده است",
     "gate_quality_scope":
-        "ترافیک در VPN Gate اندازه‌گیری می‌شود. RTT، اتلاف بسته و معیارهای انتقال مربوط به اتصال WARP به Cloudflare هستند.",
+        "ترافیک در VPN Gate اندازه‌گیری می‌شود. RTT، ازدست‌رفتن بسته و معیارهای انتقال مربوط به اتصال WARP به Cloudflare هستند.",
     "gate_scope":
-        "قوانین اتصال مستقیم فعال می‌مانند. در صورت خرابی VPN Gate ترافیک پراکسی متوقف می‌شود.",
+        "قواعد اتصال مستقیم فعال می‌مانند. در صورت خرابی VPN Gate ترافیک پروکسی متوقف می‌شود.",
     "gate_current": "سرور متصل",
     "gate_draft": "انتخاب در انتظار اعمال",
     "gate_no_connection": "بدون اتصال VPN Gate",
@@ -1830,6 +1830,6 @@ const kVpnGateCatalogs = <String, Map<String, String>>{
     "gate_connecting_warp": "正在連線 WARP",
     "gate_connecting_server": "正在連線 VPN Gate",
     'gate_negotiating': '正在建立 VPN Gate 連接',
-    "gate_configuring_network": "正在套用網路設定",
+    "gate_configuring_network": "正在套用網絡設定",
   },
 };

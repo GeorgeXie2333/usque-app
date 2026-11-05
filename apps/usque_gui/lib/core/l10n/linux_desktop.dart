@@ -18,7 +18,7 @@ const kLinuxDesktopCatalogs = <String, Map<String, String>>{
     'linux_keyring_unavailable':
         'Install or unlock a system keyring that supports Secret Service, then retry. Credentials are never saved in plain text.',
     'linux_output_unavailable':
-        'This output is unavailable in the installed Linux Engine.',
+        'This option is unavailable in the installed version of Usque for Linux.',
     'linux_tray_unavailable':
         'A desktop tray host is unavailable. Closing the window exits Usque.',
   },
@@ -36,12 +36,12 @@ const kLinuxDesktopCatalogs = <String, Map<String, String>>{
     'linux_service_repair': '修复服务',
     'linux_keyring_unavailable':
         '请安装或解锁支持 Secret Service 的系统钥匙串，然后重试。凭据不会以明文保存。',
-    'linux_output_unavailable': '当前安装的 Linux 引擎不支持此输出。',
+    'linux_output_unavailable': '当前安装的 Linux 版 Usque 不支持此选项。',
     'linux_tray_unavailable': '桌面托盘服务不可用。关闭窗口将退出 Usque。',
   },
   'zh_TW': {
-    'diag_fail_LINUX_PLATFORM_FAILED': "Linux 網路初始化失敗，請匯出診斷查看失敗階段。",
-    'linux_platform_failed': "Linux 網路初始化失敗，請匯出診斷查看失敗階段。",
+    'diag_fail_LINUX_PLATFORM_FAILED': "Linux 網路初始化失敗，請匯出診斷套件以查看失敗階段。",
+    'linux_platform_failed': "Linux 網路初始化失敗，請匯出診斷套件以查看失敗階段。",
     'linux_service_dependencies':
         "請使用系統套件管理員安裝 systemd、nftables 和 libsecret-1，然後重試。登入工作階段還需要支援 Secret Service 的鑰匙圈。",
     'linux_service_title': '背景服務',
@@ -53,12 +53,12 @@ const kLinuxDesktopCatalogs = <String, Map<String, String>>{
     'linux_service_repair': '修復服務',
     'linux_keyring_unavailable':
         '請安裝或解鎖支援 Secret Service 的系統鑰匙圈，然後重試。憑證不會以明文儲存。',
-    'linux_output_unavailable': '目前安裝的 Linux 引擎不支援此輸出。',
+    'linux_output_unavailable': '目前安裝的 Linux 版 Usque 不支援此選項。',
     'linux_tray_unavailable': '桌面系統匣服務無法使用。關閉視窗將結束 Usque。',
   },
   'zh_HK': {
-    'diag_fail_LINUX_PLATFORM_FAILED': "Linux 網絡初始化失敗，請匯出診斷查看失敗階段。",
-    'linux_platform_failed': "Linux 網絡初始化失敗，請匯出診斷查看失敗階段。",
+    'diag_fail_LINUX_PLATFORM_FAILED': "Linux 網絡初始化失敗，請匯出診斷套件以查看失敗階段。",
+    'linux_platform_failed': "Linux 網絡初始化失敗，請匯出診斷套件以查看失敗階段。",
     'linux_service_dependencies':
         "請使用系統套件管理員安裝 systemd、nftables 和 libsecret-1，然後重試。登入工作階段還需要支援 Secret Service 的鑰匙圈。",
     'linux_service_title': '背景服務',
@@ -70,7 +70,7 @@ const kLinuxDesktopCatalogs = <String, Map<String, String>>{
     'linux_service_repair': '修復服務',
     'linux_keyring_unavailable':
         '請安裝或解鎖支援 Secret Service 的系統鑰匙圈，然後重試。憑證不會以明文儲存。',
-    'linux_output_unavailable': '目前安裝的 Linux 引擎不支援此輸出。',
+    'linux_output_unavailable': '目前安裝的 Linux 版 Usque 不支援此選項。',
     'linux_tray_unavailable': '桌面系統匣服務無法使用。關閉視窗將結束 Usque。',
   },
   'ja': {
@@ -90,7 +90,7 @@ const kLinuxDesktopCatalogs = <String, Map<String, String>>{
     'linux_service_repair': 'サービスを修復',
     'linux_keyring_unavailable':
         'Secret Service 対応のシステムキーリングをインストールするか、ロックを解除して再試行してください。認証情報は平文では保存されません。',
-    'linux_output_unavailable': 'インストールされている Linux エンジンでは、この出力は利用できません。',
+    'linux_output_unavailable': 'インストールされている Linux 版 Usque では、このオプションは利用できません。',
     'linux_tray_unavailable': 'デスクトップのトレイが利用できません。ウィンドウを閉じると Usque が終了します。',
   },
   'ko': {
@@ -108,7 +108,7 @@ const kLinuxDesktopCatalogs = <String, Map<String, String>>{
     'linux_service_repair': '서비스 복구',
     'linux_keyring_unavailable':
         'Secret Service를 지원하는 시스템 키링을 설치하거나 잠금 해제한 후 다시 시도하세요. 자격 증명은 일반 텍스트로 저장되지 않습니다.',
-    'linux_output_unavailable': '설치된 Linux 엔진에서는 이 출력을 사용할 수 없습니다.',
+    'linux_output_unavailable': '설치된 Linux용 Usque 버전에서는 이 옵션을 사용할 수 없습니다.',
     'linux_tray_unavailable': '데스크톱 트레이를 사용할 수 없습니다. 창을 닫으면 Usque가 종료됩니다.',
   },
   'es': {
@@ -130,7 +130,7 @@ const kLinuxDesktopCatalogs = <String, Map<String, String>>{
     'linux_keyring_unavailable':
         'Instala o desbloquea un llavero del sistema compatible con Secret Service y vuelve a intentarlo. Las credenciales nunca se guardan en texto sin cifrar.',
     'linux_output_unavailable':
-        'Esta salida no está disponible en el motor de Linux instalado.',
+        'Esta opción no está disponible en la versión de Usque para Linux instalada.',
     'linux_tray_unavailable':
         'La bandeja del sistema no está disponible. Cerrar la ventana sale de Usque.',
   },
@@ -153,15 +153,15 @@ const kLinuxDesktopCatalogs = <String, Map<String, String>>{
     'linux_keyring_unavailable':
         'Instale ou desbloqueie um chaveiro do sistema compatível com Secret Service e tente novamente. As credenciais nunca são salvas em texto simples.',
     'linux_output_unavailable':
-        'Esta saída não está disponível no motor Linux instalado.',
+        'Esta opção não está disponível na versão do Usque para Linux instalada.',
     'linux_tray_unavailable':
         'A bandeja do sistema não está disponível. Fechar a janela encerra o Usque.',
   },
   'fr': {
     'diag_fail_LINUX_PLATFORM_FAILED':
-        "La configuration réseau de Linux a échoué. Exportez le diagnostic pour identifier la phase en échec.",
+        "La configuration réseau de Linux a échoué. Exportez une archive de diagnostic pour identifier la phase en échec.",
     'linux_platform_failed':
-        "La configuration réseau de Linux a échoué. Exportez le diagnostic pour identifier la phase en échec.",
+        "La configuration réseau de Linux a échoué. Exportez une archive de diagnostic pour identifier la phase en échec.",
     'linux_service_dependencies':
         "Installez systemd, nftables et libsecret-1 avec le gestionnaire de paquets du système, puis réessayez. Votre session nécessite aussi un trousseau Secret Service.",
     'linux_service_title': 'Service en arrière-plan',
@@ -176,7 +176,7 @@ const kLinuxDesktopCatalogs = <String, Map<String, String>>{
     'linux_keyring_unavailable':
         'Installez ou déverrouillez un trousseau système compatible avec Secret Service, puis réessayez. Les identifiants ne sont jamais enregistrés en clair.',
     'linux_output_unavailable':
-        'Cette sortie est indisponible dans le moteur Linux installé.',
+        'Cette option est indisponible dans la version d’Usque installée pour Linux.',
     'linux_tray_unavailable':
         'La zone de notification est indisponible. Fermer la fenêtre quitte Usque.',
   },
@@ -199,15 +199,15 @@ const kLinuxDesktopCatalogs = <String, Map<String, String>>{
     'linux_keyring_unavailable':
         'Installeer of ontgrendel een systeemsleutelbos met ondersteuning voor Secret Service en probeer het opnieuw. Inloggegevens worden nooit als platte tekst opgeslagen.',
     'linux_output_unavailable':
-        'Deze uitvoer is niet beschikbaar in de geïnstalleerde Linux-engine.',
+        'Deze optie is niet beschikbaar in de geïnstalleerde versie van Usque voor Linux.',
     'linux_tray_unavailable':
         'Het systeemvak is niet beschikbaar. Het sluiten van het venster beëindigt Usque.',
   },
   'tr': {
     'diag_fail_LINUX_PLATFORM_FAILED':
-        "Linux ağ kurulumu başarısız oldu. Başarısız aşamayı görmek için tanılamayı dışa aktarın.",
+        "Linux ağ kurulumu başarısız oldu. Başarısız aşamayı görmek için tanılama paketini dışa aktarın.",
     'linux_platform_failed':
-        "Linux ağ kurulumu başarısız oldu. Başarısız aşamayı görmek için tanılamayı dışa aktarın.",
+        "Linux ağ kurulumu başarısız oldu. Başarısız aşamayı görmek için tanılama paketini dışa aktarın.",
     'linux_service_dependencies':
         "Sistem paket yöneticisiyle systemd, nftables ve libsecret-1 yükleyip yeniden deneyin. Oturumunuz ayrıca Secret Service anahtarlığı gerektirir.",
     'linux_service_title': 'Arka plan hizmeti',
@@ -222,7 +222,7 @@ const kLinuxDesktopCatalogs = <String, Map<String, String>>{
     'linux_keyring_unavailable':
         'Secret Service destekleyen bir sistem anahtarlığı kurun veya kilidini açın, ardından yeniden deneyin. Kimlik bilgileri asla düz metin olarak kaydedilmez.',
     'linux_output_unavailable':
-        'Bu çıkış kurulu Linux motorunda kullanılamıyor.',
+        'Bu seçenek, Linux için kurulu Usque sürümünde kullanılamıyor.',
     'linux_tray_unavailable':
         'Sistem tepsisi kullanılamıyor. Pencereyi kapatmak Usque uygulamasından çıkar.',
   },
@@ -245,7 +245,7 @@ const kLinuxDesktopCatalogs = <String, Map<String, String>>{
     'linux_keyring_unavailable':
         'Установите или разблокируйте системное хранилище ключей с поддержкой Secret Service и повторите попытку. Учётные данные не сохраняются открытым текстом.',
     'linux_output_unavailable':
-        'Этот выход недоступен в установленном движке Linux.',
+        'Этот параметр недоступен в установленной версии Usque для Linux.',
     'linux_tray_unavailable':
         'Системный трей недоступен. Закрытие окна завершит Usque.',
   },
@@ -266,9 +266,9 @@ const kLinuxDesktopCatalogs = <String, Map<String, String>>{
     'linux_service_install': 'نصب سرویس',
     'linux_service_repair': 'ترمیم سرویس',
     'linux_keyring_unavailable':
-        'کیف کلید سیستم با پشتیبانی از Secret Service را نصب یا باز کنید و دوباره تلاش کنید. اطلاعات ورود به‌صورت متن ساده ذخیره نمی‌شوند.',
+        'یک دسته‌کلید سیستمی با پشتیبانی از Secret Service نصب یا باز کنید و دوباره تلاش کنید. اطلاعات ورود به‌صورت متن ساده ذخیره نمی‌شوند.',
     'linux_output_unavailable':
-        'این خروجی در موتور نصب‌شدهٔ لینوکس در دسترس نیست.',
+        'این گزینه در نسخهٔ نصب‌شدهٔ Usque برای Linux در دسترس نیست.',
     'linux_tray_unavailable':
         'سینی سیستم در دسترس نیست. بستن پنجره، Usque را می‌بندد.',
   },
@@ -290,15 +290,16 @@ const kLinuxDesktopCatalogs = <String, Map<String, String>>{
     'linux_service_repair': 'إصلاح الخدمة',
     'linux_keyring_unavailable':
         'ثبّت مخزن مفاتيح للنظام يدعم Secret Service أو افتح قفله، ثم أعد المحاولة. لا تُحفظ بيانات الاعتماد كنص عادي.',
-    'linux_output_unavailable': 'هذا المخرج غير متاح في محرك Linux المثبّت.',
+    'linux_output_unavailable':
+        'هذا الخيار غير متاح في إصدار Usque المثبّت لنظام Linux.',
     'linux_tray_unavailable':
         'علبة النظام غير متاحة. إغلاق النافذة ينهي Usque.',
   },
   'de': {
     'diag_fail_LINUX_PLATFORM_FAILED':
-        "Die Linux-Netzwerkeinrichtung ist fehlgeschlagen. Exportieren Sie die Diagnose, um den fehlgeschlagenen Schritt zu sehen.",
+        "Die Linux-Netzwerkeinrichtung ist fehlgeschlagen. Exportiere ein Diagnosepaket, um den fehlgeschlagenen Schritt zu sehen.",
     'linux_platform_failed':
-        "Die Linux-Netzwerkeinrichtung ist fehlgeschlagen. Exportieren Sie die Diagnose, um den fehlgeschlagenen Schritt zu sehen.",
+        "Die Linux-Netzwerkeinrichtung ist fehlgeschlagen. Exportiere ein Diagnosepaket, um den fehlgeschlagenen Schritt zu sehen.",
     'linux_service_dependencies':
         "Installiere systemd, nftables und libsecret-1 mit der Paketverwaltung und versuche es erneut. Deine Sitzung benötigt außerdem einen Secret-Service-Schlüsselbund.",
     'linux_service_title': 'Hintergrunddienst',
@@ -313,7 +314,7 @@ const kLinuxDesktopCatalogs = <String, Map<String, String>>{
     'linux_keyring_unavailable':
         'Installiere oder entsperre einen Systemschlüsselbund mit Secret-Service-Unterstützung und versuche es erneut. Zugangsdaten werden niemals im Klartext gespeichert.',
     'linux_output_unavailable':
-        'Dieser Ausgang ist in der installierten Linux-Engine nicht verfügbar.',
+        'Diese Option ist in der installierten Version von Usque für Linux nicht verfügbar.',
     'linux_tray_unavailable':
         'Die Systemleiste ist nicht verfügbar. Das Schließen des Fensters beendet Usque.',
   },
@@ -336,15 +337,15 @@ const kLinuxDesktopCatalogs = <String, Map<String, String>>{
     'linux_keyring_unavailable':
         'Pasang atau buka kunci keyring sistem yang mendukung Secret Service, lalu coba lagi. Kredensial tidak pernah disimpan sebagai teks biasa.',
     'linux_output_unavailable':
-        'Keluaran ini tidak tersedia di mesin Linux yang terpasang.',
+        'Opsi ini tidak tersedia di versi Usque untuk Linux yang terpasang.',
     'linux_tray_unavailable':
         'Baki sistem tidak tersedia. Menutup jendela akan keluar dari Usque.',
   },
   'it': {
     'diag_fail_LINUX_PLATFORM_FAILED':
-        "Configurazione di rete Linux non riuscita. Esporta la diagnostica per individuare la fase non riuscita.",
+        "Configurazione di rete Linux non riuscita. Esporta un pacchetto diagnostico per individuare la fase non riuscita.",
     'linux_platform_failed':
-        "Configurazione di rete Linux non riuscita. Esporta la diagnostica per individuare la fase non riuscita.",
+        "Configurazione di rete Linux non riuscita. Esporta un pacchetto diagnostico per individuare la fase non riuscita.",
     'linux_service_dependencies':
         "Installa systemd, nftables e libsecret-1 con il gestore pacchetti di sistema, poi riprova. La sessione richiede anche un portachiavi Secret Service.",
     'linux_service_title': 'Servizio in background',
@@ -359,15 +360,15 @@ const kLinuxDesktopCatalogs = <String, Map<String, String>>{
     'linux_keyring_unavailable':
         'Installa o sblocca un portachiavi di sistema compatibile con Secret Service, poi riprova. Le credenziali non vengono mai salvate in chiaro.',
     'linux_output_unavailable':
-        'Questa uscita non è disponibile nel motore Linux installato.',
+        'Questa opzione non è disponibile nella versione di Usque installata per Linux.',
     'linux_tray_unavailable':
         'Il vassoio di sistema non è disponibile. Chiudere la finestra termina Usque.',
   },
   'pl': {
     'diag_fail_LINUX_PLATFORM_FAILED':
-        "Konfiguracja sieci Linux nie powiodła się. Wyeksportuj diagnostykę, aby sprawdzić etap błędu.",
+        "Konfiguracja sieci Linux nie powiodła się. Wyeksportuj pakiet diagnostyczny, aby sprawdzić etap błędu.",
     'linux_platform_failed':
-        "Konfiguracja sieci Linux nie powiodła się. Wyeksportuj diagnostykę, aby sprawdzić etap błędu.",
+        "Konfiguracja sieci Linux nie powiodła się. Wyeksportuj pakiet diagnostyczny, aby sprawdzić etap błędu.",
     'linux_service_dependencies':
         "Zainstaluj systemd, nftables i libsecret-1 za pomocą systemowego menedżera pakietów i spróbuj ponownie. Sesja wymaga też magazynu kluczy Secret Service.",
     'linux_service_title': 'Usługa w tle',
@@ -382,15 +383,15 @@ const kLinuxDesktopCatalogs = <String, Map<String, String>>{
     'linux_keyring_unavailable':
         'Zainstaluj lub odblokuj systemowy magazyn kluczy obsługujący Secret Service i spróbuj ponownie. Dane uwierzytelniające nigdy nie są zapisywane jawnym tekstem.',
     'linux_output_unavailable':
-        'To wyjście jest niedostępne w zainstalowanym silniku Linux.',
+        'Ta opcja jest niedostępna w zainstalowanej wersji Usque dla systemu Linux.',
     'linux_tray_unavailable':
         'Zasobnik systemowy jest niedostępny. Zamknięcie okna zakończy Usque.',
   },
   'th': {
     'diag_fail_LINUX_PLATFORM_FAILED':
-        "ตั้งค่าเครือข่าย Linux ไม่สำเร็จ ส่งออกข้อมูลวินิจฉัยเพื่อดูขั้นตอนที่ล้มเหลว",
+        "ตั้งค่าเครือข่าย Linux ไม่สำเร็จ ส่งออกชุดข้อมูลวินิจฉัยเพื่อดูขั้นตอนที่ล้มเหลว",
     'linux_platform_failed':
-        "ตั้งค่าเครือข่าย Linux ไม่สำเร็จ ส่งออกข้อมูลวินิจฉัยเพื่อดูขั้นตอนที่ล้มเหลว",
+        "ตั้งค่าเครือข่าย Linux ไม่สำเร็จ ส่งออกชุดข้อมูลวินิจฉัยเพื่อดูขั้นตอนที่ล้มเหลว",
     'linux_service_dependencies':
         "ติดตั้ง systemd, nftables และ libsecret-1 ผ่านตัวจัดการแพ็กเกจของระบบ แล้วลองอีกครั้ง เซสชันเข้าสู่ระบบต้องมีพวงกุญแจที่รองรับ Secret Service ด้วย",
     'linux_service_title': 'บริการเบื้องหลัง',
@@ -405,7 +406,7 @@ const kLinuxDesktopCatalogs = <String, Map<String, String>>{
     'linux_keyring_unavailable':
         'ติดตั้งหรือปลดล็อกพวงกุญแจระบบที่รองรับ Secret Service แล้วลองอีกครั้ง ข้อมูลรับรองจะไม่ถูกบันทึกเป็นข้อความธรรมดา',
     'linux_output_unavailable':
-        'เอาต์พุตนี้ไม่พร้อมใช้งานในเอนจิน Linux ที่ติดตั้ง',
+        'ตัวเลือกนี้ไม่พร้อมใช้งานใน Usque สำหรับ Linux เวอร์ชันที่ติดตั้ง',
     'linux_tray_unavailable':
         'ถาดระบบไม่พร้อมใช้งาน การปิดหน้าต่างจะออกจาก Usque',
   },
@@ -428,7 +429,7 @@ const kLinuxDesktopCatalogs = <String, Map<String, String>>{
     'linux_keyring_unavailable':
         'Установіть або розблокуйте системне сховище ключів із підтримкою Secret Service і повторіть спробу. Облікові дані ніколи не зберігаються відкритим текстом.',
     'linux_output_unavailable':
-        'Цей вихід недоступний у встановленому рушії Linux.',
+        'Цей параметр недоступний у встановленій версії Usque для Linux.',
     'linux_tray_unavailable':
         'Системний трей недоступний. Закриття вікна завершить Usque.',
   },
@@ -451,7 +452,7 @@ const kLinuxDesktopCatalogs = <String, Map<String, String>>{
     'linux_keyring_unavailable':
         'Cài đặt hoặc mở khóa kho khóa hệ thống hỗ trợ Secret Service, rồi thử lại. Thông tin đăng nhập không bao giờ được lưu dưới dạng văn bản thuần.',
     'linux_output_unavailable':
-        'Đầu ra này không khả dụng trong bộ máy Linux đã cài đặt.',
+        'Tùy chọn này không khả dụng trong phiên bản Usque cho Linux đã cài đặt.',
     'linux_tray_unavailable':
         'Khay hệ thống không khả dụng. Đóng cửa sổ sẽ thoát Usque.',
   },

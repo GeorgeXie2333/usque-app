@@ -49,7 +49,7 @@ const kProtonId = <String, String>{
   'failed': 'Penyiapan Proton gagal. Coba lagi saat Anda siap.',
   'result_unconfirmed':
       'Hasil penyiapan Proton belum dikonfirmasi. Muat ulang status untuk melanjutkan atau batalkan penyiapan yang ada sebelum memulai lagi.',
-  'unavailable': 'Proton VPN tidak tersedia di mesin ini.',
+  'unavailable': 'Proton VPN tidak tersedia di versi Usque ini.',
   'bad_credentials':
       'Periksa nama pengguna Proton, kata sandi, atau kode autentikator Anda.',
   'rate_limited':
@@ -59,7 +59,7 @@ const kProtonId = <String, String>{
   'verification_failed':
       'Verifikasi tidak dapat diselesaikan. Mulai penyiapan lagi.',
   'verification_invalid':
-      'Proton menolak hasil verifikasi. Mulai penyiapan lagi untuk mendapatkan tantangan baru.',
+      'Proton menolak hasil verifikasi. Mulai penyiapan lagi untuk mendapatkan verifikasi baru.',
   'accounts': 'Akun Proton',
   'add_account': 'Tambah akun',
   'account_actions': 'Tindakan akun',

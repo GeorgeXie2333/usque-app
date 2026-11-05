@@ -8,7 +8,7 @@
     <string name="vpn_notif_connecting_h2">Зʼєднання через HTTP/2</string>
     <string name="vpn_notif_connected">Зʼєднано</string>
     <string name="vpn_notif_connected_via">Зʼєднано через %1$s</string>
-    <string name="vpn_notif_degraded">Підключено, але деякий доступ до інтернету обмежено. Відкрийте Usque для подробиць.</string>
+    <string name="vpn_notif_degraded">Зʼєднано, але деякий доступ до інтернету обмежено. Відкрийте Usque для подробиць.</string>
     <string name="vpn_notif_reconnecting">Безпечне повторне зʼєднання</string>
     <string name="vpn_notif_error">Мережеву службу зупинено після помилки</string>
     <string name="vpn_notif_disconnecting">Відʼєднання</string>
@@ -30,6 +30,6 @@
     <string name="tile_proxy_only">Активний лише локальний проксі. Відкрийте Проксі в Usque й увімкніть VPN.</string>
     <string name="shortcut_connect">Зʼєднати</string>
     <string name="shortcut_disconnect">Відʼєднати</string>
-    <string name="shortcut_profiles">Керування акаунтами</string>
-    <string name="vpn_notif_ip_unavailable">Підключено, але %1$s недоступний. Відкрийте Usque, щоб переглянути подробиці.</string>
+    <string name="shortcut_profiles">Керування обліковими записами</string>
+    <string name="vpn_notif_ip_unavailable">Зʼєднано, але %1$s недоступний. Відкрийте Usque, щоб переглянути подробиці.</string>
 </resources>

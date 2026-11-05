@@ -48,7 +48,7 @@ kOnboardingCatalogs = <String, Map<String, String>>{
     'onboarding_ready': '已保存的 WARP 账号已就绪。',
     'onboarding_interrupted': '账号设置已中断。',
     'onboarding_failed': '账号设置失败。请检查填写的信息后重试。',
-    'onboarding_unavailable': '无法检查账号设置，请再次检查。',
+    'onboarding_unavailable': '暂时无法确认账号设置结果，请重试。',
     'onboarding_check_result': '检查结果',
     'onboarding_result_unknown':
         '上一次请求可能已创建账号。请先检查结果；再次注册可能创建另一个 Cloudflare 账号。',
@@ -437,7 +437,7 @@ kOnboardingCatalogs = <String, Map<String, String>>{
         'Lisensi akun baru tidak dapat dilepas. Hubungkan ke internet dan coba pembersihan lagi. Data akun belum dihapus.',
     'onboarding_zero_trust_privacy': 'Kebijakan privasi Zero Trust',
     'onboarding_android_permissions_body':
-        'Izin notifikasi digunakan untuk menampilkan notifikasi layanan tetap yang membantu Usque terus berjalan di latar belakang. Tidak ada notifikasi lain yang akan dikirim. Anda dapat menolak dan melanjutkan pengaturan.',
+        'Izin notifikasi digunakan untuk menampilkan notifikasi layanan tetap yang membantu Usque terus berjalan di latar belakang. Tidak ada notifikasi lain yang akan dikirim. Anda dapat menolak dan melanjutkan penyiapan.',
     'onboarding_vpn_required': 'Izin VPN diperlukan',
     'onboarding_notifications_title': 'Notifikasi',
     'onboarding_notifications_optional': 'Notifikasi bersifat opsional',

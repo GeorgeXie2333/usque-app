@@ -17,7 +17,7 @@
     <string name="vpn_notif_invalid_network_profile">网络配置无效</string>
     <string name="vpn_notif_recovery_unavailable">无法恢复 VPN</string>
     <string name="tile_connected">已连接</string>
-    <string name="tile_disconnected">已断开</string>
+    <string name="tile_disconnected">未连接</string>
     <string name="tile_connecting">正在连接</string>
     <string name="tile_reconnecting">正在重连</string>
     <string name="tile_disconnecting">正在断开</string>

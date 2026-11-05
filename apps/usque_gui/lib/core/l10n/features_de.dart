@@ -26,23 +26,20 @@ const Map<String, String> kUiWorkflowDe = <String, String>{
   'unsaved_changes': 'Nicht angewendete Änderungen',
   'changes_applied': 'Änderungen angewendet',
   'changes_apply_hint':
-      'Bearbeitungen werden wirksam, sobald Sie „Änderungen anwenden“ auswählen.',
+      'Bearbeitungen werden wirksam, sobald du „Änderungen anwenden“ auswählst.',
   'changes_failed':
-      'Änderungen konnten nicht angewendet werden. Prüfen Sie die '
-      'gespeicherten Werte und versuchen Sie es erneut.',
+      'Änderungen konnten nicht angewendet werden. Prüfe die gespeicherten Werte und versuche es erneut.',
   'form_errors':
-      'Prüfen Sie die hervorgehobenen Felder, bevor Sie die Änderungen '
-      'anwenden.',
+      'Prüfe die hervorgehobenen Felder, bevor du die Änderungen anwendest.',
   'discard_changes_title': 'Nicht angewendete Änderungen verwerfen?',
   'discard_changes_body': 'Nicht angewendete Bearbeitungen gehen verloren.',
   'keep_editing': 'Weiter bearbeiten',
   'discard_changes': 'Änderungen verwerfen',
-  'invalid_port': 'Geben Sie einen Port von 1 bis 65535 ein.',
+  'invalid_port': 'Gib einen Port von 1 bis 65535 ein.',
   'listener_exposure':
       'Listener-Adressen erlauben Zugriff aus dem lokalen Netzwerk',
-  'invalid_ipv4':
-      'Geben Sie eine gültige IPv4-Adresse ein, zum Beispiel 127.0.0.1.',
-  'invalid_ipv6': 'Geben Sie eine gültige IPv6-Adresse ein, zum Beispiel ::1.',
+  'invalid_ipv4': 'Gib eine gültige IPv4-Adresse ein, zum Beispiel 127.0.0.1.',
+  'invalid_ipv6': 'Gib eine gültige IPv6-Adresse ein, zum Beispiel ::1.',
   'output_running': 'Läuft',
   'output_waiting': 'Aktiviert · läuft nicht',
   'output_disabled': 'Deaktiviert',
@@ -66,12 +63,11 @@ const Map<String, String> kUiWorkflowDe = <String, String>{
   'home_traffic_stale': 'Verkehrsdaten werden verzögert aktualisiert',
   'home_outputs_retry': 'VPN und Proxys für die nächste Verbindung',
   'connection_protection_group': 'Verbindung & Schutz',
-  'proxy_routing_group': 'Proxy & Weiterleitung',
+  'proxy_routing_group': 'Proxy & Routing',
   'application_group': 'Anwendung',
   'tools_group': 'Werkzeuge',
   'reset_draft_hint':
-      'Standardwerte werden in dieses Formular geladen. Wenden Sie die '
-      'Änderungen an, damit sie wirksam werden.',
+      'Standardwerte werden in dieses Formular geladen. Wende die Änderungen an, damit sie wirksam werden.',
   'error_generic': 'Ein Fehler ist aufgetreten',
 };
 
@@ -82,7 +78,8 @@ const Map<String, String> kNetworkQualityDe = <String, String>{
   'diag_check_quality_packet_loss': 'Paketverlust',
   'diag_check_quality_queue_pressure': 'Warteschlangendruck',
   'diag_check_quality_pmtu': 'Pfad-MTU',
-  'diag_check_transport_migration_capability': 'Migration in derselben Familie',
+  'diag_check_transport_migration_capability':
+      'Migration bei gleicher IP-Version',
   'diag_check_dns_direct_encrypted_configuration':
       'Konfiguration des direkten DNS',
   'diag_check_dns_direct_encrypted_runtime_state': 'Laufzeit des direkten DNS',
@@ -126,15 +123,13 @@ const Map<String, String> kNetworkQualityDe = <String, String>{
   'nq_finding_probe_timeout': 'Zeitüberschreitung bei der Diagnoseprüfung',
   'nq_finding_probe_failed': 'Diese Prüfung ist fehlgeschlagen.',
   'diag_fix_nq_profile':
-      'Prüfen Sie die eigenen DNS-Felder und den Zertifikatsnamen. '
-      'Deaktivieren Sie die TLS-Prüfung nicht.',
+      'Prüfe die eigenen DNS-Felder und den Zertifikatsnamen. Deaktiviere die TLS-Prüfung nicht.',
   'diag_fix_nq_retry':
-      'Warten Sie auf ein stabiles Netzwerk und versuchen Sie es dann erneut.',
+      'Warte auf ein stabiles Netzwerk und versuche es dann erneut.',
   'diag_fix_nq_network':
-      'Prüfen Sie die lokale Konnektivität und vergleichen Sie eine neue '
-      'Messung, bevor Sie Einstellungen ändern.',
+      'Prüfe die lokale Konnektivität und vergleiche eine neue Messung, bevor du Einstellungen änderst.',
   'diag_fix_nq_reconnect':
-      'Verbinden Sie erneut, um die gespeicherte Konfiguration anzuwenden.',
+      'Verbinde dich erneut, um die gespeicherte Konfiguration anzuwenden.',
   'nav_network_quality': 'Qualität',
   'network_quality': 'Netzwerkqualität',
   'nq_subtitle': 'Latenz, Paketverlust und Durchsatz.',
@@ -202,7 +197,7 @@ const Map<String, String> kNetworkQualityDe = <String, String>{
   'nq_ready': 'Bereit',
   'nq_degraded': 'Beeinträchtigt',
   'nq_timeouts': 'Zeitüberschreitungen',
-  'nq_last_rtt': 'Letzte RTT',
+  'nq_last_rtt': 'Letzte Umlaufzeit',
   'nq_dns_redacted':
       'Domains und IP-Adressen der DNS-Server werden nur in den Einstellungen angezeigt.',
   'nq_queues': 'Warteschlangendruck',
@@ -210,7 +205,7 @@ const Map<String, String> kNetworkQualityDe = <String, String>{
   'nq_queue_empty': 'Noch keine Warteschlangenmessungen.',
   'nq_current_capacity': 'Aktuell / Kapazität',
   'nq_high_water': 'Höchststand',
-  'nq_drops': 'Verwürfe',
+  'nq_drops': 'Verworfen',
   'nq_oldest': 'Ältester Eintrag',
   'nq_tunToTransport': 'Gerät → Transportschicht',
   'nq_proxyToTransport': 'Proxy → Transportschicht',
@@ -284,7 +279,7 @@ const Map<String, String> kNetworkQualityDe = <String, String>{
   'nq_dns_invalid_bootstrap': 'Gib 1–8 Server-IP-Adressen ein.',
   'nq_dns_invalid_port':
       'Gib einen Port von 1 bis 65535 oder 0 für den Standardwert ein.',
-  'nq_dns_invalid_mode': 'Wählen Sie einen unterstützten DNS-Modus.',
+  'nq_dns_invalid_mode': 'Wähle einen unterstützten DNS-Modus.',
   'nq_doctor_deep_title': 'Tiefe Netzwerkprüfungen ausführen?',
   'nq_doctor_deep_body':
       'Prüfungen können Testdaten senden. Sie dauern bis zu 15 Sekunden und lassen sich abbrechen. Deine Verbindungseinstellungen bleiben unverändert.',
@@ -299,20 +294,13 @@ const Map<String, String> kWindowsRecoveryDe = <String, String>{
   'WINDOWS_DEVICE_RECOVERY_REQUIRED':
       'Die vorherige VPN-Verbindung ist noch nicht vollständig bereinigt. Beende Usque vollständig und öffne es erneut. Hilft das nicht, öffne Diagnose.',
   'WINDOWS_RECOVERY_FAILED':
-      'Der vorherige VPN-Netzwerkzustand konnte nicht vollständig '
-      'wiederhergestellt werden. Es wurde keine neue VPN-Verbindung gestartet. '
-      'Versuchen Sie die Verbindung erneut oder prüfen Sie die lokale '
-      'Diagnose.',
+      'Der vorherige VPN-Netzwerkzustand konnte nicht vollständig wiederhergestellt werden. Es wurde keine neue VPN-Verbindung gestartet. Versuche die Verbindung erneut oder prüfe die lokale Diagnose.',
   'WINDOWS_RECOVERY_EXHAUSTED':
-      'Windows konnte den vorherigen VPN-Netzwerkzustand nach drei '
-      'automatischen Versuchen nicht wiederherstellen. Versuchen Sie es '
-      'erneut, wenn Sie bereit sind, oder prüfen Sie die lokale Diagnose.',
+      'Windows konnte den vorherigen VPN-Netzwerkzustand nach drei automatischen Versuchen nicht wiederherstellen. Versuche es erneut, wenn du bereit bist, oder prüfe die lokale Diagnose.',
   'WINDOWS_RECOVERY_BLOCKED':
-      'Die automatische Reparatur wurde gestoppt, weil die sichere Wiederherstellung der vorherigen VPN-Einstellungen nicht bestätigt werden konnte. Suche unter Einstellungen nach Updates; exportiere bei anhaltenden Problemen ein Diagnosepaket.',
+      'Usque hat die automatische Reparatur gestoppt, weil nicht bestätigt werden konnte, dass die vorherigen VPN-Einstellungen sicher wiederhergestellt werden können. Suche unter Einstellungen nach Updates; besteht das Problem weiter, öffne Diagnose und exportiere ein Diagnosepaket.',
   'WINDOWS_RECOVERY_TIMEOUT':
-      'Die Wiederherstellung des Windows-Netzwerks dauert länger als erwartet. '
-      'Es wurde keine neue VPN-Verbindung gestartet. Warten Sie, bis die '
-      'Wiederherstellung abgeschlossen ist, bevor Sie es erneut versuchen.',
+      'Die Wiederherstellung des Windows-Netzwerks dauert länger als erwartet. Es wurde keine neue VPN-Verbindung gestartet. Warte, bis die Wiederherstellung abgeschlossen ist, bevor du es erneut versuchst.',
   'WINDOWS_RECOVERY_CONFLICT':
       'Der Netzwerkzustand hat sich geändert oder wird noch von einer anderen '
       'Sitzung verwendet. Die automatische Wiederherstellung wurde gestoppt, '
@@ -374,25 +362,23 @@ const Map<String, String> kNetworkSettingsDe = <String, String>{
   'settings_unsupported':
       'Beende Usque vollständig, öffne es erneut und speichere nochmals. Suche bei weiteren Fehlern unter Einstellungen nach Updates.',
   'settings_save_failed':
-      'Einstellungen konnten nicht gespeichert werden. Ihre Änderungen bleiben erhalten.',
+      'Einstellungen konnten nicht gespeichert werden. Deine Änderungen bleiben erhalten.',
   'settings_reconnect': 'Erneut verbinden',
 };
 
 const Map<String, String> kChainDe = <String, String>{
   'invalid_endpoint':
-      'Geben Sie eine gültige Serveradresse und einen Port von 1 bis 65535 ein.',
-  'missing_configuration':
-      'Geben Sie die Adresse und den Port des Proxyservers ein.',
+      'Gib eine gültige Serveradresse und einen Port von 1 bis 65535 ein.',
+  'missing_configuration': 'Gib die Adresse und den Port des Proxyservers ein.',
   'source_mismatch':
-      'Verwenden Sie eine Konfiguration, die zum gewählten Ausgangstyp passt.',
-  'invalid_dns':
-      'Prüfen Sie die DNS-Serveradressen und den gewählten DNS-Modus.',
+      'Verwende eine Konfiguration, die zur gewählten Ausgangsart passt.',
+  'invalid_dns': 'Prüfe die DNS-Serveradressen und den gewählten DNS-Modus.',
   'unexpected_credentials':
-      'Aktivieren Sie die Anmeldung mit Benutzername und Passwort oder löschen Sie die Zugangsdaten.',
+      'Aktiviere die Anmeldung mit Benutzername und Passwort oder lösche die Anmeldedaten.',
   'missing_credentials':
-      'Geben Sie sowohl einen Benutzernamen als auch ein Passwort ein.',
+      'Gib sowohl einen Benutzernamen als auch ein Passwort ein.',
   'invalid_credential':
-      'Prüfen Sie die Zugangsdaten auf ungültige Zeichen oder eine Überschreitung der zulässigen Länge.',
+      'Prüfe die Anmeldedaten auf ungültige Zeichen oder eine Überschreitung der zulässigen Länge.',
   "dns_auto": "Automatisch (standardmäßig DoH)",
   "dns_doh": "Verschlüsseltes DNS · Cloudflare",
   "dns_tcp": "DNS über TCP",
@@ -405,13 +391,13 @@ const Map<String, String> kChainDe = <String, String>{
   "dns_inherit":
       "Leer lassen, um Netzwerk-DNS zu übernehmen. Abfragen nutzen diesen Ausgang.",
   "scope_proxy_only":
-      "Usque leitet derzeit nur Verbindungen weiter, die Apps an Usque senden. Andere Verbindungen können Ihre öffentliche IP-Adresse preisgeben.",
+      "Usque leitet derzeit nur Verbindungen weiter, die Apps an Usque senden. Andere Verbindungen können deine öffentliche IP-Adresse preisgeben.",
   "scope_bypass":
-      "Ihre Regeln für direkte Verbindungen und einzelne Apps gelten weiterhin.",
+      "Deine Regeln für direkte Verbindungen und einzelne Apps gelten weiterhin.",
   "scope_interrupted":
-      "Die Verbindung wurde unterbrochen. Ihr Gerät kann zur normalen Netzwerkverbindung zurückkehren.",
+      "Die Verbindung wurde unterbrochen. Dein Gerät kann zur normalen Netzwerkverbindung zurückkehren.",
   "scope_android_settings":
-      "Um nach dem Beenden des Dienstes weiter zu blockieren, aktivieren Sie in den Systemeinstellungen „Durchgehend aktives VPN“ und „Verbindungen ohne VPN blockieren“.",
+      "Um nach dem Beenden des Dienstes weiter zu blockieren, aktiviere in den Systemeinstellungen „Durchgehend aktives VPN“ und „Verbindungen ohne VPN blockieren“.",
 
   "batch_title": "Konfigurationen importieren",
   "batch_counts":
@@ -424,28 +410,29 @@ const Map<String, String> kChainDe = <String, String>{
   "batch_checking": "Prüfung {done} von {total}",
   "batch_saving": "Konfigurationen werden gespeichert…",
   "batch_uncertain":
-      "Speichern unterbrochen. Schließen Sie den Dialog und prüfen Sie vor einem erneuten Import die Bibliothek; einige Einträge könnten bereits gespeichert sein.",
-  "file_count_limit": "Wählen Sie höchstens 128 Dateien gleichzeitig.",
+      "Speichern unterbrochen. Schließe den Dialog und prüfe vor einem erneuten Import die Bibliothek; einige Einträge könnten bereits gespeichert sein.",
+  "file_count_limit": "Wähle höchstens 128 Dateien gleichzeitig.",
   'duplicate_directive': 'Diese Direktive darf nur einmal vorkommen.',
   'mixed_protocols':
       'Alle remote-Endpunkte müssen denselben TCP- oder UDP-Transport verwenden.',
   'conflicting_protocol':
       'Die remote-Angabe widerspricht der globalen Transporteinstellung.',
-  'too_many_endpoints': 'Verwenden Sie höchstens 16 remote-Endpunkte.',
+  'too_many_endpoints': 'Verwende höchstens 16 remote-Endpunkte.',
   'conflicting_authentication':
       'CLIENT_CERT widerspricht dem eingebetteten Zertifikat oder dem Authentifizierungsmodus.',
   'serialized_size_limit':
       'Der verschlüsselte Datensatz würde die Speichergrenze überschreiten.',
   'multi_endpoint_unavailable':
-      'Aktualisieren Sie die Engine, um Konfigurationen mit mehreren Endpunkten zu verwenden.',
-  'candidates': 'Start-Endpunkte',
+      'Diese Konfiguration enthält mehrere Server. Aktualisiere Usque, um sie zu verwenden.',
+  'candidates': 'Zu versuchende Server',
   'random_order':
-      'Endpunkte werden bei jeder Verbindung in einer neuen Zufallsreihenfolge versucht.',
-  'file_order': 'Endpunkte werden in der Dateireihenfolge versucht.',
-  'attempting': 'Endpunkt wird versucht',
-  'actual_endpoint': 'Verbundener Endpunkt',
+      'Bei jeder Verbindung werden diese Server in neuer zufälliger Reihenfolge versucht.',
+  'file_order':
+      'Bei jeder Verbindung werden diese Server in der aufgeführten Reihenfolge versucht.',
+  'attempting': 'Server wird versucht',
+  'actual_endpoint': 'Verbundener Server',
   'attempt_failures': 'Fehlgeschlagene Versuche',
-  'failure_transport': 'Transport getrennt',
+  'failure_transport': 'Verbindung abgebrochen',
   'failure_authentication': 'Authentifizierung',
   'failure_certificate': 'Zertifikat',
   'failure_configuration': 'Konfiguration',
@@ -456,28 +443,29 @@ const Map<String, String> kChainDe = <String, String>{
   'dns_fallback': 'Tunnel-DNS (OpenVPN kann DNS aushandeln)',
   'dns_unavailable_title': 'Kein DNS über diesen Ausgang',
   'dns_unavailable':
-      'Über diesen Ausgang ist kein DNS-Server erreichbar. Verwenden Sie IP-Adressen oder wählen Sie einen anderen Ausgang mit erreichbarem DNS.',
+      'Über diesen Ausgang ist kein DNS-Server erreichbar. Verwende IP-Adressen oder wähle einen anderen Ausgang mit erreichbarem DNS.',
   'authentication_failed':
-      'Authentifizierung fehlgeschlagen. Aktualisieren Sie die Anmeldedaten, bevor Sie sich erneut verbinden.',
+      'Authentifizierung fehlgeschlagen. Aktualisiere die Anmeldedaten, bevor du dich erneut verbindest.',
   'profile_limit':
       'Die Konfigurationsbibliothek ist voll (128 Konfigurationen).',
-  'metadata_limit': 'Die Metadaten der Konfigurationsbibliothek sind voll.',
+  'metadata_limit':
+      'In der Konfigurationsbibliothek ist kein Platz für weitere Einträge.',
   'title': 'Kettenproxy',
-  'subtitle': 'Wählen Sie einen über WARP erreichten Ausgang.',
+  'subtitle': 'Wähle einen über WARP erreichten Ausgang.',
   'source': 'Ausgangsart',
   'enable': 'Kettenproxy aktivieren',
   'import_file': 'Datei importieren',
   'paste': 'Konfiguration einfügen',
   'profiles': 'Gespeicherte Konfigurationen',
-  'empty': 'Importieren Sie eine Konfiguration, um einen Ausgang zu wählen.',
+  'empty': 'Importiere eine Konfiguration, um einen Ausgang zu wählen.',
   'empty_hint_openvpn':
-      'Importieren Sie eine .ovpn-Datei oder fügen Sie ihren Text ein. TCP- und UDP-Endpunkte, eingebettete Zertifikate sowie Benutzername und Passwort werden unterstützt.',
+      'Importiere eine .ovpn-Datei oder füge ihren Text ein. TCP- und UDP-Endpunkte, eingebettete Zertifikate sowie Benutzername und Passwort werden unterstützt.',
   'empty_hint_wireguard':
-      'Importieren Sie eine .conf-Datei oder fügen Sie ihren Text ein. Je ein Abschnitt [Interface] und [Peer] wird unterstützt.',
+      'Importiere eine .conf-Datei oder füge ihren Text ein. Je ein Abschnitt [Interface] und [Peer] wird unterstützt.',
   'import_limits':
       'Konfigurationen müssen UTF-8-Text bis 128 KiB sein. Geräte ohne Dateiauswahl können den Text einfügen.',
   'select_required':
-      'Wählen Sie eine gespeicherte Konfiguration aus, bevor Sie sie anwenden.',
+      'Wähle eine gespeicherte Konfiguration aus, bevor du sie anwendest.',
   'pending_disable': 'Ausstehend: Kettenproxy deaktivieren',
   'apply_reconnect': 'Anwenden und neu verbinden',
   'requires_connect_ip': 'Mit L4 nicht verfügbar',
@@ -516,13 +504,13 @@ const Map<String, String> kChainDe = <String, String>{
   'l4': 'Diese Konfiguration benötigt UDP, das L4 nicht unterstützt.',
   'switch_mode': 'L4 ausschalten und anwenden',
   'unsupported':
-      'Diese Version von Usque kann diese Ausgangsart nicht verwenden. Suchen Sie unter Einstellungen nach Updates.',
+      'Diese Version von Usque kann diese Ausgangsart nicht verwenden. Suche unter Einstellungen nach Updates.',
   'scope':
       'Bestehende ausdrückliche Direktregeln bleiben gültig. Übriger Datenverkehr nutzt den gewählten Ausgang.',
   'allowed': 'Zulässige Ziele',
   'dns': 'DNS',
   'addresses': 'Tunneladressen',
-  'address_family': 'Adressfamilie',
+  'address_family': 'IP-Version',
   'transport': 'Übertragung',
   'endpoint': 'Zielserver',
   'restricted':
@@ -530,31 +518,31 @@ const Map<String, String> kChainDe = <String, String>{
   'delete_confirm':
       'Diese gespeicherte Konfiguration löschen? Die ursprünglich importierte Datei bleibt unverändert.',
   'profile_in_use':
-      'Wählen Sie eine andere Konfiguration oder heben Sie die gespeicherte Auswahl auf, bevor Sie diese Konfiguration löschen.',
+      'Wähle eine andere Konfiguration oder hebe die gespeicherte Auswahl auf, bevor du diese Konfiguration löschst.',
   'stale_revision':
-      'Die Konfiguration hat sich geändert. Aktualisieren Sie die Liste und versuchen Sie es erneut.',
+      'Die Konfiguration hat sich geändert. Aktualisiere die Liste und versuche es erneut.',
   'secure_storage_failed':
       'Die verschlüsselte Konfiguration konnte nicht gelesen oder gespeichert werden.',
   'invalid_configuration':
       'Die Konfiguration ist ungültig oder enthält nicht unterstützte Optionen.',
   'looks_like_wireguard':
-      'Das sieht nach einer WireGuard-Konfiguration aus. Stellen Sie die Ausgangsart auf WireGuard um.',
+      'Das sieht nach einer WireGuard-Konfiguration aus. Stelle die Ausgangsart auf WireGuard um.',
   'looks_like_openvpn':
-      'Das sieht nach einer OpenVPN-Konfiguration aus. Stellen Sie die Ausgangsart auf OpenVPN um.',
+      'Das sieht nach einer OpenVPN-Konfiguration aus. Stelle die Ausgangsart auf OpenVPN um.',
   'error_location': '{message} ({field}, Zeile {line})',
   'error_field': '{message} ({field})',
   'file_unavailable':
-      'Keine Dateiauswahl verfügbar. Fügen Sie den Konfigurationstext ein.',
+      'Keine Dateiauswahl verfügbar. Füge den Konfigurationstext ein.',
   'invalid_size_or_encoding':
-      'Verwenden Sie eine UTF-8-Konfiguration von höchstens 128 KiB.',
+      'Verwende eine UTF-8-Konfiguration von höchstens 128 KiB.',
   'unsupported_directive': 'Diese OpenVPN-Direktive wird nicht unterstützt.',
   'unsupported_or_duplicate_field':
       'Dieses Feld wird nicht unterstützt oder ist doppelt.',
   'unsupported_or_duplicate_section':
-      'Verwenden Sie je einen Abschnitt Interface und Peer.',
+      'Verwende je einen Abschnitt Interface und Peer.',
   'missing_field': 'Ein erforderliches Feld fehlt.',
   'invalid_name':
-      'Verwenden Sie einen Namen mit 1 bis 64 Zeichen ohne Steuerzeichen.',
+      'Verwende einen Namen mit 1 bis 64 Zeichen ohne Steuerzeichen.',
   'invalid_key':
       'Der Schlüssel muss ein gültiger 32-Byte-Base64-Schlüssel sein.',
   'checking': 'Konfiguration wird geprüft…',
@@ -563,15 +551,15 @@ const Map<String, String> kChainDe = <String, String>{
   "source_group_service": "Dienste",
   "endpoint_ip": "Endpunkt-IP",
   "endpoint_select_first":
-      "Wählen Sie eine Konfiguration, um ihren Endpunkt zu ändern.",
+      "Wähle eine Konfiguration, um ihren Endpunkt zu ändern.",
   "delete_blocked": "Ausgewählt oder in Verwendung",
   "save_select": "Speichern und auswählen",
   "switch_source": "Zu {source} wechseln",
-  "empty_proxy": "Fügen Sie einen Proxy hinzu, um einen Ausgang zu wählen.",
+  "empty_proxy": "Füge einen Proxy hinzu, um einen Ausgang zu wählen.",
   "tcp_forwarding": "TCP-Weiterleitung",
   "verified": "Geprüft",
   "not_verified": "Ungeprüft",
   "unavailable": "Nicht verfügbar",
   "udp_association":
-      "Zuordnung akzeptiert; Ende-zu-Ende-Weiterleitung ungeprüft",
+      "UDP-Relay akzeptiert; Ende-zu-Ende-Weiterleitung ungeprüft",
 };

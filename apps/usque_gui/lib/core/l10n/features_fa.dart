@@ -73,11 +73,11 @@ const kNetworkQualityFa = <String, String>{
   'diag_check_quality_packet_loss': 'ازدست‌رفتن بسته',
   'diag_check_quality_queue_pressure': 'فشار صف',
   'diag_check_quality_pmtu': 'MTU مسیر',
-  'diag_check_transport_migration_capability': 'مهاجرت در همان خانواده',
+  'diag_check_transport_migration_capability': 'مهاجرت در همان نسخهٔ IP',
   'diag_check_dns_direct_encrypted_configuration': 'پیکربندی DNS مستقیم',
   'diag_check_dns_direct_encrypted_runtime_state': 'اجرای DNS مستقیم',
   'diag_check_dns_direct_encrypted_reachability':
-      'دسترسی‌پذیری DNS رمزنگاری‌شده',
+      'دسترسی‌پذیری DNS رمزگذاری‌شده',
   'diag_check_transport_h3_path_validation_probe': 'دست‌دهی مستقل QUIC',
   'nq_finding_unavailable': 'این اندازه‌گیری در وضعیت فعلی در دسترس نیست.',
   'nq_finding_invalid_configuration': 'پیکربندی DNS سفارشی نامعتبر است.',
@@ -86,7 +86,7 @@ const kNetworkQualityFa = <String, String>{
   'nq_finding_unsupported':
       'برای استفاده از DNS رمزگذاری‌شده، Usque را به‌روز کنید. تغییر خودکار به DNS رمزگذاری‌نشده انجام نمی‌شود.',
   'nq_finding_dns_custom_valid':
-      'پیکربندی DNS رمزنگاری‌شدهٔ سفارشی معتبر است. بازگشت به متن ساده غیرفعال است.',
+      'پیکربندی DNS رمزگذاری‌شدهٔ سفارشی معتبر است. بازگشت به متن ساده غیرفعال است.',
   'nq_finding_stale': 'خوانش کهنه است یا شبکهٔ فیزیکی تغییر کرده است.',
   'nq_finding_rtt_high': 'زمان رفت‌وبرگشت اندازه‌گیری‌شده بالاست.',
   'nq_finding_healthy': 'شاخص‌های قابل‌اندازه‌گیری اتصال عادی‌اند.',
@@ -112,9 +112,9 @@ const kNetworkQualityFa = <String, String>{
   'diag_fix_nq_reconnect': 'برای اعمال پیکربندی ذخیره‌شده دوباره متصل شوید.',
   'nav_network_quality': 'کیفیت',
   'network_quality': 'کیفیت شبکه',
-  'nq_subtitle': 'تأخیر، اتلاف بسته و توان عملیاتی.',
+  'nq_subtitle': 'تأخیر، ازدست‌رفتن بسته و توان عملیاتی.',
   'nq_local_only': 'اندازه‌گیری‌ها فقط محلی است. چیزی بارگذاری نمی‌شود.',
-  'nq_doctor': 'اجرای Network Doctor',
+  'nq_doctor': 'اجرای تشخیص شبکه',
   'nq_doctor_help':
       'بررسی‌های استاندارد ترافیکی نمی‌فرستند و تنظیمات را تغییر نمی‌دهند.',
   'nq_live': 'زنده',
@@ -196,7 +196,7 @@ const kNetworkQualityFa = <String, String>{
   'nq_transportToTun': 'انتقال → دستگاه',
   'nq_transportToProxy': 'انتقال → پروکسی',
   'nq_directDns': 'درخواست‌های DNS مستقیم',
-  'nq_finalDns': 'درخواست‌های DNS از پراکسی نهایی',
+  'nq_finalDns': 'درخواست‌های DNS از پروکسی نهایی',
   'nq_unknown_queue': 'صف دیگر',
   'nq_trends': '۶۰ ثانیهٔ اخیر',
   'nq_samples': 'نمونه',
@@ -236,7 +236,7 @@ const kNetworkQualityFa = <String, String>{
       'هنگام تغییر شبکه اتصال بسته شد. دوباره متصل شوید.',
   'nq_reason_unsupported': 'مهاجرت در این اتصال در دسترس نیست.',
   'nq_reason_unknown': 'دلیل پشتیبانی‌شده‌ای در دسترس نیست.',
-  'nq_dns_custom': 'حل‌کنندهٔ رمزنگاری‌شدهٔ سفارشی',
+  'nq_dns_custom': 'حل‌کنندهٔ رمزگذاری‌شدهٔ سفارشی',
   'nq_dns_server': 'نام دامنهٔ سرور DNS',
   'nq_dns_path': 'مسیر HTTPS',
   'nq_dns_port': 'پورت (0 از پیش‌فرض استفاده می‌کند)',
@@ -244,20 +244,20 @@ const kNetworkQualityFa = <String, String>{
   'nq_dns_bootstrap_help':
       'از ۱ تا ۸ نشانی IP ارائه‌دهندهٔ DNS را وارد کنید، هر نشانی در یک خط. نمونه: 1.1.1.1. این نشانی‌ها اتصال مستقیم را بدون نیاز به پیدا کردن نشانی از روی نام سرور ممکن می‌کنند.',
   'nq_dns_no_fallback':
-      'اگر DNS رمزنگاری‌شده در دسترس نباشد، پرس‌وجوها شکست می‌خورند و به DNS رمزنگاری‌نشده برنمی‌گردند.',
+      'اگر DNS رمزگذاری‌شده در دسترس نباشد، پرس‌وجوها شکست می‌خورند و به DNS رمزگذاری‌نشده برنمی‌گردند.',
   'nq_dns_system_privacy':
       'ارائه‌دهندهٔ DNS شبکهٔ فعلی ممکن است دامنه‌های درخواستی برای ترافیک مستقیم را ببیند.',
   'nq_dns_scope':
-      'برای قوانین عبور بر اساس کشور و دامنه‌های سفارشی. DNS ترافیک VPN تغییر نمی‌کند.',
+      'برای قواعد عبور مستقیم بر اساس کشور و دامنه‌های سفارشی. DNS ترافیک VPN تغییر نمی‌کند.',
   'nq_dns_no_capability':
       'برای DNS رمزگذاری‌شده در اتصال‌های مستقیم، Usque را به‌روز کنید. تنظیمات ذخیره‌شده حفظ می‌شوند. اگر پیامدهای حریم خصوصی را می‌پذیرید، می‌توانید خودتان «DNS شبکهٔ فعلی» را انتخاب کنید.',
   'nq_dns_invalid_name':
-      'نام دامنه‌ای مانند dns.example.com وارد کنید؛ بدون https://، درگاه یا فاصله.',
+      'نام دامنه‌ای مانند dns.example.com وارد کنید؛ بدون https://، پورت یا فاصله.',
   'nq_dns_invalid_path':
       'مسیری مانند /dns-query با حداکثر ۲۵۶ نویسه وارد کنید؛ بدون فاصله یا بخش‌های حاوی ? یا #.',
   'nq_dns_invalid_bootstrap': 'از ۱ تا ۸ نشانی IP برای سرور DNS وارد کنید.',
   'nq_dns_invalid_port':
-      'درگاهی از ۱ تا ۶۵۵۳۵ وارد کنید، یا برای درگاه پیش‌فرض ۰ بنویسید.',
+      'پورتی از ۱ تا ۶۵۵۳۵ وارد کنید، یا برای پورت پیش‌فرض ۰ بنویسید.',
   'nq_dns_invalid_mode': 'یک حالت DNS پشتیبانی‌شده انتخاب کنید.',
   'nq_doctor_deep_title': 'بررسی‌های عمیق شبکه اجرا شود؟',
   'nq_doctor_deep_body':
@@ -277,13 +277,13 @@ const Map<String, String> kWindowsRecoveryFa = <String, String>{
   'WINDOWS_RECOVERY_EXHAUSTED':
       'Windows پس از سه تلاش خودکار نتوانست وضعیت شبکهٔ VPN قبلی را بازیابی کند. وقتی آماده بودید دوباره تلاش کنید، یا عیب‌یابی محلی را بررسی کنید.',
   'WINDOWS_RECOVERY_BLOCKED':
-      'چون بازیابی امن تأیید نشد، ترمیم خودکار متوقف شد. Usque را از تنظیمات به‌روز کنید. اگر مشکل ادامه داشت، از عیب‌یابی گزارش‌ها را خروجی بگیرید.',
+      'Usque ترمیم خودکار را متوقف کرد، چون نتوانست تأیید کند که بازگرداندن تنظیمات قبلی VPN امن است. تنظیمات را باز کنید و به‌روزرسانی‌ها را بررسی کنید؛ اگر مشکل ادامه داشت، عیب‌یابی را باز کنید و بستهٔ عیب‌یابی را صادر کنید.',
   'WINDOWS_RECOVERY_TIMEOUT':
       'بازیابی شبکهٔ Windows بیشتر از انتظار طول می‌کشد. اتصال VPN جدیدی شروع نشده است. پیش از تلاش دوباره صبر کنید تا بازیابی تمام شود.',
   'WINDOWS_RECOVERY_CONFLICT':
       'وضعیت شبکه تغییر کرده یا هنوز در نشست دیگری در حال استفاده است. برای محافظت از اتصال فعال، بازیابی خودکار متوقف شد.',
   'WINDOWS_RECOVERY_UNSUPPORTED':
-      'این نصب نمی‌تواند اتصال VPN قبلی را خودکار بازیابی کند. Usque را از تنظیمات به‌روز کنید و دوباره تلاش کنید.',
+      'این نصب نمی‌تواند تنظیمات VPN قبلی را خودکار بازیابی کند. Usque را از تنظیمات به‌روز کنید و دوباره تلاش کنید.',
 };
 
 const String kWindowsAdapterCleanupFa =
@@ -340,7 +340,7 @@ const Map<String, String> kNetworkSettingsFa = <String, String>{
 
 const Map<String, String> kChainFa = <String, String>{
   'invalid_endpoint': 'نشانی معتبر سرور و پورتی بین 1 تا 65535 وارد کنید.',
-  'missing_configuration': 'نشانی و پورت سرور پراکسی را وارد کنید.',
+  'missing_configuration': 'نشانی و پورت سرور پروکسی را وارد کنید.',
   'source_mismatch': 'از پیکربندی سازگار با نوع خروجی انتخاب‌شده استفاده کنید.',
   'invalid_dns': 'نشانی‌های سرور DNS و حالت DNS انتخاب‌شده را بررسی کنید.',
   'unexpected_credentials':
@@ -354,19 +354,18 @@ const Map<String, String> kChainFa = <String, String>{
   "dns_auto_hint":
       "حالت خودکار از DoH از طریق این خروجی استفاده می‌کند؛ DNS سفارشی از TCP استفاده می‌کند. خطای DoH باعث دور زدن خروجی نمی‌شود.",
 
-  "add_proxy": "افزودن پراکسی",
+  "add_proxy": "افزودن پروکسی",
   "proxy_hint":
       "اتصال از طریق WARP. پروتکل HTTP از TCP و SOCKS5 با H3/H2 از UDP نیز پشتیبانی می‌کند.",
   "dns_inherit":
       "برای استفاده از DNS شبکه خالی بگذارید. پرس‌وجوها از این خروجی عبور می‌کنند.",
   "scope_proxy_only":
       "Usque فقط اتصال‌هایی را پروکسی می‌کند که برنامه‌ها به آن می‌فرستند. اتصال‌های دیگر ممکن است IP عمومی دستگاه شما را آشکار کنند.",
-  "scope_bypass":
-      "قوانین اتصال مستقیم و قوانین هر برنامه همچنان اعمال می‌شوند.",
+  "scope_bypass": "قواعد اتصال مستقیم و قواعد هر برنامه همچنان اعمال می‌شوند.",
   "scope_interrupted":
       "اتصال قطع شده است. دستگاه ممکن است به اتصال عادی شبکه برگردد.",
   "scope_android_settings":
-      "برای ادامهٔ مسدودسازی پس از توقف سرویس، VPN همیشه‌روشن و مسدودسازی اتصال‌های بدون VPN را در تنظیمات سیستم فعال کنید.",
+      "برای ادامهٔ مسدودسازی پس از توقف سرویس، «VPN همیشه روشن» و «اتصالات مسدود‌شده بدون VPN» را در تنظیمات سیستم فعال کنید.",
 
   "batch_title": "وارد کردن پیکربندی‌ها",
   "batch_counts":
@@ -388,33 +387,32 @@ const Map<String, String> kChainFa = <String, String>{
   'too_many_endpoints': 'بیش از ۱۶ نقطهٔ remote استفاده نکنید.',
   'conflicting_authentication':
       'CLIENT_CERT با گواهی درون‌خطی یا حالت احراز هویت در تعارض است.',
-  'serialized_size_limit':
-      'رکورد رمزشده از حد اندازهٔ ذخیره‌سازی فراتر می‌رود.',
+  'serialized_size_limit': 'پیکربندی برای ذخیره‌سازی بیش از حد بزرگ است.',
   'multi_endpoint_unavailable':
-      'برای استفاده از پیکربندی‌های چندنقطه‌ای، موتور را به‌روز کنید.',
-  'candidates': 'نقطه‌های آغاز',
+      'این پیکربندی چند سرور دارد. برای استفاده از آن Usque را به‌روز کنید.',
+  'candidates': 'سرورهای قابل امتحان',
   'random_order':
-      'در هر اتصال، نقطه‌ها با ترتیب تصادفی تازه‌ای آزموده می‌شوند.',
-  'file_order': 'نقطه‌ها به ترتیب فایل آزموده می‌شوند.',
-  'attempting': 'نقطهٔ در حال آزمون',
-  'actual_endpoint': 'نقطهٔ متصل‌شده',
+      'در هر اتصال، این سرورها با ترتیب تصادفی تازه‌ای امتحان می‌شوند.',
+  'file_order': 'در هر اتصال، این سرورها به ترتیب فهرست امتحان می‌شوند.',
+  'attempting': 'سرور در حال امتحان',
+  'actual_endpoint': 'سرور متصل',
   'attempt_failures': 'تلاش‌های ناموفق',
-  'failure_transport': 'انتقال بسته شد',
-  'failure_authentication': 'احراز هویت',
-  'failure_certificate': 'گواهی',
-  'failure_configuration': 'پیکربندی',
-  'failure_address_changed': 'نشانی تغییر کرد',
-  'failure_protocol': 'پروتکل',
-  'failure_cleanup': 'پاک‌سازی',
+  'failure_transport': 'اتصال قطع شد',
+  'failure_authentication': 'احراز هویت ناموفق بود',
+  'failure_certificate': 'گواهی رد شد',
+  'failure_configuration': 'پیکربندی نامعتبر است',
+  'failure_address_changed': 'نشانی سرور تغییر کرد',
+  'failure_protocol': 'خطای پروتکل',
+  'failure_cleanup': 'پاک‌سازی ناموفق بود',
   'failure_reason': 'علت خرابی: {reason}.',
   'dns_fallback': 'DNS تونل (OpenVPN می‌تواند DNS را مذاکره کند)',
   'dns_unavailable_title': 'از این خروجی DNS در دسترس نیست',
   'dns_unavailable':
-      'هیچ کارساز DNS از طریق این خروجی در دسترس نیست. از نشانی IP استفاده کنید یا خروجی دیگری با DNS در دسترس انتخاب کنید.',
+      'هیچ سرور DNS از طریق این خروجی در دسترس نیست. از نشانی IP استفاده کنید یا خروجی دیگری با DNS در دسترس انتخاب کنید.',
   'authentication_failed':
       'احراز هویت ناموفق بود. پیش از اتصال دوباره، اطلاعات ورود را به‌روز کنید.',
   'profile_limit': 'کتابخانهٔ پیکربندی پر است (۱۲۸ پیکربندی).',
-  'metadata_limit': 'فرادادهٔ کتابخانهٔ پیکربندی پر است.',
+  'metadata_limit': 'کتابخانهٔ پیکربندی جای مورد بیشتری ندارد.',
   'title': 'پروکسی زنجیره‌ای',
   'subtitle': 'خروجی‌ای را انتخاب کنید که از راه WARP به آن می‌رسید.',
   'source': 'منبع خروجی',
@@ -474,9 +472,9 @@ const Map<String, String> kChainFa = <String, String>{
   'allowed': 'مقصدهای مجاز',
   'dns': 'DNS',
   'addresses': 'نشانی‌های تونل',
-  'address_family': 'خانوادهٔ آدرس',
+  'address_family': 'نسخهٔ IP',
   'transport': 'انتقال',
-  'endpoint': 'کارساز',
+  'endpoint': 'سرور',
   'restricted': 'مقصدهای بیرون از AllowedIPs در مسیر پروکسی مسدود می‌شوند.',
   'delete_confirm':
       'این پیکربندی ذخیره‌شده حذف شود؟ پروندهٔ اصلی واردشده تغییر نمی‌کند.',
@@ -484,7 +482,7 @@ const Map<String, String> kChainFa = <String, String>{
       'پیش از حذف این پیکربندی، پیکربندی دیگری انتخاب کنید یا انتخاب ذخیره‌شده را پاک کنید.',
   'stale_revision':
       'پیکربندی تغییر کرده است. فهرست را تازه کنید و دوباره تلاش کنید.',
-  'secure_storage_failed': 'پیکربندی رمزشده خوانده یا ذخیره نشد.',
+  'secure_storage_failed': 'پیکربندی‌های ذخیره‌شده خوانده یا نوشته نشدند.',
   'invalid_configuration':
       'پیکربندی نامعتبر است یا گزینه‌های پشتیبانی‌نشده دارد.',
   'looks_like_wireguard':
@@ -518,5 +516,5 @@ const Map<String, String> kChainFa = <String, String>{
   "verified": "تأیید شد",
   "not_verified": "تأیید نشده",
   "unavailable": "در دسترس نیست",
-  "udp_association": "ارتباط پذیرفته شد؛ انتقال سرتاسری تأیید نشده است",
+  "udp_association": "رلهٔ UDP پذیرفته شد؛ انتقال سرتاسری تأیید نشده است",
 };
