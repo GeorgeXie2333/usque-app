@@ -3734,7 +3734,7 @@ void main() {
       }
 
       for (var index = 0; index < 50; index += 1) {
-        await tester.tap(find.byTooltip('Rename account').first);
+        await _accountMenuAction(tester, 'Rename account');
         await tester.pumpAndSettle();
         await tester.enterText(find.byType(TextField), 'Edited $index');
         await injectStatus(index + 100);
@@ -3743,7 +3743,7 @@ void main() {
       }
 
       for (var index = 0; index < 50; index += 1) {
-        await tester.tap(find.byTooltip('Rename account').first);
+        await _accountMenuAction(tester, 'Rename account');
         await tester.pumpAndSettle();
         await tester.enterText(find.byType(TextField), 'Enter $index');
         await injectStatus(index + 150);
@@ -5097,7 +5097,7 @@ void main() {
       findsNothing,
     );
 
-    await tester.tap(find.byTooltip('Rename account').first);
+    await _accountMenuAction(tester, 'Rename account');
     await tester.pumpAndSettle();
     expect(find.text('Rename account'), findsOneWidget);
     expect(find.text('Account name'), findsOneWidget);
@@ -5158,7 +5158,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('WARP+'), findsOneWidget);
-    expect(find.text('Zero Trust'), findsOneWidget);
+    // A Zero Trust account names its organization beside the kind.
+    expect(find.text('Zero Trust · example-team'), findsOneWidget);
     expect(find.text('WARP Free'), findsNothing);
     expect(find.text('example-team · Experimental'), findsNothing);
   });
@@ -5236,4 +5237,22 @@ void main() {
       );
     },
   );
+}
+
+/// Opens the first account row's action menu and picks [label].
+Future<void> _accountMenuAction(WidgetTester tester, String label) async {
+  await tester.tap(
+    find
+        .byWidgetPredicate(
+          (widget) =>
+              widget is PopupMenuButton &&
+              widget.key is ValueKey<String> &&
+              (widget.key! as ValueKey<String>).value.startsWith(
+                'profile-menu-',
+              ),
+        )
+        .first,
+  );
+  await tester.pumpAndSettle();
+  await tester.tap(find.text(label).last);
 }

@@ -11,7 +11,7 @@ import 'package:usque/models/app_models.dart';
 import 'package:usque/widgets/home/home_phone.dart';
 
 import 'scenarios_test.dart'
-    show SceneEngine, confirmRichScenes, richSceneEngine;
+    show SceneEngine, confirmRichScenes, richSceneEngine, seedGoldenAccounts;
 import 'ui_workflow_test.dart' show pumpWorkflow, workflowHost;
 
 void main() {
@@ -141,6 +141,7 @@ void main() {
         );
         app.localePreference = scene.locale;
         app.engineCapabilities = await engine.getCapabilities();
+        if (scene.accounts) seedGoldenAccounts(engine, app);
         await app.scenarios.refresh();
         await tester.pumpWidget(workflowHost(app, scale: scene.scale));
         await tester.pumpAndSettle();

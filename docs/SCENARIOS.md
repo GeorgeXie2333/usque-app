@@ -33,22 +33,26 @@ to show account management at the root.
 引擎继续在配置首页提供账号管理。
 
 The Accounts page supports account creation, identity setup, renaming, licenses
-and deletion. **Set active** changes the current account and confirms reconnection
-while connected or connecting. Its summary distinguishes the saved choice from
-the confirmed running connection; failures and unconfirmed results stay visible
-on this page. In a scene editor, **Bind to scene** instead changes only the draft
-binding and returns to the editor.
+and deletion. Each row shows the account's kind (WARP+, WARP Free, or Zero Trust
+with its organization) and at most one inline action: **Set active** on another
+account, which confirms reconnection while connected or connecting. Identity and
+license, rename and delete are in the row menu. The selected account carries
+**Selected**; the account a confirmed connection uses carries **Connected**.
+Failures and unconfirmed results stay visible on this page, and an uncertain or
+failed scene result offers a refresh there.
 
-账号页支持新建、身份设置、重命名、许可证和删除。**设为当前账号** 切换当前账号，
-连接中或正在连接时会先确认重连。摘要区分已保存选择和已确认的运行连接，失败及
-结果未确认提示直接显示在账号页。场景编辑器内的 **绑定到场景** 只修改草稿绑定，
-随后返回编辑器。
+账号页支持新建、身份设置、重命名、许可证和删除。每行显示账号类型（WARP+、
+WARP Free，或带组织名的 Zero Trust），最多一个行内操作：其他账号上的
+**设为当前**，连接中或正在连接时会先确认重连。身份与许可证、重命名和删除位于
+行菜单。已选账号标有 **已选择**，已确认连接所用的账号标有 **已连接**。失败及
+结果未确认提示直接显示在账号页，场景结果未确认或失败时可在提示中刷新。
 
 ## Create and edit / 创建与编辑
 
 1. Choose **New scene** to capture the current confirmed saved network settings.
-2. Name the scene. Open **WARP account** to keep **Use the current account**, or
-   manage accounts and choose **Bind to scene** beside the desired account.
+2. Name the scene. Open **WARP account** and pick **Use the current account**
+   (which names the account it follows) or a specific account; the pick returns
+   to the editor at once.
 3. Enable **Chain proxy** if needed, then open its subpage to choose or prepare
    an exit. Edit endpoints, IP policy and transport preferences in the scene.
 4. While the scene has unsaved edits, the bottom bar offers **Save scene** and
@@ -56,8 +60,9 @@ binding and returns to the editor.
    running connection. **Save and use** saves it and opens a separate change
    preview; cancelling that preview keeps the saved template.
 
-选择 **新建场景**，填写名称；进入 **WARP 账号** 子页面管理账号，选择 **沿用当前账号**
-或在目标账号旁选择 **绑定到场景**。按需开启 **链式代理** 并进入子页面选择或准备出口。
+选择 **新建场景**，填写名称；进入 **WARP 账号** 子页面，选择 **沿用当前账号**
+（会注明当前跟随的账号）或指定账号，选择后立即返回编辑器。按需开启 **链式代理**
+并进入子页面选择或准备出口。
 编辑端点、IP 策略及传输协议后，底部栏提供
 **保存场景** 与 **保存并使用**：**保存场景** 只保存模板；
 **保存并使用** 先保存，再显示切换预览。取消预览不会撤销模板保存。
@@ -104,8 +109,10 @@ IPv6 预设、端口、SNI 与端点 IP 策略。自动与预设保留此前保�
 The chain-proxy subpage uses the same source, node library, import, generation
 and sign-in controls as **Proxy → Chain proxy**. Choose **Use this selection**
 to return to the scene draft. It does not apply the selected exit to the current
-connection. The account subpage similarly supports creation, identity setup,
-renaming, licenses and deletion; **Bind to scene** changes only the draft.
+connection. The account subpage is a single-choice list: it can add an
+account, but renaming, licenses, switching and deletion stay on **Accounts**.
+Picking changes only the draft; arrow keys and the D-pad move between options
+without picking, and Enter or select picks the focused one.
 Going back preserves the parent scene draft, and unsaved child selections use
 the normal leave guard. Cancelling a departure from the whole Profiles section
 keeps the leave protection on every editor, including subsequent edits.
@@ -124,8 +131,9 @@ saved scene settings that a newer release no longer accepts: the scene shows
 that its settings are no longer valid and **Use scene** is unavailable until
 you edit and save it again. A new binding must name an existing account.
 链式代理子页面复用 **代理 → 链式代理** 的来源选择、节点库、导入、生成与登录功能，
-选择 **使用此选择** 后返回场景草稿，不会应用到当前连接。账号子页面支持创建、
-身份设置、重命名、许可证及删除；**绑定到场景** 只修改草稿。返回会保留上层场景
+选择 **使用此选择** 后返回场景草稿，不会应用到当前连接。账号子页面是单选列表，
+可以添加账号，重命名、许可证、切换和删除仍在 **账号** 页完成。选择只修改草稿；
+方向键和遥控器只移动焦点，不会直接选中，按确认键才选中当前项。返回会保留上层场景
 草稿，子页面尚未确认的选择遵循离开保护。取消离开整个配置页面时，各层编辑器
 仍保留离开保护，之后的新修改也会得到确认。
 

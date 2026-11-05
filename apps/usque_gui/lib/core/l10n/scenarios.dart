@@ -85,7 +85,10 @@ const kScenarioEn = <String, String>{
   'scenario_unsaved': 'Unsaved scene changes',
   'scenario_inherited_changes': 'Other saved settings that also take effect',
   'scenario_choose_exit': "Use this selection",
-  'scenario_choose_account': "Bind to scene",
+  'scenario_account_hint':
+      "Using the scene connects with the account chosen here.",
+  'scenario_follow_account_hint': "Follows the selected account, now {account}",
+  'scenario_follow_account_named': "Use the current account ({account})",
 };
 
 const kScenarioZhCn = <String, String>{
@@ -155,7 +158,9 @@ const kScenarioZhCn = <String, String>{
   'scenario_unsaved': '场景有未保存的修改',
   'scenario_inherited_changes': '同时生效的其他已保存设置',
   'scenario_choose_exit': "使用此选择",
-  'scenario_choose_account': "绑定到场景",
+  'scenario_account_hint': "使用场景时以这里选择的账号连接。",
+  'scenario_follow_account_hint': "跟随已选账号，当前为 {account}",
+  'scenario_follow_account_named': "沿用当前账号（{account}）",
 };
 
 const kScenarioCatalogs = <String, Map<String, String>>{

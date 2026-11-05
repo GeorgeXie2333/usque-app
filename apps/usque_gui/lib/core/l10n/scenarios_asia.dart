@@ -66,7 +66,9 @@ const kScenarioZhTw = <String, String>{
   'scenario_unsaved': '情境有未儲存的變更',
   'scenario_inherited_changes': '同時生效的其他已儲存設定',
   'scenario_choose_exit': "使用此選擇",
-  'scenario_choose_account': "綁定至情境",
+  'scenario_account_hint': "使用情境時會以這裡選擇的帳號連線。",
+  'scenario_follow_account_hint': "跟隨已選帳號，目前為 {account}",
+  'scenario_follow_account_named': "沿用目前帳號（{account}）",
 };
 
 const kScenarioAr = <String, String>{
@@ -151,7 +153,9 @@ const kScenarioAr = <String, String>{
   'scenario_unsaved': 'تغييرات غير محفوظة في المشهد',
   'scenario_inherited_changes': 'إعدادات محفوظة أخرى ستُطبَّق أيضًا',
   'scenario_choose_exit': "استخدام هذا الاختيار",
-  'scenario_choose_account': "ربط بالسيناريو",
+  'scenario_account_hint': "عند استخدام المشهد، يتصل بالحساب المختار هنا.",
+  'scenario_follow_account_hint': "يتبع الحساب المحدد، حاليًا {account}",
+  'scenario_follow_account_named': "استخدام الحساب الحالي ({account})",
 };
 
 const kScenarioFa = <String, String>{
@@ -238,7 +242,11 @@ const kScenarioFa = <String, String>{
   'scenario_inherited_changes':
       'سایر تنظیمات ذخیره‌شده که همزمان اعمال می‌شوند',
   'scenario_choose_exit': "استفاده از این انتخاب",
-  'scenario_choose_account': "پیوند به سناریو",
+  'scenario_account_hint':
+      "هنگام استفاده از سناریو، با حسابی که اینجا انتخاب می‌کنید متصل می‌شود.",
+  'scenario_follow_account_hint':
+      "از حساب انتخاب‌شده پیروی می‌کند؛ اکنون {account}",
+  'scenario_follow_account_named': "استفاده از حساب فعلی ({account})",
 };
 
 const kScenarioId = <String, String>{
@@ -326,7 +334,11 @@ const kScenarioId = <String, String>{
   'scenario_inherited_changes':
       'Pengaturan tersimpan lain yang juga diterapkan',
   'scenario_choose_exit': "Gunakan pilihan ini",
-  'scenario_choose_account': "Tautkan ke skenario",
+  'scenario_account_hint':
+      "Saat skenario digunakan, koneksi memakai akun yang dipilih di sini.",
+  'scenario_follow_account_hint':
+      "Mengikuti akun yang dipilih, saat ini {account}",
+  'scenario_follow_account_named': "Gunakan akun saat ini ({account})",
 };
 
 const kScenarioTh = <String, String>{
@@ -410,7 +422,10 @@ const kScenarioTh = <String, String>{
   'scenario_unsaved': 'มีการเปลี่ยนแปลงสถานการณ์ที่ยังไม่ได้บันทึก',
   'scenario_inherited_changes': 'การตั้งค่าที่บันทึกไว้อื่น ๆ ที่จะมีผลด้วย',
   'scenario_choose_exit': "ใช้การเลือกนี้",
-  'scenario_choose_account': "ผูกกับสถานการณ์",
+  'scenario_account_hint':
+      "เมื่อใช้สถานการณ์ จะเชื่อมต่อด้วยบัญชีที่เลือกที่นี่",
+  'scenario_follow_account_hint': "ตามบัญชีที่เลือก ขณะนี้คือ {account}",
+  'scenario_follow_account_named': "ใช้บัญชีปัจจุบัน ({account})",
 };
 
 const kScenarioUk = <String, String>{
@@ -498,7 +513,12 @@ const kScenarioUk = <String, String>{
   'scenario_inherited_changes':
       'Інші збережені налаштування, які також застосуються',
   'scenario_choose_exit': "Використати цей вибір",
-  'scenario_choose_account': "Прив’язати до сценарію",
+  'scenario_account_hint':
+      "Під час використання сценарію з’єднання встановлюється з обліковим записом, вибраним тут.",
+  'scenario_follow_account_hint':
+      "Відповідає вибраному обліковому запису, зараз {account}",
+  'scenario_follow_account_named':
+      "Використовувати поточний обліковий запис ({account})",
 };
 
 const kScenarioVi = <String, String>{
@@ -585,7 +605,10 @@ const kScenarioVi = <String, String>{
   'scenario_unsaved': 'Thay đổi kịch bản chưa lưu',
   'scenario_inherited_changes': 'Các cài đặt đã lưu khác cũng được áp dụng',
   'scenario_choose_exit': "Dùng lựa chọn này",
-  'scenario_choose_account': "Liên kết với kịch bản",
+  'scenario_account_hint':
+      "Khi dùng kịch bản, kết nối sẽ dùng tài khoản chọn ở đây.",
+  'scenario_follow_account_hint': "Theo tài khoản đã chọn, hiện là {account}",
+  'scenario_follow_account_named': "Dùng tài khoản hiện tại ({account})",
 };
 
 const kScenarioZhHk = <String, String>{
@@ -655,5 +678,7 @@ const kScenarioZhHk = <String, String>{
   'scenario_unsaved': '情境有未儲存的變更',
   'scenario_inherited_changes': '同時生效的其他已儲存設定',
   'scenario_choose_exit': "使用此選擇",
-  'scenario_choose_account': "綁定至情境",
+  'scenario_account_hint': "使用情境時會以這裡選擇的帳戶連線。",
+  'scenario_follow_account_hint': "跟隨已選帳戶，目前為 {account}",
+  'scenario_follow_account_named': "沿用目前帳戶（{account}）",
 };

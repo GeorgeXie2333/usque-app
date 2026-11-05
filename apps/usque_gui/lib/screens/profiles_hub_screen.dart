@@ -426,8 +426,9 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
         ),
       ],
     );
-    // Rows share the Accounts grammar: selection wash and start marker, the
-    // name above its tags, actions beside the block or under a hairline.
+    // Rows share the Accounts selection marks (wash and start marker) and put
+    // the name above its tags; actions sit beside the block or under a
+    // hairline.
     return Semantics(
       selected: selected,
       container: true,

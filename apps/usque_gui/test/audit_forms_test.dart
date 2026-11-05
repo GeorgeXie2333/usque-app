@@ -359,7 +359,12 @@ void main() {
       workflowHost(app, home: ProfilesScreen(controller: app)),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip(app.strings.get('identity_and_license')));
+    // License management sits in the account row's labelled menu.
+    await tester.tap(
+      find.byKey(ValueKey('profile-menu-${app.profiles.first.id}')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(app.strings.get('identity_and_license')));
     await tester.pumpAndSettle();
     final input = find.byType(TextField);
     await tester.enterText(input, 'example-license');

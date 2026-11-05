@@ -32,7 +32,7 @@ import 'package:usque/widgets/window_titlebar.dart';
 import 'app_test.dart' show FakeEngineClient;
 import 'quality_test_support.dart' show qualityFixture;
 import 'scenarios_test.dart'
-    show SceneEngine, confirmRichScenes, richSceneEngine;
+    show SceneEngine, confirmRichScenes, richSceneEngine, seedGoldenAccounts;
 import 'support/linux_golden_support.dart';
 import 'ui_workflow_test.dart' show pumpWorkflow, workflowHost;
 
@@ -1298,6 +1298,7 @@ void main() {
             );
             app.localePreference = fixture.locale;
             app.engineCapabilities = await engine.getCapabilities();
+            if (fixture.accounts) seedGoldenAccounts(engine, app);
             await app.scenarios.refresh();
             await tester.pumpWidget(workflowHost(app, scale: fixture.scale));
             await tester.pumpAndSettle();

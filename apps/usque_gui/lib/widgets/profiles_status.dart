@@ -1,16 +1,22 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
-import '../core/chain_strings.dart';
 import '../state/app_controller.dart';
 import 'common.dart';
+
+/// Whether an unconfirmed read may have replaced the saved account choice.
+bool profilesSelectionUncertain(AppController app) {
+  final accountId =
+      app.scenarios.catalog?.currentAccountId ?? app.activeProfileId;
+  return app.scenarios.queryUnconfirmed && accountId != app.activeProfileId;
+}
 
 /// The saved account choice, or unknown while an unconfirmed read may have
 /// replaced it.
 String profilesSelectedAccountLabel(AppController app) {
   final strings = app.strings, state = app.scenarios.catalog;
   final accountId = state?.currentAccountId ?? app.activeProfileId;
-  if (app.scenarios.queryUnconfirmed && accountId != app.activeProfileId) {
+  if (profilesSelectionUncertain(app)) {
     return strings.get('scenario_unknown');
   }
   return app.profiles.where((a) => a.id == accountId).firstOrNull?.name ??
@@ -37,81 +43,19 @@ String? profilesRunningLabel(AppController app) {
   return '${account?.name ?? strings.get('not_available')} · $scene';
 }
 
-/// The saved account beside the confirmed running combination on Accounts,
-/// which can differ until a switch is applied.
-class ProfilesSummary extends StatelessWidget {
-  const ProfilesSummary({required this.controller, super.key});
-
-  final AppController controller;
-
-  @override
-  Widget build(BuildContext context) {
-    final app = controller;
-    final strings = app.strings;
-    final theme = Theme.of(context);
-    final running = profilesRunningLabel(app);
-    Widget item(IconData icon, String label, String value, {Key? key}) =>
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(icon, size: 16, color: theme.colorScheme.onSurfaceVariant),
-                const SizedBox(width: 6),
-                Flexible(
-                  child: Text(
-                    label,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 4),
-            Text(value, key: key, style: theme.textTheme.titleSmall),
-          ],
-        );
-    final facts = Wrap(
-      spacing: 40,
-      runSpacing: 12,
-      children: [
-        item(
-          LucideIcons.user,
-          strings.get('scenario_current_account'),
-          profilesSelectedAccountLabel(app),
-          key: const ValueKey('profiles-selected-account'),
-        ),
-        if (running != null)
-          item(
-            LucideIcons.activity,
-            strings.chain('current'),
-            running,
-            key: const ValueKey('profiles-running'),
-          ),
-      ],
-    );
-    // Refresh stays beside the facts at every width; it is small, and an
-    // uncertain switch is resolved by refreshing before anything else.
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Expanded(child: facts),
-        const SizedBox(width: 16),
-        IconButton(
-          tooltip: strings.get('settings_refresh'),
-          onPressed: app.scenarios.busy ? null : app.scenarios.refresh,
-          icon: const Icon(LucideIcons.refreshCw),
-        ),
-      ],
-    );
+/// The account a live session is confirmed to use, or null. Without a
+/// connection or a runtime-confirmed catalogue nothing is claimed.
+String? profilesConnectedAccountId(AppController app) {
+  if (!app.snapshot.isConnected || !app.scenarios.runtimeConfirmed) {
+    return null;
   }
+  return app.scenarios.catalog?.appliedAccountId;
 }
 
-/// Engine and switch problems, above the content they concern.
-Widget? profilesOperationBanner(AppController app) {
+/// Engine and switch problems, above the content they concern. Pages without
+/// their own refresh control set [refreshable], so an uncertain or failed
+/// scene result offers the refresh that resolves it.
+Widget? profilesOperationBanner(AppController app, {bool refreshable = false}) {
   final strings = app.strings, scenes = app.scenarios, state = scenes.catalog;
   final failed = scenes.runtimeConfirmed && state?.applyStatus == 'failed';
   final banners = [
@@ -144,6 +88,14 @@ Widget? profilesOperationBanner(AppController app) {
               ? 'scenario_failed'
               : scenarioErrorKey(scenes.errorCode),
         ),
+        action: refreshable
+            ? TextButton.icon(
+                key: const ValueKey('profiles-banner-refresh'),
+                onPressed: scenes.busy ? null : scenes.refresh,
+                icon: const Icon(LucideIcons.refreshCw, size: 18),
+                label: Text(strings.get('settings_refresh')),
+              )
+            : null,
       ),
   ];
   if (banners.isEmpty) return null;

@@ -68,7 +68,9 @@ const kScenarioJa = <String, String>{
   'scenario_unsaved': 'シーンに未保存の変更があります',
   'scenario_inherited_changes': 'あわせて適用されるその他の保存済み設定',
   'scenario_choose_exit': "この選択を使用",
-  'scenario_choose_account': "シーンに紐付ける",
+  'scenario_account_hint': "シーンを使用すると、ここで選んだアカウントで接続します。",
+  'scenario_follow_account_hint': "選択したアカウントに従います（現在は {account}）",
+  'scenario_follow_account_named': "現在のアカウントを使用（{account}）",
 };
 
 const kScenarioKo = <String, String>{
@@ -142,7 +144,9 @@ const kScenarioKo = <String, String>{
   'scenario_unsaved': '저장하지 않은 시나리오 변경 사항',
   'scenario_inherited_changes': '함께 적용되는 기타 저장된 설정',
   'scenario_choose_exit': "이 선택 사용",
-  'scenario_choose_account': "시나리오에 연결",
+  'scenario_account_hint': "시나리오를 사용하면 여기서 선택한 계정으로 연결합니다.",
+  'scenario_follow_account_hint': "선택한 계정을 따릅니다. 현재 {account}",
+  'scenario_follow_account_named': "현재 계정 사용({account})",
 };
 
 const kScenarioEs = <String, String>{
@@ -230,7 +234,11 @@ const kScenarioEs = <String, String>{
   'scenario_inherited_changes':
       'Otros ajustes guardados que también se aplican',
   'scenario_choose_exit': "Usar esta selección",
-  'scenario_choose_account': "Vincular a la escena",
+  'scenario_account_hint':
+      "Al usar el escenario, se conecta con la cuenta elegida aquí.",
+  'scenario_follow_account_hint':
+      "Sigue la cuenta seleccionada; ahora, {account}",
+  'scenario_follow_account_named': "Usar la cuenta actual ({account})",
 };
 
 const kScenarioPt = <String, String>{
@@ -318,7 +326,10 @@ const kScenarioPt = <String, String>{
   'scenario_inherited_changes':
       'Outras definições guardadas que também são aplicadas',
   'scenario_choose_exit': "Usar esta seleção",
-  'scenario_choose_account': "Vincular ao cenário",
+  'scenario_account_hint':
+      "Ao usar o cenário, a conexão usa a conta escolhida aqui.",
+  'scenario_follow_account_hint': "Segue a conta selecionada; agora, {account}",
+  'scenario_follow_account_named': "Usar a conta atual ({account})",
 };
 
 const kScenarioFr = <String, String>{
@@ -406,7 +417,11 @@ const kScenarioFr = <String, String>{
   'scenario_inherited_changes':
       'Autres paramètres enregistrés également appliqués',
   'scenario_choose_exit': "Utiliser cette sélection",
-  'scenario_choose_account': "Lier au scénario",
+  'scenario_account_hint':
+      "Lorsque le scénario est utilisé, la connexion passe par le compte choisi ici.",
+  'scenario_follow_account_hint':
+      "Suit le compte sélectionné, actuellement {account}",
+  'scenario_follow_account_named': "Utiliser le compte actuel ({account})",
 };
 
 const kScenarioNl = <String, String>{
@@ -494,7 +509,11 @@ const kScenarioNl = <String, String>{
   'scenario_inherited_changes':
       'Andere opgeslagen instellingen die ook worden toegepast',
   'scenario_choose_exit': "Deze selectie gebruiken",
-  'scenario_choose_account': "Aan scène koppelen",
+  'scenario_account_hint':
+      "Bij gebruik van het scenario wordt verbonden met het account dat je hier kiest.",
+  'scenario_follow_account_hint':
+      "Volgt het geselecteerde account, nu {account}",
+  'scenario_follow_account_named': "Huidig account gebruiken ({account})",
 };
 
 const kScenarioTr = <String, String>{
@@ -580,7 +599,10 @@ const kScenarioTr = <String, String>{
   'scenario_unsaved': 'Kaydedilmemiş senaryo değişiklikleri',
   'scenario_inherited_changes': 'Ayrıca uygulanacak diğer kayıtlı ayarlar',
   'scenario_choose_exit': "Bu seçimi kullan",
-  'scenario_choose_account': "Senaryoya bağla",
+  'scenario_account_hint':
+      "Senaryo kullanıldığında burada seçilen hesapla bağlanılır.",
+  'scenario_follow_account_hint': "Seçili hesabı izler, şu an {account}",
+  'scenario_follow_account_named': "Geçerli hesabı kullan ({account})",
 };
 
 const kScenarioRu = <String, String>{
@@ -668,7 +690,11 @@ const kScenarioRu = <String, String>{
   'scenario_inherited_changes':
       'Другие сохранённые настройки, которые также применятся',
   'scenario_choose_exit': "Использовать выбор",
-  'scenario_choose_account': "Привязать к сценарию",
+  'scenario_account_hint':
+      "При использовании сценария подключение выполняется с аккаунтом, выбранным здесь.",
+  'scenario_follow_account_hint':
+      "Следует выбранному аккаунту, сейчас {account}",
+  'scenario_follow_account_named': "Использовать текущий аккаунт ({account})",
 };
 
 const kScenarioDe = <String, String>{
@@ -757,7 +783,11 @@ const kScenarioDe = <String, String>{
   'scenario_inherited_changes':
       'Weitere gespeicherte Einstellungen, die ebenfalls gelten',
   'scenario_choose_exit': "Diese Auswahl verwenden",
-  'scenario_choose_account': "An Szene binden",
+  'scenario_account_hint':
+      "Beim Verwenden des Szenarios wird mit dem hier gewählten Konto verbunden.",
+  'scenario_follow_account_hint':
+      "Folgt dem ausgewählten Konto, derzeit {account}",
+  'scenario_follow_account_named': "Aktuelles Konto verwenden ({account})",
 };
 
 const kScenarioIt = <String, String>{
@@ -844,7 +874,10 @@ const kScenarioIt = <String, String>{
   'scenario_unsaved': 'Modifiche allo scenario non salvate',
   'scenario_inherited_changes': 'Altre impostazioni salvate applicate insieme',
   'scenario_choose_exit': "Usa questa selezione",
-  'scenario_choose_account': "Associa alla scena",
+  'scenario_account_hint':
+      "Quando usi lo scenario, la connessione usa l’account scelto qui.",
+  'scenario_follow_account_hint': "Segue l’account selezionato, ora {account}",
+  'scenario_follow_account_named': "Usa l’account attuale ({account})",
 };
 
 const kScenarioPl = <String, String>{
@@ -931,5 +964,9 @@ const kScenarioPl = <String, String>{
   'scenario_inherited_changes':
       'Inne zapisane ustawienia, które również zostaną zastosowane',
   'scenario_choose_exit': "Użyj tego wyboru",
-  'scenario_choose_account': "Powiąż ze sceną",
+  'scenario_account_hint':
+      "Po użyciu scenariusza połączenie korzysta z konta wybranego tutaj.",
+  'scenario_follow_account_hint':
+      "Podąża za wybranym kontem, obecnie {account}",
+  'scenario_follow_account_named': "Użyj bieżącego konta ({account})",
 };

@@ -225,6 +225,38 @@ SceneEngine richSceneEngine() {
     };
 }
 
+/// Accounts in each normal identity state, for account screenshots. Normal
+/// flows always provision an identity, so none of them needs setup.
+void seedGoldenAccounts(SceneEngine engine, AppController app) {
+  final base = UsqueProfile.defaultProfile();
+  engine.storedProfiles = [
+    base,
+    base.copyWith(id: 'account-b', name: 'Work laptop'),
+    base.copyWith(id: 'account-c', name: 'Acme Corp'),
+  ];
+  app
+    ..profiles = engine.storedProfiles
+    ..profileIdentityStates = {
+      for (final profile in engine.storedProfiles)
+        profile.id: ProfileIdentityState.ready,
+    }
+    ..profileIdentityStatuses = {
+      base.id: const ProfileIdentityStatus(
+        state: ProfileIdentityState.ready,
+        licenseState: LicenseState.warpPlus,
+      ),
+      'account-b': const ProfileIdentityStatus(
+        state: ProfileIdentityState.ready,
+        licenseState: LicenseState.free,
+      ),
+      'account-c': const ProfileIdentityStatus(
+        state: ProfileIdentityState.ready,
+        provider: IdentityProvider.zeroTrust,
+        organization: 'acme',
+      ),
+    };
+}
+
 /// Confirms [richSceneEngine]'s session so its running summary is shown.
 Future<void> confirmRichScenes(SceneEngine engine, AppController app) async {
   app.profiles = engine.storedProfiles;
