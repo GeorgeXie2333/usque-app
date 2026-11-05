@@ -17,22 +17,27 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/GeorgeXie2333/usque-app/actions/workflows/pr-check.yml"><img alt="PR Check" src="https://github.com/GeorgeXie2333/usque-app/actions/workflows/pr-check.yml/badge.svg"></a>
-  <a href="https://github.com/GeorgeXie2333/usque-app/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/GeorgeXie2333/usque-app/actions/workflows/ci.yml/badge.svg?branch=main"></a>
-  <a href="https://github.com/GeorgeXie2333/usque-app/actions/workflows/build.yml"><img alt="Build" src="https://github.com/GeorgeXie2333/usque-app/actions/workflows/build.yml/badge.svg"></a>
-  <a href="LICENSE.md"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-C2500C.svg"></a>
+  <strong>하나의 WARP® 연결을 시스템 VPN, SOCKS5, HTTP 프록시 세 가지 방식으로.</strong>
 </p>
 
-# Usque
+<p align="center">
+  Windows, Linux 및 Android / Android TV용 Cloudflare® WARP® 서비스와 호환되는 비공식 클라이언트입니다.<br>
+  네이티브 Flutter 인터페이스와 Rust로 구현한 MASQUE 엔진으로 동작합니다.
+</p>
 
-Usque는 Windows, Linux 및 Android / Android TV용 Cloudflare® WARP® 서비스와 호환되는 비공식 클라이언트입니다. 시스템 VPN, SOCKS5, HTTP 프록시를 네이티브 Flutter 인터페이스에 모으고, Rust로 구현한 MASQUE 엔진으로 통신을 처리합니다.
+<p align="center">
+  <a href="https://github.com/GeorgeXie2333/usque-app/releases/latest"><img alt="최신 버전 다운로드" src="https://img.shields.io/github/v/release/GeorgeXie2333/usque-app?style=for-the-badge&label=Download&color=C2500C"></a>
+</p>
 
-> [!IMPORTANT]
-> 공식 패키지는 [GitHub Releases](https://github.com/GeorgeXie2333/usque-app/releases)에서만 다운로드하세요. Pull Request 산출물, 로컬 빌드, 태그가 없는 바이너리는 공식 릴리스가 아닙니다. 개발 브랜치 문서에는 아직 배포되지 않은 변경 사항이 포함될 수 있습니다. 사용 중인 패키지의 태그에 해당하는 릴리스 노트와 문서를 확인하세요.
+<p align="center">
+  <a href="https://github.com/GeorgeXie2333/usque-app/releases"><img alt="총 다운로드 수" src="https://img.shields.io/github/downloads/GeorgeXie2333/usque-app/total?color=C2500C"></a>
+  <img alt="지원 플랫폼: Windows, Linux, Android" src="https://img.shields.io/badge/platforms-Windows%20%7C%20Linux%20%7C%20Android-555555">
+  <a href="LICENSE.md"><img alt="MIT 라이선스" src="https://img.shields.io/badge/license-MIT-C2500C.svg"></a>
+</p>
 
-Usque는 독립 프로젝트입니다. Cloudflare, Inc.와 제휴 관계가 없으며, 해당 회사의 후원이나 추천을 받지 않습니다. Cloudflare 및 WARP는 미국 및 기타 관할 지역에서 Cloudflare, Inc.의 상표 또는 등록 상표입니다. 개인용 WARP 서비스 사용에는 여전히 Cloudflare의 이용 약관과 개인정보 처리방침이 적용됩니다.
-
-## 스크린샷
+<p align="center">
+  <sub>독립 프로젝트입니다. Cloudflare, Inc.와 제휴 관계가 없으며, 해당 회사의 후원이나 추천을 받지 않습니다.</sub>
+</p>
 
 <table>
   <tr>
@@ -47,34 +52,74 @@ Usque는 독립 프로젝트입니다. Cloudflare, Inc.와 제휴 관계가 없�
   </tr>
 </table>
 
-현재 소스에서 렌더링한 영어 인터페이스 미리보기이며, 연결되지 않은 상태를 보여 줍니다.
+<p align="center"><sub>현재 소스에서 렌더링한 영어 인터페이스 미리보기입니다.</sub></p>
 
-## 다운로드 및 설치
+## 주요 특징
 
-최신 정식 버전은 **v0.3.3**이며 Linux 데스크톱, 선택 가능한 Proton VPN과 일상적인 연결 개선을 제공했습니다. 이 브랜치에는 로컬 연결 설정 등 v0.3.4에 예정된 미출시 변경도 포함되어 있습니다. 공개 버전은 [GitHub Releases](https://github.com/GeorgeXie2333/usque-app/releases)와 해당 태그 문서를 확인하세요. 각 릴리스는 사용자 설치 패키지 12종과 앱 내 업데이트 전용 Windows MSI 2개를 제공합니다.
+- **VPN과 프록시를 하나의 연결로** — 시스템 VPN(가상 네트워크 어댑터), SOCKS5, HTTP 프록시가 하나의 WARP 연결을 공유하며 동시에 사용할 수 있습니다.
+- **체인 프록시** — WARP 뒤에 OpenVPN, WireGuard, Proton VPN, VPN Gate, HTTP 또는 SOCKS5 출구를 연결합니다.
+- **라우팅과 광고 차단** — 도메인과 CIDR에 대한 DIRECT/REJECT/PROXY 규칙, Ads, 국가별 직접 연결 라우팅.
+- **암호화 DNS** — WARP 출구와 직접 연결 규칙의 질의에 DoH 또는 DoT를 사용할 수 있습니다.
+- **안정적인 전송** — Rust MASQUE 엔진이 HTTP/3을 우선 사용하고, HTTP/2로 자동 폴백하며, IPv4/IPv6 엔드포인트를 시도합니다.
+- **네트워크 진단** — 지연 시간, 패킷 손실, 최근 60초 추이. 심층 검사는 확인을 받은 뒤에만 실행합니다.
+- **시나리오** — 자주 쓰는 네트워크 설정을 **프로필**에 저장하고 전환할 수 있습니다(v0.3.4 예정).
+- **개인정보 보호 중심** — 서버 공개 키 검증을 강제하고, 인증 정보는 운영체제의 자격 증명 저장소에 보관하며, 진단은 로컬에서 생성해 민감한 정보를 제거합니다. 사용 분석은 없습니다.
+- **모든 플랫폼에 맞게** — Windows 트레이, Android 빠른 설정 타일과 TV 리모컨 탐색. 21개 언어와 밝은 테마 및 어두운 테마.
+
+## 작동 방식
+
+앱은 켜 둔 VPN이나 프록시를 통해 Usque에 연결됩니다. Usque는 트래픽을 MASQUE로 WARP까지 전달하고, 그대로 인터넷으로 보내거나 선택한 체인 출구를 거쳐 내보냅니다. 명시적인 직접 연결 규칙과 일치하는 트래픽은 대신 현재 네트워크를 사용합니다.
+
+```mermaid
+flowchart LR
+  apps["앱과 시스템 트래픽"]
+  usque(["Usque"])
+  warp["WARP"]
+  chain["선택적 체인 출구<br/>OpenVPN · WireGuard<br/>Proton VPN · VPN Gate<br/>HTTP · SOCKS5"]
+  local["현재 네트워크"]
+  net(("인터넷"))
+
+  apps -->|"VPN/TUN<br/>SOCKS5 · HTTP"| usque
+  usque -->|"MASQUE<br/>HTTP/3 · HTTP/2"| warp
+  warp --> net
+  warp -.-> chain -.-> net
+  usque -.->|"직접 연결 규칙"| local -.-> net
+
+  classDef brand fill:#C2500C,stroke:#C2500C,color:#ffffff
+  class usque brand
+```
+
+## 다운로드
+
+최신 정식 버전은 **v0.3.3**이며 Linux 데스크톱, 선택 가능한 Proton VPN과 일상적인 연결 개선을 제공했습니다. 이 브랜치에는 로컬 연결 시나리오 등 v0.3.4에 예정된 미출시 변경도 포함되어 있어, 사용 중인 패키지에 아직 없는 기능이 설명될 수 있습니다. 공개 버전은 해당 릴리스 노트와 태그 문서를 확인하세요.
 
 | 플랫폼 | 최소 OS | 패키지 |
 | --- | --- | --- |
 | Windows | Windows 10 2004, 빌드 19041 | x64-v2 또는 ARM64 EXE 설치 프로그램 |
-| Linux (v0.3.3) | Ubuntu 22.04+, Debian 12+, 지원 중인 Fedora; systemd | amd64 / arm64 × AppImage / deb / rpm |
-| Android / Android TV | Android 8.0, API 26 | arm64-v8a, x86_64 또는 armeabi-v7a APK |
-| Android / Android TV | Android 8.0, API 26 | 위의 ABI 3종을 모두 포함하는 범용 APK |
+| Linux(v0.3.3부터) | Ubuntu 22.04+, Debian 12+, 지원 중인 Fedora; systemd | amd64 또는 arm64용 AppImage, deb, rpm |
+| Android / Android TV | Android 8.0, API 26 | arm64-v8a, x86_64 또는 armeabi-v7a APK, 또는 범용 APK |
 
-Linux는 일반 x86-64 및 ARM64용 AppImage/deb/rpm을 제공합니다. 설치 전에 Ed25519 서명 매니페스트를 검증하세요. AppImage에서 처음 VPN을 설정할 때 관리자 승인으로 백그라운드 서비스를 설치합니다. 인증 정보에는 잠금 해제된 Secret Service 키링이 필요합니다. GNOME/KDE, X11/Wayland, 복구 및 테스트 범위는 [Linux 데스크톱 가이드](docs/LINUX_DESKTOP.md)를 참고하세요.
+Windows x64에는 **x86-64-v2**를 지원하는 CPU가 필요하며, ARM64 Windows에는 네이티브 ARM64 패키지를 사용합니다. Android ABI를 모르면 ABI 3종을 모두 포함하고 용량이 더 큰 범용 APK를 사용할 수 있습니다. 각 릴리스에는 앱 내 업데이트 전용 Windows MSI 2개도 있습니다. Windows를 직접 설치할 때는 EXE를 사용하세요.
 
-기기 아키텍처에 맞는 패키지를 선택하세요. Windows x64에는 **x86-64-v2**를 지원하는 CPU가 필요하며, ARM64 Windows에는 네이티브 ARM64 패키지를 사용합니다. Android ABI를 모르면 용량이 더 큰 범용 APK를 사용할 수 있습니다. 설치 전에 패키지의 SHA-256을 `SHA256SUMS` 및 GitHub에 표시된 파일 다이제스트와 대조하고, 릴리스 노트에 명시된 서명자 지문도 확인하세요. 하나라도 일치하지 않으면 설치를 중단하세요.
+> [!IMPORTANT]
+> **공식 패키지는 [GitHub Releases](https://github.com/GeorgeXie2333/usque-app/releases)에서만 다운로드하세요.** Pull Request 산출물, 로컬 빌드, 태그가 없는 바이너리는 공식 릴리스가 아닙니다.
+>
+> **설치 전에 검증하세요.** 패키지의 SHA-256을 `SHA256SUMS` 및 GitHub에 표시된 파일 다이제스트와 대조하고, 릴리스 노트에 명시된 서명자 지문도 확인하세요. Linux에서는 Ed25519 서명 매니페스트도 검증하세요. 하나라도 일치하지 않으면 설치를 중단하세요.
+>
+> **경고를 우회하지 마세요.** 1.0 이전 Windows/Android 패키지는 프로젝트에서 관리하는 고정된 자체 서명 인증서를 사용합니다. Windows에는 알 수 없는 게시자 경고가 나타날 수 있으며, Android 패키지는 Google Play 밖에서 설치합니다. 경고를 우회하려고 백신이나 방화벽을 끄거나 비공식 패키지에 포함된 인증서를 가져오지 마세요.
 
-1.0 이전 Windows/Android 패키지는 프로젝트에서 관리하는 고정된 자체 서명 인증서를 사용합니다. Windows에는 알 수 없는 게시자 경고가 나타날 수 있으며, Android 패키지는 Google Play 밖에서 설치합니다. 경고를 우회하려고 백신이나 방화벽을 끄거나 비공식 패키지에 포함된 인증서를 가져오지 마세요.
+- **업그레이드 시 구성은 한 방향으로만 마이그레이션됩니다.** v0.3.2와 v0.3.3은 구성 스키마 26을 사용합니다. v0.3.1에서 업그레이드하면 스키마가 24에서 26으로 바뀌며 v0.3.1 이하에서는 읽을 수 없습니다. v0.3.4에 예정된 변경은 스키마를 26에서 27로 바꾸며 v0.3.3 이하에서는 읽을 수 없습니다. 이전 버전 재설치는 마이그레이션을 되돌리지 않으므로, 먼저 [구성 호환성](docs/INSTALLATION.md#configuration-compatibility-when-upgrading)을 확인하고 필요한 백업을 준비하세요.
+- **Linux:** AppImage에서 처음 VPN을 설정할 때 관리자 승인으로 백그라운드 서비스를 설치합니다. 인증 정보에는 잠금 해제된 Secret Service 키링이 필요합니다. GNOME/KDE, X11/Wayland, 복구 및 테스트 범위는 [Linux 데스크톱 가이드](docs/LINUX_DESKTOP.md)를 참고하세요.
+- **업데이트**는 다운로드 전에 확인이 필요하며, 플랫폼 설치 프로그램으로 설치합니다. 사용자 확인 없이 자동으로 설치하지 않습니다.
+- 업그레이드, 제거, 복구, Android 개발자 인증에 관한 설명은 [설치 및 제거](docs/INSTALLATION.md)를, 공식 서명에 사용하는 인증서 정보는 [코드 서명](docs/CODE_SIGNING.md)을 참고하세요.
 
-업그레이드, 제거, 복구, Android 개발자 인증에 관한 설명은 [설치 및 제거](docs/INSTALLATION.md)를, 공식 서명에 사용하는 인증서 정보는 [코드 서명](docs/CODE_SIGNING.md)을 참고하세요. 업데이트는 다운로드 전에 확인이 필요하며, 플랫폼 설치 프로그램으로 설치합니다. 사용자 확인 없이 자동으로 설치하지 않습니다.
-
-v0.3.2와 v0.3.3은 구성 스키마 26을 사용합니다. v0.3.1에서 업그레이드하면 스키마가 24에서 26으로 바뀌며 v0.3.1 이하에서는 읽을 수 없습니다. v0.3.4에 예정된 변경은 스키마를 26에서 27로 바꾸며 v0.3.3 이하에서는 읽을 수 없습니다. 먼저 [구성 호환성](docs/INSTALLATION.md#configuration-compatibility-when-upgrading)을 확인하고 필요한 백업을 준비하세요. 이전 버전 재설치는 마이그레이션을 되돌리지 않습니다.
-
-## 첫 연결
+## 빠른 시작
 
 1. [검증된 공식 패키지](docs/INSTALLATION.md#verify-before-installing)를 설치하고 Usque를 엽니다.
-2. 첫 실행의 권한 및 약관 단계를 완료합니다. Android 설정에서는 선택 사항인 알림 권한만 요청합니다. VPN 출력으로 연결할 때 VPN 권한을 요청하며 다른 VPN이 끊길 수 있습니다. 프록시 전용 연결은 요청하지 않습니다. 개인용 WARP® 계정을 등록하고, 필요하면 WARP License Key를 입력합니다. 설정이 중단되었다면 다시 등록하기 전에 저장된 결과를 확인하세요. 새 WARP Secret 가져오기는 지원하지 않습니다.
-3. **프록시**를 열고 **이 기기의 트래픽**에서 가상 네트워크 어댑터(Windows/Linux) 또는 **VPN**(Android)을 켜고, SOCKS5·HTTP 프록시는 각 섹션 맨 위의 스위치로 켠 다음 홈에서 연결합니다. 스위치는 즉시 적용됩니다. 수신 대기 주소나 포트를 수정했다면 **변경 적용**이 필요합니다.
+2. 첫 실행의 권한 및 약관 단계를 완료한 뒤 개인용 WARP® 계정을 등록하고, 필요하면 WARP 라이선스 키를 입력합니다. 설정이 중단되었다면 다시 등록하기 전에 저장된 결과를 확인하세요. 새 WARP Secret 가져오기는 지원하지 않습니다.
+3. **프록시**를 열고 **이 기기의 트래픽**에서 **가상 네트워크 어댑터**(Windows/Linux) 또는 **VPN**(Android)을 켜고, **SOCKS5 프록시**·**HTTP 프록시**는 각 섹션 맨 위의 스위치로 켠 다음 **홈**에서 연결합니다.
+
+Android 설정에서는 선택 사항인 알림 권한만 요청합니다. VPN 출력으로 연결할 때 VPN 권한을 요청하며 다른 VPN이 끊길 수 있습니다. 프록시 전용 연결은 요청하지 않습니다. 이 스위치들은 즉시 적용됩니다. 수신 대기 주소나 포트를 수정했다면 **변경 적용**이 필요합니다.
 
 | 연결 방식 | 용도 |
 | --- | --- |
@@ -83,86 +128,64 @@ v0.3.2와 v0.3.3은 구성 스키마 26을 사용합니다. v0.3.1에서 업그�
 | HTTP 프록시 | 지원하는 앱에 로컬 HTTP 프록시를 제공하며, CONNECT를 통한 HTTPS도 지원합니다. |
 | 시스템 프록시(Windows/Linux) | Windows 또는 GNOME/KDE 프록시 설정을 Usque의 HTTP 프록시로 지정합니다. HTTP 연결 방식이 켜져 있어야 합니다. |
 
-VPN, SOCKS5, HTTP는 기본적으로 켜져 있고, 시스템 프록시는 꺼져 있습니다.
-이들은 하나의 WARP 연결을 공유하며 동시에 사용할 수 있습니다. 모두 끄면 WARP 연결은 유지되지만 앱 트래픽은 이 연결을 사용하지 않습니다.
-인증 정보는 계정별로 저장하며, 한 번에 하나의 계정만 연결할 수 있습니다.
-네트워크 설정은 모든 계정이 공유합니다.
+VPN, SOCKS5, HTTP는 기본적으로 켜져 있고, 시스템 프록시는 꺼져 있습니다. 이들은 하나의 WARP 연결을 공유하며 동시에 사용할 수 있습니다. 모두 끄면 WARP 연결은 유지되지만 앱 트래픽은 이 연결을 사용하지 않습니다. 인증 정보는 계정별로 저장하며, 한 번에 하나의 계정만 연결할 수 있습니다. 네트워크 설정은 모든 계정이 공유합니다.
 
-## 주요 기능
+## 기능 상세
 
-- **프로필**에서 [로컬 연결 설정](docs/SCENARIOS.md)을 저장합니다.
-  **계정 관리**에서 계정 하위 페이지를 열고, 선택적으로 계정을 연결하며, 변경 내용을 확인한 뒤
-  적용하거나 최근 전환을 복원할 수 있습니다. 템플릿 저장은 현재 연결을 바꾸지 않으며
-  저장 상태와 적용 상태를 구분합니다.
-  계정 연결, 체인 프록시, 엔드포인트, IP 정책 및 전송 방식을 저장합니다.
-  하위 페이지에서 계정을 선택하고 노드를 관리하며 출력, 라우팅 및 DNS는 전역 설정을 사용합니다.
-  엔드포인트 조작은 고급 네트워크 설정과 같습니다.
+### 연결, 시나리오, 계정
 
-- 선택적으로 사용하는 [체인 프록시](docs/CHAIN_PROXY.md). **프록시 → 체인 프록시**에서
-  **OpenVPN**, **WireGuard**, [**WARP via WireGuard**](docs/WARP_WIREGUARD.md),
-  [**Proton VPN**](docs/PROTON_VPN.md), **VPN Gate**, **HTTP**, **SOCKS5** 순서로 출구를 선택할 수 있습니다.
-  네이티브 Proton 기능은 검증 중입니다. 실제 로그인, 본인이 푸는 퍼즐과 전체 터널은 아직 검증하지 않았습니다.
-  VPN 구성을 가져오거나 프록시 서버를 추가한 뒤 하나를 선택하고 적용합니다.
-  VPN, SOCKS5, HTTP는 같은 최종 출구를 사용하며, 명시적인 직접 연결 규칙은 계속 적용됩니다. 기본값은 꺼짐입니다.
-- 직접 켜서 사용하는 [실험적 L4 모드](docs/L4_PROXY.md)는 HTTP/3을 통해 TCP를 프록시합니다.
-  OpenVPN TCP 체인 출구가 없으면 일반 UDP를 전달하지 않으므로, UDP가 필요한 앱은 작동하지 않을 수 있습니다.
-  자동 모드는 L4를 선택하지 않습니다.
-- HTTP/3 자동 연결과 실패 시 HTTP/2 폴백. IPv4와 IPv6 연결 시도로 접근 가능한 엔드포인트를 찾습니다.
-  지원되는 네트워크 변경에서는 H3 연결을 이동할 수 있습니다. [경로 동작](docs/h3-path-infrastructure.md)을 참고하세요.
-- 전체 터널 VPN, 터널 내 DNS, Kill Switch, LAN 접근 및 [DIRECT/REJECT/PROXY 분할 라우팅과 Ads](docs/ROUTING.md). 도메인과 CIDR은 더 구체적인 예외를 지원하며 저장 전에 충돌을 검사합니다. 광고 차단을 켜고 적용하면 규칙을 자동 준비하고 앱 실행 중 7일마다 업데이트를 확인합니다. 재연결 없이 새 요청에 적용되며 규칙 세부 정보에서 상태, 출처와 수동 업데이트를 확인할 수 있습니다.
+- **[로컬 연결 시나리오](docs/SCENARIOS.md)**(v0.3.4 예정)는 **프로필**에 저장되며 계정 연결, 체인 프록시, 엔드포인트, 엔드포인트 IP 선호 설정 및 전송 방식을 포함합니다. 적용 전에 변경 내용을 확인하고 최근 전환을 복원할 수 있습니다. 가상 네트워크 어댑터 및 프록시 스위치, 라우팅, DNS는 전역 설정을 사용합니다. 시나리오를 저장해도 현재 연결은 바뀌지 않으며 저장 상태와 적용 상태를 구분합니다. 계정은 **계정 관리 → 계정**에서 관리합니다.
+- **자동 전송:** HTTP/3 자동 연결과 실패 시 HTTP/2 폴백. IPv4와 IPv6 연결 시도로 접근 가능한 엔드포인트를 찾으며, 지원되는 네트워크 변경에서는 H3 연결을 이동할 수 있습니다. [경로 동작](docs/h3-path-infrastructure.md)을 참고하세요.
+- **[실험적 L4 모드](docs/L4_PROXY.md)**(직접 켜서 사용)는 HTTP/3을 통해 TCP를 프록시합니다. OpenVPN TCP 체인 출구가 없으면 일반 UDP를 전달하지 않으므로, UDP가 필요한 앱은 작동하지 않을 수 있습니다. 자동 모드는 L4를 선택하지 않습니다.
+- **WARP 로그인 정보 내보내기:** 확인 후 개인용 WARP 로그인 정보(WARP Secret)를 선택한 파일로 내보낼 수 있습니다. Usque는 이 파일 가져오기를 지원하지 않으므로, 재설치 후 계정 복원에 사용할 수 없습니다.
+
+### 체인 프록시
+
+- **프록시 → 체인 프록시**에서 **OpenVPN**, **WireGuard**, [**WARP via WireGuard**](docs/WARP_WIREGUARD.md), [**Proton VPN**](docs/PROTON_VPN.md), **VPN Gate**, **HTTP**, **SOCKS5**를 WARP 뒤의 출구로 선택할 수 있습니다. VPN 구성을 가져오거나 프록시 서버를 추가한 뒤 하나를 선택하고 적용합니다. 기본값은 꺼짐입니다. [체인 프록시 가이드](docs/CHAIN_PROXY.md)를 참고하세요.
+- VPN, SOCKS5, HTTP는 같은 최종 출구를 사용하며, 명시적인 직접 연결 규칙은 계속 적용됩니다.
+- 네이티브 Proton 기능은 검증 중입니다. 실제 로그인, 본인이 푸는 퍼즐과 전체 터널은 아직 검증하지 않았습니다.
+
+### 라우팅, 차단, DNS
+
+- 전체 터널 VPN, 터널 내 DNS, Kill Switch, LAN 접근 및 [DIRECT/REJECT/PROXY 분할 라우팅과 Ads](docs/ROUTING.md). 도메인과 CIDR은 더 구체적인 예외를 지원하며 저장 전에 충돌을 검사합니다.
 - 연결이 안정된 상태에서 사용자 지정 규칙을 바꾸면 재연결 없이 새 흐름에 적용됩니다. 기존 TCP/CONNECT 연결과 활성 UDP 대상은 경로를 유지합니다. 적용 결과에서 보류 또는 실패 여부를 확인하세요.
+- 광고 차단을 켜고 적용하면 규칙을 자동 준비하고 앱 실행 중 7일마다 업데이트를 확인합니다. 재연결 없이 새 요청에 적용되며 **규칙 세부 정보**에서 상태, 출처와 수동 업데이트를 확인할 수 있습니다.
+- 선택적인 국가별 직접 연결 라우팅. 선택한 국가의 GeoIP 데이터와 전체 GeoSite 목록을 별도로 다운로드합니다. 도메인 이름이 보이면 도메인 규칙을, 그렇지 않으면 IP 규칙을 사용합니다. 분류하지 못한 대상은 계속 터널을 사용합니다.
 - 사용자 지정 [WARP 출구 DNS](docs/WARP_DNS.md): **설정 → 고급 네트워크 설정 → WARP DNS**를 열어 일반 DNS, DoH 또는 DoT를 선택하고 **변경 적용**을 누릅니다. DNS를 변경하면 연결 중인 세션이 다시 연결되며, 최종 체인 출구는 자체 DNS 정책을 유지합니다.
-- 선택적인 국가별 직접 연결 라우팅. 선택한 국가의 GeoIP 데이터와 전체 GeoSite 목록을 별도로 다운로드합니다.
-  도메인 이름이 보이면 도메인 규칙을, 그렇지 않으면 IP 규칙을 사용합니다. 분류하지 못한 대상은 계속 터널을 사용합니다.
-- 로컬 [네트워크 진단](docs/network-doctor.md)과 네트워크 품질 페이지. 지연 시간, 패킷 손실과 측정 가능 여부, 대기열, 최근 60초 추이를 표시합니다.
-  표준 검사는 로컬 상태만 읽으며, 심층 검사는 확인을 받은 뒤 테스트 요청을 보냅니다.
-- Windows의 트레이(상태 배지, 가상 네트워크 어댑터와 시스템 프록시 스위치, 백그라운드에서 5초간 지속되는 재연결·연결 오류·알림으로 보고된 중단 후 복구 알림), 단일 인스턴스 활성화, 시작 시 실행, 창을 닫으면 트레이로 최소화하는 기능, 창 위치 기억, 키보드 단축키.
-  **Ctrl+1~4**로 페이지 전환, **Ctrl+S**로 변경 적용, **F5**로 VPN Gate 또는 진단을 새로 고칩니다. [트레이 및 키보드 조작](docs/INSTALLATION.md#tray-and-keyboard-controls)을 참고하세요.
-  Android의 빠른 설정 타일, 런처 바로가기, 재부팅 후 복구, TV 리모컨 탐색.
-  21개 언어와 밝은 테마 및 어두운 테마를 지원합니다.
-- 확인 후 개인용 WARP 로그인 정보(WARP Secret)를 선택한 파일로 내보낼 수 있습니다.
-  Usque는 이 파일 가져오기를 지원하지 않으므로, 재설치 후 계정 복원에 사용할 수 없습니다.
 
-Android의 **앱별 프록시**는 모든 계정에 걸쳐 앱 전체에 적용됩니다. 꺼져 있으면 모든 앱이 VPN을 사용합니다.
-켜져 있으면 선택한 앱만 사용하며, 새로 설치한 앱은 직접 선택해야 합니다.
-Android의 **VPN을 사용하지 않는 연결 차단**도 켜져 있으면, 선택하지 않은 앱은 터널을 우회하는 대신 연결이 차단됩니다.
+### 진단
 
-## 개인정보 보호와 제한 사항
+- 로컬 [네트워크 진단](docs/network-doctor.md)과 **네트워크 품질** 페이지. 지연 시간, 패킷 손실과 측정 가능 여부, 대기열, 최근 60초 추이를 표시합니다. **표준** 검사는 로컬 상태만 읽으며, **심층** 검사는 확인을 받은 뒤 테스트 요청을 보냅니다.
 
-- WARP 서버의 공개 키가 등록된 키와 일치해야 합니다. 검증을 건너뛰는 옵션은 없습니다.
-  인증 정보는 Windows 자격 증명 관리자, Linux Secret Service 키링 또는 Android Keystore에 보관합니다.
-  Windows와 Linux에서는 별도 Agent가 권한이 필요한 네트워크 작업을 처리하며, Android에서는 VPN을 전용 프로세스에서 실행합니다.
-- 프록시는 기본적으로 루프백 주소에서만 수신 대기합니다. SOCKS5와 HTTP는 선택적인 사용자 이름·비밀번호 인증을 지원하며, 인증 정보를 설정하지 않으면 인증을 요구하지 않습니다.
-  프록시 전용 모드는 시스템 전체의 VPN Kill Switch를 제공하지 않습니다.
-- 진단은 로컬에서 생성하고 민감한 정보를 제거합니다. 사용 분석이나 자동 업로드는 없으며, 품질 기록은 메모리에만 보관합니다.
-  기본 로그 수준은 INFO이고, 보관 한도는 7일 또는 20 MiB입니다. 인증 정보나 원본 진단 묶음을 공개 Issue에 올리지 마세요.
-  취약점은 [SECURITY.md](SECURITY.md)의 절차에 따라 비공개로 신고하세요.
-- Android의 앱 내 Kill Switch는 VPN 프로세스가 종료된 뒤에는 트래픽을 보호할 수 없습니다. VPN Gate의 종료를 유발하는 오류도 연결을 끝냅니다.
-  VPN이 끝난 뒤에도 앱 연결을 차단하려면 시스템의 **항상 사용 VPN**과 **VPN을 사용하지 않는 연결 차단**을 모두 켜세요.
-  [Android 설정](docs/INSTALLATION.md#android-and-android-tv)을 참고하세요.
-- 여러 경로를 묶어 대역폭을 늘리는 기능은 없습니다. HTTP/2 패킷 손실과 PMTU 등 일부 품질 지표는 측정할 수 없습니다.
-  로컬 진단으로는 트래픽 누출을 감지할 수 없습니다.
+### 데스크톱과 Android
+
+- **Windows:** 트레이(상태 배지, 가상 네트워크 어댑터와 시스템 프록시 스위치), 백그라운드에서 5초간 지속되는 재연결·연결 오류·알림으로 보고된 중단 후 복구 알림, 단일 인스턴스 활성화, 시작 시 실행, 창을 닫으면 트레이로 최소화하는 기능, 창 위치 기억. **Ctrl+1~4**로 페이지 전환, **Ctrl+S**로 변경 적용, **F5**로 VPN Gate 또는 진단을 새로 고칩니다. [트레이 및 키보드 조작](docs/INSTALLATION.md#tray-and-keyboard-controls)을 참고하세요.
+- **Android:** 빠른 설정 타일, 런처 바로가기, 재부팅 후 복구, TV 리모컨 탐색.
+- **Android 앱별 프록시**는 모든 계정에 걸쳐 앱 전체에 적용됩니다. 꺼져 있으면 모든 앱이 VPN을 사용합니다. 켜져 있으면 선택한 앱만 사용하며, 새로 설치한 앱은 직접 선택해야 합니다. Android의 **VPN 없는 연결 차단**도 켜져 있으면, 선택하지 않은 앱은 터널을 우회하는 대신 연결이 차단됩니다.
+- **모든 플랫폼:** 21개 언어와 밝은 테마 및 어두운 테마를 지원합니다.
+
+## 개인정보 보호와 보안
+
+- **서버 검증.** WARP 서버의 공개 키가 등록된 키와 일치해야 합니다. 검증을 건너뛰는 옵션은 없습니다.
+- **인증 정보 보호.** 인증 정보는 Windows 자격 증명 관리자, Linux Secret Service 키링 또는 Android Keystore에 보관합니다. Windows와 Linux에서는 별도 Agent가 권한이 필요한 네트워크 작업을 처리하며, Android에서는 VPN을 전용 프로세스에서 실행합니다.
+- **로컬 프록시.** 프록시는 기본적으로 루프백 주소에서만 수신 대기합니다. SOCKS5와 HTTP는 선택적인 사용자 이름·비밀번호 인증을 지원하며, 인증 정보를 설정하지 않으면 인증을 요구하지 않습니다. 프록시 전용 모드는 시스템 전체의 VPN Kill Switch를 제공하지 않습니다.
+- **분석 없음.** 진단은 로컬에서 생성하고 민감한 정보를 제거합니다. 사용 분석이나 자동 업로드는 없으며, 품질 기록은 메모리에만 보관합니다. 기본 로그 수준은 INFO이고, 보관 한도는 7일 또는 20 MiB입니다. 인증 정보나 원본 진단 묶음을 공개 Issue에 올리지 마세요. 취약점은 [SECURITY.md](SECURITY.md)의 절차에 따라 비공개로 신고하세요.
+
+### 제한 사항
+
+- Android의 앱 내 Kill Switch는 VPN 프로세스가 종료된 뒤에는 트래픽을 보호할 수 없습니다. VPN Gate의 종료를 유발하는 오류도 연결을 끝냅니다. VPN이 끝난 뒤에도 앱 연결을 차단하려면 시스템의 **연결 유지 VPN**과 **VPN 없는 연결 차단**을 모두 켜세요. [Android 설정](docs/INSTALLATION.md#android-and-android-tv)을 참고하세요.
+- 여러 경로를 묶어 대역폭을 늘리는 기능은 없습니다. HTTP/2 패킷 손실과 PMTU 등 일부 품질 지표는 측정할 수 없습니다. 로컬 진단으로는 트래픽 누출을 감지할 수 없습니다.
 
 ### DNS 개인정보 보호
 
-국가 및 사용자 지정 도메인의 직접 연결 규칙은 기본적으로 **현재 네트워크 DNS**를 사용합니다. 일치하는 도메인 질의는 VPN 밖에 있는 현재 네트워크의 DNS 서버로 전송됩니다.
-대신 **DoH**에는 전체 HTTPS URL을, **DoT**에는 서버 이름과 포트를 입력할 수 있습니다.
-새 초안에는 Cloudflare가 미리 입력되며, 저장된 사용자 지정 설정은 유지됩니다.
-이 리졸버가 질의를 받으며, 연결에 실패해도 평문 DNS로 바뀌지 않습니다.
-[설정 단계와 예시](docs/encrypted-direct-dns.md)를 참고하세요.
-
-그 밖의 원격 VPN 질의는 WARP 터널 또는 선택한 최종 체인 출구를 사용합니다.
-HTTP/SOCKS5 체인 DNS는 기본적으로 해당 프록시를 통해 TLS를 검증하는 Cloudflare® DoH를 사용합니다.
-사용자 지정 DNS나 기본값과 다른 상속 DNS는 TCP DNS를 유지합니다. 이 두 출구에서는 앱이 선택한 리졸버로 보내는 UDP/53 질의를 같은 리졸버로 보내는 TCP 질의로 변환하며, 물리 네트워크 DNS로 폴백하지 않습니다.
-[체인 DNS 선택지](docs/CHAIN_PROXY.md#http-and-socks5-exits--http-与-socks5-出口)를 참고하세요.
-앱 자체의 암호화 DNS를 사용하면 Usque가 도메인 이름을 볼 수 없으므로, 직접 연결 라우팅에는 IP 규칙을 사용합니다.
-연결이 끊긴 상태의 규칙 다운로드도 Android Lockdown 및 Windows에 남아 있는 Kill Switch의 제한을 따릅니다.
+- **직접 연결 규칙은 기본적으로 현재 네트워크 DNS를 사용합니다.** 국가 및 사용자 지정 도메인의 직접 연결 규칙은 기본적으로 **현재 네트워크 DNS**를 사용합니다. 일치하는 도메인 질의는 VPN 밖에 있는 현재 네트워크의 DNS 서버로 전송됩니다. 대신 **DoH**에는 전체 HTTPS URL을, **DoT**에는 서버 이름과 포트를 입력할 수 있습니다. 새 초안에는 Cloudflare가 미리 입력되며, 저장된 사용자 지정 설정은 유지됩니다. 이 리졸버가 질의를 받으며, 연결에 실패해도 평문 DNS로 바뀌지 않습니다. [설정 단계와 예시](docs/encrypted-direct-dns.md)를 참고하세요.
+- **그 밖의 원격 VPN 질의**는 WARP 터널 또는 선택한 최종 체인 출구를 사용합니다. HTTP/SOCKS5 체인 DNS는 기본적으로 해당 프록시를 통해 TLS를 검증하는 Cloudflare® DoH를 사용합니다. 사용자 지정 DNS나 기본값과 다른 상속 DNS는 TCP DNS를 유지합니다. 이 두 출구에서는 앱이 선택한 리졸버로 보내는 UDP/53 질의를 같은 리졸버로 보내는 TCP 질의로 변환하며, 물리 네트워크 DNS로 폴백하지 않습니다. [체인 DNS 선택지](docs/CHAIN_PROXY.md#http-and-socks5-exits--http-与-socks5-出口)를 참고하세요.
+- **앱 자체의 암호화 DNS를 사용하면** Usque가 도메인 이름을 볼 수 없으므로, 직접 연결 라우팅에는 IP 규칙을 사용합니다.
+- 연결이 끊긴 상태의 규칙 다운로드도 Android Lockdown 및 Windows에 남아 있는 Kill Switch의 제한을 따릅니다.
 
 ### 실험적 기능과 지원하지 않는 범위
 
-[Zero Trust 등록](docs/ZERO_TRUST_EXPERIMENTAL.md)은 실험적 기능입니다. 조직의 ID로 MASQUE 인터넷 터널을 구성하지만, Cloudflare One™ Client의 모든 기능과 호환되지는 않습니다.
-macOS 소스는 보존하고 있으나 빌드하거나 배포하지 않습니다.
-iOS, 앱 스토어 배포, 공개 CLI는 이번 릴리스 범위에 포함되지 않습니다.
+[Zero Trust 등록](docs/ZERO_TRUST_EXPERIMENTAL.md)은 실험적 기능입니다. 조직의 ID로 MASQUE 인터넷 터널을 구성하지만, Cloudflare One™ Client의 모든 기능과 호환되지는 않습니다. macOS 소스는 보존하고 있으나 빌드하거나 배포하지 않습니다. iOS, 앱 스토어 배포, 공개 CLI는 이번 릴리스 범위에 포함되지 않습니다.
 
 ## 기본 네트워크 설정
 
@@ -180,16 +203,22 @@ iOS, 앱 스토어 배포, 공개 CLI는 이번 릴리스 범위에 포함되지
 | SOCKS5 | `127.0.0.1:1080`, `[::1]:1080` |
 | HTTP 프록시 | `127.0.0.1:8080`, `[::1]:8080` |
 
+<details>
+<summary><strong>프록시, 엔드포인트, 혼잡 제어 변경이 적용되는 시점</strong></summary>
+
+<br>
+
 프록시 주소와 포트 수정은 변경을 적용하기 전까지 초안입니다. 프록시 DNS는 기본적으로 현재 출구를 사용합니다. 고급 설정에서 [WARP DNS](docs/WARP_DNS.md)를, 체인 설정에서 최종 출구 DNS를 구성하세요. 프록시 화면에는 DNS 설정 항목이 없습니다. 이전 버전에서 저장한 프록시 DNS 설정은 계속 적용됩니다.
 
 고급 설정의 초기화는 기본값을 초안에 불러올 뿐 즉시 적용하지 않습니다.
 
-Zero Trust는 처음에 등록된 주소를 사용합니다. 고급 네트워크 설정에서 **Zero Trust 엔드포인트 편집**을 선택하고 빨간색 전체 화면 경고를 읽은 뒤 위험과 사용 권한을 확인하여 IPv4/IPv6를 편집하고 변경을 적용하세요. 초기화는 등록된 주소를 초안에 불러오며, 다시 로그인하면 등록된 주소가 복원되고 사용자 지정 주소가 제거됩니다. 선택한 계정에 사용자 지정 Zero Trust 주소가 설정되어 있거나 현재 ZT 연결이 해당 주소를 사용하는 동안 홈에 닫을 수 없는 위험 안내가 표시됩니다.
-
 고급 네트워크 설정의 자동 선택은 계정에서 사용 가능한 엔드포인트에 병렬로 연결을 시도하며, 사용자 지정은 수동 주소를 유지합니다. 포트와 SNI는 두 모드 모두 수정할 수 있습니다. [자동 엔드포인트 선택](docs/NETWORK_SETTINGS.md#automatic-endpoints--自动选择端点)을 참고하세요.
 
-혼잡 제어 변경은 저장된 뒤 다음 수동 연결이나 재시도에서 적용됩니다. 현재 세션과 그 세션의 자동 재연결에는 적용하지 않습니다.
-HTTP/2는 시스템 TCP를 사용합니다. [HTTP/3 혼잡 제어](docs/congestion-control.md)를 참고하세요.
+Zero Trust는 처음에 등록된 주소를 사용합니다. 고급 네트워크 설정에서 **Zero Trust 엔드포인트 편집**을 선택하고 빨간색 전체 화면 경고를 읽은 뒤 위험과 사용 권한을 확인하여 IPv4/IPv6를 편집하고 **변경 적용**을 누르세요. 초기화는 등록된 주소를 초안에 불러오며, 다시 로그인하면 등록된 주소가 복원되고 사용자 지정 주소가 제거됩니다. 선택한 계정에 사용자 지정 Zero Trust 주소가 설정되어 있거나 현재 ZT 연결이 해당 주소를 사용하는 동안 홈에 닫을 수 없는 위험 안내가 표시됩니다.
+
+혼잡 제어 변경은 저장된 뒤 다음 수동 연결이나 재시도에서 적용됩니다. 현재 세션과 그 세션의 자동 재연결에는 적용하지 않습니다. HTTP/2는 시스템 TCP를 사용합니다. [HTTP/3 혼잡 제어](docs/congestion-control.md)를 참고하세요.
+
+</details>
 
 ## 문서와 개발
 
@@ -205,20 +234,16 @@ HTTP/2는 시스템 TCP를 사용합니다. [HTTP/3 혼잡 제어](docs/congesti
 | 구현 및 검증 상태 | [구현 현황](docs/IMPLEMENTATION.md) |
 | 공식 릴리스 관리 | [릴리스 절차](docs/RELEASE.md) |
 
-기여 안내의 고정된 도구 체인과 변경 범위별 검사를 사용하세요. 컴파일만 하는 빌드와 결정론적 테스트는 개발용 PC에서 실행할 수 있습니다.
-개발 패키지 설치나 VPN 수명 주기 검증에는 지정된 격리 환경이 필요합니다.
+기여 안내의 고정된 도구 체인과 변경 범위별 검사를 사용하세요. 컴파일만 하는 빌드와 결정론적 테스트는 개발용 PC에서 실행할 수 있습니다. 개발 패키지 설치나 VPN 수명 주기 검증에는 지정된 격리 환경이 필요합니다.
 
 ## 업스트림과 라이선스
 
 프로토콜 동작은 [Diniboy1123/usque](https://github.com/Diniboy1123/usque)를 참고합니다. 이 저장소는 상호 운용성 테스트를 위해 해당 클라이언트의 스냅샷을 `oracle/go`에 보관합니다. Flutter UI와 Rust 엔진은 새로 구현한 코드입니다. 업스트림 저작권 표시는 라이선스에 유지합니다.
 
-프로젝트 소스는 [MIT](LICENSE.md) 라이선스입니다. 서드파티 구성 요소는 각자의 라이선스를 유지합니다.
-선택적인 [체인 프록시](docs/CHAIN_PROXY.md)는 MPL-2.0의 OpenVPN 3 Core와 Apache-2.0의 Mbed TLS를 포함합니다.
-해당 소스, 검토한 패치, 라이선스 전문은 `third_party`에 있으며, 앱의 VPN Gate 페이지에서 라이선스 고지를 확인할 수 있습니다.
-WireGuard는 BoringTun 0.7.1(BSD-3-Clause)을, 로컬 SVG 아이콘은 flutter_svg 2.3.0(MIT)을 사용합니다. 해당 고지는 앱의 라이선스 목록에도 포함되어 있습니다.
+프로젝트 소스는 [MIT](LICENSE.md) 라이선스입니다. 서드파티 구성 요소는 각자의 라이선스를 유지합니다. 선택적인 [체인 프록시](docs/CHAIN_PROXY.md)는 MPL-2.0의 OpenVPN 3 Core와 Apache-2.0의 Mbed TLS를 포함합니다. 해당 소스, 검토한 패치, 라이선스 전문은 `third_party`에 있으며, 앱의 VPN Gate 페이지에서 라이선스 고지를 확인할 수 있습니다. WireGuard는 BoringTun 0.7.1(BSD-3-Clause)을, 로컬 SVG 아이콘은 flutter_svg 2.3.0(MIT)을 사용합니다. 해당 고지는 앱의 라이선스 목록에도 포함되어 있습니다.
 
 독립 Proton SRP 구현은 Proton go-srp(MIT)를 참조합니다. [저작권 고지와 전체 라이선스](apps/usque_gui/assets/licenses/proton-srp.txt)는 소스, 테스트 벡터와 앱 라이선스 목록에 보존됩니다.
 
 ---
 
-Cloudflare, WARP 및 Cloudflare One은 미국 및 기타 관할 지역에서 Cloudflare, Inc.의 상표 또는 등록 상표입니다.
+<sub>Usque는 독립 프로젝트입니다. Cloudflare, Inc.와 제휴 관계가 없으며, 해당 회사의 후원이나 추천을 받지 않습니다. 개인용 WARP 서비스 사용에는 여전히 Cloudflare의 이용 약관과 개인정보 처리방침이 적용됩니다. Cloudflare, WARP 및 Cloudflare One은 미국 및 기타 관할 지역에서 Cloudflare, Inc.의 상표 또는 등록 상표입니다.</sub>

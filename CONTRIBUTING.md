@@ -1,5 +1,9 @@
 # Contributing to Usque
 
+[![PR Check](https://github.com/GeorgeXie2333/usque-app/actions/workflows/pr-check.yml/badge.svg)](https://github.com/GeorgeXie2333/usque-app/actions/workflows/pr-check.yml)
+[![CI](https://github.com/GeorgeXie2333/usque-app/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/GeorgeXie2333/usque-app/actions/workflows/ci.yml)
+[![Build](https://github.com/GeorgeXie2333/usque-app/actions/workflows/build.yml/badge.svg)](https://github.com/GeorgeXie2333/usque-app/actions/workflows/build.yml)
+
 Thanks for helping. This project changes DNS, routes, credentials, and leak prevention, so keep diffs small, say what the security impact is, and test the paths you touch.
 
 [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) applies. Report vulnerabilities privately as in [SECURITY.md](SECURITY.md). Do not put exploit details or credentials in a public Issue.
