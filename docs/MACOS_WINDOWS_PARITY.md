@@ -70,6 +70,46 @@ interactive real-service/device acceptance. A protected-runner report is not a
 publication prerequisite; unavailable checks must remain `not_run`, and no
 capability flag substitutes for implementation or acceptance.
 
+### Validation for the November 5 follow-up
+
+Final code: `df5bf9bdbc24df7f78d792e318ec70ec76638272`, following
+`236faa2bef4f27f6f635bcaab7c9526997f75fcc`. Host: Apple Silicon macOS;
+deployment target: macOS 13. Pinned Flutter 3.44.7 and repository toolchains.
+The last follow-up changes Dart only; final format, analysis, full Flutter
+regression and Debug build were repeated afterward. Rust sources were unchanged.
+
+| Command/check | Result |
+| --- | --- |
+| `cargo test --workspace --all-targets --locked --offline` | 2,069 passed, 3 ignored, no failures |
+| `pwsh -NoProfile -File tool/check_source.ps1` | Passed, including strict workspace Clippy, format, Flutter analysis, Kotlin, Ruff, PowerShell and protobuf |
+| Final Dart format and `flutter analyze --no-pub` | Passed; no analysis issues |
+| `flutter test --no-pub --exclude-tags golden` | 1,518 passed, 1 skipped, no failures in the final complete run |
+| `python3 -m unittest discover -s tool -p 'test_*.py'` | 354 cases, 21 skipped, no failures/errors |
+| `bash tool/test_macos_desktop_contracts.sh` | 10 groups passed |
+| `bash tool/test_macos_native_contracts.sh` | Passed; no provider installed or activated |
+| `bash tool/build_macos_network_prototype.sh --typecheck --arch arm64` and `--arch x86_64` | Four providers and control helper passed for both architectures |
+| `cargo check -p usque-engine --locked --offline --target x86_64-apple-darwin` | Passed; no Intel hardware execution |
+| `flutter build macos --debug --no-pub` | Passed after final Dart change; Xcode reported an unrelated out-of-date iOS simulator framework |
+| Committed-source repository policy and `git diff --check` | Passed |
+
+CEF was rebuilt with `python3 tool/build_macos_proton_verification.py --arch
+arm64`. Its 22 harness tests passed. The browser-free guard command
+`python3 tool/test_macos_proton_verification.py --app
+build/macos-proton-verification/arm64/UsqueProtonVerification.app
+--no-interactive --output
+build/macos-proton-verification/arm64/review-no-interactive.json` passed six
+rejection/handoff cases, with zero renderer smokes. These checks do not initialize
+CEF or a native browser window. Full authentication-proxy failure/exit,
+official challenge and Intel CEF execution remain `not_run`; the historical
+full-smoke failure has not been established as fixed.
+
+Tests use simulated credentials/authorization, temporary files and local test
+channels. No real Keychain records, host proxy/DNS/routes, system VPN or external
+account sessions were changed. Other-platform native builds, Windows golden
+images, signed distribution, real permission dialogs and device/network
+acceptance were not repeated. The earlier source-bound records below retain
+their original results and package identities.
+
 ## Keychain access
 
 The macOS vault retains successfully read credentials in zeroizing memory for
