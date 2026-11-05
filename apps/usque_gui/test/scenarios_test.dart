@@ -180,6 +180,21 @@ class DelayedSceneEngine extends SceneEngine {
   }
 }
 
+class UnavailableSceneEngine extends SceneEngine {
+  bool unavailable = true;
+
+  @override
+  Future<Map<String, Object?>> scenarioCommand(Map<String, Object?> command) {
+    if (unavailable && command['action'] == 'list') {
+      throw const EngineException(
+        'NETWORK_SETTINGS_UNCONFIRMED',
+        'The settings result is not confirmed.',
+      );
+    }
+    return super.scenarioCommand(command);
+  }
+}
+
 class ProtonSceneEngine extends SceneEngine
     implements ChainProfileClient, ProtonVpnClient {
   int serverReads = 0;
@@ -236,6 +251,71 @@ Map<String, Object?> protonSceneSettings(String server) =>
     ).toMap();
 
 void main() {
+  testWidgets('failed initial scene read stops loading and can be retried', (
+    tester,
+  ) async {
+    final engine = UnavailableSceneEngine();
+    final app = await pumpWorkflow(tester, engine, section: AppSection.home);
+    app.engineCapabilities = await engine.getCapabilities();
+    app.selectSection(AppSection.profiles);
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+    expect(app.scenarios.catalog, isNull);
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+    final retry = find.byKey(const ValueKey('scenario-retry'));
+    expect(retry, findsOneWidget);
+    engine.unavailable = false;
+    await tester.tap(retry);
+    await tester.pumpAndSettle();
+    expect(find.text('Daily'), findsOneWidget);
+    expect(retry, findsNothing);
+    expect(app.scenarios.errorCode, isNull);
+    expect(
+      tester
+          .widget<FilledButton>(find.byKey(const ValueKey('scenario-create')))
+          .onPressed,
+      isNotNull,
+    );
+  });
+
+  testWidgets(
+    'phone scene readout stays close to the card edge and Kill Switch',
+    (tester) async {
+      final engine = SceneEngine();
+      final app = await pumpWorkflow(
+        tester,
+        engine,
+        section: AppSection.home,
+        size: const Size(424, 924),
+      );
+      app.localePreference = LocalePreference.simplifiedChinese;
+      app.engineCapabilities = await engine.getCapabilities();
+      await app.scenarios.refresh();
+      await tester.pumpAndSettle();
+      final link = find.byKey(const ValueKey('home-scene-link'));
+      await tester.ensureVisible(link);
+      await tester.pumpAndSettle();
+      final label = find.descendant(
+        of: link,
+        matching: find.text(app.strings.get('scenario_current')),
+      );
+      final card = tester.getRect(find.byKey(const ValueKey('home-status')));
+      final selected = tester.getRect(label);
+      final kill = tester.getRect(
+        find.byKey(const ValueKey('home-kill-switch')),
+      );
+      expect(selected.top - card.top, lessThanOrEqualTo(24));
+      expect(kill.top - selected.bottom, lessThanOrEqualTo(20));
+      expect(tester.getSize(link).height, greaterThanOrEqualTo(48));
+      await tester.tap(link);
+      await tester.pumpAndSettle();
+      expect(app.section, AppSection.profiles);
+      expect(find.text('Daily'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.android),
+  );
+
   testWidgets('leaving Profiles does not open a delayed preview over Home', (
     tester,
   ) async {

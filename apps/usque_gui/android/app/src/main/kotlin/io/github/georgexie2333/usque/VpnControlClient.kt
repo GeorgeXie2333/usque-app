@@ -421,11 +421,21 @@ internal class VpnControlClient(
         pendingSettings[id] =
             SettingsRequest(json, if (creating) creatingResult(result) else result, scenario = scenario)
         postDelayed(10_000L, "settings-$id") {
-            pendingSettings.remove(id)?.result?.error(
-                "NETWORK_SETTINGS_UNCONFIRMED",
-                "The settings result is not confirmed.",
-                null,
-            )
+            pendingSettings.remove(id)?.let { request ->
+                // A non-creating bind can be accepted without ever delivering
+                // an endpoint. Only an unsent passive read may use the saved
+                // configuration fallback; sent reads and writes stay uncertain.
+                val inactive = !creating && !request.sent
+                request.result.error(
+                    if (inactive) "CONTROL_SERVICE_INACTIVE" else "NETWORK_SETTINGS_UNCONFIRMED",
+                    if (inactive) {
+                        "No live VPN control service is available."
+                    } else {
+                        "The settings result is not confirmed."
+                    },
+                    null,
+                )
+            }
         }
         bind()
         flushSettings()

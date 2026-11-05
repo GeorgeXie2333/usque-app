@@ -596,11 +596,13 @@ class ActionRow extends StatefulWidget {
     required this.child,
     required this.onTap,
     this.padding = const EdgeInsets.symmetric(horizontal: 8, vertical: 16),
+    this.minHeight = 56,
     super.key,
   });
   final Widget child;
   final VoidCallback? onTap;
   final EdgeInsetsGeometry padding;
+  final double minHeight;
 
   @override
   State<ActionRow> createState() => _ActionRowState();
@@ -629,7 +631,7 @@ class _ActionRowState extends State<ActionRow> {
         onFocusChange: (focused) => setState(() => _focused = focused),
         borderRadius: BorderRadius.circular(UsqueRadii.chip),
         child: ConstrainedBox(
-          constraints: const BoxConstraints(minHeight: 56),
+          constraints: BoxConstraints(minHeight: widget.minHeight),
           child: Padding(padding: widget.padding, child: widget.child),
         ),
       ),

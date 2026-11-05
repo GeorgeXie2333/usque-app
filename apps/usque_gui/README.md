@@ -82,6 +82,13 @@ obtain a control owner for the work that needs one; ordinary observation never
 does. Active connections retain their own service lifetime independently of UI
 bindings.
 
+If Android accepts a passive binding but never supplies a control endpoint, an
+unsent settings or scene read falls back to saved configuration at its deadline.
+Sent requests retain their uncertain result. A failed initial scene read stops
+the loading indicator and offers **Retry**, without enabling scene creation
+until current settings have been read. If a newer settings observation retires a
+pending passive scene read, the visible page requests a fresh catalogue.
+
 配置首页固定展示场景，右上“账号管理”打开账号二级页。首页账号和账号启动入口直达
 账号页，返回回到配置首页；普通导航和 Ctrl+2 均回到配置首页，离开编辑器仍检查草稿。
 配置页与首页都以引擎确认状态区分已选目标和当前连接。场景编辑保留独立草稿，
@@ -96,6 +103,11 @@ Android 的被动观察绑定不会创建 VPN 服务。控制服务不可用时�
 会话已应用状态或操作回执，因此不能确认结果未知的写入或授权场景资源租约。
 用户明确刷新、恢复连接、预览并确认场景或准备草稿资源时，才为所需工作持有控制服务；
 普通观察不获取这种所有权。活动连接独立于 UI 绑定维持服务生命周期。
+
+Android 被动绑定已受理但始终未提供控制端点时，尚未发送的设置或场景读取会在超时后
+回退读取已保存配置；已发送请求仍保留未确认状态。场景首次读取失败后停止加载动画并
+提供“重试”，读取到当前设置前不启用新建场景。
+若等待期间的设置观察使被动场景读取过期，当前可见页面会重新读取场景列表。
 
 ## Linux desktop
 

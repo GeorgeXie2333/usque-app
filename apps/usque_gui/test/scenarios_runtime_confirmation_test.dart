@@ -70,6 +70,42 @@ class _QueryFailureEngine extends SceneEngine {
 }
 
 void main() {
+  testWidgets('a retired passive scene read schedules a fresh visible read', (
+    tester,
+  ) async {
+    final firstReply = Completer<Map<String, Object?>>();
+    final saved = {...fixture(), 'runtime_observed': false};
+    var reads = 0;
+    final controller =
+        ScenariosController((_) {
+            reads++;
+            return reads == 1 ? firstReply.future : Future.value(saved);
+          })
+          ..setSupported(true)
+          ..setVisible(true);
+    addTearDown(controller.dispose);
+    final firstRead = controller.refresh();
+    controller.observeRuntime(
+      const NetworkSettingsState(
+        sourceEpoch: '',
+        sequence: 0,
+        runtimeObserved: false,
+        status: NetworkSettingsApplyStatus.unknown,
+      ),
+    );
+    // The ordinary invalidation fires before the pending scene reply arrives.
+    controller.invalidate();
+    await tester.pump(const Duration(milliseconds: 150));
+    expect(reads, 1);
+    firstReply.complete(saved);
+    await firstRead;
+    await tester.pump(const Duration(milliseconds: 150));
+    expect(reads, 2);
+    expect(controller.catalog?.scenarios.single.name, 'Daily');
+    expect(controller.runtimeConfirmed, false);
+    expect(controller.queryUnconfirmed, false);
+  });
+
   testWidgets(
     'confirmed Android disconnect keeps saved scene status without claiming a running session',
     (tester) async {

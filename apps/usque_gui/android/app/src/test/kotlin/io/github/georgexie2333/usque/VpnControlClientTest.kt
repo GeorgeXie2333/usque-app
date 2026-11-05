@@ -280,6 +280,57 @@ class VpnControlClientTest {
     }
 
     @Test
+    fun acceptedPassiveBindingWithoutACallbackAllowsPersistedSettingsFallback() {
+        val flags = mutableListOf<Boolean>()
+        val passive =
+            VpnControlClient(
+                scheduler,
+                { _, creating ->
+                    flags += creating
+                    true
+                },
+                {},
+                { _, _ -> error("No live service") },
+            )
+        val settings = RecordingResult()
+        val scenes = RecordingResult()
+        passive.requestNetworkSettings(null, settings)
+        passive.requestScenarios("""{"action":"list"}""", scenes)
+        assertEquals(0, settings.completionCount)
+        assertEquals(0, scenes.completionCount)
+        scheduler.advanceBy(10_000)
+        for (result in listOf(settings, scenes)) {
+            assertEquals("CONTROL_SERVICE_INACTIVE", result.errorCode)
+            assertEquals(1, result.completionCount)
+        }
+        assertTrue(flags.none { it })
+        assertFalse(passive.isBound)
+        assertEquals(0, scheduler.pendingTimeoutCount())
+    }
+
+    @Test
+    fun sentSettingsReadsAndUnsentWritesNeverAllowPersistedFallbackOnTimeout() {
+        val endpoint = RecordingEndpoint()
+        client.attachEndpointForTest(endpoint)
+        val settings = RecordingResult()
+        val scenes = RecordingResult()
+        client.requestNetworkSettings(null, settings)
+        client.requestScenarios("""{"action":"list"}""", scenes)
+        scheduler.advanceBy(10_000)
+        for (result in listOf(settings, scenes)) {
+            assertEquals("NETWORK_SETTINGS_UNCONFIRMED", result.errorCode)
+            assertEquals(1, result.completionCount)
+        }
+        val unsent = VpnControlClient(scheduler, { _, _ -> true }, {}, { _, _ -> null })
+        val save = RecordingResult()
+        unsent.requestScenarios("""{"action":"save"}""", save)
+        scheduler.advanceBy(10_000)
+        assertEquals("NETWORK_SETTINGS_UNCONFIRMED", save.errorCode)
+        assertEquals(1, save.completionCount)
+        unsent.destroy()
+    }
+
+    @Test
     fun sentReconfigureRetainsCreatingBindingWhileHiddenUntilItsReply() {
         val result = RecordingResult()
         client.requestReconfigure("{}", result)

@@ -507,6 +507,16 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
     final strings = app.strings, scenes = app.scenarios, state = scenes.catalog;
     final theme = Theme.of(context);
     if (state == null) {
+      if (scenes.queryUnconfirmed) {
+        return Center(
+          child: TextButton.icon(
+            key: const ValueKey('scenario-retry'),
+            onPressed: scenes.refresh,
+            icon: const Icon(LucideIcons.refreshCw),
+            label: Text(strings.get('retry')),
+          ),
+        );
+      }
       return const Padding(
         padding: EdgeInsets.symmetric(vertical: 32),
         child: Center(child: CircularProgressIndicator()),

@@ -30,56 +30,50 @@ class ScenarioHomeLink extends StatelessWidget {
           controller.scenarios.catalog?.selected?.name ??
           strings.get('scenario_custom');
       final muted = theme.colorScheme.onSurfaceVariant;
-      return Padding(
-        padding: EdgeInsets.only(bottom: compact ? UsqueSpace.xs : 0),
-        child: ActionRow(
-          key: const ValueKey('home-scene-link'),
-          onTap: controller.openProfiles,
-          padding: EdgeInsets.zero,
-          child: Align(
-            alignment: AlignmentDirectional.centerStart,
-            child: compact
-                ? ReadoutRow(
-                    label: label,
-                    icon: LucideIcons.layers3,
-                    value: Text(
-                      name,
-                      textAlign: TextAlign.end,
-                      style: theme.textTheme.titleSmall,
-                    ),
-                  )
-                : Row(
-                    children: [
-                      ExcludeSemantics(
-                        child: Icon(
-                          LucideIcons.layers3,
-                          size: 16,
-                          color: muted,
-                        ),
-                      ),
-                      const SizedBox(width: UsqueSpace.xs - 2),
-                      Flexible(
-                        child: Wrap(
-                          spacing: UsqueSpace.xs - 2,
-                          children: [
-                            Text(
-                              label,
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: muted,
-                              ),
-                            ),
-                            Text(
-                              name,
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
+      return ActionRow(
+        key: const ValueKey('home-scene-link'),
+        onTap: controller.openProfiles,
+        padding: EdgeInsets.zero,
+        minHeight: compact ? 48 : 56,
+        child: Align(
+          alignment: AlignmentDirectional.centerStart,
+          child: compact
+              ? ReadoutRow(
+                  label: label,
+                  icon: LucideIcons.layers3,
+                  value: Text(
+                    name,
+                    textAlign: TextAlign.end,
+                    style: theme.textTheme.titleSmall,
                   ),
-          ),
+                )
+              : Row(
+                  children: [
+                    ExcludeSemantics(
+                      child: Icon(LucideIcons.layers3, size: 16, color: muted),
+                    ),
+                    const SizedBox(width: UsqueSpace.xs - 2),
+                    Flexible(
+                      child: Wrap(
+                        spacing: UsqueSpace.xs - 2,
+                        children: [
+                          Text(
+                            label,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: muted,
+                            ),
+                          ),
+                          Text(
+                            name,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
         ),
       );
     },

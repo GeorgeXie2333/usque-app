@@ -258,6 +258,10 @@ class ScenariosController extends ChangeNotifier {
       if (_disposed || generation != _generation) return;
       if (result['runtime_observed'] == false &&
           runtimeRevision != _runtimeRevision) {
+        // A settings observation can retire this passive read while it waits
+        // for Android's bind deadline. Its earlier invalidation may already
+        // have joined this in-flight refresh, so arrange a fresh visible read.
+        invalidate();
         return;
       }
       _accept(result, sequence, runtimeRevision);

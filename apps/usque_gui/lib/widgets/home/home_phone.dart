@@ -235,6 +235,7 @@ class HomeChainSummary extends StatelessWidget {
 }
 
 typedef _StatusView = ({
+  bool scenes,
   String killKey,
   bool alwaysOn,
   bool lockdown,
@@ -262,6 +263,7 @@ class HomeStatusCard extends StatelessWidget {
     controller: controller,
     active: (app) => app.section == AppSection.home,
     selector: (app) => (
+      scenes: app.scenarios.supported,
       killKey: killSwitchStatusKey(
         profile: app.activeProfile,
         snapshot: app.snapshot,
@@ -362,7 +364,7 @@ class HomeStatusCard extends StatelessWidget {
     ];
     return Panel(
       key: const ValueKey('home-status'),
-      padding: const EdgeInsetsDirectional.fromSTEB(20, 18, 20, 4),
+      padding: EdgeInsetsDirectional.fromSTEB(20, view.scenes ? 8 : 18, 20, 4),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
