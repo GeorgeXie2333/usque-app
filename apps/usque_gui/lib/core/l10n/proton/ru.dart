@@ -1,4 +1,9 @@
 const kProtonRu = <String, String>{
+  'guest_unavailable_macos':
+      'Гостевой вход недоступен в macOS. Войдите с аккаунтом Proton.',
+  'verification_unavailable_macos':
+      'Proton требует проверку, которая не поддерживается в этом приложении macOS. Используйте другой аккаунт Proton или импортируйте конфигурацию WireGuard.',
+  'empty_login': 'Войдите, чтобы добавить аккаунт Proton.',
   'fallback_account':
       'Не удалось связаться с Proton. Выберите существующий аккаунт WARP и повторите попытку.',
   'fallback_failed':

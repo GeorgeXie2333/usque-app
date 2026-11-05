@@ -49,10 +49,32 @@ class AppController extends ChangeNotifier {
   }
 
   String? _lastProtonCompletedJob;
+  bool get protonGuestLoginSupported =>
+      defaultTargetPlatform != TargetPlatform.macOS;
+  bool get protonHumanVerificationSupported =>
+      defaultTargetPlatform != TargetPlatform.macOS;
+
   Future<ProtonVpnResult> protonVpn(
     Map<String, Object?> command, {
     Uint8List? sensitiveInput,
   }) async {
+    if (!protonGuestLoginSupported && command['action'] == 'guest') {
+      throw const EngineException(
+        'PROTON_GUEST_UNAVAILABLE',
+        'Proton guest sign-in is unavailable on macOS.',
+      );
+    }
+    if (!protonHumanVerificationSupported &&
+        const {
+          'handoff',
+          'verify',
+          'verification_failed',
+        }.contains(command['action'])) {
+      throw const EngineException(
+        'PROTON_VERIFICATION_UNAVAILABLE',
+        'Proton human verification is unavailable on macOS.',
+      );
+    }
     final engine = _engine;
     if (engine is ProtonVpnClient) {
       final generation = _dataGeneration;
@@ -79,6 +101,12 @@ class AppController extends ChangeNotifier {
   }
 
   Future<Uint8List?> completeProtonHumanVerification(Uint8List handoff) {
+    if (!protonHumanVerificationSupported) {
+      throw const EngineException(
+        'PROTON_VERIFICATION_UNAVAILABLE',
+        'Proton human verification is unavailable on macOS.',
+      );
+    }
     final engine = _engine;
     if (engine is ProtonHumanVerificationClient) {
       return (engine as ProtonHumanVerificationClient)
@@ -91,6 +119,7 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> cancelProtonHumanVerification() async {
+    if (!protonHumanVerificationSupported) return;
     final engine = _engine;
     if (engine is ProtonHumanVerificationClient) {
       await (engine as ProtonHumanVerificationClient)

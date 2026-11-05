@@ -10,7 +10,7 @@ commits were fast-forwarded onto `dev`, and further development stays there. Do 
 merge this work into `main` before the owner requests it again.
 
 The owner is using this workstation. Current validation is background-only:
-no CEF/application/browser launches, WindowServer smoke tests, file dialogs,
+no application/browser launches, WindowServer smoke tests, file dialogs,
 notifications or system authorization prompts. Compile-only checks and synthetic
 contract fixtures continue without changing host credentials or network settings.
 
@@ -38,15 +38,46 @@ hardware. None of the isolated results establishes physical-egress safety.
 | Output availability | Home, Proxy, tray and shortcuts honor Engine VPN/proxy capabilities; unavailable saved outputs can still be turned off; Settings explains unavailable VPN protection | Headless capability/refresh contracts; unsigned VPN stays disabled |
 | Window lifecycle | Close-to-menu-bar default, Dock reopening, single-instance activation, 1040×760 default content with first-launch centering and remembered/clamped geometry | Native geometry/type checks and headless small-screen layouts; actual window interaction pending |
 | Settings and shortcuts | Native Settings menu, Cmd+,; Cmd+1–4 and Cmd+S; existing unsaved-change guards | Dart widget and native contracts |
-| Traditional Chinese | Existing Hong Kong/Taiwan catalogs now also drive native menus, app-owned file-dialog copy and CEF UI language; framework controls use the same resolver and hidden windows follow system language changes | Headless language-switch/persistence regressions and native contracts; actual window display remains untested |
+| Traditional Chinese | Existing Hong Kong/Taiwan catalogs now also drive native menus and app-owned file-dialog copy; framework controls use the same resolver and hidden windows follow system language changes | Headless language-switch/persistence regressions and native contracts; actual window display remains untested |
 | Login startup and notifications | SMAppService default off, authorization/cancel retry, native notifications | Build/contracts; real permission dialogs and login reboot pending |
 | Configuration import/export and diagnostics | Bounded batch file picker, JSON credential/config saves, diagnostics saved as ZIP | Dart regression/native contracts; real file-dialog acceptance pending |
 | Zero Trust browser login | ASWebAuthenticationSession callback, strict organization/path/token validation, attempt fencing and cancellation | Isolated URL/lifecycle checks; actual identity-provider login pending |
-| Proton verification window | Dedicated CEF component on all macOS 13+ targets, official-origin allowlist, in-memory context, authenticated loopback proxy, sandbox required; Chromium storage does not access the user's Keychain | Five framing checks and a focused renderer exit pass; the complete proxy-failure smoke remains failed; official challenge and signed launcher pending |
+| Proton guest registration and embedded browser | Removed on macOS; existing Proton account login remains available. Cloudflare Zero Trust continues to use the system authentication session | macOS source and packaging no longer include the CEF component; older published DMGs still contain it |
 | Architecture-specific installation | Native arm64 and x86_64 DMG builders with drag-to-Applications layout, complete nested Mach-O/minimum-OS checks | Development image verification; Intel execution and macOS 13 hardware pending |
 | Update selection and recovery | Maintenance foundation verifies version, native hardware architecture, name, size, hash and signing; same-volume atomic swap, retained backup and durable, candidate-bound health receipts | Temporary injected-verifier tests including Intel-to-arm64 migration and confirmation retries across restarts; live health authentication is not integrated and production installation remains disabled |
 | Extension update and uninstall | Application transaction leaves extensions/user data separate; manual app removal preserves user data | Extension approval/restart orchestration and managed uninstall remain pending |
 | Signed production distribution | Development packages are explicitly ad-hoc and not notarized | Developer ID, notarization, Gatekeeper distribution and full two-architecture acceptance pending |
+
+## macOS Proton guest registration removal (2026-11-05)
+
+Current source removes the Proton guest registration entry point, native CEF
+component and Swift browser launcher. Packaging builds without a browser and
+rejects stale browser helpers or Chromium frameworks in reused GUI output.
+Existing Proton accounts can still sign in; Cloudflare Zero Trust retains its
+`ASWebAuthenticationSession` flow. Older published installers and the validation
+records below predate this removal and must not be treated as current browser
+support or a newly built package.
+
+Account/password sign-in, TOTP and saved-account/server management remain
+available. If Proton requires browser verification, the GUI cancels that task
+and explains the limitation. Engine IPC rejects guest registration and browser
+handoff before lifecycle locks, storage or network work. Windows, Linux and
+Android retain their verification flows.
+
+Validation of the removal, on top of `66327193956d001baf845f4167f44f42ce9952fb`:
+
+- Engine library: 273 tests passed, including a new macOS IPC admission test;
+  strict Engine Clippy and workspace Rust formatting passed.
+- Proton GUI and localization: 109 tests passed; focused Flutter analysis clean.
+- Package fixtures: 14 tests passed; other-platform native verification bridge:
+  14 tests passed; retained macOS desktop contracts: 8 groups passed.
+- Complete Python tooling suite: 305 passed, 21 skipped, no failures/errors.
+- macOS Debug build passed; the output contains no Proton verification helper
+  or Chromium framework. Existing Xcode CoreSimulator version warnings remain.
+- Python Ruff, tracked-source repository policy and whitespace checks passed.
+
+These checks did not launch the app/browser, access real accounts or modify host
+network settings. No replacement installer was packaged or published.
 
 ## PR #147 follow-up (2026-11-05)
 
@@ -63,14 +94,14 @@ or published.
 | Menu bar, background and quit | Home and menu bar share connection availability, retaining cancellation while connecting. macOS Disconnect now acknowledges completed cleanup. A disconnected cached snapshot cannot skip Engine cleanup; empty or non-completed replies cannot approve Quit. Pending Quit blocks new connection/output actions. Failure keeps the window and retry path. Native window/Dock/multi-display interaction remains `not_run`. |
 | Keychain and proxy authorization | Existing bounded successful-read cache and process-local authorization remain unchanged. A failed startup rollback registers the encrypted journal before stopping its listener; final-activation failure retains its runtime and guard. Hot-update cleanup also recovers a journal without a live guard. Stop retries authorization and Clear All cannot delete recovery keys first. Actual permission dialogs, locked/managed Keychain behavior and host restoration remain `not_run`. |
 | VPN Gate directory | Reuse a connected base WARP or automatically create a temporary WARP runtime without proxy listeners. Saved chain/output settings stay intact. Active or retained system-VPN ownership and pending proxy cleanup block a new temporary runtime. Cached preparation, listing, favorites and removal remain offline. Live directory/node service acceptance is `not_run`. |
-| Chain exits and account login | Shared HTTP/SOCKS, OpenVPN, WireGuard, VPN Gate, Proton and Zero Trust entry points remain subject to their existing capability/prerequisite checks. Real authentication, traffic, DNS, guest registration and browser acceptance are `not_run`. The historical complete CEF authentication-proxy/exit smoke is still unproven; fresh compilation and browser-free handoff checks do not resolve it. |
+| Chain exits and account login | Shared HTTP/SOCKS, OpenVPN, WireGuard, VPN Gate, existing Proton account login and Zero Trust entry points remain subject to their existing capability/prerequisite checks. Real authentication, traffic, DNS and system authentication acceptance are `not_run`. Proton guest registration and its bundled browser have been removed from macOS. |
 
 These limitations require signing resources, an appropriate test environment or
 interactive real-service/device acceptance. A protected-runner report is not a
 publication prerequisite; unavailable checks must remain `not_run`, and no
 capability flag substitutes for implementation or acceptance.
 
-### Validation for the November 5 follow-up
+### Historical validation for the PR #147 follow-up
 
 Final code: `df5bf9bdbc24df7f78d792e318ec70ec76638272`, following
 `236faa2bef4f27f6f635bcaab7c9526997f75fcc`. Host: Apple Silicon macOS;
@@ -263,8 +294,7 @@ application, activate extensions, change host proxy/DNS/routes, write actual
 account credentials or establish external VPN sessions. CEF smoke uses a data
 URL and temporary user directory, with no official challenge or account.
 
-See the [development packaging guide](MACOS_DEVELOPMENT_PACKAGING.md),
-[CEF component](../apps/usque_gui/macos/ProtonVerification/README.md), and
+See the [development packaging guide](MACOS_DEVELOPMENT_PACKAGING.md) and
 [maintenance foundation](../tool/macos-maintenance/README.md) for reproducible
 commands and the corresponding boundaries.
 
@@ -282,7 +312,7 @@ V8 data filename. The earlier full Rust/Flutter suites were not repeated.
 GUI, Engine, CEF and maintenance were compiled for both architectures; unchanged
 Network Extension components were reused. Both fresh images passed their 20
 Mach-O checks, required CEF data/helper checks and ad-hoc/image integrity checks.
-Nothing was installed or launched as an application. The current CEF executable
+Nothing was installed or launched as an application. That candidate's CEF executable
 contracts and actual proxy/renderer smoke were not run, so the historical
 authentication and teardown failures remain unresolved acceptance items.
 
@@ -291,8 +321,8 @@ authentication and teardown failures remain unresolved acceptance items.
 Select **繁體中文（香港）** or **繁體中文（台灣）** in Settings → Language,
 or follow the system language. The existing 21 application catalogs and saved
 preference names are preserved. AppKit menu items, application-owned dialog copy,
-errors and the bundled CEF window title now follow the resolved Chinese catalog.
-CEF uses its supported `zh-TW` locale for both Traditional variants; the official
+errors follow the resolved Chinese catalog. That historical candidate's bundled
+CEF window title also followed it. The removed CEF component used its supported `zh-TW` locale for both Traditional variants; the official
 verification website controls its own page language.
 
 The [Traditional Chinese validation record](MACOS_TRADITIONAL_CHINESE_VALIDATION.json)
@@ -307,8 +337,8 @@ Visual display, official verification and signed network acceptance remain pendi
 
 The [user-requested test checklist](MACOS_QA_CHECKLIST.md) records the current
 VPN/proxy/chain, UI, window and account results, with clearly labelled headless
-Windows/macOS renders. It also preserves the unresolved CEF failure and device
-acceptance items surfaced in the root READMEs. A simulated account or successful
+Windows/macOS renders. It also preserves the historical CEF failure and device
+acceptance items; macOS no longer ships that browser. A simulated account or successful
 component build is never counted as a real Zero Trust or Proton registration.
 
 Before exposing the VPN capability, signed providers must simultaneously prove
@@ -317,8 +347,8 @@ behavior, independent filtering, and no unauthorized physical egress during
 component termination, reconnect, sleep or network changes. Missing credentials
 after extension restart must stay blocked until authenticated handoff succeeds.
 
-Permission cancellation, provider version mismatch, signed CEF launch, official
-Proton challenge, extension replacement, actual upgrade/rollback/uninstall and
+Permission cancellation, provider version mismatch, existing Proton account
+authentication, extension replacement, actual upgrade/rollback/uninstall and
 both Intel and Apple Silicon on macOS 13/current systems remain separate device
 tests. A failed network prototype must preserve evidence and revise the
 architecture; it must not enable full VPN or silently switch to PF.

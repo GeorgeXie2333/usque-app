@@ -37,6 +37,24 @@ impl ControlService {
         {
             let request = usque_core::proton_vpn::Request::parse(&request.command_json)
                 .map_err(ControlServiceError::configuration)?;
+            // macOS does not provide guest registration or an embedded human-
+            // verification browser. Enforce this at IPC admission as well as
+            // in the GUI, before taking a lease or starting any account work.
+            #[cfg(target_os = "macos")]
+            if let Some(reason) = match request.action.as_str() {
+                "guest" => Some("guest_unavailable"),
+                "handoff" => Some("verification_unavailable"),
+                _ => None,
+            } {
+                return Ok(v1::ProtonVpnResponse {
+                    metadata_json: serde_json::to_string(&usque_core::proton_vpn::Response {
+                        error: Some(reason.into()),
+                        ..Default::default()
+                    })
+                    .map_err(ControlServiceError::configuration)?,
+                    sensitive_handoff: Vec::new(),
+                });
+            }
             let provider_lease = if request.mutates_account() {
                 Some(Arc::new(
                     usque_core::proton_vpn::lifecycle_lease(&self.profile_dir)

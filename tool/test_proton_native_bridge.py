@@ -70,11 +70,6 @@ async function run() {
     const originalChrome = {webview:{postMessage(value){reports.push(JSON.parse(value));}}};
     if(input.platform==='windows') window.chrome = originalChrome;
     if(input.platform==='linux') window.webkit = {messageHandlers:{proton:{postMessage(value){reports.push(JSON.parse(value));}}}};
-    if(input.platform==='macos') window.cefQuery = options => {
-        if(options.persistent!==false || typeof options.request!=='string') throw new Error('invalid_cef_bridge');
-        reports.push(JSON.parse(options.request));
-        return true;
-    };
     const port = {postMessage(value){privateMessages.push(value);},close(){}};
     const document = {querySelectorAll(name){return name==='iframe' && frameVisible ? (input.duplicate_frame ? [frame, frame] : [frame]) : [];}};
     const context = vm.createContext({window, document, URL, Date:Clock, TextEncoder,
@@ -142,14 +137,9 @@ class NativeBridgeTest(unittest.TestCase):
         helper.write_text(
             f"#include {json.dumps(str(header))}\n"
             "#include <iostream>\n"
-            "int main(int argc,char** argv){usque::proton::Handoff h;"
+            "int main(int argc,char**){usque::proton::Handoff h;"
             f"h.expires={EXPIRES_MS};h.digest={json.dumps(digest)};h.url={json.dumps(URL)};"
-            'h.methods={"captcha","email"};if(argc>1&&std::string(argv[1])=="macos"){'
-            "std::cout<<usque::proton::Script(h,"
-            + json.dumps(
-                f"window.cefQuery({{request:JSON.stringify({{nonce:'{FIXTURE['nonce']}',message}}),persistent:false}});"
-            )
-            + ");}else if(argc>1){"
+            'h.methods={"captcha","email"};if(argc>1){'
             "if(!usque::proton::CaptchaOnly(h))return 2;"
             f"std::cout<<usque::proton::CaptchaScript(h,{json.dumps(FIXTURE['nonce'])});"
             "}else{std::cout<<usque::proton::Script(h,"
@@ -170,7 +160,6 @@ class NativeBridgeTest(unittest.TestCase):
         for platform, arguments in (
             ("windows", ["captcha"]),
             ("linux", []),
-            ("macos", ["macos"]),
         ):
             cls.scripts[platform] = subprocess.run(  # noqa: S603 - freshly compiled local script producer only.
                 [str(executable), *arguments],
@@ -249,23 +238,8 @@ class NativeBridgeTest(unittest.TestCase):
             json.loads(result["reports"][0]["message"])["payload"]["token"], FIXTURE["result"]
         )
 
-    def test_macos_cef_bridge_preserves_nonce_and_original_captcha_token(self) -> None:
-        result = self.run_script("macos", suppress_top_level_dispatch=True)
-        self.assertEqual(result["selected"], "web")
-        self.assertEqual(len(result["reports"]), 1)
-        self.assertEqual(set(result["reports"][0]), {"nonce", "message"})
-        self.assertEqual(result["reports"][0]["nonce"], FIXTURE["nonce"])
-        self.assertEqual(
-            json.loads(result["reports"][0]["message"]),
-            {
-                "type": "HUMAN_VERIFICATION_SUCCESS",
-                "payload": {"type": "captcha", "token": FIXTURE["result"]},
-            },
-        )
-        self.assertEqual(result["active"], 0)
-
     def test_cross_origin_captcha_completes_once_without_parent_forwarding(self) -> None:
-        for platform in ("windows", "linux", "macos", "android"):
+        for platform in ("windows", "linux", "android"):
             with self.subTest(platform=platform):
                 result = self.run_script(platform, suppress_top_level_dispatch=True)
                 messages = (
@@ -284,7 +258,7 @@ class NativeBridgeTest(unittest.TestCase):
                 self.assertEqual(result["active"], 0)
 
     def test_parent_success_requires_top_origin_and_top_source(self) -> None:
-        for platform in ("linux", "macos", "android"):
+        for platform in ("linux", "android"):
             for change in (
                 {"top_origin": "https://verify-api.proton.me"},
                 {"top_source_frame": True},
@@ -295,7 +269,7 @@ class NativeBridgeTest(unittest.TestCase):
                     self.assertEqual(result["privateMessages"], [])
 
     def test_all_platforms_reject_page_origin_and_untrusted_captcha_frames(self) -> None:
-        for platform in ("windows", "linux", "macos", "android"):
+        for platform in ("windows", "linux", "android"):
             for origin in ("https://verify.proton.me", "https://verify-api.proton.me.evil"):
                 with self.subTest(platform=platform, origin=origin):
                     result = self.run_script(
@@ -312,7 +286,7 @@ class NativeBridgeTest(unittest.TestCase):
         self.assertEqual(result["privateMessages"], [])
 
     def test_desktop_captcha_survives_missing_top_dispatch_and_removed_puzzle(self) -> None:
-        for platform in ("windows", "linux", "macos"):
+        for platform in ("windows", "linux"):
             with self.subTest(platform=platform):
                 result = self.run_script(
                     platform,
@@ -325,7 +299,7 @@ class NativeBridgeTest(unittest.TestCase):
     def test_linux_and_android_receive_official_web_branch_via_their_distinct_native_bridges(
         self,
     ) -> None:
-        for platform in ("linux", "macos", "android"):
+        for platform in ("linux", "android"):
             with self.subTest(platform=platform):
                 result = self.run_script(platform, top_level_only=True)
                 self.assertEqual(result["selected"], "web")
@@ -347,7 +321,7 @@ class NativeBridgeTest(unittest.TestCase):
         self.assertEqual(json.loads(result["reports"][0]["message"])["payload"]["type"], "email")
 
     def test_direct_captcha_requires_embedded_challenge(self) -> None:
-        for platform in ("windows", "linux", "macos", "android"):
+        for platform in ("windows", "linux", "android"):
             for url in (
                 URL.replace("embed=true", "embed=false"),
                 URL.replace("embed=true&", ""),
@@ -444,7 +418,7 @@ class NativeBridgeTest(unittest.TestCase):
             {"duplicate_frame": True},
             {"result": "invalid\r\nheader"},
         ]
-        for platform in ("windows", "linux", "macos"):
+        for platform in ("windows", "linux"):
             for change in changes:
                 with self.subTest(platform=platform, change=change):
                     self.assertEqual(
@@ -465,7 +439,7 @@ class NativeBridgeTest(unittest.TestCase):
             {"event_expired": True},
             {"start": EXPIRES_MS},
         )
-        for platform in ("windows", "linux", "macos"):
+        for platform in ("windows", "linux"):
             for change in changes:
                 with self.subTest(platform=platform, change=change):
                     self.assertEqual(

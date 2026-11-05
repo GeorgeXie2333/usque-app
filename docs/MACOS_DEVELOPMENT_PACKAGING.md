@@ -1,10 +1,11 @@
 # macOS development packaging
 
 The macOS port assembles the Flutter app, Engine, native control helper,
-four Network Extension prototypes, standalone sandbox-enabled Proton CEF
-component and maintenance helper into separate Apple Silicon and Intel
-development bundles. This is development delivery, not full Windows feature
-parity. Signed VPN activation, official Proton challenge acceptance, production
+four Network Extension prototypes and maintenance helper into separate Apple
+Silicon and Intel development bundles. This is development delivery, not full Windows feature
+parity. macOS Proton guest registration and its embedded verification browser
+have been removed. Existing Proton account login and Cloudflare Zero Trust
+system authentication remain available. Signed VPN activation, production
 updates, managed uninstallation and hardware acceptance remain incomplete.
 
 The production update channel and Windows/Linux release workflows are unchanged.
@@ -12,9 +13,9 @@ The generated app and manifest explicitly disable production automatic
 installation. These ad-hoc disk images are not notarized and cannot activate
 the Network Extensions.
 
-## Published development preview
+## Earlier published development preview
 
-The fork's [dev pre-release](https://github.com/JustinL330/usque-app/releases/tag/macos-dev-v0.3.3-compact-12636756)
+The earlier [dev pre-release](https://github.com/JustinL330/usque-app/releases/tag/macos-dev-v0.3.3-compact-12636756)
 provides macOS 13+ disk images, SHA-256 files, development manifests and SPDX file
 inventories. Its pinned release tag `macos-dev-v0.3.3-compact-12636756` points to dev commit
 `12636756a527267e029f34173c9e3e035ddaacfc`; the reused GUI, Engine and CEF source candidate is
@@ -25,6 +26,10 @@ changes do not change those binaries.
 | --- | --- | --- |
 | Apple Silicon | [arm64](https://github.com/JustinL330/usque-app/releases/download/macos-dev-v0.3.3-compact-12636756/usque-v0.3.3-macos-arm64.dmg) | `7ed984597567d538431320879503269ff7d763633aefc50950fe0d02ae692f86` |
 | Intel | [x86_64](https://github.com/JustinL330/usque-app/releases/download/macos-dev-v0.3.3-compact-12636756/usque-v0.3.3-macos-x86_64.dmg) | `65abfe884a47727a956b9fab64087764d317f27ed89e64e842210cffe1e612ac` |
+
+These packages predate removal of macOS Proton guest registration and the embedded
+browser. They still contain CEF and do not represent the current source. No new
+browser-free package size or release is claimed here.
 
 These are unofficial, ad-hoc signed, unnotarized development packages. System
 VPN activation and production automatic installation remain disabled. Read the
@@ -38,8 +43,7 @@ Measured download reductions are 46.63% (arm64) and 43.17% (Intel). See the
 ## Build one architecture
 
 On a macOS host with the repository's pinned Flutter/Rust dependencies and both
-Rust targets available, and both pinned CEF SDK archives cached as described
-in the [verification component README](../apps/usque_gui/macos/ProtonVerification/README.md):
+Rust targets available:
 
 ```sh
 source .toolchains/env.sh
@@ -70,12 +74,10 @@ macOS 10.15 and within this port's macOS 13 minimum. The builder verifies image 
 installing it. `--no-dmg` builds and verifies only the app and reports no disk
 image artifact.
 
-The standalone verification component explicitly selects English, Simplified
-Chinese or Traditional Chinese. Packaging keeps its `en`, `zh_CN` and `zh_TW`
-CEF resources and rejects a missing/empty required locale before trimming unused
-CEF locales. This does not remove any Flutter application language. CEF itself,
-ICU, snapshots, GPU/software rendering libraries, sandbox helpers and license
-notices remain bundled; they account for much of the remaining payload.
+The build does not download, build or bundle CEF. App assembly and inspection
+reject stale `UsqueProtonVerification` helpers and Chromium frameworks copied
+from older GUI output. Rebuild the GUI before packaging if this check fails.
+Flutter application languages remain available.
 
 The SPDX document is a hashed bundle file inventory. Its dependency/license
 review is explicitly incomplete; it does not replace the signed production
@@ -89,7 +91,6 @@ python3 tool/macos_package.py package \
   --app apps/usque_gui/build/macos/Build/Products/Release/Usque.app \
   --engine target/aarch64-apple-darwin/release/usque-engine \
   --network-prototype build/macos-network-prototype/arm64/UsqueNetworkPrototype.app \
-  --verification build/macos-proton-verification/arm64/UsqueProtonVerification.app \
   --maintenance build/macos-maintenance/arm64/usque-maintenance
 
 python3 tool/macos_package.py inspect \
@@ -106,17 +107,13 @@ link in Resources preserves the Flutter launch path. This also satisfies the
 Engine's canonical bundle lookup for `Contents/Helpers/usque-macos-control`.
 Every framework, Engine, helper and provider is inspected and ad-hoc signed
 after assembly. Passing this integrity check does not demonstrate VPN safety.
-When CEF is included, inspection requires its browser executable, framework and
-all five helper variants, required ICU/V8 data, and runnable program permissions,
-with the expected identity, macOS 13 target and required sandbox flag.
 Development, disabled-production, disabled-automatic-installation
 and disabled-signed-prototype flags are checked explicitly.
-The `build` command always includes CEF and maintenance. The lower-level
-`package` command permits omitting these components for fixtures and partial
-development builds, and records their absence explicitly in the manifest.
+The `build` command includes maintenance. The lower-level `package` command
+permits omitting maintenance for fixtures and partial development builds, and
+records its absence in the manifest. The manifest also records macOS Proton
+guest registration as unavailable.
 
-The release GUI requires a same-Team signed CEF component before transmitting
-an authentication handoff. Ad-hoc integrity is insufficient for that check.
 The maintenance helper has no configured production trust authority and rejects
 mutating commands before mounting, staging or installing anything. Its isolated
 atomic-replacement and rollback checks are described in the
@@ -133,12 +130,12 @@ python3 -m unittest discover -s tool -p test_macos_package.py
 ```
 
 The isolated fixtures exercise architecture/deployment/CPU checks, malformed
-universal slices, symlink boundaries, nested CEF/helper assembly and development
-metadata. Real image builds and hardware acceptance must be recorded
+universal slices, symlink boundaries, maintenance helper assembly, stale browser
+artifact rejection and development metadata. Real image builds and hardware acceptance must be recorded
 separately. The builder never claims Intel execution, macOS 13 hardware or
 signed system VPN acceptance from a successful cross build.
 
-Building, inspecting and these package fixtures do not launch the application,
-CEF or a browser. Use those background checks while the workstation is in use.
-WindowServer/CEF smoke, file-picker and permission tests are separate interactive
+Building, inspecting and these package fixtures do not launch the application
+or a browser. Use those background checks while the workstation is in use.
+WindowServer, file-picker and permission tests are separate interactive
 acceptance steps and must not be started during a background-only run.

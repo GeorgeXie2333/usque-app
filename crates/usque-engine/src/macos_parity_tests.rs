@@ -697,6 +697,55 @@ async fn managed_proton_profile_uses_encrypted_account_and_dedicated_provider_cr
 
 #[cfg(feature = "wireguard")]
 #[tokio::test]
+async fn proton_guest_and_browser_handoff_are_rejected_before_account_work() {
+    let directory = tempfile::tempdir().unwrap();
+    let service = open_service(directory.path(), Arc::new(tests::MemoryVault::default()));
+    // Even a busy lifecycle must not obscure the platform restriction or cause
+    // admission to enter the manager and create a network job.
+    let _lease = usque_core::proton_vpn::lifecycle_lease(&service.profile_dir).unwrap();
+    let _mutation = service.mutation_lock.lock().await;
+    for (command, expected) in [
+        (serde_json::json!({"action": "guest"}), "guest_unavailable"),
+        (
+            serde_json::json!({
+                "action": "handoff",
+                "job_id": Uuid::new_v4(),
+                "challenge_id": Uuid::new_v4(),
+            }),
+            "verification_unavailable",
+        ),
+    ] {
+        let reply = service
+            .handle(request(control_request::Payload::ProtonVpn(
+                v1::ProtonVpnRequest {
+                    command_json: command.to_string(),
+                    ..Default::default()
+                },
+            )))
+            .await;
+        assert!(reply.error.is_none(), "{:?}", reply.error);
+        let Some(control_response::Payload::ProtonVpn(reply)) = reply.payload else {
+            panic!("Proton response");
+        };
+        assert!(reply.sensitive_handoff.is_empty());
+        let metadata: serde_json::Value = serde_json::from_str(&reply.metadata_json).unwrap();
+        assert_eq!(metadata["error"], expected);
+        assert!(metadata["job"].is_null());
+    }
+    assert!(!service.profile_dir.join("proton-vpn").exists());
+    let status = service
+        .proton_vpn_command(v1::ProtonVpnRequest {
+            command_json: r#"{"action":"get"}"#.into(),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    let metadata: serde_json::Value = serde_json::from_str(&status.metadata_json).unwrap();
+    assert!(metadata["job"].is_null());
+}
+
+#[cfg(feature = "wireguard")]
+#[tokio::test]
 async fn advertised_account_commands_reach_managers_without_starting_network_jobs() {
     let directory = tempfile::tempdir().unwrap();
     let service = open_service(directory.path(), Arc::new(tests::MemoryVault::default()));

@@ -31,11 +31,6 @@ PROVIDERS = {
     "dns-proxy": "UsqueDNSProxy",
     "content-filter": "UsqueContentFilter",
 }
-VERIFICATION_NAME = "UsqueProtonVerification"
-VERIFICATION_HELPER_SUFFIXES = ("", " (Alerts)", " (GPU)", " (Plugin)", " (Renderer)")
-# UiForCatalog explicitly selects these CEF locales; other Flutter catalogs
-# already use the verification component's English fallback.
-CEF_LOCALES = ("en", "zh_CN", "zh_TW")
 DMG_FORMAT = "ULMO"
 VERSION = re.compile(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-beta\.[1-9][0-9]*)?")
 MACHO_MAGICS = {b"\xcf\xfa\xed\xfe", b"\xfe\xed\xfa\xcf"}
@@ -212,64 +207,29 @@ def required_files(app: Path) -> list[Path]:
             / "Contents/Library/SystemExtensions"
             / f"{IDENTIFIER}.{suffix}.systemextension/Contents/MacOS/{executable}"
         )
-    verification = app / "Contents/Helpers" / (VERIFICATION_NAME + ".app")
-    if verification.exists():
-        files.extend(
-            [
-                verification / "Contents/MacOS" / VERIFICATION_NAME,
-                verification
-                / "Contents/Frameworks/Chromium Embedded Framework.framework/Chromium Embedded Framework",
-            ]
-        )
-        for suffix in VERIFICATION_HELPER_SUFFIXES:
-            helper = VERIFICATION_NAME + " Helper" + suffix
-            files.append(
-                verification / "Contents/Frameworks" / (helper + ".app") / "Contents/MacOS" / helper
-            )
     maintenance = app / "Contents/Helpers/usque-maintenance"
     if maintenance.exists():
         files.append(maintenance)
     return files
 
 
-def required_resources(app: Path, architecture: str) -> list[Path]:
-    verification = app / "Contents/Helpers" / (VERIFICATION_NAME + ".app")
-    if not verification.exists():
-        return []
-    resources = verification / "Contents/Frameworks/Chromium Embedded Framework.framework/Resources"
-    # The pinned macOS SDK uses a per-architecture snapshot filename; the SDK
-    # README also lists the generic filename used by its other platforms.
-    return [
-        resources / name
-        for name in (
-            "icudtl.dat",
-            f"v8_context_snapshot.{architecture}.bin",
-            *(f"{locale}.lproj/locale.pak" for locale in CEF_LOCALES),
-        )
-    ]
-
-
-def trim_cef_locales(app: Path) -> None:
-    """Trim only unused CEF UI locales, before signing a private staged copy."""
-    verification = app / "Contents/Helpers" / (VERIFICATION_NAME + ".app")
-    if not verification.exists():
-        return
-    bundle_files(verification)
-    resources = verification / "Contents/Frameworks/Chromium Embedded Framework.framework/Resources"
-    for locale in CEF_LOCALES:
-        required = resources / f"{locale}.lproj/locale.pak"
-        if not required.is_file() or required.stat().st_size == 0:
-            raise ValueError(f"Proton verification is missing required CEF locale: {locale}")
-    unused = [path for path in resources.glob("*.lproj") if path.stem not in CEF_LOCALES]
-    if any(path.is_symlink() or not path.is_dir() for path in unused):
-        raise ValueError("Unexpected CEF locale directory")
-    for path in unused:
-        shutil.rmtree(path)
+def reject_obsolete_browser_artifacts(app: Path) -> None:
+    """Refuse old GUI outputs rather than silently shipping a removed browser."""
+    for path in app.rglob("*"):
+        if (
+            path.name.startswith("UsqueProtonVerification")
+            or path.name == "Chromium Embedded Framework.framework"
+        ):
+            raise ValueError(
+                "macOS no longer includes the Proton verification browser; "
+                "rebuild the GUI without stale browser artifacts"
+            )
 
 
 def inspect_bundle(app: Path, architecture: str) -> list[dict]:
     if app.is_symlink() or app.suffix != ".app":
         raise ValueError("Expected an ordinary .app bundle")
+    reject_obsolete_browser_artifacts(app)
     files = bundle_files(app)
     required = required_files(app)
     if not all(path.is_file() for path in required):
@@ -281,11 +241,6 @@ def inspect_bundle(app: Path, architecture: str) -> list[dict]:
     ]
     if any(path.stat().st_mode & 0o111 != 0o111 for path in executables):
         raise ValueError("Required macOS program does not have executable permissions")
-    if any(
-        not path.is_file() or path.stat().st_size == 0
-        for path in required_resources(app, architecture)
-    ):
-        raise ValueError("Proton verification is missing required CEF data")
     with (app / "Contents/Info.plist").open("rb") as handle:
         info = plistlib.load(handle)
     if info.get("CFBundleIdentifier") != IDENTIFIER or info.get("LSMinimumSystemVersion") != "13.0":
@@ -297,17 +252,6 @@ def inspect_bundle(app: Path, architecture: str) -> list[dict]:
         or info.get("UsqueSignedPrototype") is not False
     ):
         raise ValueError("Development package must not advertise production installation")
-    verification = app / "Contents/Helpers" / (VERIFICATION_NAME + ".app")
-    if verification.exists():
-        with (verification / "Contents/Info.plist").open("rb") as handle:
-            identity = plistlib.load(handle)
-        if (
-            identity.get("CFBundleIdentifier") != IDENTIFIER + ".proton-verification"
-            or identity.get("CFBundleExecutable") != VERIFICATION_NAME
-            or identity.get("LSMinimumSystemVersion") != "13.0"
-            or identity.get("UsqueCEFSandboxRequired") is not True
-        ):
-            raise ValueError("Invalid or sandbox-disabled Proton verification component")
     if any(path.name in {"kernel_blob.bin", "usque_ui_preview"} for path in files):
         raise ValueError("Debug/preview content must not enter the development release bundle")
     machos = macho_files(app)
@@ -330,7 +274,7 @@ def _thin_and_sign(app: Path, architecture: str) -> None:
             temporary.replace(path)
         # Keep every global/dynamic export and runtime metadata. Only debug and
         # local symbol-table entries are removed; never use strip's default
-        # aggressive mode on dynamically loaded CEF/Flutter frameworks.
+        # aggressive mode on dynamically loaded Flutter frameworks.
         exports = sorted(run(["xcrun", "nm", "-gjU", path]).splitlines())
         run(["xcrun", "strip", "-S", "-x", path])
         if sorted(run(["xcrun", "nm", "-gjU", path]).splitlines()) != exports:
@@ -379,13 +323,13 @@ def assemble_app(
     architecture: str,
     version: str,
     build_number: str,
-    verification: Path | None = None,
     maintenance: Path | None = None,
 ) -> list[dict]:
     artifact_name(version, architecture)
     if not re.fullmatch(r"[1-9][0-9]*", build_number):
         raise ValueError("Build number must be a positive integer")
     # Validate source links before copy; never dereference an external build-machine path.
+    reject_obsolete_browser_artifacts(source)
     bundle_files(source)
     bundle_files(prototype)
     inspect_macho(engine, architecture)
@@ -402,13 +346,6 @@ def assemble_app(
     helpers = contents / "Helpers"
     helpers.mkdir(exist_ok=True)
     shutil.copy2(prototype / "Contents/MacOS/usque-macos-control", helpers / "usque-macos-control")
-    if verification is not None:
-        bundle_files(verification)
-        with (verification / "Contents/Info.plist").open("rb") as handle:
-            identity = plistlib.load(handle)
-        if identity.get("CFBundleIdentifier") != IDENTIFIER + ".proton-verification":
-            raise ValueError("Unexpected Proton verification component identity")
-        shutil.copytree(verification, helpers / "UsqueProtonVerification.app", symlinks=True)
     if maintenance is not None:
         inspect_macho(maintenance, architecture)
         shutil.copy2(maintenance, helpers / "usque-maintenance")
@@ -430,7 +367,6 @@ def assemble_app(
     )
     with info_path.open("wb") as handle:
         plistlib.dump(info, handle)
-    trim_cef_locales(destination)
     _thin_and_sign(destination, architecture)
     return inspect_bundle(destination, architecture)
 
@@ -450,19 +386,12 @@ def development_manifest(app: Path, architecture: str, version: str, machos: lis
         "packaging": {
             "dmg_format": DMG_FORMAT,
             "native_symbols": "debug_and_local_removed_global_exports_preserved",
-            "cef_locales": list(CEF_LOCALES)
-            if (app / "Contents/Helpers/UsqueProtonVerification.app").is_dir()
-            else [],
         },
         "components": {
             "flutter": "included",
             "engine": "included",
             "network_extension_prototype": "included_activation_disabled",
-            "proton_cef_verification": (
-                "included_signed_launch_acceptance_pending"
-                if (app / "Contents/Helpers/UsqueProtonVerification.app").is_dir()
-                else "not_included"
-            ),
+            "proton_guest_registration": "unavailable_on_macos",
             "atomic_update": (
                 "helper_included_installation_disabled"
                 if (app / "Contents/Helpers/usque-maintenance").is_file()
@@ -476,7 +405,6 @@ def development_manifest(app: Path, architecture: str, version: str, machos: lis
             "intel_native_execution": "not_run",
             "signed_system_vpn": "not_run",
             "macos_13_hardware": "not_run",
-            "proton_cef_renderer_proxy_smoke": "not_run_by_packager",
         },
         "mach_o": machos,
         "files": [
@@ -535,7 +463,6 @@ def package(
     build_number: str,
     *,
     create_dmg: bool = True,
-    verification: Path | None = None,
     maintenance: Path | None = None,
 ) -> dict:
     name = artifact_name(version, architecture)
@@ -553,7 +480,6 @@ def package(
             architecture,
             version,
             build_number,
-            verification=verification,
             maintenance=maintenance,
         )
         manifest = development_manifest(app, architecture, version, machos)
@@ -562,7 +488,7 @@ def package(
             "Usque macOS development build\n\nDrag Usque.app to Applications to install.\n"
             "This ad-hoc build is not notarized. Production automatic installation is disabled.\n"
             "The VPN extensions cannot be activated by this build. Signed device tests remain pending.\n"
-            "Signed verification-window and update installation acceptance remain pending.\n",
+            "Signed update installation acceptance remains pending.\n",
             encoding="utf-8",
         )
         if create_dmg:
@@ -652,11 +578,6 @@ def build(architecture: str, output: Path, *, create_dmg: bool = True) -> dict:
         )
         gui = ROOT / "apps/usque_gui"
         run(["bash", ROOT / "tool/build_macos_maintenance.sh", architecture], cwd=ROOT, env=env)
-        run(
-            ["python3", ROOT / "tool/build_macos_proton_verification.py", "--arch", architecture],
-            cwd=ROOT,
-            env=env,
-        )
         run(["flutter", "pub", "get", "--offline", "--enforce-lockfile"], cwd=gui, env=env)
         run(
             [
@@ -697,8 +618,6 @@ def build(architecture: str, output: Path, *, create_dmg: bool = True) -> dict:
                 version,
                 build_number,
                 create_dmg=create_dmg,
-                verification=ROOT
-                / f"build/macos-proton-verification/{architecture}/UsqueProtonVerification.app",
                 maintenance=ROOT / f"build/macos-maintenance/{architecture}/usque-maintenance",
             )
 
@@ -715,7 +634,6 @@ def main() -> None:
         sub.add_argument("--output", type=Path)
         sub.add_argument("--no-dmg", action="store_true", help="Assemble/verify app only")
         if command == "package":
-            sub.add_argument("--verification", type=Path)
             sub.add_argument("--maintenance", type=Path)
             for name in ("app", "engine", "network-prototype"):
                 sub.add_argument("--" + name, type=Path, required=True)
@@ -739,7 +657,6 @@ def main() -> None:
                 arguments.version,
                 arguments.build_number,
                 create_dmg=not arguments.no_dmg,
-                verification=arguments.verification,
                 maintenance=arguments.maintenance,
             )
         print(

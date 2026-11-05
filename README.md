@@ -198,11 +198,14 @@ These ad-hoc signed packages are not notarized or production releases. Read the
 [release notes, checksums and manifests](https://github.com/JustinL330/usque-app/releases/tag/macos-dev-v0.3.3-compact-12636756)
 before testing; system VPN activation remains disabled.
 The compact images reduce downloads by 46.6% / 43.2%; see the
-[size explanation and validation](docs/MACOS_PACKAGE_SIZE.md). CEF verification
-and all application languages remain included.
+[size explanation and validation](docs/MACOS_PACKAGE_SIZE.md). These older
+downloads include CEF verification and all application languages.
 
 Current `dev` source adds macOS connection scenes, confirmed cleanup before
-quitting, and automatic protected WARP preparation for VPN Gate. The download
+quitting, and automatic protected WARP preparation for VPN Gate. macOS Proton
+guest registration and its embedded verification browser have been removed.
+Ordinary account sign-in remains available; a login requiring browser verification
+cannot complete in this macOS build. The download
 above predates these updates; no replacement installer has been published.
 
 The [macOS test checklist](docs/MACOS_QA_CHECKLIST.md) separates isolated tests
@@ -218,9 +221,9 @@ from actual device acceptance. The following items remain open:
   settings; direct physical-network catalogue fallback remains disabled.
 - **Zero Trust:** callback validation and cancel/retry tests use synthetic data;
   an actual organization login and callback remain unverified.
-- **Proton guest registration:** official CAPTCHA and successful registration
-  remain unverified. The earlier full CEF proxy-failure smoke test failed; new
-  adapter checks do not establish that its shutdown problem is fixed.
+- **Proton accounts:** macOS has no guest registration or embedded verification
+  browser. Account sign-in, authenticator codes and saved-account management
+  remain available; live sign-in and traffic still require device testing.
 - **Desktop and hardware:** layout checks use headless Windows/macOS widget
   renders. Actual native-window interaction, Intel execution and macOS 13 hardware
   remain untested. The default Mac content area now matches Windows at 1040×760,

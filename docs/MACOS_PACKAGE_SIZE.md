@@ -1,6 +1,12 @@
-# macOS development package size
+# macOS development package size — historical measurements
 
-The [compact dev preview](https://github.com/JustinL330/usque-app/releases/tag/macos-dev-v0.3.3-compact-12636756)
+Current macOS source removes Proton guest registration and its bundled CEF
+browser. The measurements below belong to the earlier published preview, which
+still includes CEF; they do not measure a package built from current source.
+No replacement DMG or browser-free size measurement is recorded here. See the
+[current packaging guide](MACOS_DEVELOPMENT_PACKAGING.md) for build requirements.
+
+The earlier [compact dev preview](https://github.com/JustinL330/usque-app/releases/tag/macos-dev-v0.3.3-compact-12636756)
 reduces both native DMGs while retaining the Proton CEF component, its sandbox
 and all Flutter application languages, including Traditional Chinese.
 
@@ -16,7 +22,7 @@ on Intel. Payload totals do not measure actual installed disk occupancy.
 
 ## Why the first packages were large
 
-- CEF is a complete embedded browser engine needed by the planned macOS 13+
+- CEF is the complete embedded browser engine used by the earlier macOS 13+
   Proton verification component. Its main native library alone is approximately
   237 MB on arm64 and 263 MB on Intel. This implementation bundles it separately
   from Flutter; it does not depend on a browser installed on the user's Mac.
@@ -30,7 +36,7 @@ Windows package sizes are not a direct baseline for this bundle: the macOS
 package contains the standalone CEF browser and four native Network Extension
 prototypes in addition to Flutter and the Engine.
 
-## Changes and retained functionality
+## Changes and retained functionality in the earlier preview
 
 1. Native linking uses `-dead_strip`. Only Packet Tunnel retains the data-plane
    code it references; other providers retain their needed policy/native code.
@@ -52,8 +58,8 @@ prototypes in addition to Flutter and the Engine.
    not application features.
 
 The CEF component still accounts for 299,007,767 / 313,365,561 uncompressed bytes
-after trimming. Removing it would remove a planned verification dependency;
-these packages retain it. The [CEF deployment documentation](https://chromiumembedded.github.io/cef/general_usage.html)
+after trimming. These historical packages retain the browser that has since been removed
+from current source. The [CEF deployment documentation](https://chromiumembedded.github.io/cef/general_usage.html)
 describes the browser/framework and locale resource layout.
 
 ## Source and validation

@@ -1,4 +1,9 @@
 const kProtonIt = <String, String>{
+  'guest_unavailable_macos':
+      'L’accesso come ospite non è disponibile su macOS. Accedi con un account Proton.',
+  'verification_unavailable_macos':
+      'Proton richiede una verifica umana non supportata da questa app macOS. Usa un altro account Proton o importa una configurazione WireGuard.',
+  'empty_login': 'Accedi per aggiungere un account Proton.',
   'fallback_account':
       'Impossibile raggiungere Proton. Seleziona un account WARP esistente e riprova.',
   'fallback_failed':

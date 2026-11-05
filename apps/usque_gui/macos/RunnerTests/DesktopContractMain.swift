@@ -9,12 +9,10 @@ enum DesktopContractMain {
     try boundedConfigurationFiles()
     try restoredWindow()
     try zeroTrustCallbacks()
-    try protonFraming()
-    try protonResults()
     try nativeLanguageResolution()
     try nativeLocalizedCopy()
     try nativeMenuCoverage()
-    print("10 macOS desktop contract groups passed")
+    print("8 macOS desktop contract groups passed")
   }
 
   private static func require(_ condition: @autoclosure () -> Bool, _ description: String) throws {
@@ -47,7 +45,7 @@ enum DesktopContractMain {
     let english = NativeLocalization(catalogID: "en")
     for source in ["Import configurations", "Export diagnostics", "Export WARP credentials", "Save",
       "A file picker is already open.", "Select at most 128 configuration files.",
-      "The verification challenge expired.", "Approve Usque in Login Items, then retry."] {
+      "Cloudflare login did not complete. Retry the login.", "Approve Usque in Login Items, then retry."] {
       try require(traditional.text(source) != source && taiwan.text(source) == traditional.text(source), "native Traditional copy is missing")
       try require(simplified.text(source) != source, "native Simplified copy regressed")
       try require(english.text(source) == source, "English native fallback regressed")
@@ -188,44 +186,5 @@ enum DesktopContractMain {
     _ = session.begin("example-team")
     let empty = session.consume()
     try require(empty.callback == nil && empty.failure == nil, "retry inherits stale timeout or callback")
-  }
-
-  private static func protonFraming() throws {
-    let bytes = Data("test-only".utf8)
-    let frame = try ProtonVerificationContract.frame(bytes, maximum: 128)
-    let decoded = try ProtonVerificationContract.payload(frame, maximum: 128)
-    try require(decoded == bytes, "Proton frame lost data")
-    for bad in [Data(), Data([0, 0, 0, 0]), Data([0, 1, 0, 1]), frame.dropLast(), frame + Data([0])] {
-      do {
-        _ = try ProtonVerificationContract.payload(Data(bad), maximum: 128)
-        try require(false, "malformed Proton frame accepted")
-      } catch ProtonVerificationBridgeError.invalidFrame {}
-    }
-  }
-
-  private static func protonResults() throws {
-    let handoff = Data(#"{"version":2,"route_epoch":1,"expires_at":101000,"methods":["captcha"]}"#.utf8)
-    let binding = try ProtonVerificationContract.Binding(handoff, now: 100000)
-    func payload(_ message: String) throws -> Data {
-      try JSONSerialization.data(withJSONObject: ["status": "success", "message": message])
-    }
-    let message = #"{"type":"HUMAN_VERIFICATION_SUCCESS","payload":{"type":"captcha","token":"test-only"}}"#
-    if case .success(let result) = try ProtonVerificationContract.result(payload(message), binding: binding, now: 100001) {
-      try require(result == Data(message.utf8), "Proton validated response modified")
-    } else { try require(false, "Proton validated response lost") }
-    for invalid in [
-      #"{"type":"HUMAN_VERIFICATION_SUCCESS","payload":{"type":"email","token":"test-only"}}"#,
-      #"{"type":"USQUE_VERIFICATION_NETWORK_FAILED","route_epoch":0}"#,
-      #"{"type":"HUMAN_VERIFICATION_SUCCESS","payload":{"type":"captcha","token":""}}"#,
-    ] {
-      do {
-        _ = try ProtonVerificationContract.result(payload(invalid), binding: binding, now: 100001)
-        try require(false, "unbound Proton response accepted")
-      } catch ProtonVerificationBridgeError.invalidResult {}
-    }
-    do {
-      _ = try ProtonVerificationContract.result(payload(message), binding: binding, now: 101001)
-      try require(false, "expired Proton response accepted")
-    } catch ProtonVerificationBridgeError.invalidResult {}
   }
 }

@@ -7,7 +7,6 @@ xcrun swiftc -swift-version 5 -parse-as-library -target "$(uname -m)-apple-macos
   -module-cache-path "$TASK_ROOT/.toolchains/cache/clang" \
   "$TASK_ROOT/apps/usque_gui/macos/Runner/NativeLocalization.swift" \
   "$TASK_ROOT/apps/usque_gui/macos/Runner/DesktopContracts.swift" \
-  "$TASK_ROOT/apps/usque_gui/macos/Runner/ProtonVerificationContract.swift" \
   "$TASK_ROOT/apps/usque_gui/macos/RunnerTests/DesktopContractMain.swift" \
   -o "$TASK_OUTPUT/desktop-contracts"
 "$TASK_OUTPUT/desktop-contracts" "$TASK_ROOT/apps/usque_gui/macos/Runner/Base.lproj/MainMenu.xib"

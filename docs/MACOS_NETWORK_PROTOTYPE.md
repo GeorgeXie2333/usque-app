@@ -91,7 +91,7 @@ are documented alongside the providers under
 | Credential refresh persistence acknowledgement | Prototype | Broker contract tests | Pending signed XPC and live renewal |
 | Apple Silicon, current macOS | Development host | Local build/test only | Pending |
 | Intel native runtime and macOS 13 | Target support | No hardware claim | Pending |
-| Desktop integration, CEF, dual DMG, update/recovery | Separate follow-up | See [parity matrix](MACOS_WINDOWS_PARITY.md) | Pending |
+| Desktop integration, dual DMG, update/recovery | Separate follow-up | See [parity matrix](MACOS_WINDOWS_PARITY.md) | Pending |
 
 Build success, isolated correctness and signed real-network correctness are
 separate results. No result here establishes leak prevention on the host.
@@ -231,6 +231,6 @@ Required cases, on IPv4 and IPv6, include:
 - Permission cancellation, extension-version mismatch and recovery failure,
   each identifiable and retryable.
 
-Only after this experiment passes should the remaining desktop, CEF and
+Only after this experiment passes should the remaining desktop and
 packaging stages proceed. The label **macOS full-feature version** additionally
 requires complete Apple Silicon/Intel and macOS 13/current-system acceptance.

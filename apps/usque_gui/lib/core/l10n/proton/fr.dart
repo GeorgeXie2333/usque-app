@@ -1,4 +1,9 @@
 const kProtonFr = <String, String>{
+  'guest_unavailable_macos':
+      'La connexion en tant qu’invité est indisponible sur macOS. Connectez-vous avec un compte Proton.',
+  'verification_unavailable_macos':
+      'Proton exige une vérification humaine indisponible dans cette app macOS. Utilisez un autre compte Proton ou importez une configuration WireGuard.',
+  'empty_login': 'Connectez-vous pour ajouter un compte Proton.',
   'fallback_account':
       'Proton est inaccessible. Sélectionnez un compte WARP existant et réessayez.',
   'fallback_failed':

@@ -18,7 +18,6 @@ final class DesktopIntegration: NSObject, NSWindowDelegate, UNUserNotificationCe
   private var quit = DesktopQuitState()
   private var zeroTrust = DesktopZeroTrustSession()
   private var authenticationSession: ASWebAuthenticationSession?
-  private let protonVerification = ProtonVerificationLauncher()
   private var dialogOpen = false
   private var lastVisibility: Bool?
   private var observers: [NSObjectProtocol] = []
@@ -30,7 +29,6 @@ final class DesktopIntegration: NSObject, NSWindowDelegate, UNUserNotificationCe
     channel = FlutterMethodChannel(
       name: "io.github.georgexie2333.usque/engine", binaryMessenger: messenger)
     super.init()
-    protonVerification.localization = localization
     tray.status = text(tray.status)
     tray.open = text(tray.open)
     tray.connect = text(tray.connect)
@@ -87,7 +85,6 @@ final class DesktopIntegration: NSObject, NSWindowDelegate, UNUserNotificationCe
     if quit.confirmed { return .terminateNow }
     guard let identifier = quit.begin() else { return .terminateLater }
     cancelZeroTrustLogin()
-    protonVerification.cancel()
     channel.invokeMethod("trayCommand", arguments: "disconnectAndExit") { [weak self] value in
       guard let self else { return }
       self.finishQuit(identifier, success: DesktopQuitState.cleanupCompleted(value))
@@ -171,7 +168,6 @@ final class DesktopIntegration: NSObject, NSWindowDelegate, UNUserNotificationCe
       guard let state = DesktopTrayState(arguments: call.arguments) else { invalid(result); return }
       if let catalog = values?["catalog_id"] as? String {
         localization = NativeLocalization(catalogID: catalog)
-        protonVerification.localization = localization
         localizeMainMenu()
       }
       tray = state
@@ -193,11 +189,6 @@ final class DesktopIntegration: NSObject, NSWindowDelegate, UNUserNotificationCe
         result(FlutterError(code: code, message: text("Cloudflare login did not complete. Retry the login."), details: nil))
       } else { result(pending.callback) }
     case "cancelZeroTrustLogin": cancelZeroTrustLogin(); result(nil)
-    case "completeProtonHumanVerification":
-      guard let handoff = values?["handoff"] as? FlutterStandardTypedData,
-        handoff.data.count <= ProtonVerificationContract.maximumHandoff else { invalid(result); return }
-      protonVerification.begin(handoff.data, result: result)
-    case "cancelProtonHumanVerification": protonVerification.cancel(); result(nil)
     default: result(FlutterMethodNotImplemented)
     }
   }

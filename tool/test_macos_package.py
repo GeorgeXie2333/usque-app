@@ -79,44 +79,6 @@ def prototype_fixture(app: Path, architecture="arm64") -> None:
         write(path, macho(architecture))
 
 
-def verification_fixture(app: Path, architecture="arm64") -> None:
-    write(app / "Contents/MacOS/UsqueProtonVerification", macho(architecture))
-    write(
-        app / "Contents/Info.plist",
-        plistlib.dumps(
-            {
-                "CFBundleIdentifier": macos_package.IDENTIFIER + ".proton-verification",
-                "CFBundleExecutable": macos_package.VERIFICATION_NAME,
-                "LSMinimumSystemVersion": "13.0",
-                "UsqueCEFSandboxRequired": True,
-            }
-        ),
-    )
-    write(
-        app
-        / "Contents/Frameworks/Chromium Embedded Framework.framework/Chromium Embedded Framework",
-        macho(architecture),
-    )
-    for name in ("icudtl.dat", f"v8_context_snapshot.{architecture}.bin"):
-        write(
-            app / "Contents/Frameworks/Chromium Embedded Framework.framework/Resources" / name,
-            b"synthetic CEF data",
-        )
-    for locale in ("en", "zh_CN", "zh_TW"):
-        write(
-            app
-            / "Contents/Frameworks/Chromium Embedded Framework.framework/Resources"
-            / f"{locale}.lproj/locale.pak",
-            b"synthetic CEF locale",
-        )
-    for suffix in macos_package.VERIFICATION_HELPER_SUFFIXES:
-        helper = macos_package.VERIFICATION_NAME + " Helper" + suffix
-        write(
-            app / "Contents/Frameworks" / (helper + ".app") / "Contents/MacOS" / helper,
-            macho(architecture),
-        )
-
-
 class MacOSPackageTests(unittest.TestCase):
     def test_symlink_capability_guard_skips_permission_errors_only(self) -> None:
         with patch.object(Path, "symlink_to", side_effect=PermissionError(errno.EPERM, "denied")):
@@ -199,107 +161,6 @@ class MacOSPackageTests(unittest.TestCase):
                     macos_package.bundle_files(app)
                 link.unlink()
 
-    def test_cef_locale_trimming_keeps_supported_languages_and_unrelated_resources(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            app = Path(directory) / "Usque.app"
-            verification = app / "Contents/Helpers/UsqueProtonVerification.app"
-            verification_fixture(verification)
-            resources = (
-                verification / "Contents/Frameworks/Chromium Embedded Framework.framework/Resources"
-            )
-            for locale in ("de", "fr", "ja"):
-                write(resources / f"{locale}.lproj/locale.pak", b"unused CEF locale")
-            preserved = [
-                resources / "icudtl.dat",
-                resources / "v8_context_snapshot.arm64.bin",
-                resources / "LICENSE.txt",
-                resources / "resources.pak",
-                resources / "chrome_100_percent.pak",
-                resources / "chrome_200_percent.pak",
-                resources / "vk_swiftshader_icd.json",
-                verification / "Contents/Resources/en.lproj/InfoPlist.strings",
-                app / "Contents/Resources/zh_TW.lproj/InfoPlist.strings",
-                app
-                / "Contents/Frameworks/App.framework/Resources/flutter_assets/assets/translations/zh_TW.json",
-            ]
-            for path in preserved:
-                if not path.exists():
-                    write(path, b"keep this resource")
-            before = {path: path.read_bytes() for path in preserved}
-            binaries = {path: path.read_bytes() for path in macos_package.macho_files(verification)}
-
-            macos_package.trim_cef_locales(app)
-
-            self.assertEqual(macos_package.CEF_LOCALES, ("en", "zh_CN", "zh_TW"))
-            self.assertEqual(
-                {path.name for path in resources.glob("*.lproj")},
-                {"en.lproj", "zh_CN.lproj", "zh_TW.lproj"},
-            )
-            for locale in macos_package.CEF_LOCALES:
-                self.assertEqual(
-                    (resources / f"{locale}.lproj/locale.pak").read_bytes(),
-                    b"synthetic CEF locale",
-                )
-            for path, content in {**before, **binaries}.items():
-                self.assertEqual(path.read_bytes(), content, str(path.relative_to(app)))
-            # Repackaging an already trimmed app is harmless.
-            macos_package.trim_cef_locales(app)
-
-    def test_cef_locale_trimming_validates_all_required_payloads_before_deleting(self) -> None:
-        for locale in ("en", "zh_CN", "zh_TW"):
-            for empty in (False, True):
-                with (
-                    self.subTest(locale=locale, empty=empty),
-                    tempfile.TemporaryDirectory() as directory,
-                ):
-                    app = Path(directory) / "Usque.app"
-                    verification = app / "Contents/Helpers/UsqueProtonVerification.app"
-                    verification_fixture(verification)
-                    resources = verification / (
-                        "Contents/Frameworks/Chromium Embedded Framework.framework/Resources"
-                    )
-                    foreign = resources / "de.lproj/locale.pak"
-                    write(foreign, b"do not delete on failed validation")
-                    required = resources / f"{locale}.lproj/locale.pak"
-                    if empty:
-                        required.write_bytes(b"")
-                    else:
-                        required.unlink()
-
-                    with self.assertRaises(ValueError):
-                        macos_package.trim_cef_locales(app)
-
-                    self.assertEqual(foreign.read_bytes(), b"do not delete on failed validation")
-
-    def test_cef_locale_trimming_does_not_follow_external_resource_symlinks(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            app = root / "Usque.app"
-            verification = app / "Contents/Helpers/UsqueProtonVerification.app"
-            verification_fixture(verification)
-            resources = verification / (
-                "Contents/Frameworks/Chromium Embedded Framework.framework/Resources"
-            )
-            outside = root / "external-locales"
-            write(outside / "locale.pak", b"external resource must remain intact")
-            symlink_fixture(resources / "de.lproj", outside, directory=True)
-            with self.assertRaises(ValueError):
-                macos_package.trim_cef_locales(app)
-            self.assertTrue((resources / "de.lproj").is_symlink())
-            self.assertEqual(
-                (outside / "locale.pak").read_bytes(), b"external resource must remain intact"
-            )
-
-    def test_cef_locale_trimming_is_optional_without_verification_component(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            app = Path(directory) / "Usque.app"
-            flutter_fixture(app)
-            before = {path: path.read_bytes() for path in macos_package.bundle_files(app)}
-            macos_package.trim_cef_locales(app)
-            self.assertEqual(
-                {path: path.read_bytes() for path in macos_package.bundle_files(app)}, before
-            )
-
     def test_assembly_connects_engine_and_helper_layout_and_fails_mixed_architecture(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -339,7 +200,11 @@ class MacOSPackageTests(unittest.TestCase):
             self.assertFalse(manifest["production_capable"])
             self.assertFalse(manifest["automatic_installation_enabled"])
             self.assertFalse(manifest["notarized"])
-            self.assertEqual(manifest["components"]["proton_cef_verification"], "not_included")
+            self.assertEqual(
+                manifest["components"]["proton_guest_registration"], "unavailable_on_macos"
+            )
+            self.assertNotIn("cef_locales", manifest["packaging"])
+            self.assertNotIn("proton_cef_verification", manifest["components"])
             self.assertEqual(manifest["validation"]["intel_native_execution"], "not_run")
             self.assertEqual(
                 manifest["files"][0]["sha256"],
@@ -374,7 +239,7 @@ class MacOSPackageTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 macos_package.inspect_bundle(app, "arm64")
 
-    def test_cef_and_maintenance_are_included_and_every_nested_binary_is_checked(self) -> None:
+    def test_maintenance_is_included_and_wrong_architecture_is_rejected(self) -> None:
         for architecture in macos_package.ARCHITECTURES:
             with (
                 self.subTest(architecture=architecture),
@@ -386,30 +251,12 @@ class MacOSPackageTests(unittest.TestCase):
                     root / "Prototype.app",
                     root / "engine",
                 )
-                verification, maintenance = root / "CEF.app", root / "maintenance"
+                maintenance = root / "maintenance"
                 flutter_fixture(source, architecture)
                 prototype_fixture(prototype, architecture)
-                verification_fixture(verification, architecture)
-                unused_locale = Path(
-                    "Contents/Frameworks/Chromium Embedded Framework.framework/Resources/de.lproj/locale.pak"
-                )
-                write(verification / unused_locale, b"unused CEF locale")
                 engine.write_bytes(macho(architecture))
                 write(maintenance, macho(architecture))
-                packaged = root / "output/Usque.app"
-
-                def tool(arguments, packaged=packaged, unused_locale=unused_locale):
-                    if "--sign" in arguments:
-                        self.assertFalse(
-                            (
-                                packaged
-                                / "Contents/Helpers/UsqueProtonVerification.app"
-                                / unused_locale
-                            ).exists()
-                        )
-                    return ""
-
-                with patch.object(macos_package, "run", side_effect=tool):
+                with patch.object(macos_package, "run", return_value=""):
                     manifest = macos_package.package(
                         source,
                         engine,
@@ -419,33 +266,20 @@ class MacOSPackageTests(unittest.TestCase):
                         "0.3.3",
                         "29",
                         create_dmg=False,
-                        verification=verification,
                         maintenance=maintenance,
                     )
-                self.assertEqual(len(manifest["mach_o"]), 17)
-                self.assertEqual(
-                    manifest["components"]["proton_cef_verification"],
-                    "included_signed_launch_acceptance_pending",
-                )
+                self.assertEqual(len(manifest["mach_o"]), 10)
                 self.assertEqual(
                     manifest["components"]["atomic_update"], "helper_included_installation_disabled"
                 )
                 self.assertFalse(manifest["automatic_installation_enabled"])
-                self.assertTrue((verification / unused_locale).is_file())
-                required = macos_package.required_resources(packaged, architecture)
-                for locale in ("en", "zh_CN", "zh_TW"):
-                    self.assertTrue(
-                        any(
-                            path.parts[-2:] == (f"{locale}.lproj", "locale.pak")
-                            for path in required
-                        )
-                    )
-                other = "arm64" if architecture == "x86_64" else "x86_64"
-                nested = (
-                    verification
-                    / "Contents/Frameworks/UsqueProtonVerification Helper.app/Contents/MacOS/UsqueProtonVerification Helper"
+                packaged = root / "output/Usque.app"
+                self.assertEqual(
+                    (packaged / "Contents/Helpers/usque-maintenance").read_bytes(),
+                    maintenance.read_bytes(),
                 )
-                nested.write_bytes(macho(other))
+                other = "arm64" if architecture == "x86_64" else "x86_64"
+                maintenance.write_bytes(macho(other))
                 with (
                     patch.object(macos_package, "run", return_value=""),
                     self.assertRaises(ValueError),
@@ -458,127 +292,76 @@ class MacOSPackageTests(unittest.TestCase):
                         architecture,
                         "0.3.3",
                         "29",
-                        verification=verification,
                         maintenance=maintenance,
                     )
 
-    def test_incomplete_or_sandbox_disabled_cef_cannot_pass_package_inspection(self) -> None:
+    def test_stale_proton_browser_outputs_are_rejected_before_copy_or_signing(self) -> None:
+        for relative, directory_artifact in (
+            ("Contents/Helpers/UsqueProtonVerification.app", True),
+            ("Contents/Frameworks/Chromium Embedded Framework.framework", True),
+            ("Contents/Frameworks/UsqueProtonVerification Helper (Renderer).app", True),
+            ("Contents/MacOS/UsqueProtonVerification", False),
+        ):
+            with (
+                self.subTest(artifact=relative),
+                tempfile.TemporaryDirectory() as directory,
+            ):
+                root = Path(directory)
+                source, prototype, engine = (
+                    root / "GUI.app",
+                    root / "Prototype.app",
+                    root / "engine",
+                )
+                flutter_fixture(source)
+                prototype_fixture(prototype)
+                engine.write_bytes(macho())
+                artifact = source / relative
+                if directory_artifact:
+                    artifact.mkdir(parents=True)
+                else:
+                    write(artifact, macho())
+                destination = root / "Usque.app"
+                with patch.object(macos_package, "run") as tool:
+                    with self.assertRaisesRegex(ValueError, "stale browser artifacts"):
+                        macos_package.assemble_app(
+                            source, engine, prototype, destination, "arm64", "0.3.3", "29"
+                        )
+                tool.assert_not_called()
+                self.assertFalse(destination.exists())
+                self.assertTrue(artifact.exists())
+
+    def test_inspection_rejects_a_stale_browser_added_to_an_otherwise_valid_bundle(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             source, prototype, engine = root / "GUI.app", root / "Prototype.app", root / "engine"
-            verification = root / "CEF.app"
-            maintenance = root / "maintenance"
             flutter_fixture(source)
             prototype_fixture(prototype)
-            verification_fixture(verification)
             engine.write_bytes(macho())
-            write(maintenance, macho())
             destination = root / "Usque.app"
             with patch.object(macos_package, "run", return_value=""):
                 macos_package.assemble_app(
-                    source,
-                    engine,
-                    prototype,
-                    destination,
-                    "arm64",
-                    "0.3.3",
-                    "29",
-                    verification=verification,
-                    maintenance=maintenance,
+                    source, engine, prototype, destination, "arm64", "0.3.3", "29"
                 )
-            cef = destination / "Contents/Helpers/UsqueProtonVerification.app"
-            for path in macos_package.required_files(destination):
-                if path.is_relative_to(cef):
-                    original = path.read_bytes()
-                    path.unlink()
-                    with self.subTest(missing=path.relative_to(cef)), self.assertRaises(ValueError):
-                        macos_package.inspect_bundle(destination, "arm64")
-                    path.write_bytes(original)
-                    path.chmod(0o755)
-            for path in macos_package.required_resources(destination, "arm64"):
-                original = path.read_bytes()
-                path.unlink()
-                with self.subTest(missing=path.name), self.assertRaises(ValueError):
-                    macos_package.inspect_bundle(destination, "arm64")
-                path.write_bytes(b"")
-                with self.subTest(empty=path.name), self.assertRaises(ValueError):
-                    macos_package.inspect_bundle(destination, "arm64")
-                path.write_bytes(original)
-            snapshot = macos_package.required_resources(destination, "arm64")[1]
-            wrong_architecture = snapshot.with_name("v8_context_snapshot.x86_64.bin")
-            snapshot.rename(wrong_architecture)
-            with self.assertRaises(ValueError):
+            stale = destination / "Contents/Helpers/UsqueProtonVerification.app"
+            stale.mkdir()
+            with self.assertRaisesRegex(ValueError, "stale browser artifacts"):
                 macos_package.inspect_bundle(destination, "arm64")
-            wrong_architecture.rename(snapshot)
+            stale.rmdir()
             for path in macos_package.required_files(destination):
-                if path.parent.name == "MacOS" or path.name in {
-                    "usque-macos-control",
-                    "usque-maintenance",
-                }:
+                if path.parent.name == "MacOS" or path.name == "usque-macos-control":
                     for mode in (0o644, 0o744, 0o645):
                         path.chmod(mode)
-                        with (
-                            self.subTest(non_executable=path.name, mode=mode),
-                            self.assertRaises(ValueError),
-                        ):
-                            macos_package.inspect_bundle(destination, "arm64")
+                        with self.subTest(non_executable=path.name, mode=mode):
+                            with self.assertRaises(ValueError):
+                                macos_package.inspect_bundle(destination, "arm64")
                     path.chmod(0o755)
-            info_path = cef / "Contents/Info.plist"
-            original = plistlib.loads(info_path.read_bytes())
-            for key, value in (
-                ("UsqueCEFSandboxRequired", False),
-                ("CFBundleIdentifier", "untrusted.component"),
-                ("CFBundleExecutable", "Other"),
-                ("LSMinimumSystemVersion", "14.0"),
-            ):
-                invalid = {**original, key: value}
-                info_path.write_bytes(plistlib.dumps(invalid))
-                with self.subTest(key=key), self.assertRaises(ValueError):
-                    macos_package.inspect_bundle(destination, "arm64")
-
-    def test_cef_identity_and_maintenance_architecture_cannot_be_substituted(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            source, prototype, engine = root / "GUI.app", root / "Prototype.app", root / "engine"
-            verification, maintenance = root / "CEF.app", root / "maintenance"
-            flutter_fixture(source)
-            prototype_fixture(prototype)
-            verification_fixture(verification)
-            engine.write_bytes(macho())
-            maintenance.write_bytes(macho("x86_64"))
-            with self.assertRaises(ValueError):
-                macos_package.assemble_app(
-                    source,
-                    engine,
-                    prototype,
-                    root / "mixed.app",
-                    "arm64",
-                    "0.3.3",
-                    "29",
-                    maintenance=maintenance,
-                )
-            write(
-                verification / "Contents/Info.plist",
-                plistlib.dumps({"CFBundleIdentifier": "untrusted.component"}),
-            )
-            with self.assertRaises(ValueError):
-                macos_package.assemble_app(
-                    source,
-                    engine,
-                    prototype,
-                    root / "substituted.app",
-                    "arm64",
-                    "0.3.3",
-                    "29",
-                    verification=verification,
-                )
 
     def test_signs_unsigned_engine_before_sealing_outer_app(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             app = Path(directory) / "Usque.app"
             flutter_fixture(app, "x86_64")
             write(app / "Contents/MacOS/usque-engine", macho("x86_64"))
-            nested = app / "Contents/Helpers/Verification.app"
+            nested = app / "Contents/Helpers/Fixture.app"
             write(
                 nested / "Contents/Info.plist",
                 plistlib.dumps(
