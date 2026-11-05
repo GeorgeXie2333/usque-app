@@ -450,36 +450,6 @@ class _Backdrop extends CustomPainter {
       oldDelegate.dark != dark || oldDelegate.circles != circles;
 }
 
-/// The tick ring of the Home connect control, drawn around the logo.
-class _TickRing extends CustomPainter {
-  const _TickRing({required this.color});
-
-  final Color color;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final center = size.center(Offset.zero);
-    final outer = size.shortestSide / 2;
-    for (var tick = 0; tick < 72; tick++) {
-      final major = tick % 6 == 0;
-      final angle = tick * 2 * math.pi / 72 - math.pi / 2;
-      final direction = Offset(math.cos(angle), math.sin(angle));
-      canvas.drawLine(
-        center + direction * (outer - (major ? 11 : 6)),
-        center + direction * outer,
-        Paint()
-          ..color = color.withValues(alpha: major ? 0.75 : 0.35)
-          ..strokeWidth = major ? 2.2 : 1.4
-          ..strokeCap = StrokeCap.round,
-      );
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _TickRing oldDelegate) =>
-      oldDelegate.color != color;
-}
-
 class _Chip extends StatelessWidget {
   const _Chip(this.label, {required this.fontSize});
 
@@ -514,21 +484,6 @@ class _Chip extends StatelessWidget {
   }
 }
 
-class _Mark extends StatelessWidget {
-  const _Mark({required this.size});
-
-  final double size;
-
-  @override
-  Widget build(BuildContext context) => SizedBox.square(
-    dimension: size,
-    child: CustomPaint(
-      painter: _TickRing(color: UsqueTokens.of(context).brand),
-      child: Center(child: UsqueLogo(size: size * 0.64)),
-    ),
-  );
-}
-
 /// README banner: brand mark, wordmark and language-neutral output names.
 class _Banner extends StatelessWidget {
   const _Banner({required this.dark});
@@ -549,12 +504,13 @@ class _Banner extends StatelessWidget {
             (Offset(770, 250), 115, 0.35),
           ],
         ),
-        child: Padding(
-          padding: const EdgeInsets.only(left: 64),
+        child: Center(
           child: Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              const _Mark(size: 176),
-              const SizedBox(width: 52),
+              // 128 logical pixels at 2x is the bundled logo's native size.
+              const UsqueLogo(size: 128),
+              const SizedBox(width: 48),
               Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -660,8 +616,8 @@ class _SocialPreview extends StatelessWidget {
                 children: [
                   Row(
                     children: [
-                      const _Mark(size: 112),
-                      const SizedBox(width: 22),
+                      const UsqueLogo(size: 96),
+                      const SizedBox(width: 24),
                       Text(
                         'Usque',
                         style: TextStyle(
