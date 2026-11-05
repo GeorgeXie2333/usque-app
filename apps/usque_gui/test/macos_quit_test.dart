@@ -75,8 +75,11 @@ void main() {
       expect(app.connectionActionEnabled, isFalse);
       expect(app.nativeNetworkActionsAllowed, isFalse);
       expect(app.networkShortcutsLocked, isTrue);
+      expect(app.busy, isTrue);
       await app.connectOrDisconnect();
+      await app.retry();
       expect(engine.calls, isNot(contains('connect')));
+      expect(engine.calls, isNot(contains('retry')));
       engine.attempts.single.complete(
         const EngineSnapshot(phase: ConnectionPhase.disconnected),
       );

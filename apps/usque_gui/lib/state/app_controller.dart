@@ -385,7 +385,7 @@ class AppController extends ChangeNotifier {
       onboardingPhase == OnboardingPhase.submitting ||
       onboardingPhase == OnboardingPhase.reconciling;
   bool _busy = false;
-  bool get busy => _busy || profileIdentitiesLoading;
+  bool get busy => _busy || profileIdentitiesLoading || _exitCleanup != null;
   set busy(bool value) => _busy = value;
   bool profileIdentitiesLoading = false;
   int _activeOperations = 0;
@@ -1562,6 +1562,7 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> retry() async {
+    if (_exitCleanup != null) return;
     final intent = ++_connectionIntent;
     final success = await _run(() async {
       await _ensureConnectionInputs();
