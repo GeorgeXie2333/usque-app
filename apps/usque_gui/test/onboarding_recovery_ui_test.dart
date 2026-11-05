@@ -8,6 +8,7 @@ import 'package:usque/models/app_models.dart';
 import 'package:usque/models/onboarding_models.dart';
 import 'package:usque/screens/onboarding_screen.dart';
 import 'package:usque/state/app_controller.dart';
+import 'package:usque/widgets/stacking_action_bar.dart';
 import 'package:usque/widgets/zero_trust_enrollment_editor.dart';
 
 import 'app_test.dart' show FakeEngineClient;
@@ -75,7 +76,130 @@ void main() {
       );
       await tester.pumpWidget(const SizedBox.shrink());
     });
+
+    testWidgets('every step carries the trademark attribution once: $name', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(size);
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      for (var step = 0; step < 4; step++) {
+        final app = AppController(FakeEngineClient())
+          ..localePreference = LocalePreference.english
+          ..onboardingStep = step
+          ..onboardingTermsAccepted = step == 3;
+        await tester.pumpWidget(
+          workflowHost(app, home: OnboardingScreen(controller: app)),
+        );
+        await tester.pumpAndSettle();
+        final attribution = find.text(app.strings.get('trademark_attribution'));
+        expect(attribution, findsOneWidget, reason: 'step $step');
+        final rect = tester.getRect(attribution);
+        if (wide) {
+          // Beside the non-affiliation notice in the brand pane.
+          expect(rect.right, lessThanOrEqualTo(size.width * 0.4));
+        } else {
+          // Ends the step rather than taking room from the actions.
+          final actions = find.byType(StackingActionBar);
+          expect(rect.bottom, lessThan(tester.getRect(actions).top));
+        }
+        await tester.pumpWidget(const SizedBox.shrink());
+        app.dispose();
+      }
+    });
   }
+
+  for (final (name, size, bars, platform) in [
+    // A status bar and gesture navigation bar, as SafeArea sees them.
+    (
+      'phone',
+      const Size(360, 780),
+      const FakeViewPadding(top: 24, bottom: 48),
+      TargetPlatform.android,
+    ),
+    (
+      'short window',
+      const Size(820, 600),
+      FakeViewPadding.zero,
+      TargetPlatform.windows,
+    ),
+  ]) {
+    for (final scale in [1.0, 1.15, 1.3]) {
+      testWidgets(
+        'terms acceptance is reachable without scrolling: $name at $scale',
+        (tester) async {
+          tester.view.devicePixelRatio = 1;
+          tester.view.physicalSize = size;
+          tester.view.padding = bars;
+          tester.view.viewPadding = bars;
+          addTearDown(tester.view.reset);
+          final app = AppController(FakeEngineClient())
+            ..localePreference = LocalePreference.english
+            ..onboardingStep = 2;
+          addTearDown(app.dispose);
+          await tester.pumpWidget(
+            workflowHost(
+              app,
+              scale: scale,
+              home: OnboardingScreen(controller: app),
+            ),
+          );
+          await tester.pumpAndSettle();
+          final consent = find.byType(CheckboxListTile);
+          final next = find.widgetWithText(FilledButton, 'Continue');
+          expect(consent.hitTestable(), findsOneWidget);
+          expect(next.hitTestable(), findsOneWidget);
+          // The box sits directly above the action it unlocks.
+          expect(
+            tester.getRect(consent).bottom,
+            lessThanOrEqualTo(tester.getRect(next).top),
+          );
+          expect(tester.widget<FilledButton>(next).onPressed, isNull);
+          await tester.tap(consent);
+          await tester.pumpAndSettle();
+          expect(app.onboardingTermsAccepted, isTrue);
+          expect(tester.widget<FilledButton>(next).onPressed, isNotNull);
+          expect(tester.takeException(), isNull);
+          await tester.pumpWidget(const SizedBox.shrink());
+        },
+        variant: TargetPlatformVariant.only(platform),
+      );
+    }
+  }
+
+  testWidgets(
+    'actions too long for one row stack at full width, primary first',
+    (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(360, 780);
+      addTearDown(tester.view.reset);
+      final engine = FakeEngineClient()
+        ..permissionState = const OnboardingPermissionState(
+          notification: OnboardingNotificationPermission.notRequested,
+        );
+      final app = AppController(engine)
+        ..localePreference = LocalePreference.english
+        ..onboardingStep = 1;
+      addTearDown(app.dispose);
+      await app.refreshOnboardingPermissions();
+      await tester.pumpWidget(
+        workflowHost(app, home: OnboardingScreen(controller: app)),
+      );
+      await tester.pumpAndSettle();
+      final grant = tester.getRect(
+        find.widgetWithText(
+          FilledButton,
+          app.strings.get('onboarding_grant_continue'),
+        ),
+      );
+      final back = tester.getRect(find.widgetWithText(OutlinedButton, 'Back'));
+      expect(grant.bottom, lessThanOrEqualTo(back.top));
+      expect(grant.left, back.left);
+      expect(grant.width, back.width);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.android),
+  );
 
   testWidgets(
     'pending setup permits a read-only check but blocks an actual busy operation',
@@ -145,6 +269,23 @@ void main() {
         expect(
           find.textContaining('No other notifications will be sent.'),
           findsOneWidget,
+        );
+        // The permission reads as a row: its name, then its state.
+        final title = find.text(
+          app.strings.get('onboarding_notifications_title'),
+        );
+        final status = find.text(
+          app.strings.get('onboarding_notifications_optional'),
+        );
+        expect(title, findsOneWidget);
+        expect(
+          tester.getRect(status).top,
+          greaterThan(tester.getRect(title).bottom),
+        );
+        expect(
+          tester.getRect(status).left,
+          greaterThan(tester.getRect(title).left),
+          reason: 'the state follows its glyph in the title column',
         );
         final authorize = find.widgetWithText(
           FilledButton,

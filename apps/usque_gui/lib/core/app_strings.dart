@@ -117,6 +117,8 @@ class AppStrings {
     'endpoint_preset_fi',
     'endpoint_preset_de',
     'endpoint_preset_us',
+    // French spells it the same.
+    'onboarding_notifications_title',
   };
 
   @visibleForTesting

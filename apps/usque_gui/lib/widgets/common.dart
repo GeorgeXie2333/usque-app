@@ -639,9 +639,10 @@ class _ActionRowState extends State<ActionRow> {
   );
 }
 
-/// A settings row that opens another page or system screen. The chevron always
-/// stays at the trailing edge; on narrow layouts or at large text the value
-/// or status moves under the summary instead of squeezing the title.
+/// A settings row that opens another page or system screen. The chevron (or,
+/// for [external] rows, the external-link glyph) always stays at the trailing
+/// edge; on narrow layouts or at large text the value or status moves under
+/// the summary instead of squeezing the title.
 class LinkRow extends StatelessWidget {
   const LinkRow({
     required this.icon,
@@ -653,6 +654,7 @@ class LinkRow extends StatelessWidget {
     this.valueKey,
     this.status,
     this.padding = RowInsets.row,
+    this.external = false,
     super.key,
   }) : assert(value == null || status == null);
 
@@ -669,6 +671,10 @@ class LinkRow extends StatelessWidget {
   final Widget? status;
   final VoidCallback? onTap;
   final EdgeInsetsGeometry padding;
+
+  /// Opens a page in the system browser, so the trailing glyph leaves the app
+  /// instead of pointing deeper into it.
+  final bool external;
 
   @override
   Widget build(BuildContext context) {
@@ -729,7 +735,9 @@ class LinkRow extends StatelessWidget {
               const SizedBox(width: 8),
               ExcludeSemantics(
                 child: Icon(
-                  LucideIcons.chevronRightDir,
+                  external
+                      ? LucideIcons.externalLink
+                      : LucideIcons.chevronRightDir,
                   size: 20,
                   color: muted,
                 ),
