@@ -1,5 +1,8 @@
 <p align="center">
-  <img src="assets/branding/usque-readme-banner.png" alt="Usque — کلاینت غیررسمی سازگار با خدمات Cloudflare® WARP®" width="100%">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/branding/usque-readme-banner-dark.png">
+    <img src="assets/branding/usque-readme-banner.png" alt="Usque — کلاینت غیررسمی سازگار با خدمات Cloudflare® WARP®" width="100%">
+  </picture>
 </p>
 
 <p align="center">
@@ -43,16 +46,22 @@
   <tr>
     <td align="center" valign="top">
       <p><strong>Windows</strong></p>
-      <img src="assets/screenshots/usque-windows-home.png" alt="خانهٔ Usque در Windows" width="720">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/usque-windows-home-dark.png">
+        <img src="assets/screenshots/usque-windows-home.png" alt="خانهٔ Usque در Windows" width="720">
+      </picture>
     </td>
     <td align="center" valign="top">
       <p><strong>Android</strong></p>
-      <img src="assets/screenshots/usque-android-home.png" alt="خانهٔ Usque در Android" width="280">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/usque-android-connect-dark.gif">
+        <img src="assets/screenshots/usque-android-connect.gif" alt="اتصال Usque در Android" width="280">
+      </picture>
     </td>
   </tr>
 </table>
 
-<p align="center"><sub>پیش‌نمایش‌های انگلیسی رابط از منبع فعلی رندر شده‌اند.</sub></p>
+<p align="center"><sub>پیش‌نمایش‌های انگلیسی رابط از منبع فعلی و با داده‌های نمونه رندر شده‌اند.</sub></p>
 
 ## نکات برجسته
 
@@ -65,6 +74,45 @@
 - **سناریوها** — تنظیمات شبکهٔ پرکاربرد را در **نمایه‌ها** ذخیره کنید و بین آن‌ها جابه‌جا شوید (برنامه‌ریزی‌شده برای v0.3.4).
 - **حریم خصوصی از پایه** — بررسی اجباری کلید کارساز، انبارهای اعتبارنامهٔ سیستم، تشخیص محلی با حذف اطلاعات حساس و بدون آمار استفاده.
 - **سازگار با هر سکو** — سینی سیستم Windows، کاشی تنظیمات سریع Android و ناوبری تلویزیون؛ بیست‌ویک زبان، با حالت روشن و تیره.
+
+## صفحه‌ها
+
+<table>
+  <tr>
+    <td align="center" valign="top" width="25%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/usque-gallery-scenes-dark.png">
+        <img src="assets/screenshots/usque-gallery-scenes.png" alt="سناریوها در نمایه‌ها" width="200">
+      </picture>
+      <br><strong>سناریوها</strong>
+      <br><sub>جابه‌جایی بین تنظیمات ذخیره‌شده</sub>
+    </td>
+    <td align="center" valign="top" width="25%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/usque-gallery-chain-dark.png">
+        <img src="assets/screenshots/usque-gallery-chain.png" alt="پروکسی زنجیره‌ای با خروجی WireGuard" width="200">
+      </picture>
+      <br><strong>پروکسی زنجیره‌ای</strong>
+      <br><sub>خروج از WARP از راه خروجی خودتان</sub>
+    </td>
+    <td align="center" valign="top" width="25%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/usque-gallery-routing-dark.png">
+        <img src="assets/screenshots/usque-gallery-routing.png" alt="تنظیمات عبور مستقیم با قاعده‌های مسیریابی" width="200">
+      </picture>
+      <br><strong>تنظیمات عبور مستقیم</strong>
+      <br><sub>مستقیم، مسدود یا پروکسی با قاعده</sub>
+    </td>
+    <td align="center" valign="top" width="25%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/usque-gallery-quality-dark.png">
+        <img src="assets/screenshots/usque-gallery-quality.png" alt="صفحهٔ کیفیت شبکه" width="200">
+      </picture>
+      <br><strong>کیفیت شبکه</strong>
+      <br><sub>تأخیر، ازدست‌رفتن بسته و توان عبور</sub>
+    </td>
+  </tr>
+</table>
 
 ## سازوکار
 

@@ -1,5 +1,8 @@
 <p align="center">
-  <img src="assets/branding/usque-readme-banner.png" alt="Usque — Unofficial client compatible with Cloudflare® WARP® services" width="100%">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/branding/usque-readme-banner-dark.png">
+    <img src="assets/branding/usque-readme-banner.png" alt="Usque — Unofficial client compatible with Cloudflare® WARP® services" width="100%">
+  </picture>
 </p>
 
 <p align="center">
@@ -43,16 +46,22 @@
   <tr>
     <td align="center" valign="top">
       <p><strong>Windows</strong></p>
-      <img src="assets/screenshots/usque-windows-home.png" alt="Usque Home on Windows" width="720">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/usque-windows-home-dark.png">
+        <img src="assets/screenshots/usque-windows-home.png" alt="Usque Home on Windows" width="720">
+      </picture>
     </td>
     <td align="center" valign="top">
       <p><strong>Android</strong></p>
-      <img src="assets/screenshots/usque-android-home.png" alt="Usque Home on Android" width="280">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/usque-android-connect-dark.gif">
+        <img src="assets/screenshots/usque-android-connect.gif" alt="Usque connecting on Android" width="280">
+      </picture>
     </td>
   </tr>
 </table>
 
-<p align="center"><sub>English interface previews rendered from the current source.</sub></p>
+<p align="center"><sub>English interface previews rendered from the current source with sample data.</sub></p>
 
 ## Highlights
 
@@ -65,6 +74,45 @@
 - **Scenes** — save common network setups in **Profiles** and switch between them (planned for v0.3.4).
 - **Private by design** — enforced server-key check, system credential stores, redacted local diagnostics and no analytics.
 - **At home on every platform** — Windows tray, Android Quick Settings tile and TV navigation; 21 languages with light and dark themes.
+
+## Screens
+
+<table>
+  <tr>
+    <td align="center" valign="top" width="25%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/usque-gallery-scenes-dark.png">
+        <img src="assets/screenshots/usque-gallery-scenes.png" alt="Scenes in Profiles" width="200">
+      </picture>
+      <br><strong>Scenes</strong>
+      <br><sub>Switch saved network setups</sub>
+    </td>
+    <td align="center" valign="top" width="25%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/usque-gallery-chain-dark.png">
+        <img src="assets/screenshots/usque-gallery-chain.png" alt="Chain proxy with a WireGuard exit" width="200">
+      </picture>
+      <br><strong>Chain proxy</strong>
+      <br><sub>Leave WARP through your own exit</sub>
+    </td>
+    <td align="center" valign="top" width="25%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/usque-gallery-routing-dark.png">
+        <img src="assets/screenshots/usque-gallery-routing.png" alt="Bypass settings with routing rules" width="200">
+      </picture>
+      <br><strong>Bypass settings</strong>
+      <br><sub>Direct, block or proxy by rule</sub>
+    </td>
+    <td align="center" valign="top" width="25%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/usque-gallery-quality-dark.png">
+        <img src="assets/screenshots/usque-gallery-quality.png" alt="Network quality page" width="200">
+      </picture>
+      <br><strong>Network quality</strong>
+      <br><sub>Latency, loss and throughput</sub>
+    </td>
+  </tr>
+</table>
 
 ## How it works
 

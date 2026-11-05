@@ -1,5 +1,8 @@
 <p align="center">
-  <img src="assets/branding/usque-readme-banner.png" alt="Usque — неофициальный клиент, совместимый с сервисами Cloudflare® WARP®" width="100%">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/branding/usque-readme-banner-dark.png">
+    <img src="assets/branding/usque-readme-banner.png" alt="Usque — неофициальный клиент, совместимый с сервисами Cloudflare® WARP®" width="100%">
+  </picture>
 </p>
 
 <p align="center">
@@ -43,16 +46,22 @@
   <tr>
     <td align="center" valign="top">
       <p><strong>Windows</strong></p>
-      <img src="assets/screenshots/usque-windows-home.png" alt="Главная Usque в Windows" width="720">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/usque-windows-home-dark.png">
+        <img src="assets/screenshots/usque-windows-home.png" alt="Главная Usque в Windows" width="720">
+      </picture>
     </td>
     <td align="center" valign="top">
       <p><strong>Android</strong></p>
-      <img src="assets/screenshots/usque-android-home.png" alt="Главная Usque на Android" width="280">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/usque-android-connect-dark.gif">
+        <img src="assets/screenshots/usque-android-connect.gif" alt="Подключение Usque на Android" width="280">
+      </picture>
     </td>
   </tr>
 </table>
 
-<p align="center"><sub>Снимки английского интерфейса отрисованы из текущих исходников.</sub></p>
+<p align="center"><sub>Снимки английского интерфейса отрисованы из текущих исходников с примерными данными.</sub></p>
 
 ## Главное
 
@@ -65,6 +74,45 @@
 - **Сценарии** — сохраняйте привычные сетевые настройки в разделе **Профили** и переключайтесь между ними (запланировано для v0.3.4).
 - **Конфиденциальность по умолчанию** — обязательная проверка ключа сервера, системные хранилища учётных данных, локальная обезличенная диагностика и отсутствие аналитики.
 - **Удобно на каждой платформе** — значок в области уведомлений Windows, плитка быстрых настроек Android и навигация на телевизоре; 21 язык, светлая и тёмная темы.
+
+## Экраны
+
+<table>
+  <tr>
+    <td align="center" valign="top" width="25%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/usque-gallery-scenes-dark.png">
+        <img src="assets/screenshots/usque-gallery-scenes.png" alt="Сценарии в разделе «Профили»" width="200">
+      </picture>
+      <br><strong>Сценарии</strong>
+      <br><sub>Переключение сохранённых настроек</sub>
+    </td>
+    <td align="center" valign="top" width="25%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/usque-gallery-chain-dark.png">
+        <img src="assets/screenshots/usque-gallery-chain.png" alt="Цепной прокси с выходом WireGuard" width="200">
+      </picture>
+      <br><strong>Цепной прокси</strong>
+      <br><sub>Выход из WARP через свой сервер</sub>
+    </td>
+    <td align="center" valign="top" width="25%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/usque-gallery-routing-dark.png">
+        <img src="assets/screenshots/usque-gallery-routing.png" alt="Настройки обхода с правилами маршрутизации" width="200">
+      </picture>
+      <br><strong>Настройки обхода</strong>
+      <br><sub>Напрямую, блок или прокси по правилам</sub>
+    </td>
+    <td align="center" valign="top" width="25%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/usque-gallery-quality-dark.png">
+        <img src="assets/screenshots/usque-gallery-quality.png" alt="Страница «Качество сети»" width="200">
+      </picture>
+      <br><strong>Качество сети</strong>
+      <br><sub>Задержка, потери и скорость</sub>
+    </td>
+  </tr>
+</table>
 
 ## Как это работает
 

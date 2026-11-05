@@ -1,5 +1,8 @@
 <p align="center">
-  <img src="assets/branding/usque-readme-banner.png" alt="Usque — Cloudflare® WARP® 서비스와 호환되는 비공식 클라이언트" width="100%">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/branding/usque-readme-banner-dark.png">
+    <img src="assets/branding/usque-readme-banner.png" alt="Usque — Cloudflare® WARP® 서비스와 호환되는 비공식 클라이언트" width="100%">
+  </picture>
 </p>
 
 <p align="center">
@@ -43,16 +46,22 @@
   <tr>
     <td align="center" valign="top">
       <p><strong>Windows</strong></p>
-      <img src="assets/screenshots/usque-windows-home.png" alt="Windows용 Usque 홈 화면" width="720">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/usque-windows-home-dark.png">
+        <img src="assets/screenshots/usque-windows-home.png" alt="Windows용 Usque 홈 화면" width="720">
+      </picture>
     </td>
     <td align="center" valign="top">
       <p><strong>Android</strong></p>
-      <img src="assets/screenshots/usque-android-home.png" alt="Android용 Usque 홈 화면" width="280">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/usque-android-connect-dark.gif">
+        <img src="assets/screenshots/usque-android-connect.gif" alt="Android용 Usque 연결 과정" width="280">
+      </picture>
     </td>
   </tr>
 </table>
 
-<p align="center"><sub>현재 소스에서 렌더링한 영어 인터페이스 미리보기입니다.</sub></p>
+<p align="center"><sub>현재 소스에서 렌더링한 영어 인터페이스 미리보기이며, 샘플 데이터를 사용합니다.</sub></p>
 
 ## 주요 특징
 
@@ -65,6 +74,45 @@
 - **시나리오** — 자주 쓰는 네트워크 설정을 **프로필**에 저장하고 전환할 수 있습니다(v0.3.4 예정).
 - **개인정보 보호 중심** — 서버 공개 키 검증을 강제하고, 인증 정보는 운영체제의 자격 증명 저장소에 보관하며, 진단은 로컬에서 생성해 민감한 정보를 제거합니다. 사용 분석은 없습니다.
 - **모든 플랫폼에 맞게** — Windows 트레이, Android 빠른 설정 타일과 TV 리모컨 탐색. 21개 언어와 밝은 테마 및 어두운 테마.
+
+## 화면
+
+<table>
+  <tr>
+    <td align="center" valign="top" width="25%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/usque-gallery-scenes-dark.png">
+        <img src="assets/screenshots/usque-gallery-scenes.png" alt="프로필의 시나리오 목록" width="200">
+      </picture>
+      <br><strong>시나리오</strong>
+      <br><sub>저장한 네트워크 설정 전환</sub>
+    </td>
+    <td align="center" valign="top" width="25%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/usque-gallery-chain-dark.png">
+        <img src="assets/screenshots/usque-gallery-chain.png" alt="WireGuard 출구를 사용하는 체인 프록시" width="200">
+      </picture>
+      <br><strong>체인 프록시</strong>
+      <br><sub>원하는 출구로 WARP에서 나가기</sub>
+    </td>
+    <td align="center" valign="top" width="25%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/usque-gallery-routing-dark.png">
+        <img src="assets/screenshots/usque-gallery-routing.png" alt="라우팅 규칙이 있는 우회 설정" width="200">
+      </picture>
+      <br><strong>우회 설정</strong>
+      <br><sub>규칙별 직접 연결·차단·프록시</sub>
+    </td>
+    <td align="center" valign="top" width="25%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/usque-gallery-quality-dark.png">
+        <img src="assets/screenshots/usque-gallery-quality.png" alt="네트워크 품질 페이지" width="200">
+      </picture>
+      <br><strong>네트워크 품질</strong>
+      <br><sub>지연 시간, 패킷 손실, 처리량</sub>
+    </td>
+  </tr>
+</table>
 
 ## 작동 방식
 

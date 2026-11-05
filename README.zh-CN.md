@@ -1,5 +1,8 @@
 <p align="center">
-  <img src="assets/branding/usque-readme-banner.png" alt="Usque — 兼容 Cloudflare® WARP® 服务的非官方客户端" width="100%">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/branding/usque-readme-banner-dark.png">
+    <img src="assets/branding/usque-readme-banner.png" alt="Usque — 兼容 Cloudflare® WARP® 服务的非官方客户端" width="100%">
+  </picture>
 </p>
 
 <p align="center">
@@ -43,16 +46,22 @@
   <tr>
     <td align="center" valign="top">
       <p><strong>Windows</strong></p>
-      <img src="assets/screenshots/usque-windows-home.png" alt="Usque Windows 首页" width="720">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/usque-windows-home-dark.png">
+        <img src="assets/screenshots/usque-windows-home.png" alt="Usque Windows 首页" width="720">
+      </picture>
     </td>
     <td align="center" valign="top">
       <p><strong>Android</strong></p>
-      <img src="assets/screenshots/usque-android-home.png" alt="Usque Android 首页" width="280">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/usque-android-connect-dark.gif">
+        <img src="assets/screenshots/usque-android-connect.gif" alt="Usque Android 连接过程" width="280">
+      </picture>
     </td>
   </tr>
 </table>
 
-<p align="center"><sub>当前源码渲染的英文界面预览。</sub></p>
+<p align="center"><sub>当前源码渲染的英文界面预览，使用示例数据。</sub></p>
 
 ## 亮点
 
@@ -65,6 +74,45 @@
 - **场景** — 在 **场景** 页保存常用网络配置并随时切换（计划在 v0.3.4 发布）。
 - **隐私优先** — 强制校验服务端公钥，凭据存放在系统凭据库，诊断在本地生成并脱敏，不做使用统计。
 - **全平台体验** — Windows 托盘、Android 快捷设置磁贴和电视遥控器导航；21 种语言，浅色、深色主题。
+
+## 界面一览
+
+<table>
+  <tr>
+    <td align="center" valign="top" width="25%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/usque-gallery-scenes-dark.png">
+        <img src="assets/screenshots/usque-gallery-scenes.png" alt="场景页的场景列表" width="200">
+      </picture>
+      <br><strong>场景</strong>
+      <br><sub>切换已保存的网络配置</sub>
+    </td>
+    <td align="center" valign="top" width="25%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/usque-gallery-chain-dark.png">
+        <img src="assets/screenshots/usque-gallery-chain.png" alt="使用 WireGuard 出口的链式代理" width="200">
+      </picture>
+      <br><strong>链式代理</strong>
+      <br><sub>经你自己的出口离开 WARP</sub>
+    </td>
+    <td align="center" valign="top" width="25%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/usque-gallery-routing-dark.png">
+        <img src="assets/screenshots/usque-gallery-routing.png" alt="带分流规则的分流设置" width="200">
+      </picture>
+      <br><strong>分流设置</strong>
+      <br><sub>按规则直连、拦截或代理</sub>
+    </td>
+    <td align="center" valign="top" width="25%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/usque-gallery-quality-dark.png">
+        <img src="assets/screenshots/usque-gallery-quality.png" alt="网络质量页面" width="200">
+      </picture>
+      <br><strong>网络质量</strong>
+      <br><sub>延迟、丢包与吞吐量</sub>
+    </td>
+  </tr>
+</table>
 
 ## 工作原理
 

@@ -1,5 +1,8 @@
 <p align="center">
-  <img src="assets/branding/usque-readme-banner.png" alt="Usque — Cloudflare® WARP® サービスと互換性のある非公式クライアント" width="100%">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/branding/usque-readme-banner-dark.png">
+    <img src="assets/branding/usque-readme-banner.png" alt="Usque — Cloudflare® WARP® サービスと互換性のある非公式クライアント" width="100%">
+  </picture>
 </p>
 
 <p align="center">
@@ -43,16 +46,22 @@
   <tr>
     <td align="center" valign="top">
       <p><strong>Windows</strong></p>
-      <img src="assets/screenshots/usque-windows-home.png" alt="Windows 版 Usque のホーム画面" width="720">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/usque-windows-home-dark.png">
+        <img src="assets/screenshots/usque-windows-home.png" alt="Windows 版 Usque のホーム画面" width="720">
+      </picture>
     </td>
     <td align="center" valign="top">
       <p><strong>Android</strong></p>
-      <img src="assets/screenshots/usque-android-home.png" alt="Android 版 Usque のホーム画面" width="280">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/usque-android-connect-dark.gif">
+        <img src="assets/screenshots/usque-android-connect.gif" alt="Android 版 Usque の接続の様子" width="280">
+      </picture>
     </td>
   </tr>
 </table>
 
-<p align="center"><sub>現在のソースから描画した英語インターフェースのプレビューです。</sub></p>
+<p align="center"><sub>現在のソースから描画した英語インターフェースのプレビューです（サンプルデータ）。</sub></p>
 
 ## 特長
 
@@ -65,6 +74,45 @@
 - **シーン** — よく使うネットワーク設定を **プロファイル** に保存して切り替えられます（v0.3.4 で予定）。
 - **プライバシー重視** — サーバー公開鍵の検証を必須とし、認証情報は OS の資格情報ストアに保存し、診断はローカルで生成して機密情報を除去します。利用状況の分析はありません。
 - **各プラットフォームに対応** — Windows のタスクトレイ、Android のクイック設定タイルと TV のリモコン操作。21 言語とライト・ダークテーマ。
+
+## 画面
+
+<table>
+  <tr>
+    <td align="center" valign="top" width="25%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/usque-gallery-scenes-dark.png">
+        <img src="assets/screenshots/usque-gallery-scenes.png" alt="プロファイルのシーン一覧" width="200">
+      </picture>
+      <br><strong>シーン</strong>
+      <br><sub>保存したネットワーク設定を切り替え</sub>
+    </td>
+    <td align="center" valign="top" width="25%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/usque-gallery-chain-dark.png">
+        <img src="assets/screenshots/usque-gallery-chain.png" alt="WireGuard 出口を使うチェーンプロキシ" width="200">
+      </picture>
+      <br><strong>チェーンプロキシ</strong>
+      <br><sub>独自の出口から WARP を出る</sub>
+    </td>
+    <td align="center" valign="top" width="25%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/usque-gallery-routing-dark.png">
+        <img src="assets/screenshots/usque-gallery-routing.png" alt="ルーティングルールを含むバイパス設定" width="200">
+      </picture>
+      <br><strong>バイパス設定</strong>
+      <br><sub>ルールで直結・ブロック・プロキシ</sub>
+    </td>
+    <td align="center" valign="top" width="25%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/usque-gallery-quality-dark.png">
+        <img src="assets/screenshots/usque-gallery-quality.png" alt="ネットワーク品質ページ" width="200">
+      </picture>
+      <br><strong>ネットワーク品質</strong>
+      <br><sub>遅延、パケットロス、スループット</sub>
+    </td>
+  </tr>
+</table>
 
 ## しくみ
 
