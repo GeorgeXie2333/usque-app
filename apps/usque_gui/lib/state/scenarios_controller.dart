@@ -257,10 +257,13 @@ class ScenariosController extends ChangeNotifier {
       });
       if (_disposed || generation != _generation) return;
       if (result['runtime_observed'] == false &&
-          runtimeRevision != _runtimeRevision) {
-        // A settings observation can retire this passive read while it waits
-        // for Android's bind deadline. Its earlier invalidation may already
-        // have joined this in-flight refresh, so arrange a fresh visible read.
+          runtimeRevision != _runtimeRevision &&
+          _runtimeObserved) {
+        // A live observation retired this saved-configuration read while it
+        // waited for Android's bind deadline. Its earlier invalidation may
+        // already have joined this in-flight refresh, so arrange a fresh read.
+        // When the runtime is still unobserved, the saved catalogue matches
+        // the current view; another bind deadline would only prolong loading.
         invalidate();
         return;
       }

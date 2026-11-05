@@ -309,6 +309,211 @@ class VpnControlClientTest {
     }
 
     @Test
+    fun passiveDeadlineWithoutAServiceLetsLaterPassiveReadsFallBackImmediately() {
+        val flags = mutableListOf<Boolean>()
+        val passive =
+            VpnControlClient(
+                scheduler,
+                { _, creating ->
+                    flags += creating
+                    true
+                },
+                {},
+                { _, _ -> error("No live service") },
+            )
+        passive.setUiVisible(true)
+        val first = RecordingResult()
+        passive.requestNetworkSettings(null, first)
+        scheduler.advanceBy(5_000)
+        val waiting = RecordingResult()
+        passive.requestScenarios("""{"action":"list"}""", waiting)
+        assertEquals(0, waiting.completionCount)
+        scheduler.advanceBy(5_000)
+        // The first deadline also settles passive reads still waiting for it.
+        for (result in listOf(first, waiting)) {
+            assertEquals("CONTROL_SERVICE_INACTIVE", result.errorCode)
+            assertEquals(1, result.completionCount)
+        }
+        val settings = RecordingResult()
+        val scenes = RecordingResult()
+        passive.requestNetworkSettings(null, settings)
+        passive.requestScenarios("""{"action":"list"}""", scenes)
+        for (result in listOf(settings, scenes)) {
+            assertEquals("CONTROL_SERVICE_INACTIVE", result.errorCode)
+            assertEquals(1, result.completionCount)
+        }
+        assertEquals(0, scheduler.pendingTimeoutCount())
+        assertTrue(flags.none { it })
+        assertTrue(passive.isBound)
+        // A creating bind can still deliver a service, so reads wait for it.
+        val save = RecordingResult()
+        passive.requestScenarios("""{"action":"save"}""", save)
+        assertTrue(passive.creatingBindingForTest())
+        val during = RecordingResult()
+        passive.requestNetworkSettings(null, during)
+        scheduler.advanceBy(9_999)
+        assertEquals(0, save.completionCount)
+        assertEquals(0, during.completionCount)
+        passive.destroy()
+        assertEquals("NETWORK_SETTINGS_UNCONFIRMED", save.errorCode)
+        assertEquals("NETWORK_SETTINGS_UNCONFIRMED", during.errorCode)
+    }
+
+    @Test
+    fun aDeliveredEndpointOrHiddenUiRetiresKnownServiceInactivity() {
+        val connections = mutableListOf<ServiceConnection>()
+        val endpoint = RecordingEndpoint()
+        val passive =
+            VpnControlClient(
+                scheduler,
+                { connection, creating ->
+                    assertFalse(creating)
+                    connections += connection
+                    true
+                },
+                {},
+                { _, _ -> endpoint },
+            )
+
+        fun binder(): IBinder =
+            java.lang.reflect.Proxy.newProxyInstance(
+                IBinder::class.java.classLoader,
+                arrayOf(IBinder::class.java),
+            ) { _, _, _ -> null } as IBinder
+
+        fun proveInactive() {
+            val read = RecordingResult()
+            passive.requestNetworkSettings(null, read)
+            assertEquals(0, read.completionCount)
+            scheduler.advanceBy(10_000)
+            assertEquals("CONTROL_SERVICE_INACTIVE", read.errorCode)
+        }
+        passive.setUiVisible(true)
+        proveInactive()
+        // A service started elsewhere reaches the retained observation.
+        connections.last().onServiceConnected(null, binder())
+        val live = RecordingResult()
+        passive.requestScenarios("""{"action":"list"}""", live)
+        assertEquals(UsqueVpnService.MSG_SCENARIOS, endpoint.messages.last().what)
+        assertEquals(0, live.completionCount)
+        // After that service is lost, only a fresh deadline proves inactivity.
+        connections.last().onServiceDisconnected(null)
+        proveInactive()
+        assertEquals("NETWORK_SETTINGS_UNCONFIRMED", live.errorCode)
+        // A stopped UI cannot observe a service that starts in the background,
+        // so neither a deadline nor earlier knowledge carries across it.
+        passive.setUiVisible(false)
+        proveInactive()
+        val hidden = RecordingResult()
+        passive.requestNetworkSettings(null, hidden)
+        assertEquals(0, hidden.completionCount)
+        passive.setUiVisible(true)
+        assertEquals(0, hidden.completionCount)
+        scheduler.advanceBy(10_000)
+        assertEquals("CONTROL_SERVICE_INACTIVE", hidden.errorCode)
+        val immediate = RecordingResult()
+        passive.requestNetworkSettings(null, immediate)
+        assertEquals("CONTROL_SERVICE_INACTIVE", immediate.errorCode)
+        assertEquals(0, scheduler.pendingTimeoutCount())
+        passive.destroy()
+    }
+
+    @Test
+    fun absentControlProcessLetsPassiveReadsFallBackWithoutADeadline() {
+        val connections = mutableListOf<ServiceConnection>()
+        val flags = mutableListOf<Boolean>()
+        val endpoint = RecordingEndpoint()
+        var absent = true
+        var checks = 0
+        val passive =
+            VpnControlClient(
+                scheduler,
+                { connection, creating ->
+                    connections += connection
+                    flags += creating
+                    true
+                },
+                {},
+                { _, _ -> endpoint },
+                controlServiceProcessAbsent = {
+                    checks++
+                    absent
+                },
+            )
+        passive.setUiVisible(true)
+        val settings = RecordingResult()
+        val scenes = RecordingResult()
+        passive.requestNetworkSettings(null, settings)
+        passive.requestScenarios("""{"action":"list"}""", scenes)
+        for (result in listOf(settings, scenes)) {
+            assertEquals("CONTROL_SERVICE_INACTIVE", result.errorCode)
+            assertEquals(1, result.completionCount)
+        }
+        assertEquals(0, scheduler.pendingTimeoutCount())
+        assertTrue(flags.none { it })
+        // The observation stays bound for a service that starts later.
+        assertTrue(passive.isBound)
+        // Writes never use saved configuration, and a creating bind can still
+        // deliver a service, so passive reads wait without consulting the process.
+        val save = RecordingResult()
+        passive.requestScenarios("""{"action":"save"}""", save)
+        assertTrue(passive.creatingBindingForTest())
+        val checked = checks
+        val during = RecordingResult()
+        passive.requestNetworkSettings(null, during)
+        assertEquals(checked, checks)
+        assertEquals(0, save.completionCount)
+        assertEquals(0, during.completionCount)
+        passive.destroy()
+        // A present process keeps the ordinary deadline until the endpoint arrives.
+        absent = false
+        val retry =
+            VpnControlClient(
+                scheduler,
+                { connection, _ ->
+                    connections += connection
+                    true
+                },
+                {},
+                { _, _ -> endpoint },
+                controlServiceProcessAbsent = { absent },
+            )
+        retry.setUiVisible(true)
+        val waiting = RecordingResult()
+        retry.requestNetworkSettings(null, waiting)
+        assertEquals(0, waiting.completionCount)
+        connections.last().onServiceConnected(
+            null,
+            java.lang.reflect.Proxy.newProxyInstance(
+                IBinder::class.java.classLoader,
+                arrayOf(IBinder::class.java),
+            ) { _, _, _ -> null } as IBinder,
+        )
+        assertEquals(UsqueVpnService.MSG_GET_SETTINGS, endpoint.messages.last().what)
+        assertEquals(0, waiting.completionCount)
+        retry.destroy()
+    }
+
+    @Test
+    fun anUnavailableProcessListKeepsTheBindDeadline() {
+        val passive =
+            VpnControlClient(
+                scheduler,
+                { _, _ -> true },
+                {},
+                { _, _ -> error("No live service") },
+                controlServiceProcessAbsent = { throw SecurityException("Process list unavailable") },
+            )
+        passive.setUiVisible(true)
+        val settings = RecordingResult()
+        passive.requestNetworkSettings(null, settings)
+        assertEquals(0, settings.completionCount)
+        scheduler.advanceBy(10_000)
+        assertEquals("CONTROL_SERVICE_INACTIVE", settings.errorCode)
+        passive.destroy()
+    }
+
+    @Test
     fun sentSettingsReadsAndUnsentWritesNeverAllowPersistedFallbackOnTimeout() {
         val endpoint = RecordingEndpoint()
         client.attachEndpointForTest(endpoint)

@@ -526,6 +526,7 @@ class AndroidEngineMethodHandlerTest {
             assertFalse(creating)
             false
         },
+        processAbsent: () -> Boolean = { false },
     ): Pair<AndroidEngineMethodHandler, VpnControlClient> {
         val local =
             VpnControlClient(
@@ -533,6 +534,7 @@ class AndroidEngineMethodHandlerTest {
                 bindService,
                 {},
                 { _, _ -> error("No live service") },
+                controlServiceProcessAbsent = processAbsent,
             )
         return AndroidEngineMethodHandler(
             profileConfigPath = "/tmp/profiles-v2.json",
@@ -567,6 +569,51 @@ class AndroidEngineMethodHandlerTest {
         assertEquals(listOf(mapOf("id" to "saved")), scenesValue["scenarios"])
         assertFalse(scenesValue.containsKey("persisted_operation_id"))
         assertEquals(2, engineBridge.persistedReadCount)
+        assertFalse(client.isBound)
+    }
+
+    @Test
+    fun coldStartWithoutTheVpnProcessReadsSavedSettingsAndScenesWithoutABindDeadline() {
+        engineBridge.persistedSettingsJson =
+            """{"source_epoch":"old-owner","sequence":7,"stored_profile":{"id":"saved"},"applied_profile":{"id":"live"},"persisted":true,"persisted_operation_ids":["op"]}"""
+        engineBridge.persistedScenariosJson =
+            """{"source_epoch":"old-owner","scenarios":[{"id":"saved","name":"Daily"}],"current_account_id":"saved","applied_scene_confirmed":true,"persisted_operation_id":"op"}"""
+        val flags = mutableListOf<Boolean>()
+        // Android accepts the observation, but no process exists to answer it.
+        val (local, client) =
+            passiveHandler(
+                bindService = { _, creating ->
+                    flags += creating
+                    true
+                },
+                processAbsent = { true },
+            )
+        client.setUiVisible(true)
+        val settings = RecordingResult()
+        val scenes = RecordingResult()
+        local.handle(MethodCall("getNetworkSettingsState", null), settings)
+        local.handle(MethodCall("scenarioCommand", mapOf("action" to "list")), scenes)
+        for (result in listOf(settings, scenes)) {
+            assertEquals(1, result.completionCount)
+            assertNull(result.errorCode)
+            val value = result.successValue as Map<*, *>
+            assertEquals(false, value["runtime_observed"])
+            assertFalse(value.containsKey("source_epoch"))
+            assertFalse(value.containsKey("applied_profile"))
+            assertFalse(value.containsKey("persisted_operation_id"))
+            assertFalse(value.containsKey("persisted_operation_ids"))
+        }
+        assertEquals(mapOf("id" to "saved"), (settings.successValue as Map<*, *>)["stored_profile"])
+        assertEquals(
+            listOf(mapOf("id" to "saved", "name" to "Daily")),
+            (scenes.successValue as Map<*, *>)["scenarios"],
+        )
+        assertEquals(2, engineBridge.persistedReadCount)
+        assertTrue(flags.isNotEmpty())
+        assertTrue(flags.none { it })
+        assertFalse(client.hasEndpoint)
+        assertEquals(0, activityCommands.connectCount)
+        client.destroy()
         assertFalse(client.isBound)
     }
 

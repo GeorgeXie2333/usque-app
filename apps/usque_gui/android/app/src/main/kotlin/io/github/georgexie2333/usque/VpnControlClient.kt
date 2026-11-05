@@ -1,5 +1,6 @@
 package io.github.georgexie2333.usque
 
+import android.app.ActivityManager
 import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
@@ -32,6 +33,7 @@ internal class VpnControlClient(
     private val clearAllTimeoutMillis: Long = CLEAR_ALL_TIMEOUT_MILLIS,
     private val reconfigureTimeoutMillis: Long = RECONFIGURE_TIMEOUT_MILLIS,
     private val nowNanos: () -> Long = System::nanoTime,
+    private val controlServiceProcessAbsent: () -> Boolean = { false },
 ) {
     companion object {
         const val SNAPSHOT_TIMEOUT_MILLIS = 2_000L
@@ -79,6 +81,15 @@ internal class VpnControlClient(
                         }
                     MessengerControlEndpoint(Messenger(binder), replyMessenger)
                 },
+                controlServiceProcessAbsent = {
+                    ControlServiceProcess.knownAbsent(
+                        context.packageName,
+                        context
+                            .getSystemService(ActivityManager::class.java)
+                            ?.runningAppProcesses
+                            ?.map { it.processName },
+                    )
+                },
             )
         }
     }
@@ -123,6 +134,7 @@ internal class VpnControlClient(
         val scenario: Boolean = false,
         var jobDomain: String? = null,
         var jobVersion: Long = 0,
+        val passive: Boolean = false,
     )
 
     private val pendingSettings = mutableMapOf<Int, SettingsRequest>()
@@ -419,13 +431,21 @@ internal class VpnControlClient(
         val creating =
             json != null && (!scenario || runCatching { JSONObject(json).optString("action") }.getOrNull() != "list")
         pendingSettings[id] =
-            SettingsRequest(json, if (creating) creatingResult(result) else result, scenario = scenario)
+            SettingsRequest(
+                json,
+                if (creating) creatingResult(result) else result,
+                scenario = scenario,
+                passive = !creating,
+            )
         postDelayed(10_000L, "settings-$id") {
             pendingSettings.remove(id)?.let { request ->
                 // A non-creating bind can be accepted without ever delivering
                 // an endpoint. Only an unsent passive read may use the saved
                 // configuration fallback; sent reads and writes stay uncertain.
                 val inactive = !creating && !request.sent
+                if (inactive && uiVisible && endpoint == null && !bindings.createsService) {
+                    controlServiceInactive = true
+                }
                 request.result.error(
                     if (inactive) "CONTROL_SERVICE_INACTIVE" else "NETWORK_SETTINGS_UNCONFIRMED",
                     if (inactive) {
@@ -436,10 +456,11 @@ internal class VpnControlClient(
                     null,
                 )
             }
+            completeInactivePassiveReads()
         }
         bind()
         flushSettings()
-        if (!creating && endpoint == null && !bindings.isBound) {
+        if (!creating && endpoint == null && (!bindings.isBound || controlServiceKnownInactive())) {
             scheduler.cancel("settings-$id")
             pendingSettings
                 .remove(
@@ -448,6 +469,30 @@ internal class VpnControlClient(
                 ?.error("CONTROL_SERVICE_INACTIVE", "No live VPN control service is available.", null)
         }
         reconcileBindings()
+    }
+
+    /**
+     * An absent control-service process, or a full passive bind deadline
+     * without an endpoint while the UI observes, shows that no control service
+     * is running. Until an endpoint arrives, a creating bind starts, or UI
+     * visibility changes, passive reads use the saved configuration
+     * immediately instead of waiting for a binding that cannot connect.
+     */
+    private fun controlServiceKnownInactive(): Boolean =
+        endpoint == null &&
+            !bindings.createsService &&
+            (controlServiceInactive || runCatching(controlServiceProcessAbsent).getOrDefault(false))
+
+    private fun completeInactivePassiveReads() {
+        if (!controlServiceKnownInactive()) return
+        pendingSettings.filterValues { it.passive && !it.sent }.keys.forEach { id ->
+            scheduler.cancel("settings-$id")
+            pendingSettings
+                .remove(
+                    id,
+                )?.result
+                ?.error("CONTROL_SERVICE_INACTIVE", "No live VPN control service is available.", null)
+        }
     }
 
     fun requestScenarios(
@@ -556,6 +601,7 @@ internal class VpnControlClient(
     private var pendingReconfigure: PendingReconfigure? = null
     private var desiredLocaleCatalog: String? = null
     private var pendingPerAppRevision: Long? = null
+    private var controlServiceInactive = false
 
     /** Guards the acknowledgement-to-local-wipe ownership transition across threads. */
     private val clearAllStateLock = Any()
@@ -750,6 +796,7 @@ internal class VpnControlClient(
     }
 
     private fun flushConnectedRequests() {
+        controlServiceInactive = false
         if (eventDeliveryWanted) registerForEvents()
         completeControlOwners()
         pendingDisconnectResult?.let { result ->
@@ -980,6 +1027,9 @@ internal class VpnControlClient(
     fun setUiVisible(visible: Boolean) {
         if (destroyed || uiVisible == visible) return
         uiVisible = visible
+        // Inactivity is known only while a visible observation stays retained.
+        // A service can start while the UI is stopped without notifying it.
+        controlServiceInactive = false
         if (eventDeliveryWanted) {
             bind()
             // The service may have dropped this subscriber while the UI was frozen,
@@ -1684,6 +1734,7 @@ internal class VpnControlClient(
         scheduler.cancel(eventRefreshToken)
         eventSubscriptionReachable = false
         endpoint = null
+        controlServiceInactive = false
         networkProbeDisconnected()
         lastSnapshot = disconnectedSnapshot()
         // stopSelf alone cannot destroy a service still retained by a creating bind.

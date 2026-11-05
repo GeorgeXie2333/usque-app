@@ -83,12 +83,19 @@ obtain a control owner for the work that needs one; ordinary observation never
 does. Active connections retain their own service lifetime independently of UI
 bindings.
 
+When Android lists no running VPN process and no creating binding is pending,
+passive settings and scene reads use saved configuration at once. A running VPN
+process proves nothing by itself because the Quick Settings tile shares it.
 If Android accepts a passive binding but never supplies a control endpoint, an
 unsent settings or scene read falls back to saved configuration at its deadline.
-Sent requests retain their uncertain result. A failed initial scene read stops
-the loading indicator and offers **Retry**, without enabling scene creation
-until current settings have been read. If a newer settings observation retires a
-pending passive scene read, the visible page requests a fresh catalogue.
+When that deadline passes while the UI is visible, it also settles other unsent
+passive reads, and later passive reads use saved configuration immediately until
+an endpoint arrives, a creating binding starts or the UI stops. Sent requests retain their uncertain result. A
+failed initial scene read stops the loading indicator and offers **Retry**,
+without enabling scene creation until current settings have been read. A saved
+scene catalogue remains visible while settings are also unobserved. Only a live
+settings observation retires a pending saved-configuration scene read, after
+which the visible page requests a fresh catalogue.
 
 配置首页顶部的状态卡展示已选场景及其状态、已选账号和当前连接，当前设置偏离所选场景时
 提供“用当前设置更新”和“另存为新场景”；下方场景列表只列出各场景与默认不同的设置。
@@ -107,10 +114,14 @@ Android 的被动观察绑定不会创建 VPN 服务。控制服务不可用时�
 用户明确刷新、恢复连接、预览并确认场景或准备草稿资源时，才为所需工作持有控制服务；
 普通观察不获取这种所有权。活动连接独立于 UI 绑定维持服务生命周期。
 
+Android 进程列表中没有 VPN 进程且没有进行中的创建型绑定时，被动的设置和场景读取
+立即使用已保存配置；快捷设置磁贴与 VPN 服务共用该进程，因此进程存在本身不能证明服务在运行。
 Android 被动绑定已受理但始终未提供控制端点时，尚未发送的设置或场景读取会在超时后
-回退读取已保存配置；已发送请求仍保留未确认状态。场景首次读取失败后停止加载动画并
-提供“重试”，读取到当前设置前不启用新建场景。
-若等待期间的设置观察使被动场景读取过期，当前可见页面会重新读取场景列表。
+回退读取已保存配置；若超时发生在 UI 可见期间，还会同时结束其他尚未发送的被动读取，
+此后在收到控制端点、开始创建型绑定或 UI 停止前，被动读取直接使用已保存配置。已发送请求仍保留未确认状态。
+场景首次读取失败后停止加载动画并提供“重试”，读取到当前设置前不启用新建场景。
+设置同样未被运行时观察时，已保存配置的场景列表保持可见；只有实时设置观察才会使等待中
+的已保存配置场景读取过期，随后当前可见页面重新读取场景列表。
 
 ## Linux desktop
 
