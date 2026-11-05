@@ -51,7 +51,7 @@ English interface previews rendered from the current source, shown disconnected.
 
 ## Download and install
 
-This branch prepares **v0.3.3 / 0.3.3+29**, bringing Linux desktop support, optional Proton VPN and improvements to everyday connections. Check [GitHub Releases](https://github.com/GeorgeXie2333/usque-app/releases) and the documentation at the matching tag for published versions. The release targets twelve user installers, plus two Windows MSI files reserved for in-app updates:
+The latest stable release is **v0.3.3**, which brought Linux desktop support, optional Proton VPN and improvements to everyday connections. This branch also contains unreleased changes planned for v0.3.4, such as local connection scenes. Check [GitHub Releases](https://github.com/GeorgeXie2333/usque-app/releases) and the documentation at the matching tag for published versions. Each release provides twelve user installers, plus two Windows MSI files reserved for in-app updates:
 
 | Platform | Minimum OS | Packages |
 | --- | --- | --- |
@@ -68,22 +68,22 @@ Pre-1.0 Windows/Android packages use fixed, project-controlled self-signed certi
 
 See [Installation and removal](docs/INSTALLATION.md) for upgrades, uninstall, recovery, and Android developer-verification details, and [Code signing](docs/CODE_SIGNING.md) for official identities. Updates require confirmation before downloading and use the platform installer; there is no unattended installation.
 
-Upgrading from v0.3.1 migrates configuration from schema 24 to 27, which v0.3.1 and older clients cannot read. Review [configuration compatibility](docs/INSTALLATION.md#configuration-compatibility-when-upgrading) and any required pre-upgrade backup before upgrading; reinstalling an older package does not reverse the migration.
+v0.3.2 and v0.3.3 use configuration schema 26; upgrading from v0.3.1 migrates schema 24 to 26, which v0.3.1 and older clients cannot read. Changes planned for v0.3.4 migrate schema 26 to 27, which v0.3.3 and older clients cannot read. Review [configuration compatibility](docs/INSTALLATION.md#configuration-compatibility-when-upgrading) and any required pre-upgrade backup before upgrading; reinstalling an older package does not reverse the migration.
 
 ## First connection
 
 1. Install a [verified official package](docs/INSTALLATION.md#verify-before-installing) and open Usque.
 2. Complete the first-run permissions and terms steps. Android setup requests only optional notifications. VPN authorization is requested when connecting with VPN output and may disconnect another VPN; proxy-only connections do not request it. Register a Consumer WARP® account, optionally with a WARP License Key. If setup was interrupted, check the saved result before registering again. Usque does not accept new WARP Secret imports.
-3. Open **Proxy**. Turn on **TUN** (Windows) or **VPN** (Android) under **Device traffic**, and the **SOCKS5 proxy** or **HTTP proxy** switch at the top of its own section, then connect from Home. These switches take effect immediately; listener address and port edits require **Apply changes**.
+3. Open **Proxy**. Turn on **TUN** (Windows/Linux) or **VPN** (Android) under **Device traffic**, and the **SOCKS5 proxy** or **HTTP proxy** switch at the top of its own section, then connect from Home. These switches take effect immediately; listener address and port edits require **Apply changes**.
 
 | Connection option | When to use it |
 | --- | --- |
 | VPN/TUN | Route system traffic through the tunnel, with your bypass and Android per-app rules. |
 | SOCKS5 | Give compatible applications a local TCP/UDP proxy; remote DNS is the default. |
 | HTTP proxy | Give compatible applications a local HTTP proxy, including HTTPS through CONNECT. |
-| Windows system proxy | Point Windows proxy settings at Usque's HTTP proxy; HTTP output must be enabled. |
+| System proxy (Windows/Linux) | Point Windows or GNOME/KDE proxy settings at Usque's HTTP proxy; HTTP output must be enabled. |
 
-VPN, SOCKS5 and HTTP are enabled by default; Windows system proxy is off.
+VPN, SOCKS5 and HTTP are enabled by default; system proxy is off.
 They share one WARP connection and can run together. Turning off every output
 keeps the WARP connection open, but no app traffic uses it.
 Each account stores its own credentials; only one account connects at a time.
@@ -140,8 +140,9 @@ are blocked instead of bypassing the tunnel.
 
 - Usque requires the WARP server's public key to match the registered key.
   There is no option to skip this check. Credentials stay in Windows Credential
-  Manager or Android Keystore. Windows uses a separate Agent for privileged
-  network operations; Android runs the VPN in a dedicated process.
+  Manager, the Linux Secret Service keyring or Android Keystore. Windows and
+  Linux use a separate Agent for privileged network operations; Android runs
+  the VPN in a dedicated process.
 - Proxies listen on loopback by default. SOCKS5 and HTTP support optional
   username/password authentication; without configured credentials they require
   no authentication. Proxy-only mode does not provide a system-wide VPN Kill Switch.

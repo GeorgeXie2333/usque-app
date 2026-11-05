@@ -57,7 +57,7 @@ Continuous connection behavior and control compatibility: [English / 简体中�
 | [Proton VPN PoC validation](PROTON_VPN_POC_VALIDATION.md) | Implementation, offline checks, rejected guest attempt and untested account path / 实现、离线检查、游客请求被拒及未实测账号路径 |
 | [Country flags](COUNTRY_FLAGS.md) | Bundled assets, attribution and update checks / 内置旗帜资源、来源与更新检查 |
 | [Release process](RELEASE.md) | Candidate preparation, approval, signing, and publication / 候选包、审批、签名与发布 |
-| [v0.3.3 readiness review](RELEASE_V0.3.3_READINESS.md) | Stable release preparation, version contract and gates / 正式版准备、版本合同与门禁 |
+| [v0.3.3 readiness review](RELEASE_V0.3.3_READINESS.md) | Published stable release preparation, version contract and gates / 已发布正式版的准备、版本合同与门禁 |
 | [v0.3.3-beta.1 readiness review](RELEASE_V0.3.3-beta.1_READINESS.md) | Three-platform prerelease, exact release-branch gates and validation limits / 三端预发布、精确发布分支门禁及验证边界 |
 | [v0.3.3-beta.2 readiness review](RELEASE_V0.3.3-beta.2_READINESS.md) | Recovery, Linux startup and Proton verification candidate review / 恢复、Linux 启动与 Proton 验证候选审查 |
 | [v0.3.2 readiness review](RELEASE_V0.3.2_READINESS.md) | Baseline and final-candidate evidence, schema-26/journal-6 compatibility and release gates / 基线与最终候选证据、schema 26／日志 6 兼容性及发布门禁 |
@@ -133,6 +133,7 @@ Common terms in these references:
 | [Chain proxy fixes](CHAIN_PROXY_FIX_VALIDATION.md) | Import, DNS, queues, authentication, multiple endpoints and candidate-specific regressions / 导入、DNS、队列、认证、多端点修复与回归 |
 | [Custom bypass validation](BYPASS_SETTINGS_VALIDATION.md) | Custom target routing, configuration compatibility, editor checks and unavailable isolated validation / 自定义目标分流、兼容性、编辑器检查及未执行的隔离验证 |
 | [Windows setup validation](WINDOWS_SETUP_VALIDATION.md) | Native setup/uninstall implementation, local checks and unavailable isolated validation / 原生安装与卸载、已执行检查与未运行的隔离验证 |
+| [Continuous connection validation](CONTINUOUS_CONNECTION_VALIDATION.md) | Recovery workstation checks, deterministic evidence and unavailable isolated validation / 持续连接的开发机检查、确定性恢复证据与未运行的隔离验证 |
 | [Chain DNS follow-up](CHAIN_DNS_VALIDATION.md) | DNS receive cancellation, TCP alternatives, and explicitly authorized SOCKS-only measurements / DNS 接收竞态、TCP 备用及无 TUN 代理实测 |
 | [WARP WireGuard validation](WARP_WIREGUARD_VALIDATION.md) | Discovery, storage, platform checks and artifact sizes / 扫描、存储、平台检查与产物体积 |
 | [WARP WireGuard registration fix](WARP_WIREGUARD_REGISTRATION_FIX.md) | wgcf registration compatibility, endpoint parsing, disconnected tasks and regression results / 注册兼容、端点解析、未连接任务与回归验证 |

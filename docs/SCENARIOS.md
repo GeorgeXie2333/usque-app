@@ -1,7 +1,8 @@
 # Profiles and scenes / 配置与场景
 
 Open **Profiles** to save and reuse a local network setup. The page opens on the
-scene list; **Manage accounts** opens its **Accounts** subpage. Home's account
+selected-scene status card above the scene list; **Manage accounts** opens its
+**Accounts** subpage. Home's account
 entry and the account launcher open that subpage directly. Home's scene entry,
 ordinary navigation and Ctrl+2 open the Profiles root. Back from Accounts returns
 to Profiles, retaining the scene list's scroll position. Desktop navigation stays
@@ -229,6 +230,8 @@ unconfirmed until the native owner confirms it again.
 
 ## Compatibility and validation / 兼容与验证
 
+Scenes are unreleased development-branch changes planned for v0.3.4; the
+published v0.3.3 does not include them and cannot read schema 27.
 Schema 27 introduces the scene library, selection and latest-switch record.
 Upgrading a configuration without scenes starts with an empty library and no
 selection, preserving existing accounts and device settings. Scenes and their
@@ -241,6 +244,8 @@ advertise no scene capability and retain account management. Scene references co
 account credentials, and scene values are excluded from logs and diagnostics.
 There is no scene synchronization, import/export or automatic network trigger.
 
+场景功能属于开发分支中计划在 v0.3.4 发布、尚未发布的改动；已发布的 v0.3.3
+不包含该功能，也无法读取 schema 27。
 Schema 27 一次引入场景库、当前选择和最近切换记录。从没有场景的配置升级时，
 场景库为空且没有选择，原账号与全局设置保持不变。场景及其快照必须包含端点和
 当前受管字段；开发期旧场景格式不提供迁移或回退。尚不支持场景的引擎仍可管理账号。

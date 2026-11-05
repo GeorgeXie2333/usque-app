@@ -5,11 +5,12 @@ Download packages from this repository's
 
 ## Version scope
 
-This development-branch guide prepares v0.3.3 / 0.3.3+29, including Linux
-desktop packages and optional Proton VPN. For an installed release, use its
-release notes and guide at the matching Git tag; consult GitHub Releases for
-published versions. Back up data before upgrading and review compatibility
-below before considering a downgrade.
+v0.3.3, published on 2026-10-26, is the latest stable release. It includes
+Linux desktop packages and optional Proton VPN. This development-branch guide
+also describes unreleased changes planned for v0.3.4, such as local connection
+scenes. For an installed release, use its release notes and guide at the
+matching Git tag; consult GitHub Releases for published versions. Back up data
+before upgrading and review compatibility below before considering a downgrade.
 
 The Windows upgrade recovery fix was introduced in v0.2.5; the multilingual EXE
 installer arrived in v0.2.6. The original v0.2.4 MSI does not have those fixes.
@@ -17,20 +18,23 @@ See [Upgrade](#upgrade) if that version cannot uninstall.
 
 ### Configuration compatibility when upgrading
 
-v0.3.1 uses configuration schema 24; v0.3.0 uses 23 and v0.2.9 uses 21.
-Current source uses schema 27: schema 25 adds the shared MASQUE TLS fingerprint,
-schema 26 adds optional IPv6 endpoint presets, and schema 27 adds local
-[connection scenes](SCENARIOS.md) without changing existing network settings.
-Scene templates and snapshots use one format with required endpoints. Obsolete
-development scene formats are not migrated. Clients supporting schema 26 cannot
-read schema 27. Migrated and new
-configurations use the Chrome 155 fingerprint unless you had explicitly chosen
-another one; the original handshake is now labeled unsafe. Older configurations
-start without an IPv6 preset. Other settings migrate as before.
+v0.3.2 and v0.3.3 use configuration schema 26; v0.3.1 uses 24, v0.3.0 uses 23
+and v0.2.9 uses 21. Current source, planned for v0.3.4, uses schema 27: schema
+25 adds the shared MASQUE TLS fingerprint, schema 26 adds optional IPv6 endpoint
+presets, and schema 27 adds local [connection scenes](SCENARIOS.md) without
+changing existing network settings. Scene templates and snapshots use one
+format with required endpoints. Obsolete development scene formats are not
+migrated. Clients supporting schema 26, including v0.3.3, cannot read schema 27.
+Migrated and new configurations use the Chrome 155 fingerprint unless you had
+explicitly chosen another one; the original handshake is now labeled unsafe.
+Older configurations start without an IPv6 preset. Other settings migrate as
+before.
 
-The newer app saves the migrated configuration on first launch, and v0.3.1 or
-older cannot read it. The same applies to the Windows recovery journal (version
-6). Windows rejects installer downgrades, and there is no reverse migration.
+The newer app saves the migrated configuration on first launch. v0.3.1 or older
+cannot read a schema-26 configuration, and v0.3.3 or older cannot read schema 27.
+v0.3.1 or older also cannot read the Windows recovery journal version 6 used
+since v0.3.2. Windows rejects installer downgrades, and there is no reverse
+migration.
 
 If you may need to go back to an older version, back up the old installation
 and user data, including the platform-protected credentials, before upgrading,
@@ -50,7 +54,7 @@ official fix.
 | Android / Android TV | Android 8.0, API 26 or later | APK matching the device's CPU architecture |
 | Android / Android TV, architecture unknown | Android 8.0, API 26 or later | Larger universal APK containing all three architectures |
 
-### Package names (v0.3.3 candidate)
+### Package names (v0.3.3)
 
 - `usque-v0.3.3-windows-x64-v2.exe`
 - `usque-v0.3.3-windows-arm64.exe`
@@ -71,7 +75,7 @@ validation packages and files from other sites are not official releases.
 ## Verify before installing
 
 Download the package and `SHA256SUMS` from the same release. The examples below
-use the v0.3.3 candidate names; substitute the exact filename and published tag you
+use the v0.3.3 names; substitute the exact filename and published tag you
 downloaded. These commands inspect files without installing or running them.
 
 ### Check the file SHA-256
@@ -346,8 +350,8 @@ under **Connection & protection**.
 
 This setting is shared across accounts and takes effect when the VPN is on.
 When off, every app uses the VPN. When on, only checked apps use it; newly
-installed apps must be selected. **Select all** checks the apps currently shown
-and does not disable the filter. Usque itself is not listed.
+installed apps must be selected. **Select visible** checks the apps currently
+shown and does not disable the filter. Usque itself is not listed.
 
 With **Block connections without VPN** enabled, unchecked apps are blocked
 instead of using the network directly.

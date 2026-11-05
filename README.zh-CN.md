@@ -51,7 +51,7 @@ Usque 为独立项目，与 Cloudflare, Inc. 无隶属、赞助或背书关系�
 
 ## 下载与安装
 
-本分支准备 **v0.3.3 / 0.3.3+29**，带来 Linux 桌面版、可选 Proton VPN 和日常连接体验改进。已发布版本请以 [GitHub Releases](https://github.com/GeorgeXie2333/usque-app/releases) 及对应标签下文档为准。本版计划提供十二种用户安装入口，另有两个仅供应用内更新使用的 Windows MSI 文件：
+最新正式版为 **v0.3.3**，带来了 Linux 桌面版、可选 Proton VPN 和日常连接体验改进。本分支还包含计划在 v0.3.4 发布、尚未发布的改动，例如本机连接场景。已发布版本请以 [GitHub Releases](https://github.com/GeorgeXie2333/usque-app/releases) 及对应标签下文档为准。每个版本提供十二种用户安装入口，另有两个仅供应用内更新使用的 Windows MSI 文件：
 
 | 平台 | 最低系统 | 安装包 |
 | --- | --- | --- |
@@ -68,22 +68,22 @@ Linux 提供通用 x86-64 与 ARM64 的 AppImage/deb/rpm，请在安装前验证
 
 升级、卸载、恢复及 Android 开发者验证说明见[安装指南](docs/INSTALLATION.md)，官方签名身份见[代码签名策略](docs/CODE_SIGNING.md)。更新下载需要用户确认，安装通过平台安装程序完成，不会未经确认自动安装。
 
-从 v0.3.1 升级会将配置从 schema 24 迁移至 27，v0.3.1 及更早客户端无法读取。升级前请查看[配置兼容性](docs/INSTALLATION.md#configuration-compatibility-when-upgrading)并安排所需备份；重新安装旧版不会逆转迁移。
+v0.3.2 和 v0.3.3 使用配置 schema 26；从 v0.3.1 升级会将 schema 24 迁移至 26，v0.3.1 及更早客户端无法读取。计划在 v0.3.4 发布的改动会将 schema 26 迁移至 27，v0.3.3 及更早客户端无法读取。升级前请查看[配置兼容性](docs/INSTALLATION.md#configuration-compatibility-when-upgrading)并安排所需备份；重新安装旧版不会逆转迁移。
 
 ## 首次连接
 
 1. 按[安装指南](docs/INSTALLATION.md#verify-before-installing)核验正式安装包，安装后打开 Usque。
 2. 完成首次启动的权限与条款步骤。Android 引导只申请可选通知权限，连接需要 VPN 输出时才申请系统授权，授权可能断开其他 VPN；仅本地代理连接不申请。注册个人版 WARP® 账号，也可以填写 WARP License Key。若设置中断，先检查已保存结果再重新注册。目前不支持导入新的 WARP Secret。
-3. 打开“代理”，在“本机流量”中开启“虚拟网卡”（Windows）或“VPN”（Android），并在各自分组顶部开启“SOCKS5 代理”或“HTTP 代理”，然后在主页连接。开关立即生效，监听地址和端口的修改需要点击“应用修改”。
+3. 打开“代理”，在“本机流量”中开启“虚拟网卡”（Windows/Linux）或“VPN”（Android），并在各自分组顶部开启“SOCKS5 代理”或“HTTP 代理”，然后在主页连接。开关立即生效，监听地址和端口的修改需要点击“应用修改”。
 
 | 联网方式 | 用途 |
 | --- | --- |
 | VPN/TUN | 让系统流量经过隧道，并遵循绕过规则和 Android 分应用设置。 |
 | SOCKS5 | 为支持它的应用提供本地 TCP/UDP 代理，默认通过远程 DNS 查询域名。 |
 | HTTP 代理 | 为支持它的应用提供本地 HTTP 代理，也支持通过 CONNECT 访问 HTTPS。 |
-| Windows 系统代理 | 将 Windows 的代理设置指向 Usque；需同时启用 HTTP 代理。 |
+| 系统代理（Windows/Linux） | 将 Windows 或 GNOME/KDE 的代理设置指向 Usque；需同时启用 HTTP 代理。 |
 
-VPN、SOCKS5 和 HTTP 默认开启，Windows 系统代理默认关闭。它们共用一条 WARP 连接，可以同时使用。
+VPN、SOCKS5 和 HTTP 默认开启，系统代理默认关闭。它们共用一条 WARP 连接，可以同时使用。
 全部关闭后，WARP 连接仍会保持，但不再承载任何应用流量。
 每个账号单独保存凭据，一次只能使用一个账号连接；网络设置由所有账号共享。
 
@@ -122,8 +122,8 @@ Android 的“分应用代理”对所有账号生效。关闭时，所有应用
 
 ## 隐私与限制
 
-- 强制校验 WARP 服务端公钥，不提供跳过校验的选项。凭据保存在 Windows 凭据管理器或 Android Keystore 中。
-  Windows 由独立 Agent 执行需要管理员权限的网络操作；Android 使用独立的 VPN 进程。
+- 强制校验 WARP 服务端公钥，不提供跳过校验的选项。凭据保存在 Windows 凭据管理器、Linux Secret Service 钥匙串或 Android Keystore 中。
+  Windows 和 Linux 由独立 Agent 执行需要管理员权限的网络操作；Android 使用独立的 VPN 进程。
 - 代理默认仅供本机使用。SOCKS5 和 HTTP 支持可选的用户名、密码认证；未配置凭据时不要求认证。
   仅使用代理不能提供系统级 VPN 断网保护。
 - 诊断在本地生成并脱敏，不进行用户行为统计，也不自动上传。网络质量历史只保留在内存中。
