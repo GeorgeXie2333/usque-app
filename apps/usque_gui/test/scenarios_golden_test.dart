@@ -10,7 +10,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:usque/models/app_models.dart';
 import 'package:usque/widgets/home/home_phone.dart';
 
-import 'scenarios_test.dart' show SceneEngine;
+import 'scenarios_test.dart'
+    show SceneEngine, confirmRichScenes, richSceneEngine;
 import 'ui_workflow_test.dart' show pumpWorkflow, workflowHost;
 
 void main() {
@@ -173,6 +174,30 @@ void main() {
       }),
     );
   }
+  testWidgets(
+    'scene golden profiles_scenes_modified_desktop',
+    (tester) async {
+      // A drifted selection with a running session and differing rows.
+      final engine = richSceneEngine();
+      final app = await pumpWorkflow(
+        tester,
+        engine,
+        section: AppSection.profiles,
+        size: const Size(1280, 900),
+      );
+      app.localePreference = LocalePreference.english;
+      await confirmRichScenes(engine, app);
+      await tester.pumpWidget(workflowHost(app));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      await expectLater(
+        find.byType(MaterialApp),
+        matchesGoldenFile('goldens/profiles_scenes_modified_desktop.png'),
+      );
+    },
+    skip: !Platform.isWindows,
+    variant: TargetPlatformVariant.only(TargetPlatform.windows),
+  );
   for (final scale in [1.0, 2.0]) {
     testWidgets(
       'phone scene status card at text scale $scale',

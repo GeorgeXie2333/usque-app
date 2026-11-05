@@ -1,6 +1,7 @@
 // Scene translations share the keys and placeholders of kScenarioEn.
 
 const kScenarioJa = <String, String>{
+  'scenario_fact': '{label}：{value}',
   'scenario_platform_unsupported': 'このシーンには、このデバイスで利用できない設定が含まれています。',
   'scenario_limit': "シーンライブラリが上限を超えています。不要なシーンを削除してください。",
   'scenario_vpn_permission': "先に切断してこのシーンを選択し、再接続して VPN の使用を許可してください。",
@@ -71,6 +72,7 @@ const kScenarioJa = <String, String>{
 };
 
 const kScenarioKo = <String, String>{
+  'scenario_fact': '{label}: {value}',
   'scenario_platform_unsupported': '이 시나리오에는 이 기기에서 사용할 수 없는 설정이 있습니다.',
   'scenario_limit': "시나리오 라이브러리가 한도를 초과했습니다. 사용하지 않는 시나리오를 삭제하세요.",
   'scenario_vpn_permission': "먼저 연결을 해제하고 이 시나리오를 선택한 뒤, 연결하여 VPN 권한을 허용하세요.",
@@ -144,6 +146,7 @@ const kScenarioKo = <String, String>{
 };
 
 const kScenarioEs = <String, String>{
+  'scenario_fact': '{label}: {value}',
   'scenario_platform_unsupported':
       'Esta escena contiene un ajuste no disponible en este dispositivo.',
   'scenario_limit':
@@ -231,6 +234,7 @@ const kScenarioEs = <String, String>{
 };
 
 const kScenarioPt = <String, String>{
+  'scenario_fact': '{label}: {value}',
   'scenario_platform_unsupported':
       'Esta cena contém uma definição indisponível neste dispositivo.',
   'scenario_limit':
@@ -318,6 +322,7 @@ const kScenarioPt = <String, String>{
 };
 
 const kScenarioFr = <String, String>{
+  'scenario_fact': '{label} : {value}',
   'scenario_platform_unsupported':
       'Cette scène contient un réglage indisponible sur cet appareil.',
   'scenario_limit':
@@ -405,6 +410,7 @@ const kScenarioFr = <String, String>{
 };
 
 const kScenarioNl = <String, String>{
+  'scenario_fact': '{label}: {value}',
   'scenario_platform_unsupported':
       'Deze scène bevat een instelling die op dit apparaat niet beschikbaar is.',
   'scenario_limit':
@@ -492,6 +498,7 @@ const kScenarioNl = <String, String>{
 };
 
 const kScenarioTr = <String, String>{
+  'scenario_fact': '{label}: {value}',
   'scenario_platform_unsupported':
       'Bu sahne, bu cihazda kullanılamayan bir ayar içeriyor.',
   'scenario_limit':
@@ -577,6 +584,7 @@ const kScenarioTr = <String, String>{
 };
 
 const kScenarioRu = <String, String>{
+  'scenario_fact': '{label}: {value}',
   'scenario_platform_unsupported':
       'Этот сценарий содержит настройку, недоступную на этом устройстве.',
   'scenario_limit':
@@ -664,6 +672,7 @@ const kScenarioRu = <String, String>{
 };
 
 const kScenarioDe = <String, String>{
+  'scenario_fact': '{label}: {value}',
   'scenario_platform_unsupported':
       'Diese Szene enthält eine Einstellung, die auf diesem Gerät nicht verfügbar ist.',
   'scenario_limit':
@@ -752,6 +761,7 @@ const kScenarioDe = <String, String>{
 };
 
 const kScenarioIt = <String, String>{
+  'scenario_fact': '{label}: {value}',
   'scenario_platform_unsupported':
       'Questa scena contiene un’impostazione non disponibile su questo dispositivo.',
   'scenario_limit':
@@ -838,6 +848,7 @@ const kScenarioIt = <String, String>{
 };
 
 const kScenarioPl = <String, String>{
+  'scenario_fact': '{label}: {value}',
   'scenario_platform_unsupported':
       'Ta scena zawiera ustawienie niedostępne na tym urządzeniu.',
   'scenario_limit': "Biblioteka scen przekracza limit. Usuń nieużywaną scenę.",

@@ -31,7 +31,8 @@ import 'package:usque/widgets/window_titlebar.dart';
 
 import 'app_test.dart' show FakeEngineClient;
 import 'quality_test_support.dart' show qualityFixture;
-import 'scenarios_test.dart' show SceneEngine;
+import 'scenarios_test.dart'
+    show SceneEngine, confirmRichScenes, richSceneEngine;
 import 'support/linux_golden_support.dart';
 import 'ui_workflow_test.dart' show pumpWorkflow, workflowHost;
 
@@ -1316,6 +1317,44 @@ void main() {
               await tester.tap(account);
               await tester.pumpAndSettle();
             }
+            expect(tester.takeException(), isNull);
+            expect(find.byType(ErrorWidget), findsNothing);
+            await expectLater(
+              find.byType(MaterialApp),
+              matchesGoldenFile('goldens/linux/${fixture.name}.png'),
+            );
+          },
+          variant: const TargetPlatformVariant({TargetPlatform.linux}),
+          tags: const ['golden', 'linux-golden'],
+        );
+      }
+      // A drifted selection with a running session and differing rows.
+      for (final fixture in [
+        (
+          name: 'profiles_scenes_modified_desktop_en_light',
+          size: const Size(1280, 900),
+          locale: LocalePreference.english,
+        ),
+        (
+          name: 'profiles_scenes_modified_narrow_zh_light',
+          size: const Size(390, 844),
+          locale: LocalePreference.simplifiedChinese,
+        ),
+      ]) {
+        testWidgets(
+          fixture.name,
+          (tester) async {
+            final engine = richSceneEngine();
+            final app = await pumpWorkflow(
+              tester,
+              engine,
+              section: AppSection.profiles,
+              size: fixture.size,
+            );
+            app.localePreference = fixture.locale;
+            await confirmRichScenes(engine, app);
+            await tester.pumpWidget(workflowHost(app));
+            await tester.pumpAndSettle();
             expect(tester.takeException(), isNull);
             expect(find.byType(ErrorWidget), findsNothing);
             await expectLater(

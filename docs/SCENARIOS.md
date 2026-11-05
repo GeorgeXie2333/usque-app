@@ -7,16 +7,29 @@ ordinary navigation and Ctrl+2 open the Profiles root. Back from Accounts return
 to Profiles, retaining the scene list's scroll position. Desktop navigation stays
 visible; phones hide bottom navigation on subpages. Leaving an editor first checks
 its unsaved changes, including when opening Accounts from another entry.
-The top of the page shows the selected scene and account and, while a session
-exists, the confirmed current connection, with a refresh button. Engines
-without scenes continue to show account management at the root.
+The page heading holds **Manage accounts** and **New scene**. A status card at
+the top shows the selected scene with its state (for example **Modified** or
+**Applied**), the selected account and, while a session exists, the confirmed
+current connection, with a refresh button. When the current settings differ
+from the selected scene, the card offers **Update from current settings** and
+**Save as a new scene**; after a switch it also offers **Restore previous
+settings**. Each scene row lists what sets it apart: the exit, the endpoint,
+a non-default transport or IP version, and a bound account. The selected row
+offers **Use scene** again only when using it would change something. An empty
+library shows **New scene** in its empty state. Engines without scenes continue
+to show account management at the root.
 
 在 **配置** 首页保存和使用本机网络场景，通过 **账号管理** 打开 **账号** 二级页。
 首页账号入口和账号启动入口直达账号页；首页场景入口、普通导航和 Ctrl+2 均打开
 配置首页。账号页返回配置首页并保留场景列表的滚动位置。桌面保留侧栏，手机在
 子页面隐藏底部导航。离开编辑器时先检查未保存修改，从其他入口打开账号页也遵循
-同一保护。页面顶部显示已选场景、已选账号；存在会话时还显示已确认的当前连接，
-旁边提供刷新按钮。不支持场景的引擎继续在配置首页提供账号管理。
+同一保护。页头提供 **账号管理** 和 **新建场景**。顶部状态卡显示已选场景及其状态
+（如 **已修改**、**已应用**）、已选账号；存在会话时还显示已确认的当前连接，旁边
+提供刷新按钮。当前设置与所选场景不同时，状态卡提供 **用当前设置更新** 和
+**另存为新场景**；切换后还提供 **恢复切换前配置**。每个场景行列出其区别：出口、
+端点、非默认的传输协议或 IP 版本，以及绑定账号。已选场景只有在再次使用会产生
+变化时才显示 **使用场景**。场景库为空时，**新建场景** 位于空状态中。不支持场景的
+引擎继续在配置首页提供账号管理。
 
 The Accounts page supports account creation, identity setup, renaming, licenses
 and deletion. **Set active** changes the current account and confirms reconnection
@@ -127,8 +140,9 @@ you edit and save it again. A new binding must name an existing account.
 Choose **Use scene**, review the account and settings changes, then confirm.
 The preview states first whether the connection stays disconnected, applies to
 new connections or may reconnect, and shows any Kill Switch warning before the
-changed fields. A selected scene that differs from the current settings also
-offers **Update from current settings** in its row.
+changed fields. When the current settings differ from the selected scene, the
+status card offers **Update from current settings**, which previews the changed
+fields before saving them into the scene, and **Save as a new scene**.
 The native owner submits the account and network settings together. When
 disconnected, selecting a scene leaves the connection disconnected. While
 connected, the preview identifies whether reconnection is needed. Hot routing
@@ -136,8 +150,8 @@ updates apply to new connections; existing streams can retain their old paths.
 Reconnect when all connections need to adopt the new settings.
 
 选择 **使用场景**，检查账号和设置变更后确认。预览先说明保持断开、对新连接生效
-还是可能重连，并在变更字段前显示 Kill Switch 提示。已选场景与当前设置不同时，
-该行还提供 **用当前设置更新**。原生层一次提交账号和网络设置。
+还是可能重连，并在变更字段前显示 Kill Switch 提示。当前设置与所选场景不同时，状态卡提供
+**用当前设置更新**（保存前列出变更字段）和 **另存为新场景**。原生层一次提交账号和网络设置。
 未连接时选择场景保持断开；连接中会按差异应用或重连。规则热更新对新连接生效，
 已有连接可能保持原路径；需要统一切换时应重连。
 

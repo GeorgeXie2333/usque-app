@@ -1,5 +1,6 @@
 // Localized connection-scene labels; placeholders match the English catalogue.
 const kScenarioZhTw = <String, String>{
+  'scenario_fact': '{label}：{value}',
   'scenario_platform_unsupported': '此情境包含目前裝置不支援的設定。',
   'scenario_limit': "情境庫超過限制，請刪除不再使用的情境。",
   'scenario_vpn_permission': '請先中斷連線、選擇此情境，再連線以完成 VPN 授權。',
@@ -69,6 +70,7 @@ const kScenarioZhTw = <String, String>{
 };
 
 const kScenarioAr = <String, String>{
+  'scenario_fact': '{label}: {value}',
   'scenario_platform_unsupported':
       'يحتوي هذا المشهد على إعداد غير متاح على هذا الجهاز.',
   'scenario_limit':
@@ -153,6 +155,7 @@ const kScenarioAr = <String, String>{
 };
 
 const kScenarioFa = <String, String>{
+  'scenario_fact': '{label}: {value}',
   'scenario_platform_unsupported':
       'این سناریو تنظیمی دارد که در این دستگاه در دسترس نیست.',
   'scenario_limit':
@@ -239,6 +242,7 @@ const kScenarioFa = <String, String>{
 };
 
 const kScenarioId = <String, String>{
+  'scenario_fact': '{label}: {value}',
   'scenario_platform_unsupported':
       'Skenario ini berisi pengaturan yang tidak tersedia di perangkat ini.',
   'scenario_limit':
@@ -326,6 +330,7 @@ const kScenarioId = <String, String>{
 };
 
 const kScenarioTh = <String, String>{
+  'scenario_fact': '{label}: {value}',
   'scenario_platform_unsupported':
       'สถานการณ์นี้มีการตั้งค่าที่อุปกรณ์นี้ไม่รองรับ',
   'scenario_limit': "คลังสถานการณ์เกินขีดจำกัด โปรดลบสถานการณ์ที่ไม่ได้ใช้",
@@ -409,6 +414,7 @@ const kScenarioTh = <String, String>{
 };
 
 const kScenarioUk = <String, String>{
+  'scenario_fact': '{label}: {value}',
   'scenario_platform_unsupported':
       'Цей сценарій містить налаштування, недоступне на цьому пристрої.',
   'scenario_limit':
@@ -496,6 +502,7 @@ const kScenarioUk = <String, String>{
 };
 
 const kScenarioVi = <String, String>{
+  'scenario_fact': '{label}: {value}',
   'scenario_platform_unsupported':
       'Kịch bản này có thiết lập không khả dụng trên thiết bị này.',
   'scenario_limit':
@@ -582,6 +589,7 @@ const kScenarioVi = <String, String>{
 };
 
 const kScenarioZhHk = <String, String>{
+  'scenario_fact': '{label}：{value}',
   'scenario_platform_unsupported': '此情境包含目前裝置不支援的設定。',
   'scenario_limit': "情境庫超過限制，請刪除不再使用的情境。",
   'scenario_vpn_permission': '請先中斷連線、選擇此情境，再連線以完成 VPN 授權。',

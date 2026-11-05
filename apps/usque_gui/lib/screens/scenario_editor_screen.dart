@@ -304,6 +304,8 @@ class _ScenarioEditorScreenState extends State<ScenarioEditorScreen> {
           Expanded(
             child: PageFrame(
               title: _savedScene?.name ?? s.get('scenario_create'),
+              // The scope of the whole template, not of any one field.
+              subtitle: s.get('scenario_global_hint'),
               contentWidth: 880,
               header: Align(
                 alignment: AlignmentDirectional.centerStart,
@@ -344,15 +346,20 @@ class _ScenarioEditorScreenState extends State<ScenarioEditorScreen> {
                           : bound?.name ?? s.get('scenario_reference_missing'),
                       onTap: _saving ? null : _chooseAccount,
                     ),
-                    const SizedBox(height: 12),
-                    HintText(s.get('scenario_global_hint')),
-                    const SizedBox(height: 28),
-                    SwitchListTile.adaptive(
-                      key: const ValueKey('scenario-chain-toggle'),
-                      contentPadding: EdgeInsets.zero,
-                      title: Text(s.chain('enable')),
-                      value: _draft.chainEnabled,
-                      onChanged: _saving ? null : _toggleChain,
+                    const SizedBox(height: 20),
+                    // The switch shares the link rows' icon and text columns.
+                    RowTileTheme(
+                      child: Padding(
+                        padding: RowInsets.tile,
+                        child: SwitchListTile.adaptive(
+                          key: const ValueKey('scenario-chain-toggle'),
+                          contentPadding: EdgeInsets.zero,
+                          secondary: const Icon(LucideIcons.link),
+                          title: Text(s.chain('enable')),
+                          value: _draft.chainEnabled,
+                          onChanged: _saving ? null : _toggleChain,
+                        ),
+                      ),
                     ),
                     if (_draft.chainEnabled) ...[
                       LinkRow(
@@ -369,8 +376,13 @@ class _ScenarioEditorScreenState extends State<ScenarioEditorScreen> {
                         ),
                         onTap: _saving ? null : _chooseChain,
                       ),
-                      const SizedBox(height: 8),
-                      HintText(s.get('scenario_library_hint')),
+                      Padding(
+                        padding: const EdgeInsetsDirectional.only(
+                          start: RowInsets.horizontal + RowInsets.textIndent,
+                          top: 4,
+                        ),
+                        child: HintText(s.get('scenario_library_hint')),
+                      ),
                     ],
                     const SizedBox(height: 28),
                     ScenarioEndpointEditor(

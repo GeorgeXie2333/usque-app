@@ -2,6 +2,7 @@ import 'scenarios_asia.dart';
 import 'scenarios_europe.dart';
 
 const kScenarioEn = <String, String>{
+  'scenario_fact': '{label}: {value}',
   'scenario_platform_unsupported':
       'This scene contains a setting unavailable on this device.',
   'scenario_limit':
@@ -88,6 +89,7 @@ const kScenarioEn = <String, String>{
 };
 
 const kScenarioZhCn = <String, String>{
+  'scenario_fact': '{label}：{value}',
   'scenario_platform_unsupported': '此场景包含当前设备不支持的设置。',
   'scenario_limit': "场景库超过限制，请删除不再使用的场景。",
   'profiles': '配置',
