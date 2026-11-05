@@ -128,7 +128,7 @@ Network settings are shared by all accounts.
   **Ctrl+1–4** selects pages, **Ctrl+S** applies changes, and **F5** refreshes VPN Gate or diagnostics. See [tray and keyboard controls](docs/INSTALLATION.md#tray-and-keyboard-controls).
   Android Quick Settings tile, launcher shortcuts, boot recovery and TV navigation.
   Twenty-one languages, with light and dark themes.
-- Consumer WARP Secret export to a file you choose, after confirmation. Usque
+- Consumer WARP login information (WARP Secret) export to a file you choose, after confirmation. Usque
   cannot import that file to restore the account after reinstalling.
 
 Android **Per-app proxy** applies to the whole app, across accounts. When off,

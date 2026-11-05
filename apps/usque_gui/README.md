@@ -25,11 +25,33 @@ translatable resources. The Proton widget tests exercise all 21 locales at 200%
 text size, including RTL. Product names, protocol names and words spelled the
 same in the target language are not missing translations.
 
+Terminology rules for every locale:
+
+- Use one term per concept within a catalog: account, server (never also
+  "node"), the bypass/direct root shared by the Bypass page and the **Direct**
+  action, diagnostic bundle, License Key (translated), WARP login information,
+  and IP version (never "address family"; Simplified Chinese uses **IP 类型**).
+- Don't show internal names: Engine, outputs, identity, draft, association,
+  challenge. Point to updates as "this version of Usque" instead of the Engine.
+- Instructions that name Android switches quote the exact AOSP Settings names
+  for that locale ("Always-on VPN", "Block connections without VPN").
+- Screen references match the labels in the same catalog. The short navigation
+  labels (`nav_*`) are deliberately compact for the phone bar and can differ
+  from the page titles.
+- Each catalog uses one form of address, the form used by the core screens.
+
 新增界面文案时需同时维护全部 21 个语言目录。Proton 分别使用各语言词表，香港和
 台湾繁体使用对应措辞。国家／地区名称完整覆盖现有的 249 个 ISO 代码；分流搜索
 支持本地化名称、英文名和代码，VPN Gate 筛选复用同一名称表。服务商提供的节点名
 和城市名保留原数据。翻译覆盖测试检查目录、键、占位符和实际取词结果，Proton
 界面测试覆盖全部语言的 200% 字号及从右到左布局。
+
+各语言统一术语：同一目录内每个概念只用一个词，包括账号、服务器（不混用“节点”）、
+与“直连”动作同根的分流用词、诊断包、许可证密钥（需翻译）、WARP 登录信息和 IP 类型
+（不用“地址族”）。界面不出现引擎、输出、身份、草稿等内部名称，提示更新时写
+“此版本的 Usque”。指引用户打开 Android 系统开关时，引用该语言 AOSP 设置的原文名称。
+引用的页面名须与同一目录中的标签一致；导航短标签（`nav_*`）为手机底栏刻意从简，
+可与页面标题不同。每个目录只用一种称呼方式，以核心页面为准。
 
 ## Profiles and scene drafts
 
@@ -39,7 +61,7 @@ selection, IPv4/IPv6, port and SNI, with an optional preset. Native previews and
 restore use effective account endpoints, and Zero Trust overrides follow
 Advanced's account-scoped merge.
 
-The second destination is **Profiles** (**配置** in Simplified Chinese), opening
+The second destination is **Profiles** (**场景** in Simplified Chinese, **プロファイル** in Japanese), opening
 on a selected-scene status card above the scene list, with **Manage accounts**
 and **New scene** in the page heading. Accounts opens as
 a standard subpage with its own create action, live account list and operation
@@ -98,10 +120,10 @@ scene catalogue remains visible while settings are also unobserved. Only a live
 settings observation retires a pending saved-configuration scene read, after
 which the visible page requests a fresh catalogue.
 
-配置首页顶部的状态卡展示已选场景及其状态、已选账号和当前连接，当前设置偏离所选场景时
+场景首页顶部的状态卡展示已选场景及其状态、已选账号和当前连接，当前设置偏离所选场景时
 提供“用当前设置更新”和“另存为新场景”；下方场景列表只列出各场景与默认不同的设置。
 页头的“账号管理”打开账号二级页，“新建场景”与之并列。首页账号和账号启动入口直达
-账号页，返回回到配置首页；普通导航和 Ctrl+2 均回到配置首页，离开编辑器仍检查草稿。
+账号页，返回回到场景首页；普通导航和 Ctrl+2 均回到场景首页，离开编辑器仍检查草稿。
 配置页与首页都以引擎确认状态区分已选目标和当前连接。场景编辑保留独立草稿，
 账号默认沿用当前选择，也可绑定指定账号；保存模板不会改变连接。场景只管理账号绑定、
 链式代理、端点、IP 策略与传输协议，输出、局域网、广告、分流和 DNS 保持全局。
@@ -262,7 +284,7 @@ Fire OS 输入法实测。
 - Proxy addresses and ports are drafts until **Apply changes** succeeds. The page has no DNS mode picker or DNS address editor: new configurations use remote resolution through the current exit (WARP DNS for ordinary connections, final-exit DNS for chains). Existing DNS settings remain compatible internally; the page has no DNS migration status or restore action. Listener edits preserve the latest confirmed DNS mode and addresses. Existing local-DNS risk warnings still reflect the saved configuration. Credentials use their separate tonal **Save username and password** action and never enter the network draft. The apply bar, aligned with the 880-pixel form column, appears only while there are edits, a save in progress, or a result to report.
 - 代理页不再提供 DNS 方式、地址编辑、迁移提示或恢复操作。默认通过当前出口解析；旧配置由底层兼容，监听地址修改不会改写 DNS 配置。
 - Advanced settings have an apply bar, aligned with the 880-pixel form column, that appears only while there are edits, a save in progress, or a result to report, and a back-navigation guard for unapplied edits. Reset loads defaults into the draft; it does not apply them immediately. Sections follow topic order: Routing & protection (local network, Disable QUIC), then an untitled caution, WARP DNS, Direct DNS, Endpoint (Automatic/Custom, addresses, port, SNI, endpoint IP version) and Transport (protocol, congestion control beside MTU). Explanations use muted hint text under their controls; the four dropdowns use the typed-value style through `FieldDropdown` so a picker beside a text field keeps the same height. Validation focuses the first invalid field in page order.
-- 高级网络设置按主题排列：路由与保护、风险提示、WARP DNS、直连 DNS、端点（含端点 IP 版本）、传输协议（拥塞控制与 MTU 并排）。说明文字统一为灰色提示，校验时按页面顺序聚焦第一个错误字段。
+- 高级网络设置按主题排列：路由与保护、风险提示、WARP DNS、直连 DNS、端点（含端点 IP 偏好）、传输协议（拥塞控制与 MTU 并排）。说明文字统一为灰色提示，校验时按页面顺序聚焦第一个错误字段。
 - Endpoint selection defaults to **Automatic** for new installations and staged resets. **Custom** retains manually saved IPv4/IPv6 addresses; switching the picker keeps address drafts. Automatic saves retain the confirmed custom pair, while port and SNI remain editable (L4 keeps its identity-derived SNI). Existing configurations migrate to Custom; Zero Trust keeps account-specific manual addresses: use **Edit Zero Trust endpoints**, read the red fullscreen warning and acknowledge the risks and access authorization before editing. Each page visit requires confirmation. Reset stages registered addresses and sign-in restores them, clearing the override. See [automatic endpoints](../../docs/NETWORK_SETTINGS.md#automatic-endpoints--自动选择端点).
 - Custom → **Built-in presets** offers United States, Germany and Finland with a shared country and automatic matching to the authenticated account. The compact picker shows the country and a short IPv6-only hint; incompatible IP policies open a two-choice IPv6 dialog. Prefer IPv6 can fall back to the retained IPv4 after retryable failures, with one short status message. Presets resolve on each connection and do not show manual ZT risk warnings; manual editing and actual manually overridden ZT IPv4 fallback retain those warnings. See [built-in presets](../../docs/NETWORK_SETTINGS.md#built-in-ipv6-presets--内置-ipv6-预设).
 - 自定义端点的“内置预设”提供美国、德国、芬兰，国家共享，按已验证的账号自动匹配。界面显示国家和“仅使用 IPv6 端点”简短说明；选择时按需引导 IPv6 策略，优先 IPv6 可回退原 IPv4。内置预设免手动端点风险确认，手动填写及实际手动 ZT IPv4 回退仍沿用风险提示。
