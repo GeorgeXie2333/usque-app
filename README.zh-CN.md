@@ -20,10 +20,6 @@
 </p>
 
 <p align="center">
-  <strong>一条 WARP® 连接，三种用法：系统 VPN、SOCKS5 与 HTTP 代理。</strong>
-</p>
-
-<p align="center">
   兼容 Cloudflare® WARP® 服务的非官方客户端，支持 Windows、Linux 和 Android / Android TV，<br>
   采用原生 Flutter 界面与 Rust MASQUE 引擎。
 </p>
@@ -63,17 +59,17 @@
 
 <p align="center"><sub>当前源码渲染的英文界面预览，使用示例数据。</sub></p>
 
-## 亮点
+## 概览
 
-- **VPN 与代理共用一条连接** — 系统 VPN（虚拟网卡）、SOCKS5 和 HTTP 代理共用一条 WARP 连接，可以同时使用。
+- **性能** — Rust 编写的 MASQUE 引擎，基于 HTTP/3 并自动回退到 HTTP/2；Android 与 Linux 批量收发 UDP，Windows 与 Android 申请更大的 UDP 接收缓冲，拥塞控制可选 BBRv2 和实验性 BBRv3。
+- **VPN 与本地代理** — 系统 VPN（虚拟网卡）、SOCKS5 和 HTTP 代理共用一条 WARP 连接，可以同时使用。
 - **链式代理** — 在 WARP 之后经 OpenVPN、WireGuard、Proton VPN、VPN Gate、HTTP 或 SOCKS5 出口访问网络。
 - **分流与广告拦截** — 针对域名和 CIDR 的 DIRECT／REJECT／PROXY 规则、Ads 广告拦截和按国家直连。
 - **加密 DNS** — WARP 出口和直连规则的域名查询都可以使用 DoH 或 DoT。
-- **稳定传输** — Rust MASQUE 引擎优先使用 HTTP/3，自动回退到 HTTP/2，并通过 IPv4/IPv6 寻找可达端点。
 - **网络诊断** — 延迟、丢包和最近 60 秒趋势；深度检查需要你确认后才会执行。
 - **场景** — 在 **场景** 页保存常用网络配置并随时切换（计划在 v0.3.4 发布）。
-- **隐私优先** — 强制校验服务端公钥，凭据存放在系统凭据库，诊断在本地生成并脱敏，不做使用统计。
-- **全平台体验** — Windows 托盘、Android 快捷设置磁贴和电视遥控器导航；21 种语言，浅色、深色主题。
+- **隐私** — 强制校验服务端公钥，凭据存放在系统凭据库，诊断在本地生成并脱敏，不做使用统计。
+- **平台集成** — Windows 托盘、Android 快捷设置磁贴和电视遥控器导航；21 种语言，浅色、深色主题。
 
 ## 界面一览
 
@@ -93,7 +89,7 @@
         <img src="assets/screenshots/usque-gallery-chain.png" alt="使用 WireGuard 出口的链式代理" width="200">
       </picture>
       <br><strong>链式代理</strong>
-      <br><sub>经你自己的出口离开 WARP</sub>
+      <br><sub>OpenVPN、WireGuard 与代理出口</sub>
     </td>
     <td align="center" valign="top" width="25%">
       <picture>
@@ -180,11 +176,15 @@ VPN、SOCKS5 和 HTTP 默认开启，系统代理默认关闭。它们共用一�
 
 ## 功能详解
 
-### 连接、场景与账号
+### 性能与传输
 
-- **[本机网络场景](docs/SCENARIOS.md)**（计划在 v0.3.4 发布）在 **场景** 页保存账号绑定、链式代理、端点、端点 IP 偏好与传输协议。可预览后使用，并恢复最近一次切换；虚拟网卡与代理开关、分流与 DNS 保持全局。保存场景不改变当前连接，页面明确区分已保存和已应用。账号在 **账号管理 → 账号** 中管理。
+- **吞吐：** 引擎在 Android 和 Linux 上批量收发 UDP（`sendmmsg`/`recvmmsg`），在 Windows 和 Android 上申请更大的 [UDP 接收缓冲](docs/UDP_RECEIVE_BUFFER.md)，并提供[可选的 HTTP/3 拥塞控制](docs/congestion-control.md)：默认 Cubic，另有 BBRv2、实验性 BBRv3 和 Reno。
 - **自动传输：** 先尝试 HTTP/3，失败时回退到 HTTP/2，并尝试通过 IPv4 和 IPv6 寻找可达端点；H3 在支持的网络切换场景下可以迁移连接，详见[路径行为](docs/h3-path-infrastructure.md)。
 - **[实验性 L4 模式](docs/L4_PROXY.md)**（需手动启用）通过 HTTP/3 代理 TCP 流量。未启用 OpenVPN TCP 链式出口时，它不转发普通 UDP 流量，需要 UDP 的应用可能无法正常使用。自动模式不会选择 L4。
+
+### 场景与账号
+
+- **[本机网络场景](docs/SCENARIOS.md)**（计划在 v0.3.4 发布）在 **场景** 页保存账号绑定、链式代理、端点、端点 IP 偏好与传输协议。可预览后使用，并恢复最近一次切换；虚拟网卡与代理开关、分流与 DNS 保持全局。保存场景不改变当前连接，页面明确区分已保存和已应用。账号在 **账号管理 → 账号** 中管理。
 - **导出 WARP 登录信息：** 确认后可将个人版 WARP 登录信息（WARP Secret）导出到指定文件。Usque 目前无法重新导入该文件，因此它不能用于重装后的账号恢复。
 
 ### 链式代理

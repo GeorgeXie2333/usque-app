@@ -20,10 +20,6 @@
 </p>
 
 <p align="center">
-  <strong>One WARP® connection, three ways to use it: system VPN, SOCKS5 and HTTP proxy.</strong>
-</p>
-
-<p align="center">
   An unofficial client compatible with Cloudflare® WARP® services for Windows, Linux and Android / Android TV,<br>
   with a native Flutter interface and a Rust MASQUE engine.
 </p>
@@ -63,17 +59,17 @@
 
 <p align="center"><sub>English interface previews rendered from the current source with sample data.</sub></p>
 
-## Highlights
+## Overview
 
-- **VPN and proxies on one connection** — system VPN (TUN), SOCKS5 and HTTP proxy share one WARP connection and can run together.
+- **Performance** — a Rust MASQUE engine over HTTP/3 with automatic HTTP/2 fallback, batched UDP I/O on Android and Linux, a larger UDP receive buffer on Windows and Android, and selectable congestion control including BBRv2 and experimental BBRv3.
+- **VPN and local proxies** — system VPN (TUN), SOCKS5 and HTTP proxy share one WARP connection and can run together.
 - **Chain proxy** — leave WARP through OpenVPN, WireGuard, Proton VPN, VPN Gate, HTTP or SOCKS5.
 - **Routing and ad blocking** — DIRECT / REJECT / PROXY rules for domains and CIDRs, Ads rules and country-based direct routing.
 - **Encrypted DNS** — DoH or DoT for the WARP exit and for direct-rule queries.
-- **Resilient transport** — a Rust MASQUE engine over HTTP/3 with automatic HTTP/2 fallback and IPv4/IPv6 endpoint attempts.
 - **Network diagnostics** — latency, packet loss and 60-second trends, with deep checks only after confirmation.
 - **Scenes** — save common network setups in **Profiles** and switch between them (planned for v0.3.4).
-- **Private by design** — enforced server-key check, system credential stores, redacted local diagnostics and no analytics.
-- **At home on every platform** — Windows tray, Android Quick Settings tile and TV navigation; 21 languages with light and dark themes.
+- **Privacy** — a server-key check that cannot be skipped, system credential stores, redacted local diagnostics and no analytics.
+- **Platform integration** — Windows tray, Android Quick Settings tile and TV navigation; 21 languages with light and dark themes.
 
 ## Screens
 
@@ -93,7 +89,7 @@
         <img src="assets/screenshots/usque-gallery-chain.png" alt="Chain proxy with a WireGuard exit" width="200">
       </picture>
       <br><strong>Chain proxy</strong>
-      <br><sub>Leave WARP through your own exit</sub>
+      <br><sub>OpenVPN, WireGuard and proxy exits</sub>
     </td>
     <td align="center" valign="top" width="25%">
       <picture>
@@ -180,11 +176,15 @@ VPN, SOCKS5 and HTTP are enabled by default; system proxy is off. They share one
 
 ## Features
 
-### Connections, scenes and accounts
+### Performance and transport
 
-- **[Local connection scenes](docs/SCENARIOS.md)** (planned for v0.3.4) in **Profiles** save account binding, chain proxy, endpoints, endpoint IP preference and transport. Review changes before use and restore the latest switch; the TUN/VPN and proxy switches, routing and DNS stay global. Saving a scene does not change the running connection, and saved and applied states remain distinct. Accounts are under **Manage accounts → Accounts**.
+- **Throughput:** the engine batches UDP sends and receives (`sendmmsg`/`recvmmsg`) on Android and Linux, requests a larger [UDP receive buffer](docs/UDP_RECEIVE_BUFFER.md) on Windows and Android, and offers [selectable HTTP/3 congestion control](docs/congestion-control.md): Cubic by default, BBRv2, experimental BBRv3 and Reno.
 - **Automatic transport:** HTTP/3 with HTTP/2 fallback. IPv4 and IPv6 connection attempts help find a reachable endpoint, and supported H3 network changes can migrate the connection. See [path behavior](docs/h3-path-infrastructure.md).
 - **[Experimental L4 mode](docs/L4_PROXY.md)** (opt-in) proxies TCP over HTTP/3. Without an OpenVPN TCP chain, it does not forward ordinary UDP, so applications that need UDP may not work. Auto does not select L4.
+
+### Scenes and accounts
+
+- **[Local connection scenes](docs/SCENARIOS.md)** (planned for v0.3.4) in **Profiles** save account binding, chain proxy, endpoints, endpoint IP preference and transport. Review changes before use and restore the latest switch; the TUN/VPN and proxy switches, routing and DNS stay global. Saving a scene does not change the running connection, and saved and applied states remain distinct. Accounts are under **Manage accounts → Accounts**.
 - **WARP login information export:** after confirmation, export your Consumer WARP login information (WARP Secret) to a file you choose. Usque cannot import that file to restore the account after reinstalling.
 
 ### Chain proxy
