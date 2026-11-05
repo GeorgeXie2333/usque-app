@@ -394,6 +394,11 @@ Linux golden 使用独立目录、固定测试字体和模拟引擎，在 amd64 
 界面分支；Windows 截图仍单独验证。两套截图均不启动 VPN，也不证明原生桌面与
 网络行为正确。
 
+`test/readme_assets_test.dart` renders the root README images from the same
+fixtures and fonts. It is tagged `readme-assets`, writes files only when
+`USQUE_README_ASSETS` is set, and is not a comparison. Use
+`bash tool/dev.sh readme-assets`; see [Linux development](../../docs/LINUX_DEVELOPMENT.md#readme-images--readme-图片).
+
 ---
 
 Cloudflare and WARP are trademarks and/or registered trademarks of Cloudflare, Inc. in the United States and other jurisdictions.

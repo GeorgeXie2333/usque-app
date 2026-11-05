@@ -4,3 +4,5 @@ tags:
   golden:
   # Linux amd64 fixtures; also tagged golden so general widget runs can omit them.
   linux-golden:
+  # Writes README images; skipped unless tool/dev.sh readme-assets runs it.
+  readme-assets:

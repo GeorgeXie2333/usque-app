@@ -166,6 +166,28 @@ Android checks compile or analyze code without installing an APK. These tools
 do not install or start an Android emulator. Device interaction and VPN lifecycle
 testing remain subject to Contributing's dedicated-device/isolation rules.
 
+## README images / README 图片
+
+The root README banners, screenshots, gallery, connect animation and the
+GitHub social preview are rendered from the app with fixture data:
+
+```shell
+bash tool/dev.sh readme-assets
+```
+
+The command runs `apps/usque_gui/test/readme_assets_test.dart` (tag
+`readme-assets`, skipped in every other run) with the fixed Linux font fixtures,
+then encodes the light and dark connect animations with `ffmpeg`. It writes into
+`assets/branding/` and `assets/screenshots/` and needs Linux amd64. Engines are
+fakes and every address is a documentation address, so the images show sample
+data, not a real session. Inspect each changed image before committing. The
+social preview is uploaded by hand in the repository's **Settings → Social
+preview**; GitHub has no API for it.
+
+`readme-assets` 用模拟引擎和固定字体渲染 README 的横幅、截图、画廊、连接动图和社交
+预览图，需要 Linux amd64 与 `ffmpeg`。图中数据均为示例，提交前逐张检查；社交预览图
+需在仓库设置中手动上传。
+
 ## Keep local files out of Git / 本地文件忽略规则
 
 Commit preview sources, the Linux runner, shared tooling, tests and guides.
