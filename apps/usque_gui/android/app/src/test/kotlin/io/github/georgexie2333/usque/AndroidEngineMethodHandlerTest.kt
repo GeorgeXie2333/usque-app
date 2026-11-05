@@ -521,14 +521,16 @@ class AndroidEngineMethodHandlerTest {
             Executor {
                 it.run()
             },
+        mainScheduler: VpnControlClient.MainScheduler = scheduler,
+        bindService: (ServiceConnection, Boolean) -> Boolean = { _, creating ->
+            assertFalse(creating)
+            false
+        },
     ): Pair<AndroidEngineMethodHandler, VpnControlClient> {
         val local =
             VpnControlClient(
-                scheduler,
-                { _, creating ->
-                    assertFalse(creating)
-                    false
-                },
+                mainScheduler,
+                bindService,
                 {},
                 { _, _ -> error("No live service") },
             )
@@ -537,7 +539,7 @@ class AndroidEngineMethodHandlerTest {
             initialIdentityLease = { AutoCloseable {} },
             identityStore = identityStore,
             identityExecutor = executor,
-            mainScheduler = scheduler,
+            mainScheduler = mainScheduler,
             controlClient = local,
             activityCommands = activityCommands,
             engineBridge = engineBridge,
@@ -566,6 +568,81 @@ class AndroidEngineMethodHandlerTest {
         assertFalse(scenesValue.containsKey("persisted_operation_id"))
         assertEquals(2, engineBridge.persistedReadCount)
         assertFalse(client.isBound)
+    }
+
+    @Test
+    fun coldStartAndRestartReadSavedSettingsAndScenesWithoutConnectingAfterPassiveBindDeadline() {
+        engineBridge.persistedSettingsJson =
+            """{"source_epoch":"old-owner","sequence":7,"stored_profile":{"id":"saved"},"applied_profile":{"id":"live"},"persisted":true,"persisted_operation_ids":["op"]}"""
+        engineBridge.persistedScenariosJson =
+            """{"source_epoch":"old-owner","scenarios":[{"id":"saved","name":"Daily"}],"current_account_id":"saved","applied_scene_confirmed":true,"persisted_operation_id":"op"}"""
+        // Each launch gets a new UI/control client and reads the same saved data.
+        // Android can accept the observation without a callback, or deliver null.
+        for (nullBinding in listOf(false, true)) {
+            val deadlines = linkedMapOf<Any, Pair<Long, () -> Unit>>()
+            val launchScheduler =
+                object : VpnControlClient.MainScheduler {
+                    override fun post(action: () -> Unit) = action()
+
+                    override fun postDelayed(
+                        delayMillis: Long,
+                        token: Any,
+                        action: () -> Unit,
+                    ) {
+                        deadlines[token] = delayMillis to action
+                    }
+
+                    override fun cancel(token: Any) {
+                        deadlines.remove(token)
+                    }
+                }
+            val connections = mutableListOf<ServiceConnection>()
+            val flags = mutableListOf<Boolean>()
+            val (local, client) =
+                passiveHandler(mainScheduler = launchScheduler, bindService = { connection, creating ->
+                    connections += connection
+                    flags += creating
+                    true
+                })
+            client.setUiVisible(true)
+            val settings = RecordingResult()
+            val scenes = RecordingResult()
+            local.handle(MethodCall("getNetworkSettingsState", null), settings)
+            local.handle(MethodCall("scenarioCommand", mapOf("action" to "list")), scenes)
+            assertEquals(0, settings.completionCount)
+            assertEquals(0, scenes.completionCount)
+            if (nullBinding) connections.single().onNullBinding(null)
+            val reads = deadlines.filterKeys { it.toString().startsWith("settings-") }
+            assertEquals(2, reads.size)
+            for ((token, deadline) in reads) {
+                assertEquals(10_000L, deadline.first)
+                deadlines.remove(token)
+                deadline.second()
+            }
+            for (result in listOf(settings, scenes)) {
+                assertEquals(1, result.completionCount)
+                assertNull(result.errorCode)
+                val value = result.successValue as Map<*, *>
+                assertEquals(false, value["runtime_observed"])
+                assertFalse(value.containsKey("source_epoch"))
+                assertFalse(value.containsKey("applied_profile"))
+                assertFalse(value.containsKey("persisted_operation_id"))
+                assertFalse(value.containsKey("persisted_operation_ids"))
+            }
+            val settingsValue = settings.successValue as Map<*, *>
+            assertEquals(mapOf("id" to "saved"), settingsValue["stored_profile"])
+            val scenesValue = scenes.successValue as Map<*, *>
+            assertEquals(listOf(mapOf("id" to "saved", "name" to "Daily")), scenesValue["scenarios"])
+            assertEquals("saved", scenesValue["current_account_id"])
+            assertTrue(deadlines.keys.none { it.toString().startsWith("settings-") })
+            assertTrue(flags.isNotEmpty())
+            assertTrue(flags.none { it })
+            assertFalse(client.hasEndpoint)
+            assertEquals(0, activityCommands.connectCount)
+            client.destroy()
+            assertFalse(client.isBound)
+        }
+        assertEquals(4, engineBridge.persistedReadCount)
     }
 
     @Test
