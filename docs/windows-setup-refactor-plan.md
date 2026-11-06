@@ -74,10 +74,20 @@ its own deterministic tests, including a randomized forward-only sweep.
 3. **Flows and wording (P3):** inventory every page and state, review
    wireframes before implementation, then update pages and all 21 languages.
    See [Batch 3 flows and wording](#batch-3-flows-and-wording).
-4. **Structure (P4):** split `main.cpp` and `windows/ui.rs` into engine
-   callbacks, state, layout and drawing. This may land with batch 2 or 3.
-5. **Records (P5):** validation record and any user-facing documentation
-   changes in [Installation and removal](INSTALLATION.md).
+4. **Structure (P4):** keep pure logic out of window code and split the
+   uninstall window module. `windows/ui` is now `mod.rs` (state, rendering,
+   window procedure and tests), `layout.rs` (footer, measured text, field
+   frames and placement) and `draw.rs` (owner-drawn and subclassed painting).
+   The setup bootstrapper stays one translation unit: its `Application` class
+   implements Burn's callback interface and owns the window, so a file split
+   would only move code behind a header. Its pure logic already lives in
+   `state.h`, `paint.h` and the generated `setup_tokens.h`, all covered by
+   `state_test.cpp`.
+5. **Records (P5):** each batch records its validation below, and
+   [Installation and removal](INSTALLATION.md) describes the changed setup and
+   uninstall behavior.
+
+All five batches were implemented on 2026-11-06.
 
 ## Batch 2 visual system
 
