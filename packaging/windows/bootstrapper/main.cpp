@@ -39,8 +39,16 @@ enum Control {
   language, license, accept, scope, progress, status, details, desktop, launch_app,
   startup, more, license_text, folder_summary, folder_error, change_folder, option_summary, save_details, primary, secondary, tertiary,
 };
-enum class EventType { detected, planned, applied, progress, status, failed, options, queried, files_in_use, cancel_permission };
+enum class EventType { detected, planned, applied, cache_progress, execute_progress, status, failed, options, queried,
+                       files_in_use, cancel_permission };
 enum class FinishIntent { normal, restart_later, restart_now };
+// Labels that change on the working page without a page change.
+constexpr std::string_view kWorkingSubtitleKeys[] = {"install_scope", "wait_no_cancel", "detecting"};
+constexpr std::string_view kWorkingStatusKeys[] = {
+  "detecting", "planning", "installing", "uninstalling", "uninstall_closing_apps", "uninstall_restoring_network",
+  "uninstall_deleting_data", "uninstall_removing_files", "uninstall_registration", "rolling_back",
+  "cancel_requested", "failed_description",
+};
 struct Event {
   EventType type;
   HRESULT result = S_OK;
@@ -187,16 +195,48 @@ class Application final : public CBootstrapperApplicationBase {
   }
 
   STDMETHODIMP OnProgress(DWORD value, DWORD overall, BOOL* cancel) override {
-    Post({EventType::progress, S_OK, overall});
+    // Burn advances this value only once per completed cache or execute
+    // action (and steps back during rollback), so it is not presented. The
+    // cache and execute callbacks below carry the measurable progress.
     const HRESULT result = CBootstrapperApplicationBase::OnProgress(value, overall, cancel);
     if (!CallbackCancellationAllowed()) *cancel = FALSE;
     return result;
   }
 
+  STDMETHODIMP OnCacheAcquireProgress(LPCWSTR item, LPCWSTR payload, DWORD64 done, DWORD64 size,
+                                      DWORD overall, BOOL* cancel) override {
+    PostProgress(EventType::cache_progress, overall, last_cache_percent_);
+    return CBootstrapperApplicationBase::OnCacheAcquireProgress(item, payload, done, size, overall, cancel);
+  }
+
+  STDMETHODIMP OnCacheContainerOrPayloadVerifyProgress(LPCWSTR item, LPCWSTR payload, DWORD64 done,
+                                                       DWORD64 size, DWORD overall, BOOL* cancel) override {
+    PostProgress(EventType::cache_progress, overall, last_cache_percent_);
+    return CBootstrapperApplicationBase::OnCacheContainerOrPayloadVerifyProgress(item, payload, done, size, overall, cancel);
+  }
+
+  STDMETHODIMP OnCachePayloadExtractProgress(LPCWSTR item, LPCWSTR payload, DWORD64 done, DWORD64 size,
+                                             DWORD overall, BOOL* cancel) override {
+    PostProgress(EventType::cache_progress, overall, last_cache_percent_);
+    return CBootstrapperApplicationBase::OnCachePayloadExtractProgress(item, payload, done, size, overall, cancel);
+  }
+
+  STDMETHODIMP OnCacheVerifyProgress(LPCWSTR item, LPCWSTR payload, DWORD64 done, DWORD64 size, DWORD overall,
+                                     BOOTSTRAPPER_CACHE_VERIFY_STEP step, BOOL* cancel) override {
+    PostProgress(EventType::cache_progress, overall, last_cache_percent_);
+    return CBootstrapperApplicationBase::OnCacheVerifyProgress(item, payload, done, size, overall, step, cancel);
+  }
+
   STDMETHODIMP OnExecuteProgress(LPCWSTR package, DWORD value, DWORD overall, BOOL* cancel) override {
+    PostProgress(EventType::execute_progress, overall, last_execute_percent_);
     const HRESULT result = CBootstrapperApplicationBase::OnExecuteProgress(package, value, overall, cancel);
     if (!CallbackCancellationAllowed()) *cancel = FALSE;
     return result;
+  }
+
+  STDMETHODIMP OnExecuteComplete(HRESULT result) override {
+    if (SUCCEEDED(result)) PostProgress(EventType::execute_progress, 100, last_execute_percent_);
+    return CBootstrapperApplicationBase::OnExecuteComplete(result);
   }
 
   STDMETHODIMP OnExecutePackageBegin(LPCWSTR package, BOOL execute,
@@ -247,7 +287,8 @@ class Application final : public CBootstrapperApplicationBase {
         action == L"EmergencyRemoveKillSwitch" || action == L"RecoverAgentState" ? "uninstall_restoring_network" :
         action == L"PurgeUserData" ? "uninstall_deleting_data" :
         action == L"RemoveFiles" ? "uninstall_removing_files" :
-        action == L"FinalizeAgentUninstall" ? "uninstall_registration" : "installing";
+        action == L"FinalizeAgentUninstall" ? "uninstall_registration" :
+        action == L"Rollback" ? "rolling_back" : "installing";
       if (!IsRollingBack()) Post({EventType::status, S_OK, 0, key});
     }
     *result = CanReturnCancellation(cancel_stage_, native_cancel_enabled_, CheckCanceled()) ? IDCANCEL : recommendation;
@@ -309,6 +350,11 @@ class Application final : public CBootstrapperApplicationBase {
     auto message = std::make_unique<Event>(std::move(event));
     if (PostMessageW(window_.load(), kEvent, 0, reinterpret_cast<LPARAM>(message.get())))
       message.release();
+  }
+
+  // Cache callbacks arrive for every transferred chunk. Post only changes.
+  void PostProgress(EventType type, DWORD percent, std::atomic<DWORD>& last) {
+    if (last.exchange(percent) != percent) Post({type, S_OK, percent});
   }
 
   std::wstring L(std::string_view key) const { return std::wstring(Lookup(culture_, key)); }
@@ -578,6 +624,8 @@ class Application final : public CBootstrapperApplicationBase {
       SendMessageW(C(progress), PBM_SETBARCOLOR, 0, high_contrast_ ? SystemColor(COLOR_HIGHLIGHT) : BrandAccent(dark_));
       SendMessageW(C(progress), PBM_SETBKCOLOR, 0, high_contrast_ ? SystemColor(COLOR_WINDOW) :
         dark_ ? RGB(43, 43, 47) : RGB(222, 220, 215));
+      bar_applied_ = false;
+      ApplyBar();
     }
     // The viewport is a separate clipped child window. Invalidating only the
     // frame leaves its old pixels behind across theme/RTL/DPI transitions.
@@ -736,7 +784,12 @@ class Application final : public CBootstrapperApplicationBase {
     MoveWindow(body_, 0, Scale(72 + header_extra), area.right,
       Scale((std::max)(1, footer - 72 - header_extra)), TRUE);
     Place(title, 32, 27, content, title_height, false);
-    const int subtitle_height = (std::max)(24, TextHeight(ReadControl(C(subtitle)), content, font_));
+    int subtitle_height = (std::max)(24, TextHeight(ReadControl(C(subtitle)), content, font_));
+    const bool live = page_ == Page::working || page_ == Page::detecting;
+    // Live MSI records replace these labels without a page change. Reserve the
+    // tallest variant so that a cancellation or stage message cannot move the bar.
+    if (live) for (const auto key : kWorkingSubtitleKeys)
+      subtitle_height = (std::max)(subtitle_height, TextHeight(L(key), content, font_));
     Place(subtitle, 32, 79, content, subtitle_height);
     int end = 79 + subtitle_height;
     if (page_ == Page::ready) {
@@ -802,7 +855,9 @@ class Application final : public CBootstrapperApplicationBase {
       end += 12 + license_height;
     } else if (page_ == Page::working || page_ == Page::detecting) {
       Place(progress, 32, end + 32, content, 12);
-      const int status_height = (std::max)(44, TextHeight(ReadControl(C(status)), content, font_));
+      int status_height = (std::max)(44, TextHeight(ReadControl(C(status)), content, font_));
+      for (const auto key : kWorkingStatusKeys)
+        status_height = (std::max)(status_height, TextHeight(L(key), content, font_));
       Place(status, 32, end + 60, content, status_height); end += 60 + status_height;
     } else {
       const int details_height = page_ == Page::files_in_use ? 120 :
@@ -892,11 +947,9 @@ class Application final : public CBootstrapperApplicationBase {
       if (!CanReturnCancellation(cancel_stage_, native_cancel_enabled_, true))
         SetWindowTextW(C(subtitle), (L("close_apps_save_work") + L"\r\n" + L("wait_no_cancel")).c_str());
     } else if (page_ == Page::working || page_ == Page::detecting) {
-      Show(progress); Show(status); Text(status, status_key_); Text(primary, "cancel");
-      AccessibleName(C(progress), status_key_);
-      EnableWindow(C(primary), ChooseCloseAction(page_, cancel_stage_, cancel_requested_, options_busy_, native_cancel_enabled_) == CloseAction::request_cancel);
-      if (!cancel_requested_ && !CanReturnCancellation(cancel_stage_, native_cancel_enabled_, true)) Text(subtitle, "wait_no_cancel");
-      SendMessageW(C(progress), PBM_SETPOS, percent_, 0);
+      Show(progress); Show(status); Text(primary, "cancel");
+      shown_status_.clear();
+      RefreshWorking();
     } else if (page_ == Page::complete || page_ == Page::options_failed) {
       EnableWindow(C(primary), !options_busy_);
       if (finish_.reboot && action_ == BOOTSTRAPPER_ACTION_UNINSTALL) {
@@ -946,9 +999,49 @@ class Application final : public CBootstrapperApplicationBase {
       }
       EnableWindow(C(primary), TRUE);
     }
+    ApplyBar();
     Layout();
     ReorderTabControls();
     InvalidateRect(window_.load(), nullptr, TRUE);
+  }
+
+  std::string_view WorkingSubtitleKey() const {
+    if (!cancel_requested_ && !CanReturnCancellation(cancel_stage_, native_cancel_enabled_, true)) return "wait_no_cancel";
+    return page_ == Page::working ? "install_scope" : "detecting";
+  }
+
+  void SetTextIfChanged(int id, const std::wstring& text) {
+    if (ReadControl(C(id)) != text) SetWindowTextW(C(id), text.c_str());
+  }
+
+  // Live working-page updates. Render() rebuilds the page; running it for each
+  // MSI action and cancel-permission record hid, moved and repainted the bar.
+  void RefreshWorking() {
+    SetTextIfChanged(subtitle, L(WorkingSubtitleKey()));
+    SetTextIfChanged(status, L(status_key_));
+    if (shown_status_ != status_key_) { AccessibleName(C(progress), status_key_); shown_status_ = status_key_; }
+    EnableWindow(C(primary), ChooseCloseAction(page_, cancel_stage_, cancel_requested_, options_busy_,
+      native_cancel_enabled_) == CloseAction::request_cancel);
+    // Render() restored keyboard focus when MSI re-enabled Cancel. Keep that,
+    // without letting a background update activate or steal focus.
+    const HWND focused = GetFocus();
+    if ((!focused || !IsWindowEnabled(focused)) && IsWindowEnabled(C(primary)) &&
+        GetForegroundWindow() == window_.load()) SetFocus(C(primary));
+  }
+
+  // Sends progress-control messages only when the presented state changes.
+  void ApplyBar() {
+    const HWND bar = C(progress);
+    if (!bar) return;
+    const bool marquee = (page_ == Page::working || page_ == Page::detecting) && bar_.mode == BarMode::waiting;
+    if (!bar_applied_ || marquee != bar_marquee_) {
+      const LONG_PTR style = GetWindowLongPtrW(bar, GWL_STYLE);
+      SetWindowLongPtrW(bar, GWL_STYLE, marquee ? style | PBS_MARQUEE : style & ~static_cast<LONG_PTR>(PBS_MARQUEE));
+      SendMessageW(bar, PBM_SETMARQUEE, marquee, 35);
+      if (!marquee) SendMessageW(bar, PBM_SETRANGE32, 0, kBarComplete);
+      bar_applied_ = true; bar_marquee_ = marquee; bar_value_ = MAXDWORD;
+    }
+    if (!marquee && bar_value_ != bar_.value) { SendMessageW(bar, PBM_SETPOS, bar_.value, 0); bar_value_ = bar_.value; }
   }
 
   void ApplyDirection() {
@@ -1026,7 +1119,8 @@ class Application final : public CBootstrapperApplicationBase {
 
   void BeginPlan(BOOTSTRAPPER_ACTION action) {
     action_ = action; page_ = Page::working; status_key_ = "planning";
-    cancel_requested_ = false; percent_ = 0; scroll_ = 0;
+    cancel_requested_ = false; bar_ = {}; preview_tick_ = 0; scroll_ = 0;
+    last_cache_percent_ = MAXDWORD; last_execute_percent_ = MAXDWORD;
     cancel_stage_ = CancelStage::running; native_cancel_enabled_ = true; detail_stage_ = "planning";
     EnterCriticalSection(&m_csCanceled); m_fCanceled = FALSE; LeaveCriticalSection(&m_csCanceled);
     Render();
@@ -1089,7 +1183,7 @@ class Application final : public CBootstrapperApplicationBase {
     finish_.reboot = event.number != BOOTSTRAPPER_APPLY_RESTART_NONE;
     if (FAILED(event.result)) { Fail(event.result); return; }
     if (!Interactive()) { Quit(finish_.reboot ? ERROR_SUCCESS_REBOOT_REQUIRED : ERROR_SUCCESS); return; }
-    page_ = Page::complete; percent_ = 100; cancel_requested_ = false;
+    page_ = Page::complete; bar_.Complete(); cancel_requested_ = false;
     if (finish_.reboot) { finish_.launch = false; Check(launch_app, false); }
     if (action_ == BOOTSTRAPPER_ACTION_INSTALL && !preview_) QueryOptions();
     Render();
@@ -1190,19 +1284,22 @@ class Application final : public CBootstrapperApplicationBase {
           Render(); const HRESULT result = m_pEngine->Apply(window_.load()); if (FAILED(result)) Fail(result); }
         break;
       case EventType::applied: Completed(event); break;
-      case EventType::progress:
-        percent_ = (std::min)(99UL, event.number);
-        SendMessageW(C(progress), PBM_SETPOS, percent_, 0); break;
+      case EventType::cache_progress: case EventType::execute_progress:
+        if (cancel_stage_.load() == CancelStage::rollback) bar_.Halt();
+        else if (event.type == EventType::cache_progress) bar_.Cache(event.number);
+        else bar_.Execute(event.number);
+        ApplyBar(); break;
       case EventType::status:
-        if (!cancel_requested_) { status_key_ = event.key; Text(status, status_key_); }
-        AccessibleName(C(progress), status_key_);
+        if (!cancel_requested_) status_key_ = event.key;
+        if (event.key == "rolling_back") { bar_.Halt(); ApplyBar(); }
         if (event.key != "failed_description") detail_stage_ = event.key;
         if (FAILED(event.result)) result_ = event.result;
-        if (page_ == Page::working || page_ == Page::detecting) Render();
+        if (page_ == Page::working || page_ == Page::detecting) RefreshWorking();
         break;
       case EventType::failed: Fail(event.result); break;
       case EventType::cancel_permission:
-        if (page_ == Page::working || page_ == Page::detecting || page_ == Page::files_in_use) Render();
+        if (page_ == Page::working || page_ == Page::detecting) RefreshWorking();
+        else if (page_ == Page::files_in_use) Render();
         break;
       case EventType::files_in_use:
         files_source_ = static_cast<BOOTSTRAPPER_FILES_IN_USE_TYPE>(event.number);
@@ -1693,8 +1790,17 @@ class Application final : public CBootstrapperApplicationBase {
       }
       case WM_TIMER:
         if (wparam == kPreviewTimer) {
-          app->percent_ += 4; SendMessageW(app->C(progress), PBM_SETPOS, app->percent_, 0);
-          if (app->percent_ >= 100) { KillTimer(hwnd, kPreviewTimer); app->Completed({EventType::applied}); }
+          // Inert preview: engine reports shaped like an upgrade. Caching, MSI
+          // execution, a nested MSI session restarting its count and a phase
+          // that withdraws cancellation exercise the live-update path.
+          const unsigned tick = ++app->preview_tick_;
+          if (tick >= 4 && tick <= 13) app->bar_.Cache((tick - 3) * 10);
+          else if (tick >= 14 && tick <= 37) app->bar_.Execute((tick - 13) * 4);
+          else if (tick >= 38 && tick <= 42) app->bar_.Execute(60 + (tick - 38) * 10);
+          app->native_cancel_enabled_ = tick < 25 || tick > 31;
+          app->status_key_ = tick < 4 ? "planning" : tick < 25 ? "installing" : tick < 32 ? "uninstall_closing_apps" : "installing";
+          app->ApplyBar(); app->RefreshWorking();
+          if (tick >= 44) { KillTimer(hwnd, kPreviewTimer); app->Completed({EventType::applied}); }
         }
         return 0;
       case WM_CTLCOLORSTATIC: case WM_CTLCOLORBTN: case WM_CTLCOLOREDIT: case WM_CTLCOLORLISTBOX: {
@@ -1739,7 +1845,12 @@ class Application final : public CBootstrapperApplicationBase {
   std::string status_key_ = "detecting", failure_key_ = "failed_description";
   std::string detail_stage_ = "detecting";
   HRESULT result_ = S_OK;
-  DWORD percent_ = 0;
+  SetupProgress bar_;
+  bool bar_applied_ = false, bar_marquee_ = false;
+  DWORD bar_value_ = MAXDWORD;
+  unsigned preview_tick_ = 0;
+  std::string shown_status_;
+  std::atomic<DWORD> last_cache_percent_{MAXDWORD}, last_execute_percent_{MAXDWORD};
   bool cancel_requested_ = false, terminal_failure_ = false, options_busy_ = false, expanded_ = false;
   bool startup_known_ = true, reboot_confirmation_ = false, folder_expanded_ = false;
   bool details_expanded_ = false;

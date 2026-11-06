@@ -6,7 +6,10 @@ use super::{
 };
 use crate::{
     UninstallError, UninstallRequest, l10n,
-    state::{Lifecycle, Outcome, Preview, PreviewTheme, RestartFlow, Stage, error_hint_key},
+    state::{
+        BAR_COMPLETE, Bar, Lifecycle, Outcome, PREVIEW_UNINSTALL, Preview, PreviewStep,
+        PreviewTheme, RestartFlow, Stage, error_hint_key,
+    },
 };
 use std::{
     cell::{Cell, RefCell},
@@ -122,6 +125,13 @@ enum Page {
     Finished,
 }
 
+/// The progress-control state last sent to Windows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BarView {
+    Hidden,
+    Visible(Bar),
+}
+
 struct Palette {
     background: u32,
     foreground: u32,
@@ -182,6 +192,8 @@ struct State {
     exit_code: i32,
     controls: Vec<HWND>,
     detail_accessible_name: &'static str,
+    /// `None` forces the next render to resend the complete control state.
+    applied_bar: Option<BarView>,
     paint: Box<Cell<PaintStyle>>,
 }
 
@@ -217,6 +229,7 @@ impl State {
             exit_code: crate::ERROR_INSTALL_USEREXIT,
             controls: Vec::new(),
             detail_accessible_name: "",
+            applied_bar: None,
             paint: Box::new(Cell::new(PaintStyle::default())),
         }
     }
@@ -316,6 +329,12 @@ impl State {
     fn apply_preview(&mut self, scenario: Preview) {
         match scenario {
             Preview::Confirm => {}
+            Preview::Replay => {
+                self.page = Page::Running;
+                self.lifecycle = Lifecycle::default();
+                self.lifecycle.common_data(2, 1);
+                self.preview_ticks = 1;
+            }
             Preview::Progress | Preview::Rollback | Preview::FilesInUse => {
                 self.page = Page::Running;
                 self.lifecycle.progress_record([0, 100, 0, 0]);
@@ -561,15 +580,20 @@ impl State {
             // This timer exists only in the explicitly inert preview. The real
             // installer obtains every progress value from MSI records.
             self.preview_ticks += 1;
+            let mut finished = false;
             if self.pending_registration.is_none() {
-                self.lifecycle.progress_record([0, 30, 0, 0]);
-                self.lifecycle
-                    .progress_record([2, self.preview_ticks as i32, 0, 0]);
-                if self.preview_ticks == 10 {
-                    self.lifecycle.action("RecoverAgentState");
+                for (_, step) in PREVIEW_UNINSTALL
+                    .iter()
+                    .filter(|(tick, _)| *tick == self.preview_ticks)
+                {
+                    self.lifecycle.apply_preview_step(*step, self.remove_data);
+                    finished |= *step == PreviewStep::Finish;
                 }
+            } else {
+                // A registration-only retry has no MSI work to replay.
+                finished = self.preview_ticks >= 12;
             }
-            if self.preview_ticks >= 30 {
+            if finished {
                 self.preview_ticks = 0;
                 let result = if let Some(previous) = self.pending_registration.take() {
                     msi::registration_result(previous, 0)
@@ -595,6 +619,19 @@ impl State {
             env!("CARGO_PKG_VERSION"),
             self.text(self.lifecycle.stage.key())
         );
+        if self.lifecycle.progress.started() {
+            // Counts only. Lets a saved report show whether MSI's own progress
+            // restarted or shrank while the bar held its value.
+            let stats = self.lifecycle.progress.stats;
+            text.push_str(&format!(
+                "\r\nMSI progress: generation={} execution={} rollback={} additions={} held={}",
+                stats.generation_resets,
+                stats.execution_resets,
+                stats.rollback_resets,
+                stats.additions,
+                stats.held_reversals
+            ));
+        }
         if let Some(result) = &self.result {
             text.push_str(&format!(
                 "\r\n{}\r\n{}: {}",
@@ -733,6 +770,7 @@ pub fn run(
         center(hwnd, state.dpi);
         apply_title_theme(hwnd, state.palette.dark);
         apply_progress_theme(hwnd, &state.palette);
+        state.applied_bar = None;
         render(hwnd, &mut state);
     }
     // SAFETY: window and button handles belong to this UI thread.
@@ -958,6 +996,7 @@ extern "system" fn window_proc(
                     refresh_paint_style(&state);
                     apply_title_theme(hwnd, state.palette.dark);
                     apply_progress_theme(hwnd, &state.palette);
+                    state.applied_bar = None;
                     // SAFETY: request repaint of this window and its children.
                     unsafe {
                         RedrawWindow(
@@ -1402,33 +1441,13 @@ fn render(hwnd: HWND, state: &mut State) {
                 SW_HIDE
             },
         );
-        let bar = control(hwnd, PROGRESS);
-        let percent = if state.lifecycle.stage == Stage::Registration {
-            None
-        } else {
-            state.lifecycle.progress.percent()
-        };
-        let style = GetWindowLongW(bar, GWL_STYLE) as u32;
-        SetWindowLongW(
-            bar,
-            GWL_STYLE,
-            if percent.is_some() {
-                style & !PBS_MARQUEE
-            } else {
-                style | PBS_MARQUEE
-            } as i32,
-        );
-        SendMessageW(
-            bar,
-            PBM_SETMARQUEE,
-            usize::from(running && state.prompt.is_none() && percent.is_none()),
-            35,
-        );
-        SendMessageW(bar, PBM_SETRANGE32, 0, 100);
-        if let Some(percent) = percent {
-            SendMessageW(bar, PBM_SETPOS, percent as usize, 0);
-        }
     }
+    let view = if running && state.prompt.is_none() {
+        BarView::Visible(state.lifecycle.bar())
+    } else {
+        BarView::Hidden
+    };
+    apply_bar(hwnd, state, view);
     layout(hwnd, state);
     ensure_focus(hwnd, previous_focus, state);
 }
@@ -1630,19 +1649,20 @@ fn layout(hwnd: HWND, state: &mut State) {
                     (body_width - scale(24)).max(1),
                 ) + scale(16)
             }
-            _ => measure(
-                hwnd,
-                child,
-                if id == TITLE {
+            _ => {
+                let font = if id == TITLE {
                     state.fonts.title
                 } else if id == DESCRIPTION {
                     state.fonts.secondary
                 } else {
                     state.fonts.body
-                },
-                body_width,
-            )
-            .max(scale(18)),
+                };
+                running_variants(state, id)
+                    .iter()
+                    .map(|key| measure_text(hwnd, child, state.text(key), font, body_width))
+                    .fold(measure(hwnd, child, font, body_width), i32::max)
+                    .max(scale(18))
+            }
         };
         let child_width = if id == SAVE {
             (text_width(hwnd, child, state.fonts.body) + scale(24)).min(body_width)
@@ -1841,7 +1861,38 @@ fn window_text(hwnd: HWND) -> String {
 }
 
 fn measure(hwnd: HWND, child: HWND, font: HFONT, width: i32) -> i32 {
-    let text = wide(&window_text(child));
+    measure_text(hwnd, child, &window_text(child), font, width)
+}
+
+/// Text that can replace a running-page label without a page change. Its
+/// tallest variant is reserved so that MSI cancellation and stage messages
+/// cannot move the progress bar.
+fn running_variants(state: &State, id: i32) -> &'static [&'static str] {
+    if state.page != Page::Running || state.prompt.is_some() {
+        return &[];
+    }
+    match id {
+        BODY => &[
+            "uninstall_progress_note",
+            "wait_no_cancel",
+            "uninstall_registration",
+        ],
+        STATUS => &[
+            "uninstall_preparing",
+            "uninstall_closing_apps",
+            "uninstall_restoring_network",
+            "uninstall_deleting_data",
+            "uninstall_removing_files",
+            "uninstall_registration",
+            "uninstall_rolling_back",
+            "uninstall_stopping",
+        ],
+        _ => &[],
+    }
+}
+
+fn measure_text(hwnd: HWND, child: HWND, text: &str, font: HFONT, width: i32) -> i32 {
+    let text = wide(text);
     let mut rect = RECT {
         left: 0,
         top: 0,
@@ -2012,6 +2063,41 @@ fn apply_title_theme(hwnd: HWND, dark: bool) {
             ptr::from_ref(&value).cast(),
             size_of::<i32>() as u32,
         );
+    }
+}
+
+/// Sends progress-control messages only when the presented state changes.
+/// Rewriting `PBS_MARQUEE` and resending `PBM_SETMARQUEE`/range on every
+/// 100 ms timer tick restarted the native animation, and raw MSI fractions
+/// switched the bar between marquee and fill; together they made it jump.
+fn apply_bar(hwnd: HWND, state: &mut State, view: BarView) {
+    let previous = state.applied_bar.replace(view);
+    if previous == Some(view) {
+        return;
+    }
+    let marquee = view == BarView::Visible(Bar::Waiting);
+    let mode_changed =
+        previous.is_none_or(|previous| (previous == BarView::Visible(Bar::Waiting)) != marquee);
+    let bar = control(hwnd, PROGRESS);
+    // SAFETY: PROGRESS is a live child of this UI-thread window. Every value
+    // is a bounded permille from the pure presentation model.
+    unsafe {
+        if mode_changed {
+            let style = GetWindowLongW(bar, GWL_STYLE) as u32;
+            let style = if marquee {
+                style | PBS_MARQUEE
+            } else {
+                style & !PBS_MARQUEE
+            };
+            SetWindowLongW(bar, GWL_STYLE, style as i32);
+            SendMessageW(bar, PBM_SETMARQUEE, usize::from(marquee), 35);
+            if !marquee {
+                SendMessageW(bar, PBM_SETRANGE32, 0, BAR_COMPLETE as isize);
+            }
+        }
+        if let BarView::Visible(Bar::Advancing(value) | Bar::Halted(value)) = view {
+            SendMessageW(bar, PBM_SETPOS, usize::from(value), 0);
+        }
     }
 }
 
@@ -2504,6 +2590,7 @@ fn preview_shortcut(hwnd: HWND, key: u16, state: &mut State) {
             let scenes = [
                 Preview::Confirm,
                 Preview::Progress,
+                Preview::Replay,
                 Preview::FilesInUse,
                 Preview::Rollback,
                 Preview::Success,
@@ -2557,6 +2644,7 @@ fn preview_shortcut(hwnd: HWND, key: u16, state: &mut State) {
             refresh_paint_style(state);
             apply_title_theme(hwnd, state.palette.dark);
             apply_progress_theme(hwnd, &state.palette);
+            state.applied_bar = None;
         }
         _ => {}
     }

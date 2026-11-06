@@ -265,7 +265,8 @@ cleaned up, **Retry** repeats only that cleanup. Other failures return to the
 confirmation page after checking the installed state; deleting personal data
 is never automatically retried. A deletion that already started may have
 removed some data even when uninstall later fails. **View details** shows the
-stage and error code, and **Save details** writes only that limited report.
+stage, error code and counts of the installer's progress sessions, and **Save
+details** writes only that limited report.
 
 Uninstall disconnects Usque, restores its route, DNS, proxy and firewall state,
 and removes its virtual adapter, service and program files. The shared Wintun

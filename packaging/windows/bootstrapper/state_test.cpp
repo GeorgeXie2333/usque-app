@@ -114,6 +114,41 @@ int main(int argc, char** argv) {
         "strict 240-character boundary receives length guidance");
   check(FolderProblemKey(InstallFolderProblem(L"C:\\Usque*")) == "folder_invalid_characters",
         "path reason maps to a localized, controlled message");
+  SetupProgress bar;
+  check(bar.mode == BarMode::waiting && bar.value == 0, "bar waits for the first engine progress");
+  bar.Cache(0);
+  check(bar.mode == BarMode::advancing && bar.value == 0, "first cache report makes the bar determinate");
+  bar.Cache(100);
+  check(bar.value == kBarCacheEnd, "cache fills only its own range");
+  bar.Cache(40);
+  check(bar.value == kBarCacheEnd, "a later cache step restarting its count never moves the bar back");
+  bar.Execute(50);
+  check(bar.value == kBarCacheEnd + (kBarExecuteEnd - kBarCacheEnd) / 2, "execution maps after caching");
+  bar.Execute(20);
+  check(bar.value == kBarCacheEnd + (kBarExecuteEnd - kBarCacheEnd) / 2,
+        "a nested MSI session restarting its count holds the bar");
+  bar.Execute(250);
+  check(bar.value == kBarExecuteEnd, "out-of-range engine percentages are clamped");
+  bar.Cache(100);
+  check(bar.value == kBarExecuteEnd, "late cache progress cannot reduce execution progress");
+  const unsigned before_rollback = bar.value;
+  bar.Halt();
+  bar.Execute(10);
+  bar.Complete();
+  check(bar.mode == BarMode::halted && bar.value == before_rollback, "rollback freezes the bar");
+  SetupProgress finished;
+  finished.Complete();
+  check(finished.mode == BarMode::advancing && finished.value == kBarComplete, "success fills the bar");
+  SetupProgress sweep;
+  unsigned previous = 0;
+  unsigned seed = 0x2545F491U;
+  for (int step = 0; step < 5000; ++step) {
+    seed = seed * 1664525U + 1013904223U;
+    const unsigned percent = (seed >> 8) % 130;
+    if ((seed >> 4) & 1) sweep.Cache(percent); else sweep.Execute(percent);
+    check(sweep.value >= previous && sweep.value <= kBarExecuteEnd, "arbitrary engine reports never move the bar back");
+    previous = sweep.value;
+  }
   FinishState finish;
   check(!finish.desktop && finish.launch && !finish.startup, "finish defaults");
   finish.desktop = true;

@@ -167,6 +167,40 @@ constexpr std::string_view FolderProblemKey(FolderProblem problem) {
   }
 }
 
+// Presentation weights, in permille of the whole operation. Burn reports
+// caching and MSI execution through separate callbacks, Burn's own overall
+// value only advances once per completed action, and MSI restarts its count
+// for nested sessions (the afterInstallExecute major upgrade removes the old
+// product inside the new transaction). Each source fills a fixed range and the
+// presented value never moves backward.
+constexpr unsigned kBarCacheEnd = 150;
+constexpr unsigned kBarExecuteEnd = 950;
+constexpr unsigned kBarComplete = 1000;
+
+enum class BarMode { waiting, advancing, halted };
+
+struct SetupProgress {
+  BarMode mode = BarMode::waiting;
+  unsigned value = 0;
+
+  // Engine percentages are 0-100 and may move backward within a source.
+  void Cache(unsigned percent) { Advance(Map(0, kBarCacheEnd, percent)); }
+  void Execute(unsigned percent) { Advance(Map(kBarCacheEnd, kBarExecuteEnd, percent)); }
+  void Complete() { Advance(kBarComplete); }
+  // Rollback is presented as stopped at its last value, never as reversal.
+  void Halt() { mode = BarMode::halted; }
+
+ private:
+  static constexpr unsigned Map(unsigned start, unsigned end, unsigned percent) {
+    return start + (end - start) * (percent > 100 ? 100 : percent) / 100;
+  }
+  void Advance(unsigned next) {
+    if (mode == BarMode::halted) return;
+    mode = BarMode::advancing;
+    if (next > value) value = next;
+  }
+};
+
 struct FinishState {
   bool desktop = false;
   bool startup = false;

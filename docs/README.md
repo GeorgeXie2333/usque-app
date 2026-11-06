@@ -69,6 +69,7 @@ Continuous connection behavior and control compatibility: [English / 简体中�
 | [Reliability testing](RELIABILITY_TESTING.md) | Deterministic checks, isolated environments, and result requirements / 确定性检查、隔离环境与结果要求 |
 | [Network-quality rollback](network-quality-rollback.md) | Reviewed build-only rollback and regression requirements / 构建级回滚及回归验证 |
 | [Diagnostics refactor plan](diagnostics-refactor-plan.md) | Evidence contracts, implementation batches and validation record / 诊断证据契约、重构步骤与验证记录 |
+| [Windows setup UI refactor plan](windows-setup-refactor-plan.md) | Progress presentation rules, design decisions, batches and validation boundary / 进度呈现规则、设计决定、分批计划与验证边界 |
 
 Read the [Code of Conduct](../CODE_OF_CONDUCT.md) before participating and follow
 [Contributing](../CONTRIBUTING.md) for safety rules and required checks.
