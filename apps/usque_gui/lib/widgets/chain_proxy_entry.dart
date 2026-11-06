@@ -38,6 +38,7 @@ class ChainProxyEntry extends StatelessWidget {
           details: chosen || view.enabled
               ? ChainSelectionText(
                   view,
+                  strings: strings,
                   key: const ValueKey('proxy-chain-selection'),
                 )
               : null,

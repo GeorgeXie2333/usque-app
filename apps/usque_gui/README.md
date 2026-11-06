@@ -61,7 +61,7 @@ selection, IPv4/IPv6, port and SNI, with an optional preset. Native previews and
 restore use effective account endpoints, and Zero Trust overrides follow
 Advanced's account-scoped merge.
 
-The second destination is **Profiles** (**场景** in Simplified Chinese, **プロファイル** in Japanese), opening
+The second destination is **Profiles** (**配置** in Simplified Chinese, **プロファイル** in Japanese), opening
 on a selected-scene status card above the scene list, with **Manage accounts**
 and **New scene** in the page heading. Accounts opens as
 a standard subpage with its own create action, live account list and operation
@@ -120,10 +120,10 @@ scene catalogue remains visible while settings are also unobserved. Only a live
 settings observation retires a pending saved-configuration scene read, after
 which the visible page requests a fresh catalogue.
 
-场景首页顶部的状态卡展示已选场景及其状态、已选账号和当前连接，当前设置偏离所选场景时
+配置首页顶部的状态卡展示已选场景及其状态、已选账号和当前连接，当前设置偏离所选场景时
 提供“用当前设置更新”和“另存为新场景”；下方场景列表只列出各场景与默认不同的设置。
 页头的“账号管理”打开账号二级页，“新建场景”与之并列。首页账号和账号启动入口直达
-账号页，返回回到场景首页；普通导航和 Ctrl+2 均回到场景首页，离开编辑器仍检查草稿。
+账号页，返回回到配置首页；普通导航和 Ctrl+2 均回到配置首页，离开编辑器仍检查草稿。
 配置页与首页都以引擎确认状态区分已选目标和当前连接。场景编辑保留独立草稿，
 账号默认沿用当前选择，也可绑定指定账号；保存模板不会改变连接。场景只管理账号绑定、
 链式代理、端点、IP 策略与传输协议，输出、局域网、广告、分流和 DNS 保持全局。

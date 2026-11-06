@@ -13,12 +13,16 @@ class UnsavedChangesGuard extends StatefulWidget {
     required this.dirty,
     required this.saving,
     required this.child,
+    this.discardTitle,
+    this.discardBody,
     super.key,
   });
   final AppStrings strings;
   final bool dirty;
   final bool saving;
   final Widget child;
+  final String? discardTitle;
+  final String? discardBody;
   @override
   State<UnsavedChangesGuard> createState() => UnsavedChangesGuardState();
 }
@@ -77,8 +81,10 @@ class UnsavedChangesGuardState extends State<UnsavedChangesGuard> {
       context: context,
       builder: (context) => UsqueDialog(
         icon: LucideIcons.filePen,
-        title: strings.get('discard_changes_title'),
-        content: Text(strings.get('discard_changes_body')),
+        title: widget.discardTitle ?? strings.get('discard_changes_title'),
+        content: Text(
+          widget.discardBody ?? strings.get('discard_changes_body'),
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, true),

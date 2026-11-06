@@ -376,7 +376,11 @@ class _ChainDetails extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          ChainSelectionText(view, key: const ValueKey('home-chain-selection')),
+          ChainSelectionText(
+            view,
+            strings: strings,
+            key: const ValueKey('home-chain-selection'),
+          ),
           if (label != null) ...[
             const SizedBox(height: 2),
             Semantics(

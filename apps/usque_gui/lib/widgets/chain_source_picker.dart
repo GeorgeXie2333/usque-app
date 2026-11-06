@@ -150,7 +150,7 @@ class ChainSourcePicker extends StatelessWidget {
         selected: selected,
         enabled: enabled,
         leading: ChainSourceIcon(source: option, size: 18, color: foreground),
-        title: Text(option.label),
+        title: Text(controller.strings.chainSourceLabel(option)),
         trailing: selected ? const Icon(LucideIcons.check, size: 16) : null,
         subtitle: enabled
             ? null
@@ -188,7 +188,7 @@ class ChainSourcePicker extends StatelessWidget {
             children: [
               Flexible(
                 child: Text(
-                  option.label,
+                  strings.chainSourceLabel(option),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),

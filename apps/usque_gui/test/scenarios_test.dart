@@ -569,7 +569,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(app.section, AppSection.profiles);
       expect(
-        find.text(app.strings.get('discard_changes_title')),
+        find.text(app.strings.get('scenario_discard_title')),
         findsOneWidget,
       );
       await tester.tap(find.text(app.strings.get('keep_editing')));

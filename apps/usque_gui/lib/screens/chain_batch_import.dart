@@ -89,7 +89,7 @@ class _BatchImportDialogState extends State<_BatchImportDialog> {
           final result = await widget.controller.chainProfile({
             'action': 'preview',
             'source': widget.source.wire,
-            'name': widget.source.label,
+            'name': widget.controller.strings.chainSourceLabel(widget.source),
             'configuration': content,
           });
           if (!mounted) return;
@@ -258,7 +258,7 @@ class _BatchImportDialogState extends State<_BatchImportDialog> {
                 tilePadding: EdgeInsets.zero,
                 title: Text(
                   item.file.name.isEmpty
-                      ? '${widget.source.label} ${index + 1}'
+                      ? '${widget.controller.strings.chainSourceLabel(widget.source)} ${index + 1}'
                       : item.file.name,
                 ),
                 subtitle: Text(

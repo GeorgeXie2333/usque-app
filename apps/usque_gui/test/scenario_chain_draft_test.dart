@@ -146,7 +146,7 @@ void main() {
     expect(result!.chainExit!.enabled, isTrue);
     expect(result!.dataPlane, before.dataPlane);
     expect(find.byType(ChainProxyScreen), findsNothing);
-    expect(find.text(app.strings.get('discard_changes_title')), findsNothing);
+    expect(find.text(app.strings.get('scenario_discard_title')), findsNothing);
     _unchanged(engine, app, before);
   });
 
@@ -200,7 +200,10 @@ void main() {
     await tester.pumpAndSettle();
     await tester.binding.handlePopRoute();
     await tester.pumpAndSettle();
-    expect(find.text(app.strings.get('discard_changes_title')), findsOneWidget);
+    expect(
+      find.text(app.strings.get('scenario_discard_title')),
+      findsOneWidget,
+    );
     await tester.tap(find.text(app.strings.get('discard_changes')));
     await tester.pumpAndSettle();
     expect(find.byType(ChainProxyScreen), findsNothing);

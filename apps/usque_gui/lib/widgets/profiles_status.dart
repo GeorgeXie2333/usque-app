@@ -19,7 +19,10 @@ String profilesSelectedAccountLabel(AppController app) {
   if (profilesSelectionUncertain(app)) {
     return strings.get('scenario_unknown');
   }
-  return app.profiles.where((a) => a.id == accountId).firstOrNull?.name ??
+  return app.profiles
+          .where((a) => a.id == accountId)
+          .map(strings.accountName)
+          .firstOrNull ??
       strings.get('not_available');
 }
 
@@ -40,7 +43,7 @@ String? profilesRunningLabel(AppController app) {
           .firstOrNull
           ?.name ??
       strings.get('scenario_custom');
-  return '${account?.name ?? strings.get('not_available')} · $scene';
+  return '${account == null ? strings.get('not_available') : strings.accountName(account)} · $scene';
 }
 
 /// The account a live session is confirmed to use, or null. Without a

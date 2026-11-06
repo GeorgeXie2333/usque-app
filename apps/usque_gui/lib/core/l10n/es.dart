@@ -50,8 +50,8 @@ const Map<String, String> kEsCatalog = <String, String>{
       'Kill Switch bloquea el tráfico de red hasta que se restablezca la conexión o te desconectes.',
   'connection_status': 'Estado de la conexión',
   'home': 'Inicio',
-  'profiles': 'Cuentas',
-  'profiles_subtitle': 'Cambiar y administrar las cuentas WARP.',
+  'profiles': 'Perfiles',
+  'profiles_subtitle': 'Guarda escenarios y gestiona cuentas.',
   'proxy': 'Proxy',
   'proxy_subtitle':
       'Configura las direcciones de escucha y la autenticación del proxy compartidas.',
@@ -59,7 +59,7 @@ const Map<String, String> kEsCatalog = <String, String>{
   'settings_subtitle': 'Ajustes de conexión, proxy y aplicación.',
   'diagnostics': 'Diagnóstico',
   'nav_home': 'Inicio',
-  'nav_profiles': 'Cuentas',
+  'nav_profiles': 'Perfiles',
   'nav_proxy': 'Proxy',
   'nav_settings': 'Ajustes',
   'status_stream_degraded': 'La actualización del estado se está retrasando',
@@ -153,7 +153,7 @@ const Map<String, String> kEsCatalog = <String, String>{
   'create': 'Crear',
   'cancel': 'Cancelar',
   'active': 'Activo',
-  'set_active': 'Establecer como activo',
+  'set_active': 'Establecer como activa',
   'switch_account_reconnect_body':
       'La conexión actual se restablecerá con esta cuenta.',
   'edit': 'Editar',

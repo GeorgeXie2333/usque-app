@@ -67,7 +67,7 @@
 - **分流与广告拦截** — 针对域名和 CIDR 的 DIRECT／REJECT／PROXY 规则、Ads 广告拦截和按国家直连。
 - **加密 DNS** — WARP 出口和直连规则的域名查询都可以使用 DoH 或 DoT。
 - **网络诊断** — 延迟、丢包和最近 60 秒趋势；深度检查需要你确认后才会执行。
-- **场景** — 在 **场景** 页保存常用网络配置并随时切换（计划在 v0.3.4 发布）。
+- **场景** — 在 **配置** 页保存常用网络配置并随时切换（计划在 v0.3.4 发布）。
 - **隐私** — 强制校验服务端公钥，凭据存放在系统凭据库，诊断在本地生成并脱敏，不做使用统计。
 - **平台集成** — Windows 托盘、Android 快捷设置磁贴和电视遥控器导航；21 种语言，浅色、深色主题。
 
@@ -78,7 +78,7 @@
     <td align="center" valign="top" width="25%">
       <picture>
         <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/usque-gallery-scenes-dark.png">
-        <img src="assets/screenshots/usque-gallery-scenes.png" alt="场景页的场景列表" width="200">
+        <img src="assets/screenshots/usque-gallery-scenes.png" alt="配置页的场景列表" width="200">
       </picture>
       <br><strong>场景</strong>
       <br><sub>切换已保存的网络配置</sub>
@@ -184,7 +184,7 @@ VPN、SOCKS5 和 HTTP 默认开启，系统代理默认关闭。它们共用一�
 
 ### 场景与账号
 
-- **[本机网络场景](docs/SCENARIOS.md)**（计划在 v0.3.4 发布）在 **场景** 页保存账号绑定、链式代理、端点、端点 IP 偏好与传输协议。可预览后使用，并恢复最近一次切换；虚拟网卡与代理开关、分流与 DNS 保持全局。保存场景不改变当前连接，页面明确区分已保存和已应用。账号在 **账号管理 → 账号** 中管理。
+- **[本机网络场景](docs/SCENARIOS.md)**（计划在 v0.3.4 发布）在 **配置** 页保存账号绑定、链式代理、端点、端点 IP 偏好与传输协议。可预览后使用，并恢复最近一次切换；虚拟网卡与代理开关、分流与 DNS 保持全局。保存场景不改变当前连接，页面明确区分已保存和已应用。账号在 **账号管理 → 账号** 中管理。
 - **导出 WARP 登录信息：** 确认后可将个人版 WARP 登录信息（WARP Secret）导出到指定文件。Usque 目前无法重新导入该文件，因此它不能用于重装后的账号恢复。
 
 ### 链式代理

@@ -26,6 +26,7 @@ class SaveChangesBar extends StatelessWidget {
     this.secondaryAction,
     this.refreshing = false,
     this.saveLabel,
+    this.savingLabel,
     this.summary,
     this.activity,
     this.saveButtonKey,
@@ -51,6 +52,9 @@ class SaveChangesBar extends StatelessWidget {
   /// Contextual label for the primary action, such as an explicit reconnect.
   final String? saveLabel;
 
+  /// Contextual progress text when saving does not apply connection settings.
+  final String? savingLabel;
+
   /// What the pending edit will do, shown above the status line.
   final Widget? summary;
 
@@ -73,7 +77,7 @@ class SaveChangesBar extends StatelessWidget {
         statusLabel ??
         error ??
         (saving
-            ? strings.get('saving_changes')
+            ? savingLabel ?? strings.get('saving_changes')
             : dirty
             // A summary already names the pending edit; repeating that edits
             // exist would only add a line.
@@ -159,7 +163,7 @@ class SaveChangesBar extends StatelessWidget {
                           : const Icon(LucideIcons.check, size: 18),
                       label: Text(
                         saving
-                            ? strings.get('saving_changes')
+                            ? savingLabel ?? strings.get('saving_changes')
                             : saveLabel ?? strings.get('save_changes'),
                       ),
                     );

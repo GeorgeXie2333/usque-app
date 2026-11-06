@@ -141,7 +141,7 @@ class AccountsScreen extends StatelessWidget {
         builder: (context) => UsqueDialog(
           icon: LucideIcons.refreshCw,
           title: strings.get('set_active'),
-          subtitle: profile.name,
+          subtitle: strings.accountName(profile),
           width: 420,
           content: Text(strings.get('switch_account_reconnect_body')),
           actions: <Widget>[
@@ -213,7 +213,7 @@ class AccountsScreen extends StatelessWidget {
       builder: (context) => UsqueDialog(
         icon: LucideIcons.trash2,
         title: strings.get('delete_profile'),
-        subtitle: profile.name,
+        subtitle: strings.accountName(profile),
         danger: true,
         width: 420,
         content: Text(
@@ -308,7 +308,7 @@ class ScenarioAccountPicker extends StatelessWidget {
                     _PickerAccountRow(
                       key: ValueKey('scene-select-account-${profile.id}'),
                       checked: profile.id == boundAccountId,
-                      title: profile.name,
+                      title: strings.accountName(profile),
                       detail: _AccountIdentityLine(
                         state: controller.identityState(profile.id),
                         status: controller.identityStatus(profile.id),
@@ -342,7 +342,9 @@ class _ProfileEditDialogState extends State<_ProfileEditDialog> {
   @override
   void initState() {
     super.initState();
-    _controller = TextEditingController(text: widget.profile.name);
+    _controller = TextEditingController(
+      text: widget.strings.accountName(widget.profile),
+    );
     _focusNode = FocusNode();
   }
 
@@ -371,7 +373,7 @@ class _ProfileEditDialogState extends State<_ProfileEditDialog> {
     return UsqueDialog(
       icon: LucideIcons.pencil,
       title: widget.strings.get('edit_profile'),
-      subtitle: widget.profile.name,
+      subtitle: widget.strings.accountName(widget.profile),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -510,7 +512,7 @@ class _IdentityManagementDialogState extends State<_IdentityManagementDialog> {
     return UsqueDialog(
       icon: zeroTrust ? LucideIcons.building2 : LucideIcons.keyRound,
       title: widget.strings.get('identity_and_license'),
-      subtitle: widget.profile.name,
+      subtitle: widget.strings.accountName(widget.profile),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -681,7 +683,7 @@ class _ManagedAccountRow extends StatelessWidget {
       // A saved choice, not a confirmed connection: brand, no check.
       if (selected)
         InlineStatus(
-          label: strings.get('scenario_selected'),
+          label: strings.get('account_selected'),
           tone: StatusTone.brand,
           icon: LucideIcons.circleDot,
         ),
@@ -690,7 +692,7 @@ class _ManagedAccountRow extends StatelessWidget {
       if (connected)
         InlineStatus(
           key: ValueKey('profile-connected-${profile.id}'),
-          label: strings.get('connected'),
+          label: strings.get('account_connected'),
           tone: StatusTone.success,
         ),
     ];
@@ -790,7 +792,7 @@ class _ManagedAccountRow extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
                 Text(
-                  profile.name,
+                  strings.accountName(profile),
                   maxLines: compact ? 2 : 1,
                   overflow: TextOverflow.ellipsis,
                   style: theme.textTheme.titleLarge,

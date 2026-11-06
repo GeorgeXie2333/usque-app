@@ -35,7 +35,7 @@ _HeroView _heroView(AppController controller) => (
   phase: controller.snapshot.phase,
   busy: controller.busy,
   errorCode: controller.snapshot.errorCode,
-  profileName: controller.activeProfile.name,
+  profileName: controller.strings.accountName(controller.activeProfile),
   identityReady:
       controller.identityState(controller.activeProfileId) ==
       ProfileIdentityState.ready,

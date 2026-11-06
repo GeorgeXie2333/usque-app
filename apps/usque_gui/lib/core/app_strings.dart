@@ -30,6 +30,13 @@ class AppStrings {
 
   final String catalogId;
 
+  /// Localizes only the original default account's unchanged display name.
+  /// Stored names and user-created accounts are kept verbatim.
+  String accountName(UsqueProfile account) =>
+      account.id == UsqueProfile.defaultProfileId && account.name == 'Default'
+      ? get('account_default_name')
+      : account.name;
+
   String get vpnGateUnsupported =>
       get('l4_unsupported').replaceAll('L4', 'VPN Gate');
 

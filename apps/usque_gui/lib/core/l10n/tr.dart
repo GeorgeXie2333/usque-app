@@ -49,9 +49,8 @@ const Map<String, String> kTrCatalog = <String, String>{
       'Bağlantı geri yüklenene veya bağlantıyı kesene kadar Kill Switch ağ trafiğini engelliyor.',
   'connection_status': 'Bağlantı durumu',
   'home': 'Ana sayfa',
-  'profiles': 'Hesaplar',
-  'profiles_subtitle':
-      'WARP hesapları arasında geçiş yapın ve bunları yönetin.',
+  'profiles': 'Profiller',
+  'profiles_subtitle': 'Senaryoları kaydedin ve hesapları yönetin.',
   'proxy': 'Proxy',
   'proxy_subtitle':
       'Paylaşılan proxy dinleme adreslerini ve kimlik doğrulamasını yapılandırın.',
@@ -59,7 +58,7 @@ const Map<String, String> kTrCatalog = <String, String>{
   'settings_subtitle': 'Bağlantı, proxy ve uygulama ayarları.',
   'diagnostics': 'Tanılama',
   'nav_home': 'Ana sayfa',
-  'nav_profiles': 'Hesaplar',
+  'nav_profiles': 'Profiller',
   'nav_proxy': 'Proxy',
   'nav_settings': 'Ayarlar',
   'status_stream_degraded': 'Durum güncellemeleri gecikiyor',

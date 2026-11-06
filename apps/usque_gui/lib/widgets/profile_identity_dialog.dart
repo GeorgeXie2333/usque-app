@@ -68,7 +68,9 @@ class _ProfileIdentityDialogState extends State<_ProfileIdentityDialog> {
     if (_isZeroTrustRepair) {
       _method = IdentityProvisioningMethod.zeroTrust;
     }
-    _nameController = TextEditingController(text: widget.profile?.name ?? '');
+    _nameController = TextEditingController(
+      text: widget.profile == null ? '' : _strings.accountName(widget.profile!),
+    );
     _licenseController = TextEditingController();
     _nameFocusNode = FocusNode();
     _licenseFocusNode = FocusNode();

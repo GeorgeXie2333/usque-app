@@ -503,7 +503,7 @@ void main() {
       await tester.binding.handlePopRoute();
       await tester.pumpAndSettle();
       expect(
-        find.text(app.strings.get('discard_changes_title')),
+        find.text(app.strings.get('scenario_discard_title')),
         findsOneWidget,
       );
       await tapText(tester, app.strings.get('keep_editing'));

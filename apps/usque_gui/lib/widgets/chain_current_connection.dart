@@ -179,7 +179,9 @@ class ChainCurrentConnection extends StatelessWidget {
                 ),
                 const SizedBox(width: 8),
                 Expanded(
-                  child: Text('${current.source.label} · ${current.name}'),
+                  child: Text(
+                    '${strings.chainSourceLabel(current.source)} · ${current.name}',
+                  ),
                 ),
               ],
             )

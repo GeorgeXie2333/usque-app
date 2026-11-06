@@ -1597,7 +1597,10 @@ void main() {
 
   test('compact navigation labels keep reviewed short translations', () {
     expect(AppStrings(LocalePreference.arabic).get('nav_home'), 'رئيسية');
-    expect(AppStrings(LocalePreference.arabic).get('nav_profiles'), 'ملفات');
+    expect(
+      AppStrings(LocalePreference.arabic).get('nav_profiles'),
+      'ملفات التعريف',
+    );
     expect(AppStrings(LocalePreference.arabic).get('nav_proxy'), 'وكيل');
     expect(AppStrings(LocalePreference.arabic).get('nav_settings'), 'إعدادات');
     expect(AppStrings(LocalePreference.german).get('nav_settings'), 'Optionen');
@@ -3779,7 +3782,7 @@ void main() {
       final context = tester.element(find.byType(Scaffold).first);
       expect(Theme.of(context).brightness, Brightness.dark);
 
-      await tester.tap(find.text('场景').first);
+      await tester.tap(find.text('配置').first);
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
       expect(find.text('添加账号'), findsOneWidget);

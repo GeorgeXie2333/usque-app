@@ -75,6 +75,13 @@ const kScenarioJa = <String, String>{
   'scenario_account_hint': "シーンを使用すると、ここで選んだアカウントで接続します。",
   'scenario_follow_account_hint': "選択したアカウントに従います（現在は {account}）",
   'scenario_follow_account_named': "現在のアカウントを使用（{account}）",
+  'account_selected': '選択済み',
+  'account_connected': '接続済み',
+  'account_default_name': '既定のアカウント',
+  'warp_via_wireguard': 'WireGuard 経由の WARP',
+  'scenario_saving': 'シーンを保存しています…',
+  'scenario_discard_title': 'シーンの未保存の変更を破棄しますか？',
+  'scenario_discard_body': 'このシーンの未保存の変更は失われます。',
 };
 
 const kScenarioKo = <String, String>{
@@ -155,6 +162,13 @@ const kScenarioKo = <String, String>{
   'scenario_account_hint': "시나리오를 사용하면 여기서 선택한 계정으로 연결합니다.",
   'scenario_follow_account_hint': "선택한 계정을 따릅니다. 현재 {account}",
   'scenario_follow_account_named': "현재 계정 사용({account})",
+  'account_selected': '선택됨',
+  'account_connected': '연결됨',
+  'account_default_name': '기본 계정',
+  'warp_via_wireguard': 'WireGuard를 통한 WARP',
+  'scenario_saving': '시나리오 저장 중…',
+  'scenario_discard_title': '저장하지 않은 시나리오 변경 사항을 취소할까요?',
+  'scenario_discard_body': '이 시나리오의 저장하지 않은 변경 사항은 사라집니다.',
 };
 
 const kScenarioEs = <String, String>{
@@ -250,6 +264,14 @@ const kScenarioEs = <String, String>{
   'scenario_follow_account_hint':
       "Sigue la cuenta seleccionada; ahora, {account}",
   'scenario_follow_account_named': "Usar la cuenta actual ({account})",
+  'account_selected': 'Seleccionada',
+  'account_connected': 'Conectada',
+  'account_default_name': 'Cuenta predeterminada',
+  'warp_via_wireguard': 'WARP mediante WireGuard',
+  'scenario_saving': 'Guardando escenario…',
+  'scenario_discard_title': '¿Descartar los cambios del escenario sin guardar?',
+  'scenario_discard_body':
+      'Se perderán los cambios sin guardar de este escenario.',
 };
 
 const kScenarioPt = <String, String>{
@@ -344,6 +366,14 @@ const kScenarioPt = <String, String>{
       "Ao usar o cenário, a conexão usa a conta escolhida aqui.",
   'scenario_follow_account_hint': "Segue a conta selecionada; agora, {account}",
   'scenario_follow_account_named': "Usar a conta atual ({account})",
+  'account_selected': 'Selecionada',
+  'account_connected': 'Conectada',
+  'account_default_name': 'Conta padrão',
+  'warp_via_wireguard': 'WARP via WireGuard',
+  'scenario_saving': 'Salvando cenário…',
+  'scenario_discard_title': 'Descartar alterações não salvas do cenário?',
+  'scenario_discard_body':
+      'As alterações não salvas deste cenário serão perdidas.',
 };
 
 const kScenarioFr = <String, String>{
@@ -439,6 +469,15 @@ const kScenarioFr = <String, String>{
   'scenario_follow_account_hint':
       "Suit le compte sélectionné, actuellement {account}",
   'scenario_follow_account_named': "Utiliser le compte actuel ({account})",
+  'account_selected': 'Sélectionné',
+  'account_connected': 'Connecté',
+  'account_default_name': 'Compte par défaut',
+  'warp_via_wireguard': 'WARP via WireGuard',
+  'scenario_saving': 'Enregistrement du scénario…',
+  'scenario_discard_title':
+      'Abandonner les modifications non enregistrées du scénario ?',
+  'scenario_discard_body':
+      'Les modifications non enregistrées de ce scénario seront perdues.',
 };
 
 const kScenarioNl = <String, String>{
@@ -534,6 +573,14 @@ const kScenarioNl = <String, String>{
   'scenario_follow_account_hint':
       "Volgt het geselecteerde account, nu {account}",
   'scenario_follow_account_named': "Huidig account gebruiken ({account})",
+  'account_selected': 'Geselecteerd',
+  'account_connected': 'Verbonden',
+  'account_default_name': 'Standaardaccount',
+  'warp_via_wireguard': 'WARP via WireGuard',
+  'scenario_saving': 'Scenario opslaan…',
+  'scenario_discard_title': 'Niet-opgeslagen scenariowijzigingen verwerpen?',
+  'scenario_discard_body':
+      'Niet-opgeslagen wijzigingen in dit scenario gaan verloren.',
 };
 
 const kScenarioTr = <String, String>{
@@ -626,6 +673,14 @@ const kScenarioTr = <String, String>{
       "Senaryo kullanıldığında burada seçilen hesapla bağlanılır.",
   'scenario_follow_account_hint': "Seçili hesabı izler, şu an {account}",
   'scenario_follow_account_named': "Geçerli hesabı kullan ({account})",
+  'account_selected': 'Seçildi',
+  'account_connected': 'Bağlandı',
+  'account_default_name': 'Varsayılan hesap',
+  'warp_via_wireguard': 'WireGuard üzerinden WARP',
+  'scenario_saving': 'Senaryo kaydediliyor…',
+  'scenario_discard_title': 'Kaydedilmemiş senaryo değişiklikleri atılsın mı?',
+  'scenario_discard_body':
+      'Bu senaryonun kaydedilmemiş değişiklikleri kaybolacak.',
 };
 
 const kScenarioRu = <String, String>{
@@ -721,6 +776,14 @@ const kScenarioRu = <String, String>{
   'scenario_follow_account_hint':
       "Следует выбранному аккаунту, сейчас {account}",
   'scenario_follow_account_named': "Использовать текущий аккаунт ({account})",
+  'account_selected': 'Выбран',
+  'account_connected': 'Подключено',
+  'account_default_name': 'Аккаунт по умолчанию',
+  'warp_via_wireguard': 'WARP через WireGuard',
+  'scenario_saving': 'Сохранение сценария…',
+  'scenario_discard_title': 'Отменить несохранённые изменения сценария?',
+  'scenario_discard_body':
+      'Несохранённые изменения этого сценария будут потеряны.',
 };
 
 const kScenarioDe = <String, String>{
@@ -817,6 +880,14 @@ const kScenarioDe = <String, String>{
   'scenario_follow_account_hint':
       "Folgt dem ausgewählten Konto, derzeit {account}",
   'scenario_follow_account_named': "Aktuelles Konto verwenden ({account})",
+  'account_selected': 'Ausgewählt',
+  'account_connected': 'Verbunden',
+  'account_default_name': 'Standardkonto',
+  'warp_via_wireguard': 'WARP über WireGuard',
+  'scenario_saving': 'Szenario wird gespeichert…',
+  'scenario_discard_title': 'Nicht gespeicherte Szenarioänderungen verwerfen?',
+  'scenario_discard_body':
+      'Nicht gespeicherte Änderungen an diesem Szenario gehen verloren.',
 };
 
 const kScenarioIt = <String, String>{
@@ -910,6 +981,14 @@ const kScenarioIt = <String, String>{
       "Quando usi lo scenario, la connessione usa l’account scelto qui.",
   'scenario_follow_account_hint': "Segue l’account selezionato, ora {account}",
   'scenario_follow_account_named': "Usa l’account attuale ({account})",
+  'account_selected': 'Selezionato',
+  'account_connected': 'Connesso',
+  'account_default_name': 'Account predefinito',
+  'warp_via_wireguard': 'WARP tramite WireGuard',
+  'scenario_saving': 'Salvataggio dello scenario…',
+  'scenario_discard_title': 'Ignorare le modifiche non salvate dello scenario?',
+  'scenario_discard_body':
+      'Le modifiche non salvate di questo scenario andranno perse.',
 };
 
 const kScenarioPl = <String, String>{
@@ -1005,4 +1084,12 @@ const kScenarioPl = <String, String>{
   'scenario_follow_account_hint':
       "Podąża za wybranym kontem, obecnie {account}",
   'scenario_follow_account_named': "Użyj bieżącego konta ({account})",
+  'account_selected': 'Wybrane',
+  'account_connected': 'Połączono',
+  'account_default_name': 'Konto domyślne',
+  'warp_via_wireguard': 'WARP przez WireGuard',
+  'scenario_saving': 'Zapisywanie scenariusza…',
+  'scenario_discard_title': 'Odrzucić niezapisane zmiany scenariusza?',
+  'scenario_discard_body':
+      'Niezapisane zmiany tego scenariusza zostaną utracone.',
 };

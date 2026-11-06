@@ -2,7 +2,9 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../core/app_strings.dart';
 import '../core/chain_exit_presentation.dart';
+import '../core/chain_strings.dart';
 import '../core/usque_theme.dart';
 import '../models/app_models.dart';
 import '../state/app_controller.dart';
@@ -208,6 +210,7 @@ class _SavedSelectionState extends State<_SavedSelection> {
 class ChainSelectionText extends StatelessWidget {
   const ChainSelectionText(
     this.view, {
+    required this.strings,
     this.showSource = true,
     this.style,
     this.maxLines = 2,
@@ -215,6 +218,7 @@ class ChainSelectionText extends StatelessWidget {
   });
 
   final ChainExitPresentation view;
+  final AppStrings strings;
   final bool showSource;
   final TextStyle? style;
   final int maxLines;
@@ -223,7 +227,7 @@ class ChainSelectionText extends StatelessWidget {
   Widget build(BuildContext context) {
     final selection = view.selection;
     final spans = <InlineSpan>[
-      if (showSource) TextSpan(text: view.source.label),
+      if (showSource) TextSpan(text: strings.chainSourceLabel(view.source)),
     ];
     if (selection != null) {
       if (spans.isNotEmpty) spans.add(const TextSpan(text: ' · '));

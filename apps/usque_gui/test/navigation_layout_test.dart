@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -171,6 +172,7 @@ void main() {
             final paragraph = tester.renderObject<RenderParagraph>(labelFinder);
             final boxes = paragraph.getBoxesForSelection(
               TextSelection(baseOffset: 0, extentOffset: label.length),
+              boxHeightStyle: ui.BoxHeightStyle.max,
             );
             final lineTops = boxes.map((box) => box.top.round()).toSet();
             final left = boxes
@@ -260,6 +262,7 @@ void main() {
             final paragraph = tester.renderObject<RenderParagraph>(labelFinder);
             final boxes = paragraph.getBoxesForSelection(
               TextSelection(baseOffset: 0, extentOffset: label.length),
+              boxHeightStyle: ui.BoxHeightStyle.max,
             );
             final lineTops = boxes.map((box) => box.top.round()).toSet();
             final left = boxes

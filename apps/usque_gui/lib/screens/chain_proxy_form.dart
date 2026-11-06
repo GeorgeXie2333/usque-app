@@ -92,7 +92,7 @@ class _ProxyDialogState extends State<_ProxyDialog> {
             ? LucideIcons.cable
             : LucideIcons.server,
         title: s.chain('add_proxy'),
-        subtitle: widget.source.label,
+        subtitle: s.chainSourceLabel(widget.source),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,

@@ -149,7 +149,10 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
         : catalog!.currentAccountId;
     final strings = app.strings;
     String account(String? id) =>
-        app.profiles.where((p) => p.id == id).firstOrNull?.name ??
+        app.profiles
+            .where((p) => p.id == id)
+            .map(strings.accountName)
+            .firstOrNull ??
         strings.get('scenario_reference_missing');
     final fields = current.values.keys
         .where(
@@ -297,7 +300,9 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
           label: scenarioFact(
             strings,
             strings.get('scenario_bound_account'),
-            account?.name ?? strings.get('not_available'),
+            account == null
+                ? strings.get('not_available')
+                : strings.accountName(account),
           ),
         ),
     ];
@@ -1116,7 +1121,10 @@ Future<bool> _previewAndUseScenario(
       .where((field) => !_managedScenarioFields.contains(field))
       .toSet();
   String account(String? id) =>
-      app.profiles.where((a) => a.id == id).firstOrNull?.name ??
+      app.profiles
+          .where((a) => a.id == id)
+          .map(strings.accountName)
+          .firstOrNull ??
       strings.get('scenario_reference_missing');
   final impact = switch (preview.applyKind == 'select'
       ? 'scenario_disconnected_hint'
@@ -1455,8 +1463,8 @@ String scenarioValueLabel(
       final label =
           ChainSource.values
               .where((item) => item.wire == source)
-              .firstOrNull
-              ?.label ??
+              .map(strings.chainSourceLabel)
+              .firstOrNull ??
           strings.get('not_available');
       final name = exitNames[value['profile_id']];
       final base = name == null ? label : '$label · $name';

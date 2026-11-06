@@ -92,14 +92,21 @@ const kScenarioEn = <String, String>{
       "Using the scene connects with the account chosen here.",
   'scenario_follow_account_hint': "Follows the selected account, now {account}",
   'scenario_follow_account_named': "Use the current account ({account})",
+  'account_selected': 'Selected',
+  'account_connected': 'Connected',
+  'account_default_name': 'Default',
+  'warp_via_wireguard': 'WARP via WireGuard',
+  'scenario_saving': 'Saving scene…',
+  'scenario_discard_title': 'Discard unsaved scene changes?',
+  'scenario_discard_body': 'Unsaved changes to this scene will be lost.',
 };
 
 const kScenarioZhCn = <String, String>{
   'scenario_fact': '{label}：{value}',
   'scenario_platform_unsupported': '此场景包含当前设备不支持的设置。',
   'scenario_limit': "场景库超过限制，请删除不再使用的场景。",
-  'profiles': '场景',
-  'nav_profiles': '场景',
+  'profiles': '配置',
+  'nav_profiles': '配置',
   'profiles_subtitle': '保存场景与管理账号。',
   'profiles_manage_accounts': '账号管理',
   'scenario_scenes': '场景',
@@ -166,6 +173,13 @@ const kScenarioZhCn = <String, String>{
   'scenario_account_hint': "使用场景时以这里选择的账号连接。",
   'scenario_follow_account_hint': "跟随已选账号，当前为 {account}",
   'scenario_follow_account_named': "沿用当前账号（{account}）",
+  'account_selected': '已选择',
+  'account_connected': '已连接',
+  'account_default_name': '默认账号',
+  'warp_via_wireguard': 'WARP（通过 WireGuard）',
+  'scenario_saving': '正在保存场景…',
+  'scenario_discard_title': '放弃未保存的场景修改？',
+  'scenario_discard_body': '此场景尚未保存的修改将丢失。',
 };
 
 const kScenarioCatalogs = <String, Map<String, String>>{

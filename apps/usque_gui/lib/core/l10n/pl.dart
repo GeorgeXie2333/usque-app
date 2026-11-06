@@ -48,8 +48,8 @@ const Map<String, String> kPlCatalog = <String, String>{
       'Kill Switch blokuje ruch sieciowy do czasu przywrócenia połączenia lub rozłączenia.',
   'connection_status': 'Stan połączenia',
   'home': 'Główna',
-  'profiles': 'Konta',
-  'profiles_subtitle': 'Przełączanie i zarządzanie kontami WARP.',
+  'profiles': 'Profile',
+  'profiles_subtitle': 'Zapisuj scenariusze i zarządzaj kontami.',
   'proxy': 'Proxy',
   'proxy_subtitle':
       'Skonfiguruj wspólne adresy nasłuchiwania i uwierzytelnianie proxy.',
@@ -57,7 +57,7 @@ const Map<String, String> kPlCatalog = <String, String>{
   'settings_subtitle': 'Ustawienia połączenia, proxy i aplikacji.',
   'diagnostics': 'Diagnostyka',
   'nav_home': 'Główna',
-  'nav_profiles': 'Konta',
+  'nav_profiles': 'Profile',
   'nav_proxy': 'Proxy',
   'nav_settings': 'Opcje',
   'status_stream_degraded': 'Aktualizacje stanu są opóźnione',
@@ -151,7 +151,7 @@ const Map<String, String> kPlCatalog = <String, String>{
   'create': 'Utwórz',
   'cancel': 'Anuluj',
   'active': 'Aktywny',
-  'set_active': 'Ustaw aktywny',
+  'set_active': 'Ustaw jako aktywne',
   'switch_account_reconnect_body':
       'Bieżące połączenie zostanie nawiązane ponownie z tym kontem.',
   'edit': 'Edytuj',

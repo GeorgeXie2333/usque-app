@@ -354,7 +354,7 @@ void main() {
       app.openAccounts();
       await tester.pumpAndSettle();
       expect(
-        find.text(app.strings.get('discard_changes_title')),
+        find.text(app.strings.get('scenario_discard_title')),
         findsOneWidget,
       );
       app.openAccounts();
@@ -371,7 +371,7 @@ void main() {
       app.openProfiles();
       await tester.pumpAndSettle();
       expect(
-        find.text(app.strings.get('discard_changes_title')),
+        find.text(app.strings.get('scenario_discard_title')),
         findsOneWidget,
       );
       await tester.tap(find.text(app.strings.get('keep_editing')));
@@ -620,7 +620,7 @@ void main() {
       );
       expect(find.text('Zero Trust · example-team'), findsOneWidget);
       // The selection and the live account are separate facts.
-      expect(find.text(app.strings.get('scenario_selected')), findsOneWidget);
+      expect(find.text(app.strings.get('account_selected')), findsOneWidget);
       // Without a connection nothing is claimed.
       app.snapshot = const EngineSnapshot(phase: ConnectionPhase.disconnected);
       await app.scenarios.refresh();
@@ -774,7 +774,7 @@ void main() {
       final app = await _profiles(tester, engine);
       await tester.tap(_manage);
       await tester.pumpAndSettle();
-      final selected = find.text(app.strings.get('scenario_selected'));
+      final selected = find.text(app.strings.get('account_selected'));
       expect(selected, findsOneWidget);
       engine.failList = true;
       await app.scenarios.refresh();

@@ -49,8 +49,8 @@ const Map<String, String> kPtCatalog = <String, String>{
       'O Kill Switch está bloqueando o tráfego de rede até que a conexão seja restaurada ou você se desconecte.',
   'connection_status': 'Status da conexão',
   'home': 'Início',
-  'profiles': 'Contas',
-  'profiles_subtitle': 'Alterne e gerencie contas WARP.',
+  'profiles': 'Perfis',
+  'profiles_subtitle': 'Salve cenários e gerencie contas.',
   'proxy': 'Proxy',
   'proxy_subtitle':
       'Configure os endereços de escuta e a autenticação compartilhados do proxy.',
@@ -58,7 +58,7 @@ const Map<String, String> kPtCatalog = <String, String>{
   'settings_subtitle': 'Configurações de conexão, proxy e aplicativo.',
   'diagnostics': 'Diagnósticos',
   'nav_home': 'Início',
-  'nav_profiles': 'Contas',
+  'nav_profiles': 'Perfis',
   'nav_proxy': 'Proxy',
   'nav_settings': 'Ajustes',
   'status_stream_degraded': 'A atualização do status está atrasada',
@@ -151,7 +151,7 @@ const Map<String, String> kPtCatalog = <String, String>{
   'create': 'Criar',
   'cancel': 'Cancelar',
   'active': 'Ativo',
-  'set_active': 'Definir como ativo',
+  'set_active': 'Definir como ativa',
   'switch_account_reconnect_body':
       'A conexão atual será restabelecida com esta conta.',
   'edit': 'Editar',

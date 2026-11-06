@@ -20,9 +20,9 @@ offers **Use scene** again only when using it would change something. An empty
 library shows **New scene** in its empty state. Engines without scenes continue
 to show account management at the root.
 
-在 **场景** 首页保存和使用本机网络场景，通过 **账号管理** 打开 **账号** 二级页。
+在 **配置** 首页保存和使用本机网络场景，通过 **账号管理** 打开 **账号** 二级页。
 首页账号入口和账号启动入口直达账号页；首页场景入口、普通导航和 Ctrl+2 均打开
-场景首页。账号页返回场景首页并保留场景列表的滚动位置。桌面保留侧栏，手机在
+配置首页。账号页返回配置首页并保留场景列表的滚动位置。桌面保留侧栏，手机在
 子页面隐藏底部导航。离开编辑器时先检查未保存修改，从其他入口打开账号页也遵循
 同一保护。页头提供 **账号管理** 和 **新建场景**。顶部状态卡显示已选场景及其状态
 （如 **已修改**、**已应用**）、已选账号；存在会话时还显示已确认的当前连接，旁边
@@ -31,7 +31,7 @@ to show account management at the root.
 取消选择。每个场景行列出其区别：出口、
 端点、非默认的传输协议或 IP 偏好，以及绑定账号。已选场景只有在再次使用会产生
 变化时才显示 **使用场景**。场景库为空时，**新建场景** 位于空状态中。不支持场景的
-引擎继续在场景首页提供账号管理。
+引擎继续在配置首页提供账号管理。
 
 The Accounts page supports account creation, identity setup, renaming, licenses
 and deletion. Each row shows the account's kind (WARP+, WARP Free, or Zero Trust

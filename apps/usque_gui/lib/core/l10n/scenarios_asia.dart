@@ -5,8 +5,8 @@ const kScenarioZhTw = <String, String>{
   'scenario_limit': "情境庫超過限制，請刪除不再使用的情境。",
   'scenario_vpn_permission': '請先中斷連線、選擇此情境，再連線以完成 VPN 授權。',
   'scenario_rules_missing': '使用此情境前，請在設定中準備所需的分流資料。',
-  'profiles': '情境',
-  'nav_profiles': '情境',
+  'profiles': '設定檔',
+  'nav_profiles': '設定檔',
   'profiles_subtitle': '儲存情境與管理帳號。',
   'profiles_manage_accounts': '帳號管理',
   'scenario_scenes': '情境',
@@ -71,6 +71,13 @@ const kScenarioZhTw = <String, String>{
   'scenario_account_hint': "使用情境時會以這裡選擇的帳號連線。",
   'scenario_follow_account_hint': "跟隨已選帳號，目前為 {account}",
   'scenario_follow_account_named': "沿用目前帳號（{account}）",
+  'account_selected': '已選取',
+  'account_connected': '已連線',
+  'account_default_name': '預設帳號',
+  'warp_via_wireguard': 'WARP（透過 WireGuard）',
+  'scenario_saving': '正在儲存情境…',
+  'scenario_discard_title': '捨棄未儲存的情境變更？',
+  'scenario_discard_body': '此情境尚未儲存的變更將會遺失。',
 };
 
 const kScenarioAr = <String, String>{
@@ -83,8 +90,8 @@ const kScenarioAr = <String, String>{
       'اقطع الاتصال، ثم اختر هذا المشهد وأعد الاتصال لمنح إذن VPN.',
   'scenario_rules_missing':
       'جهّز بيانات قواعد التوجيه المطلوبة في الإعدادات قبل استخدام هذا المشهد.',
-  'profiles': 'الملفات الشخصية',
-  'nav_profiles': 'ملفات',
+  'profiles': 'ملفات التعريف',
+  'nav_profiles': 'ملفات التعريف',
   'profiles_subtitle': 'احفظ المشاهد وأدِر الحسابات.',
   'profiles_manage_accounts': 'إدارة الحسابات',
   'scenario_scenes': 'المشاهد',
@@ -161,6 +168,13 @@ const kScenarioAr = <String, String>{
   'scenario_account_hint': "عند استخدام المشهد، يتصل بالحساب المختار هنا.",
   'scenario_follow_account_hint': "يتبع الحساب المحدد، حاليًا {account}",
   'scenario_follow_account_named': "استخدام الحساب الحالي ({account})",
+  'account_selected': 'محدد',
+  'account_connected': 'متصل',
+  'account_default_name': 'الحساب الافتراضي',
+  'warp_via_wireguard': 'WARP عبر WireGuard',
+  'scenario_saving': 'جارٍ حفظ المشهد…',
+  'scenario_discard_title': 'تجاهل تغييرات المشهد غير المحفوظة؟',
+  'scenario_discard_body': 'ستُفقد التغييرات غير المحفوظة في هذا المشهد.',
 };
 
 const kScenarioFa = <String, String>{
@@ -255,6 +269,13 @@ const kScenarioFa = <String, String>{
   'scenario_follow_account_hint':
       "از حساب انتخاب‌شده پیروی می‌کند؛ اکنون {account}",
   'scenario_follow_account_named': "استفاده از حساب فعلی ({account})",
+  'account_selected': 'انتخاب‌شده',
+  'account_connected': 'متصل',
+  'account_default_name': 'حساب پیش‌فرض',
+  'warp_via_wireguard': 'WARP از طریق WireGuard',
+  'scenario_saving': 'در حال ذخیرهٔ سناریو…',
+  'scenario_discard_title': 'تغییرات ذخیره‌نشدهٔ سناریو کنار گذاشته شود؟',
+  'scenario_discard_body': 'تغییرات ذخیره‌نشدهٔ این سناریو از بین می‌روند.',
 };
 
 const kScenarioId = <String, String>{
@@ -350,6 +371,14 @@ const kScenarioId = <String, String>{
   'scenario_follow_account_hint':
       "Mengikuti akun yang dipilih, saat ini {account}",
   'scenario_follow_account_named': "Gunakan akun saat ini ({account})",
+  'account_selected': 'Dipilih',
+  'account_connected': 'Tersambung',
+  'account_default_name': 'Akun bawaan',
+  'warp_via_wireguard': 'WARP melalui WireGuard',
+  'scenario_saving': 'Menyimpan skenario…',
+  'scenario_discard_title': 'Buang perubahan skenario yang belum disimpan?',
+  'scenario_discard_body':
+      'Perubahan yang belum disimpan pada skenario ini akan hilang.',
 };
 
 const kScenarioTh = <String, String>{
@@ -441,6 +470,15 @@ const kScenarioTh = <String, String>{
       "เมื่อใช้สถานการณ์ จะเชื่อมต่อด้วยบัญชีที่เลือกที่นี่",
   'scenario_follow_account_hint': "ตามบัญชีที่เลือก ขณะนี้คือ {account}",
   'scenario_follow_account_named': "ใช้บัญชีปัจจุบัน ({account})",
+  'account_selected': 'เลือกแล้ว',
+  'account_connected': 'เชื่อมต่อแล้ว',
+  'account_default_name': 'บัญชีเริ่มต้น',
+  'warp_via_wireguard': 'WARP ผ่าน WireGuard',
+  'scenario_saving': 'กำลังบันทึกสถานการณ์…',
+  'scenario_discard_title':
+      'ละทิ้งการเปลี่ยนแปลงสถานการณ์ที่ยังไม่ได้บันทึกหรือไม่?',
+  'scenario_discard_body':
+      'การเปลี่ยนแปลงที่ยังไม่ได้บันทึกของสถานการณ์นี้จะหายไป',
 };
 
 const kScenarioUk = <String, String>{
@@ -537,6 +575,13 @@ const kScenarioUk = <String, String>{
       "Відповідає вибраному обліковому запису, зараз {account}",
   'scenario_follow_account_named':
       "Використовувати поточний обліковий запис ({account})",
+  'account_selected': 'Вибрано',
+  'account_connected': 'Зʼєднано',
+  'account_default_name': 'Типовий обліковий запис',
+  'warp_via_wireguard': 'WARP через WireGuard',
+  'scenario_saving': 'Збереження сценарію…',
+  'scenario_discard_title': 'Відкинути незбережені зміни сценарію?',
+  'scenario_discard_body': 'Незбережені зміни цього сценарію буде втрачено.',
 };
 
 const kScenarioVi = <String, String>{
@@ -630,6 +675,13 @@ const kScenarioVi = <String, String>{
       "Khi dùng kịch bản, kết nối sẽ dùng tài khoản chọn ở đây.",
   'scenario_follow_account_hint': "Theo tài khoản đã chọn, hiện là {account}",
   'scenario_follow_account_named': "Dùng tài khoản hiện tại ({account})",
+  'account_selected': 'Đã chọn',
+  'account_connected': 'Đã kết nối',
+  'account_default_name': 'Tài khoản mặc định',
+  'warp_via_wireguard': 'WARP qua WireGuard',
+  'scenario_saving': 'Đang lưu kịch bản…',
+  'scenario_discard_title': 'Bỏ các thay đổi kịch bản chưa lưu?',
+  'scenario_discard_body': 'Các thay đổi chưa lưu của kịch bản này sẽ bị mất.',
 };
 
 const kScenarioZhHk = <String, String>{
@@ -638,8 +690,8 @@ const kScenarioZhHk = <String, String>{
   'scenario_limit': "情境庫超過限制，請刪除不再使用的情境。",
   'scenario_vpn_permission': '請先中斷連線、選擇此情境，再連線以完成 VPN 授權。',
   'scenario_rules_missing': '使用此情境前，請在設定中準備所需的分流資料。',
-  'profiles': '情境',
-  'nav_profiles': '情境',
+  'profiles': '設定檔',
+  'nav_profiles': '設定檔',
   'profiles_subtitle': '儲存情境及管理帳戶。',
   'profiles_manage_accounts': '帳戶管理',
   'scenario_scenes': '情境',
@@ -704,4 +756,11 @@ const kScenarioZhHk = <String, String>{
   'scenario_account_hint': "使用情境時會以這裡選擇的帳戶連線。",
   'scenario_follow_account_hint': "跟隨已選帳戶，目前為 {account}",
   'scenario_follow_account_named': "沿用目前帳戶（{account}）",
+  'account_selected': '已選取',
+  'account_connected': '已連線',
+  'account_default_name': '預設帳戶',
+  'warp_via_wireguard': 'WARP（透過 WireGuard）',
+  'scenario_saving': '正在儲存情境…',
+  'scenario_discard_title': '放棄未儲存的情境修改？',
+  'scenario_discard_body': '此情境尚未儲存的修改將會遺失。',
 };

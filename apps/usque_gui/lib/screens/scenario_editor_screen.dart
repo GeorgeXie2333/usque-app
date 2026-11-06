@@ -275,6 +275,8 @@ class _ScenarioEditorScreenState extends State<ScenarioEditorScreen> {
       strings: s,
       dirty: _dirty,
       saving: _saving,
+      discardTitle: s.get('scenario_discard_title'),
+      discardBody: s.get('scenario_discard_body'),
       child: Column(
         children: [
           Expanded(
@@ -325,7 +327,9 @@ class _ScenarioEditorScreenState extends State<ScenarioEditorScreen> {
                                   '{account}',
                                   profilesSelectedAccountLabel(app),
                                 )
-                          : bound?.name ?? s.get('scenario_reference_missing'),
+                          : bound == null
+                          ? s.get('scenario_reference_missing')
+                          : s.accountName(bound),
                       onTap: _saving ? null : _chooseAccount,
                     ),
                     const SizedBox(height: 20),
@@ -416,6 +420,7 @@ class _ScenarioEditorScreenState extends State<ScenarioEditorScreen> {
               error: _error,
               onSave: () => _save(),
               saveLabel: s.get('scenario_save'),
+              savingLabel: s.get('scenario_saving'),
               statusLabel: _dirty && !_saving && _error == null
                   ? s.get('scenario_unsaved')
                   : null,
