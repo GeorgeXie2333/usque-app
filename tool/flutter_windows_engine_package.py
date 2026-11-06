@@ -1,7 +1,7 @@
-"""Package and restore attested Windows engines for compile-only application builds.
+"""Package and restore attested Windows engine builds.
 
-Release builds continue to compile fresh sources. A cache miss is distinct from
-an invalid artifact: only the former may fall back to the source-build helper.
+A cache miss is distinct from an invalid artifact: only the former may fall
+back to a source build. Release reuse also requires its separate pinned review.
 """
 
 from __future__ import annotations

@@ -67,7 +67,7 @@
 - **Routing and ad blocking** — DIRECT / REJECT / PROXY rules for domains and CIDRs, Ads rules and country-based direct routing.
 - **Encrypted DNS** — DoH or DoT for the WARP exit and for direct-rule queries.
 - **Network diagnostics** — latency, packet loss and 60-second trends, with deep checks only after confirmation.
-- **Scenes** — save common network setups in **Profiles** and switch between them (planned for v0.3.4).
+- **Scenes** — save common network setups in **Profiles** and switch between them.
 - **Privacy** — a server-key check that cannot be skipped, system credential stores, redacted local diagnostics and no analytics.
 - **Platform integration** — Windows tray, Android Quick Settings tile and TV navigation; 21 languages with light and dark themes.
 
@@ -135,7 +135,7 @@ flowchart LR
 
 ## Download
 
-The latest stable release is **v0.3.3**, which brought Linux desktop support, optional Proton VPN and improvements to everyday connections. This branch also contains unreleased changes planned for v0.3.4, such as local connection scenes, so its documentation can describe features your package does not have yet. For a published version, follow its release notes and the documentation at its tag.
+Version **v0.3.4** adds local connection scenes and improves setup, routing and the desktop and Android experience. For an installed version, follow its release notes and the documentation at its tag.
 
 | Platform | Minimum system | Package |
 | --- | --- | --- |
@@ -152,7 +152,7 @@ Windows x64 requires a CPU supporting **x86-64-v2**; ARM64 Windows uses the nati
 >
 > **Never bypass a warning.** Pre-1.0 Windows and Android packages use fixed, project-controlled self-signed certificates: Windows may show an unknown-publisher warning, and Android packages are installed outside Google Play. Do not disable antivirus or the firewall, or import certificates from unofficial packages, to bypass a warning.
 
-- **Upgrades migrate configuration one way.** v0.3.2 and v0.3.3 use configuration schema 26; upgrading from v0.3.1 migrates schema 24 to 26, which v0.3.1 and older clients cannot read. Changes planned for v0.3.4 migrate schema 26 to 27, which v0.3.3 and older clients cannot read. Reinstalling an older package does not reverse the migration, so review [configuration compatibility](docs/INSTALLATION.md#configuration-compatibility-when-upgrading) and any required pre-upgrade backup first.
+- **Upgrades migrate configuration one way.** v0.3.2 and v0.3.3 use configuration schema 26; upgrading from v0.3.1 migrates schema 24 to 26, which v0.3.1 and older clients cannot read. v0.3.4 migrates schema 26 to 27, which v0.3.3 and older clients cannot read. Reinstalling an older package does not reverse the migration, so review [configuration compatibility](docs/INSTALLATION.md#configuration-compatibility-when-upgrading) and any required pre-upgrade backup first.
 - **Linux:** the first AppImage VPN setup installs a background service with administrator authorization, and credentials require an unlocked Secret Service keyring. The [Linux desktop guide](docs/LINUX_DESKTOP.md) covers GNOME/KDE, X11/Wayland, recovery and the tested coverage.
 - **Updates** require confirmation before downloading and use the platform installer; there is no unattended installation.
 - [Installation and removal](docs/INSTALLATION.md) covers upgrades, uninstall, recovery and Android developer verification; [Code signing](docs/CODE_SIGNING.md) lists the official identities.
@@ -184,7 +184,7 @@ VPN, SOCKS5 and HTTP are enabled by default; system proxy is off. They share one
 
 ### Scenes and accounts
 
-- **[Local connection scenes](docs/SCENARIOS.md)** (planned for v0.3.4) in **Profiles** save account binding, chain proxy, endpoints, endpoint IP preference and transport. Review changes before use and restore the latest switch; the TUN/VPN and proxy switches, routing and DNS stay global. Saving a scene does not change the running connection, and saved and applied states remain distinct. Accounts are under **Manage accounts → Accounts**.
+- **[Local connection scenes](docs/SCENARIOS.md)** in **Profiles** save account binding, chain proxy, endpoints, endpoint IP preference and transport. Review changes before use and restore the latest switch; the TUN/VPN and proxy switches, routing and DNS stay global. Saving a scene does not change the running connection, and saved and applied states remain distinct. Accounts are under **Manage accounts → Accounts**.
 - **WARP login information export:** after confirmation, export your Consumer WARP login information (WARP Secret) to a file you choose. Usque cannot import that file to restore the account after reinstalling.
 
 ### Chain proxy

@@ -1,0 +1,2 @@
+保存连接场景，在切换前查看变化。
+设置与分流更加方便，Windows、Android 和 Android TV 体验也得到改进。

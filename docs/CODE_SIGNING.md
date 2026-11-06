@@ -86,9 +86,8 @@ Before approving publication, review the exact tagged commit and staged
 `release-manifest.json`; its fourteen package names, sizes, SHA-256 values and
 signer fingerprints must describe the candidate produced by that release run.
 A documentation review, a previous release's signatures or a local compile is
-not that evidence. The checked-in workflow still targets only the published
-`v0.3.3`, gated by the exact main push CI and both approvals, until v0.3.4 is
-prepared;
+not that evidence. The checked-in workflow targets `v0.3.4`, gated by the exact main push CI
+and both approvals;
 see [Release process](RELEASE.md). Documentation preparation
 does not authorize key access, signing or publication.
 

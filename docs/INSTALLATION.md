@@ -5,11 +5,10 @@ Download packages from this repository's
 
 ## Version scope
 
-v0.3.3, published on 2026-10-26, is the latest stable release. It includes
-Linux desktop packages and optional Proton VPN. This development-branch guide
-also describes unreleased changes planned for v0.3.4, such as local connection
-scenes. For an installed release, use its release notes and guide at the
-matching Git tag; consult GitHub Releases for published versions. Back up data
+The v0.3.4 candidate adds local connection scenes and retains Linux desktop
+packages and optional Proton VPN. For an installed release, use its release
+notes and guide at the matching Git tag; consult GitHub Releases for published
+versions. Back up data
 before upgrading and review compatibility below before considering a downgrade.
 
 The Windows upgrade recovery fix was introduced in v0.2.5; the multilingual EXE
@@ -19,7 +18,7 @@ See [Upgrade](#upgrade) if that version cannot uninstall.
 ### Configuration compatibility when upgrading
 
 v0.3.2 and v0.3.3 use configuration schema 26; v0.3.1 uses 24, v0.3.0 uses 23
-and v0.2.9 uses 21. Current source, planned for v0.3.4, uses schema 27: schema
+and v0.2.9 uses 21. Version v0.3.4 uses schema 27: schema
 25 adds the shared MASQUE TLS fingerprint, schema 26 adds optional IPv6 endpoint
 presets, and schema 27 adds local [connection scenes](SCENARIOS.md) without
 changing existing network settings. Scene templates and snapshots use one
@@ -50,21 +49,21 @@ official fix.
 | --- | --- | --- |
 | Windows x64 | Windows 10 2004, build 19041 or later; x86-64-v2 CPU | x64-v2 EXE |
 | Windows ARM64 | Windows 10 2004, build 19041 or later, native ARM64 | ARM64 EXE |
-| Linux (v0.3.3) | Ubuntu 22.04+, Debian 12+, supported Fedora; systemd | amd64/arm64 AppImage, deb or rpm; see [Linux desktop](LINUX_DESKTOP.md) |
+| Linux (v0.3.4) | Ubuntu 22.04+, Debian 12+, supported Fedora; systemd | amd64/arm64 AppImage, deb or rpm; see [Linux desktop](LINUX_DESKTOP.md) |
 | Android / Android TV | Android 8.0, API 26 or later | APK matching the device's CPU architecture |
 | Android / Android TV, architecture unknown | Android 8.0, API 26 or later | Larger universal APK containing all three architectures |
 
-### Package names (v0.3.3)
+### Package names (v0.3.4)
 
-- `usque-v0.3.3-windows-x64-v2.exe`
-- `usque-v0.3.3-windows-arm64.exe`
-- `usque-v0.3.3-android-arm64-v8a.apk`
-- `usque-v0.3.3-android-x86_64.apk`
-- `usque-v0.3.3-android-armeabi-v7a.apk`
-- `usque-v0.3.3-android-universal.apk`
+- `usque-v0.3.4-windows-x64-v2.exe`
+- `usque-v0.3.4-windows-arm64.exe`
+- `usque-v0.3.4-android-arm64-v8a.apk`
+- `usque-v0.3.4-android-x86_64.apk`
+- `usque-v0.3.4-android-armeabi-v7a.apk`
+- `usque-v0.3.4-android-universal.apk`
 
-The release also includes `usque-v0.3.3-windows-x64-v2.msi` and
-`usque-v0.3.3-windows-arm64.msi` for Usque's in-app update flow. Use the EXE for
+The release also includes `usque-v0.3.4-windows-x64-v2.msi` and
+`usque-v0.3.4-windows-arm64.msi` for Usque's in-app update flow. Use the EXE for
 manual Windows installation. Linux AppImage/deb/rpm packages for amd64/arm64
 use the same version; the six filenames are listed in [Linux desktop](LINUX_DESKTOP.md#choose-and-verify-a-package).
 
@@ -75,7 +74,7 @@ validation packages and files from other sites are not official releases.
 ## Verify before installing
 
 Download the package and `SHA256SUMS` from the same release. The examples below
-use the v0.3.3 names; substitute the exact filename and published tag you
+use the v0.3.4 names; substitute the exact filename and published tag you
 downloaded. These commands inspect files without installing or running them.
 
 ### Check the file SHA-256
@@ -83,7 +82,7 @@ downloaded. These commands inspect files without installing or running them.
 In PowerShell, open the folder containing the download and run:
 
 ```powershell
-$package = '.\usque-v0.3.3-windows-x64-v2.exe'
+$package = '.\usque-v0.3.4-windows-x64-v2.exe'
 Get-FileHash -LiteralPath $package -Algorithm SHA256
 ```
 
@@ -137,7 +136,7 @@ directory:
 
 ```powershell
 $apksignerPath = 'C:\path\to\Android\Sdk\build-tools\<version>\apksigner.bat'
-& $apksignerPath verify --verbose --print-certs '.\usque-v0.3.3-android-arm64-v8a.apk'
+& $apksignerPath verify --verbose --print-certs '.\usque-v0.3.4-android-arm64-v8a.apk'
 if ($LASTEXITCODE -ne 0) { throw 'APK signature verification failed.' }
 ```
 
@@ -151,7 +150,7 @@ as described above. You can then copy that verified file to the Android device.
 If you have GitHub CLI, verify the attestation for the same downloaded file:
 
 ```powershell
-gh attestation verify $package --repo GeorgeXie2333/usque-app --source-ref refs/tags/v0.3.3 --signer-workflow GeorgeXie2333/usque-app/.github/workflows/release.yml
+gh attestation verify $package --repo GeorgeXie2333/usque-app --source-ref refs/tags/v0.3.4 --signer-workflow GeorgeXie2333/usque-app/.github/workflows/release.yml
 if ($LASTEXITCODE -ne 0) { throw 'Build provenance verification failed.' }
 ```
 

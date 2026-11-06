@@ -262,10 +262,9 @@ For the planned `v0.3.4`, record unavailable isolated checks as `not_run` agains
 candidate. Historical setup, DNS, branding or endpoint-validation records may
 describe earlier commits or uncommitted source; their passing deterministic
 checks do not transfer to a new signed package. Any supplemental release
-evidence must bind the exact staged package manifest and commit. The current
-workflow still accepts only the published `v0.3.3`; its version contract and
-checks are described in the [v0.3.3 readiness review](RELEASE_V0.3.3_READINESS.md),
-and v0.3.4 needs the separate [preparation](RELEASE.md#preparing-v034). Optional
+evidence must bind the exact staged package manifest and commit. The v0.3.4 version contract and checks are described in the
+[v0.3.4 readiness review](RELEASE_V0.3.4_READINESS.md) and
+[preparation](RELEASE.md#preparing-v034). Optional
 protected-runner results do not gate publication, and cannot substitute for
 required CI, compile-only, signing, package or provenance checks.
 

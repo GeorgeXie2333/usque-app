@@ -4,8 +4,9 @@ The repository retains the dependency repair, standalone regression tests, and
 a Windows engine source-build recipe for
 [#142](https://github.com/GeorgeXie2333/usque-app/issues/142). Windows build and
 release workflows verify that the application contains this pinned engine's
-exact DLL. Compile-only application builds can reuse a verified engine package;
-release workflows compile fresh sources. The helper builds in a separate
+exact DLL. The v0.3.4 candidate may reuse the specifically reviewed attested
+source-build artifacts; their original build inputs and producer identity are
+verified before extraction. The helper builds in a separate
 directory and does not replace an installed Flutter SDK. A source patch or
 successful compile alone is not evidence that the application regression is resolved.
 
@@ -168,10 +169,11 @@ platform files, `sky_engine`, font tools, and tessellator needed by the framewor
 required output hashes, DLL architecture, and engine test status. Assembly checks
 the actual staged DLL against that record before signing. The build record and
 matching engine PDB join the existing separate Windows symbols artifact; they
-are not added to the installable payload. Release workflows use fresh compiled
-outputs; no uploaded binary replaces release source-build provenance. Standard
-release signing and approval rules continue to apply. The engine build step
-receives no release PFX or password.
+are not added to the installable payload. The v0.3.4 release reuses only the
+pinned, attested source-build producer recorded by the compatibility adapter.
+Its restore receipt is independently attested and retained with the PDB. The
+restore step receives no release PFX or password. Standard release signing
+and approval rules continue to apply.
 
 The full x64 engine test configuration uses `host_debug_test`; the helper invokes
 the engine's own `flutter/testing/run_tests.py --type engine` after compilation.
@@ -179,7 +181,7 @@ ARM64 compilation is separate from native test execution. The workflow runs
 native application fixtures on its ARM64 runner; this does not imply that the
 x64-only full engine test configuration ran on ARM64.
 
-### Compile-only engine reuse
+### Engine reuse
 
 The [engine workflow](../.github/workflows/flutter-engine.yml) builds separate
 x64 and ARM64 local-engine packages after engine-input changes reach `main` or
@@ -217,13 +219,18 @@ it never counts as a cache miss. Lookup or download service failures also fail
 explicitly. PRs cannot create trusted engine packages. A changed recipe or build
 tool naturally misses until a trusted producer has built the new input set.
 Artifacts are retained for 90 days; the first build before the new workflow is
-available also follows the source path. Restore/packaging checks are deterministic
-tests, not evidence that a newly introduced hosted producer or consumer has run.
+available also follows the source path. For v0.3.4, Build and Release additionally
+accept the two pinned artifacts from producer run `41924429831` through the
+reviewed compatibility adapter. It checks the producer is an ancestor, proves
+build inputs are unchanged apart from the old policy wording and reviewed test
+updates, verifies the artifact digest and GitHub attestation before unpacking,
+and fails closed on any mismatch. The x64 engine tests and ARM64 `not_run`
+status remain distinct. The release workflow does not silently rebuild on a miss.
 
 For local engine iteration, keep the owned directory for the same recipe and
 use `-Phase Build` to retain Ninja's incremental outputs and skip dependency
-preparation. A changed recipe still requires a fresh directory. Release builds
-always use their fresh source path and never call the package restore helper.
+preparation. A changed source-build recipe still requires a fresh directory.
+The v0.3.4 release uses the reviewed restore path described above.
 
 ## Validation boundary
 

@@ -502,13 +502,17 @@ both architectures. Pass only the Base64 quiet-launcher script through WiX
 ### Windows Flutter and runner
 
 For Flutter or Windows-runner changes, run the Windows Rust gates above and
-the complete sequence below on Windows with the pinned Flutter SDK. First build
-the patched engine as described in the following source-build section. Do not
-substitute a build-only command for format, analysis, and tests:
+the complete sequence below on Windows with the pinned Flutter SDK. For the
+v0.3.4 candidate, first restore the reviewed engine to
+`target/v034-release/engine-x64` using `tool/flutter_windows_release_engine.py
+restore` with the current commit. Other source builds use the following
+source-build section. Do not substitute a build-only command for format,
+analysis, and tests:
 
 ```powershell
 Set-Location apps/usque_gui
-$engineSource = (Resolve-Path ../../target/flutter-engine/flutter/engine/src).Path
+$engineRoot = (Resolve-Path ../../target/v034-release/engine-x64).Path
+$engineSource = (Resolve-Path "$engineRoot/flutter/engine/src").Path
 $engineArguments = @("--local-engine-src-path=$engineSource", "--local-engine=host_release", "--local-engine-host=host_release")
 flutter @engineArguments pub get --enforce-lockfile
 dart format --output=none --set-exit-if-changed lib test
@@ -516,7 +520,7 @@ flutter analyze --no-pub
 flutter test --no-pub
 & ../../tool/prepare_windows_plugin_junctions.ps1 -FlutterProject .
 flutter @engineArguments build windows --release --no-pub --split-debug-info=build/symbols/windows
-python ../../tool/flutter_windows_engine.py verify-staged --dll build/windows/x64/runner/Release/flutter_windows.dll --build-manifest ../../target/flutter-engine/engine-build-x64.json --architecture x64
+python ../../tool/flutter_windows_release_engine.py verify-staged --dll build/windows/x64/runner/Release/flutter_windows.dll --build-root $engineRoot --architecture x64 --commit (git rev-parse HEAD)
 ```
 
 For Windows Proton verification runner changes, additionally build and run its
@@ -591,9 +595,11 @@ Compile-only PR builds can reuse the complete attested engine dependency from
 [the engine workflow](.github/workflows/flutter-engine.yml). Its exact reuse key
 covers the recipe, patches, build/packaging tools and regression/producer code.
 Missing or expired dependencies fall back to fresh source builds; integrity or
-provenance failures fail explicitly. Official releases retain fresh source
-compilation. Package completeness, trust, retention and bootstrap behavior are
-described in [engine reuse](docs/FLUTTER_WINDOWS_TIMER.md#compile-only-engine-reuse).
+provenance failures fail explicitly. The v0.3.4 release may reuse its separately
+reviewed, pinned source-built producer only through the release compatibility
+check; untrusted or mismatched inputs fail without a build fallback. Package
+completeness, trust, retention and bootstrap behavior are
+described in [engine reuse](docs/FLUTTER_WINDOWS_TIMER.md#engine-reuse).
 Engine packaging changes require the same checks as engine integration changes,
 including these deterministic package tests:
 

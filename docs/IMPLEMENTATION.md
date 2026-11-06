@@ -17,12 +17,11 @@ The [documentation index](README.md) separates current contracts from historical
 records. [Reliability testing](RELIABILITY_TESTING.md) defines environments and
 evidence requirements; [Release process](RELEASE.md) defines publication.
 
-## Unreleased source changes after v0.3.3
+## v0.3.4 candidate changes since v0.3.3
 
-These changes are in the development branch, not in the published v0.3.3
-packages, and are planned for v0.3.4. Application metadata and the release
-workflow still identify v0.3.3 until a separately reviewed
-[v0.3.4 preparation](RELEASE.md#preparing-v034).
+These changes are prepared for v0.3.4 and are not present in the published
+v0.3.3 packages. Candidate checks and publication are recorded separately;
+see [v0.3.4 preparation](RELEASE.md#preparing-v034).
 
 - [Profiles and scenes](SCENARIOS.md): local connection scenes save account
   binding, chain proxy, endpoints, IP policy and transport. Profiles leads with

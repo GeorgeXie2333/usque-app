@@ -47,11 +47,9 @@ Before the next release tag, verify the live `main` ruleset, maintainer-only rel
 restrictions, required environment reviewers and deployment branch/tag rules.
 An `environment:` entry in YAML selects an environment; it does not prove that
 GitHub approval protection is enabled. Keep those protections when changing
-the accepted release tag. The executable contract still targets the published
-`v0.3.3` with Android base build number `29`; see the
-[v0.3.3 readiness review](RELEASE_V0.3.3_READINESS.md). The next planned
-version, v0.3.4, needs a separately reviewed
-[preparation](RELEASE.md#preparing-v034). A document update does not change the
+the accepted release tag. The executable contract targets `v0.3.4` with Android base build number `30`;
+see the [preparation](RELEASE.md#preparing-v034) and
+[v0.3.4 readiness review](RELEASE_V0.3.4_READINESS.md). A document update does not change the
 accepted tag or server-side protections.
 
 For stable releases, the tag workflow requires current `main` and its exact-SHA
@@ -68,4 +66,4 @@ publication prerequisite.
 - A fork pull request gets a read-only token, cannot read secrets, and cannot upload an installable package.
 - Dependency Review runs on public pull requests.
 - Only packages published by the approved tag workflow are official; the
-  checked-in workflow still accepts only the published `v0.3.3`.
+  checked-in workflow accepts only the reviewed `v0.3.4` tag.

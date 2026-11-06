@@ -88,7 +88,7 @@
     "The source, dependency and patched-file identities must match before compiling.",
     "The Windows local-engine and local-engine-host arguments both select the target architecture output.",
     "Application staging must match the verified engine DLL hash and PE architecture.",
-    "Fresh source compilation is required for release; an untrusted compiled-output cache is not release provenance.",
+    "A release may reuse an attested trusted source build; untrusted compiled-output caches are rejected.",
     "Full engine tests and native ARM64 application execution are reported separately from cross compilation."
   ],
   "required_release_files": [

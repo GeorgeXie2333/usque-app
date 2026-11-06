@@ -5,16 +5,15 @@ record that the current checkout has been published. The authoritative
 executable contracts are [release.yml](../.github/workflows/release.yml) and
 [release_contract.py](../tool/release_contract.py).
 
-The checked-in application metadata and workflow still target `v0.3.3` /
-`0.3.3+29`. Consult GitHub Releases for the currently published Latest.
+The checked-in application metadata and workflow target `v0.3.4` /
+`0.3.4+30`. Consult GitHub Releases for the currently published Latest.
 [v0.3.3](https://github.com/GeorgeXie2333/usque-app/releases/tag/v0.3.3) was
 published as the stable Latest on 2026-10-26 (UTC) from
 `1d44597ddb6dee7fca6700c0442e0d3856eea31b` with 34 public assets.
 [v0.3.2](https://github.com/GeorgeXie2333/usque-app/releases/tag/v0.3.2) was
 published on 2026-10-17 from `02685ee399debf93731751f59b33cdfaef49dcdf`.
-The next planned version is v0.3.4; see [Preparing v0.3.4](#preparing-v034).
-Until that preparation is reviewed, the workflow accepts only the already
-published `v0.3.3`, whose tag must not be moved or reused. A stable tag must
+See [Preparing v0.3.4](#preparing-v034). The published `v0.3.3` tag must not
+be moved or reused. A stable tag must
 match the current main tip and a completed successful main push CI run for that
 exact SHA; release/dev checks cannot substitute. Only the maintainer creates the tag.
 Signing and publish jobs run in GitHub Environments that need approval. If a
@@ -33,16 +32,21 @@ checks are not evidence of a successful real-machine upgrade.
 
 ## Preparing v0.3.4
 
-v0.3.4 has not been prepared. The version contract, application metadata and
-[release.yml](../.github/workflows/release.yml) still describe the published
-v0.3.3. Preparation needs a separately reviewed change that synchronizes all
-Cargo packages, Flutter and every registered catalog, advances the Android base
-build number beyond 29, updates the accepted workflow tag and adds a v0.3.4
-readiness record. The development branch has already advanced configuration
-schema from 26 to 27 for [connection scenes](SCENARIOS.md); see the
-[unreleased changes](IMPLEMENTATION.md#unreleased-source-changes-after-v033).
-Recheck the Agent protocol, recovery journal and recovery export schema
-numbers against the candidate source before writing the release notes.
+The candidate uses twelve Cargo packages at `0.3.4`, Flutter `0.3.4+30`, and
+21 catalogs. Android universal/ARMv7/ARM64/x86_64 version codes are
+30000/30001/30002/30004. The MSI ProductVersion is `0.3.499`, Agent PE version
+is `0.3.499.0`, and Windows bundle and Linux package versions are `0.3.4`.
+See the [readiness record](RELEASE_V0.3.4_READINESS.md); preparation is not
+evidence of a published release or successful final-candidate validation.
+
+The candidate uses configuration schema 27 for [connection scenes](SCENARIOS.md),
+Agent protocol 3, Windows/Linux recovery journals 6/1 and recovery export 2.
+Require exact-candidate CI, Build and CodeQL and main push CI and CodeQL. The
+reviewed Windows engine inputs are reused only after the pinned producer,
+artifact and provenance checks described in [engine reuse](FLUTTER_WINDOWS_TIMER.md).
+Retain both engine restore receipts, PDBs and Flutter symbol archives. Keep the
+signing and publish approvals separate and verify all staged assets before
+publishing. Protected laboratory checks remain optional and `not_run` when absent.
 
 ## Preparing v0.3.3
 

@@ -59,6 +59,7 @@ jobs:
       - name: Checkout untrusted source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Install pinned Python
@@ -179,25 +180,38 @@ jobs:
           python tool/flutter_windows_engine.py verify-framework "$env:USQUE_FLUTTER_ROOT"
           if ($LASTEXITCODE -ne 0) { throw "Flutter framework and engine recipe differ." }
           $engineDirectory = Join-Path $env:RUNNER_TEMP ("engine-package-" + [Guid]::NewGuid().ToString("N"))
-          $restoreText = python tool/flutter_windows_engine_package.py restore `
-            --architecture "${{ matrix.flutter_arch }}" --destination $engineDirectory
-          if ($LASTEXITCODE -ne 0) { throw "Engine package integrity or provenance validation failed." }
-          $restore = $restoreText -join "`n" | ConvertFrom-Json
-          if ($restore.restored) {
+          $restoreText = python tool/flutter_windows_release_engine.py restore `
+            --architecture "${{ matrix.flutter_arch }}" --destination $engineDirectory --commit "$env:GITHUB_SHA" 2>&1
+          $legacyExit = $LASTEXITCODE
+          if ($legacyExit -ne 0 -and $legacyExit -ne 3) { throw "Reviewed engine integrity or provenance validation failed: $restoreText" }
+          $version = ((Get-Content apps/usque_gui/pubspec.yaml | Where-Object { $_ -match '^version: ' }) -replace '^version:\s*', '').Trim()
+          if ($legacyExit -eq 3 -and $version -eq '0.3.4+30' -and $env:GITHUB_EVENT_NAME -eq 'workflow_dispatch' -and $env:GITHUB_REF -in @('refs/heads/dev', 'refs/heads/main')) {
+            throw "The v0.3.4 release candidate must reuse the reviewed engine inputs."
+          }
+          if ($legacyExit -eq 0) {
+            $restore = $restoreText -join "`n" | ConvertFrom-Json
+            "USQUE_ENGINE_RESTORE_MODE=legacy" | Out-File -FilePath $env:GITHUB_ENV -Append
             "Reused verified engine: artifact $($restore.artifact_id), producer run $($restore.producer_run_id)" |
               Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
           } else {
-            "Engine package unavailable for these inputs; compiling fresh sources and applicable native tests." |
-              Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
-            $selectionText = python tool/flutter_windows_engine.py create-build-directory `
-              --parent "$env:RUNNER_TEMP" --parent "$env:LOCALAPPDATA"
-            if ($LASTEXITCODE -ne 0) { throw "A fresh engine build directory with at least 40 GiB free is required." }
-            $engineDirectory = ($selectionText -join "`n" | ConvertFrom-Json).path
-            $runEngineTests = "${{ matrix.flutter_arch }}" -eq "x64"
-            & ./tool/build_flutter_windows_engine.ps1 `
-              -Architecture "${{ matrix.flutter_arch }}" `
-              -BuildDirectory $engineDirectory -Jobs 2 -RunTests:$runEngineTests `
-              -Python "${{ steps.python.outputs.python-path }}"
+            "USQUE_ENGINE_RESTORE_MODE=current" | Out-File -FilePath $env:GITHUB_ENV -Append
+            $restoreText = python tool/flutter_windows_engine_package.py restore `
+              --architecture "${{ matrix.flutter_arch }}" --destination $engineDirectory
+            if ($LASTEXITCODE -ne 0) { throw "Engine package integrity or provenance validation failed." }
+            $restore = $restoreText -join "`n" | ConvertFrom-Json
+            if (-not $restore.restored) {
+              "Engine package unavailable for these inputs; compiling fresh sources and applicable native tests." |
+                Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+              $selectionText = python tool/flutter_windows_engine.py create-build-directory `
+                --parent "$env:RUNNER_TEMP" --parent "$env:LOCALAPPDATA"
+              if ($LASTEXITCODE -ne 0) { throw "A fresh engine build directory with at least 40 GiB free is required." }
+              $engineDirectory = ($selectionText -join "`n" | ConvertFrom-Json).path
+              $runEngineTests = "${{ matrix.flutter_arch }}" -eq "x64"
+              & ./tool/build_flutter_windows_engine.ps1 `
+                -Architecture "${{ matrix.flutter_arch }}" `
+                -BuildDirectory $engineDirectory -Jobs 2 -RunTests:$runEngineTests `
+                -Python "${{ steps.python.outputs.python-path }}"
+            }
           }
           "USQUE_FLUTTER_ENGINE_ROOT=$engineDirectory" | Out-File -FilePath $env:GITHUB_ENV -Append
 
@@ -236,6 +250,9 @@ jobs:
           New-Item -ItemType Directory -Path $engineSymbols -Force | Out-Null
           Copy-Item (Join-Path $env:USQUE_FLUTTER_ENGINE_ROOT "engine-build-${{ matrix.flutter_arch }}.json") $engineSymbols
           Copy-Item (Join-Path $engineSource "out/$localEngine/flutter_windows.dll.pdb") $engineSymbols
+          if ($env:USQUE_ENGINE_RESTORE_MODE -eq 'legacy') {
+            Copy-Item (Join-Path $env:USQUE_FLUTTER_ENGINE_ROOT "engine-restore.json") $engineSymbols
+          }
 
       # These tests use fake engines and inert shell fixtures, not a live VPN.
       - name: Run Windows runner and shell integration tests
@@ -256,10 +273,16 @@ jobs:
           $directory = (
             Resolve-Path "apps/usque_gui/build/windows/${{ matrix.flutter_arch }}/runner/Release"
           ).Path
-          python tool/flutter_windows_engine.py verify-staged `
-            --dll (Join-Path $directory "flutter_windows.dll") `
-            --build-manifest (Join-Path $env:USQUE_FLUTTER_ENGINE_ROOT "engine-build-${{ matrix.flutter_arch }}.json") `
-            --architecture "${{ matrix.flutter_arch }}"
+          if ($env:USQUE_ENGINE_RESTORE_MODE -eq 'legacy') {
+            python tool/flutter_windows_release_engine.py verify-staged `
+              --dll (Join-Path $directory "flutter_windows.dll") --build-root "$env:USQUE_FLUTTER_ENGINE_ROOT" `
+              --architecture "${{ matrix.flutter_arch }}" --commit "$env:GITHUB_SHA"
+          } else {
+            python tool/flutter_windows_engine.py verify-staged `
+              --dll (Join-Path $directory "flutter_windows.dll") `
+              --build-manifest (Join-Path $env:USQUE_FLUTTER_ENGINE_ROOT "engine-build-${{ matrix.flutter_arch }}.json") `
+              --architecture "${{ matrix.flutter_arch }}"
+          }
           if ($LASTEXITCODE -ne 0) { throw "Application does not contain the verified patched engine." }
           Copy-Item `
             "target/${{ matrix.rust_target }}/release/usque-engine.exe" `

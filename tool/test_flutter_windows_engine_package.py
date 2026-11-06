@@ -352,17 +352,16 @@ class EnginePackageTests(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertTrue(any(fnmatch.fnmatchcase(name, pattern) for pattern in patterns))
 
-    def test_release_retains_fresh_source_builds_and_pr_access_stays_read_only(self):
+    def test_release_requires_attested_engine_and_pr_access_stays_read_only(self):
         release = (engine.ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
-        self.assertIn("tool/build_flutter_windows_engine.ps1", release)
-        self.assertIn("create-build-directory", release)
-        self.assertNotIn("flutter_windows_engine_package.py", release)
+        self.assertIn("tool/flutter_windows_release_engine.py restore", release)
+        self.assertIn("tool/flutter_windows_release_engine.py verify-staged", release)
         consumer = (engine.ROOT / ".github/workflows/build.yml").read_text(encoding="utf-8")
         self.assertNotIn(": write", consumer)
         self.assertNotIn("secrets.", consumer)
-        self.assertIn("tool/flutter_windows_engine.py verify-staged", consumer)
+        self.assertIn("tool/flutter_windows_release_engine.py verify-staged", consumer)
 
-    def test_windows_workflows_install_python_and_pass_its_executable_to_native_helpers(self):
+    def test_windows_workflows_install_pinned_python_before_engine_steps(self):
         for name in (
             package.WORKFLOW,
             ".github/workflows/build.yml",
@@ -379,10 +378,15 @@ class EnginePackageTests(unittest.TestCase):
                 setup = job.index("uses: actions/setup-python@")
                 self.assertIn("id: python", job[:setup])
                 self.assertIn('python-version: "3.12.10"', job)
-                native = job.index("& ./tool/build_flutter_windows_engine.ps1")
-                self.assertLess(setup, native)
-                block = job[native:].split("\n      - name:", 1)[0]
-                self.assertIn('-Python "${{ steps.python.outputs.python-path }}"', block)
+                if name != ".github/workflows/release.yml":
+                    native = job.index("& ./tool/build_flutter_windows_engine.ps1")
+                    self.assertLess(setup, native)
+                    block = job[native:].split("\n      - name:", 1)[0]
+                    self.assertIn('-Python "${{ steps.python.outputs.python-path }}"', block)
+                else:
+                    self.assertLess(
+                        setup, job.index("tool/flutter_windows_release_engine.py restore")
+                    )
                 if name == package.WORKFLOW:
                     fixture = job.index("& ./tool/test_flutter_windows_timer.ps1")
                     self.assertLess(setup, job.index("python -m unittest"))

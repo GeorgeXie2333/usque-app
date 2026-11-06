@@ -3,7 +3,7 @@ name: Public release
 on:
   push:
     tags:
-      - "v0.3.3"
+      - "v0.3.4"
 
 concurrency:
   group: release-${{ github.ref }}
@@ -17,8 +17,8 @@ env:
   CMAKE_GENERATOR: Ninja
   FLUTTER_COMMIT: 84fc5cbb223bc12f83d65b647ff8a56caf779ffd
   FLUTTER_VERSION: 3.44.7
-  RELEASE_TAG: v0.3.3
-  ANDROID_VERSION_CODE: "29"
+  RELEASE_TAG: v0.3.4
+  ANDROID_VERSION_CODE: "30"
   DOTNET_CLI_TELEMETRY_OPTOUT: "1"
 
 jobs:
@@ -136,6 +136,7 @@ jobs:
     environment: release-signing
     permissions:
       contents: read
+      actions: read
       id-token: write
       attestations: write
       artifact-metadata: write
@@ -164,6 +165,7 @@ jobs:
       - name: Checkout exact tag
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Install pinned Python
@@ -204,24 +206,20 @@ jobs:
           rustup target add "${{ matrix.rust_target }}"
           & ./tool/build_windows_rust_release.ps1 -Variant "${{ matrix.variant }}"
 
-      - name: Build patched Flutter Windows engine from pinned sources
+      - name: Restore reviewed attested Flutter Windows engine
         shell: pwsh
         env:
+          GH_TOKEN: ${{ github.token }}
           WINDOWS_SIGNING_PFX_BASE64: ""
           WINDOWS_SIGNING_PFX_PASSWORD: ""
         run: |
           python tool/flutter_windows_engine.py verify-framework "$env:USQUE_FLUTTER_ROOT"
           if ($LASTEXITCODE -ne 0) { throw "Flutter framework and engine recipe differ." }
-          $selectionText = python tool/flutter_windows_engine.py create-build-directory `
-            --parent "$env:RUNNER_TEMP" --parent "$env:LOCALAPPDATA"
-          if ($LASTEXITCODE -ne 0) { throw "A fresh engine build directory with at least 40 GiB free is required." }
-          $engineDirectory = ($selectionText -join "`n" | ConvertFrom-Json).path
+          $engineDirectory = Join-Path $env:RUNNER_TEMP ("release-engine-" + [Guid]::NewGuid().ToString("N"))
+          python tool/flutter_windows_release_engine.py restore `
+            --architecture "${{ matrix.flutter_arch }}" --destination $engineDirectory --commit "$env:GITHUB_SHA"
+          if ($LASTEXITCODE -ne 0) { throw "Reviewed engine artifact or provenance verification failed." }
           "USQUE_FLUTTER_ENGINE_ROOT=$engineDirectory" | Out-File -FilePath $env:GITHUB_ENV -Append
-          $runEngineTests = "${{ matrix.flutter_arch }}" -eq "x64"
-          & ./tool/build_flutter_windows_engine.ps1 `
-            -Architecture "${{ matrix.flutter_arch }}" `
-            -BuildDirectory $engineDirectory -Jobs 2 -RunTests:$runEngineTests `
-            -Python "${{ steps.python.outputs.python-path }}"
 
       - name: Build locked Flutter host
         working-directory: apps/usque_gui
@@ -250,6 +248,7 @@ jobs:
           New-Item -ItemType Directory -Path $engineSymbols -Force | Out-Null
           Copy-Item (Join-Path $env:USQUE_FLUTTER_ENGINE_ROOT "engine-build-${{ matrix.flutter_arch }}.json") $engineSymbols
           Copy-Item (Join-Path $engineSource "out/$localEngine/flutter_windows.dll.pdb") $engineSymbols
+          Copy-Item (Join-Path $env:USQUE_FLUTTER_ENGINE_ROOT "engine-restore.json") $engineSymbols
 
       - name: Assemble unsigned application payload
         shell: pwsh
@@ -257,10 +256,9 @@ jobs:
           $releaseDirectory = (
             Resolve-Path "apps/usque_gui/build/windows/${{ matrix.flutter_arch }}/runner/Release"
           ).Path
-          python tool/flutter_windows_engine.py verify-staged `
-            --dll (Join-Path $releaseDirectory "flutter_windows.dll") `
-            --build-manifest (Join-Path $env:USQUE_FLUTTER_ENGINE_ROOT "engine-build-${{ matrix.flutter_arch }}.json") `
-            --architecture "${{ matrix.flutter_arch }}"
+          python tool/flutter_windows_release_engine.py verify-staged `
+            --dll (Join-Path $releaseDirectory "flutter_windows.dll") --build-root "$env:USQUE_FLUTTER_ENGINE_ROOT" `
+            --architecture "${{ matrix.flutter_arch }}" --commit "$env:GITHUB_SHA"
           if ($LASTEXITCODE -ne 0) { throw "Application does not contain the verified patched engine." }
           $payload = Join-Path $env:RUNNER_TEMP "usque-payload-${{ matrix.variant }}"
           Copy-Item $releaseDirectory $payload -Recurse
@@ -541,6 +539,7 @@ jobs:
           subject-path: |
             ${{ runner.temp }}/windows-release/*.msi
             ${{ runner.temp }}/windows-release/*.exe
+            ${{ runner.temp }}/flutter-symbol-archives/windows-engine-${{ matrix.variant }}/engine-restore.json
 
       - name: Upload signed Windows release candidate
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -844,6 +843,7 @@ jobs:
     timeout-minutes: 60
     permissions:
       contents: read
+      actions: read
       id-token: write
       attestations: write
       artifact-metadata: write
@@ -862,6 +862,36 @@ jobs:
           pattern: usque-release-*
           path: ${{ runner.temp }}/candidate
           merge-multiple: true
+
+      - name: Download x64 engine provenance
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: usque-flutter-symbols-windows-x64-v2
+          path: ${{ runner.temp }}/engine-symbols/x64-v2
+
+      - name: Download ARM64 engine provenance
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: usque-flutter-symbols-windows-arm64
+          path: ${{ runner.temp }}/engine-symbols/arm64
+
+      - name: Verify both release engine provenance records
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for item in x64-v2:x64 arm64:arm64; do
+            variant="${item%%:*}"
+            architecture="${item#*:}"
+            receipt="$RUNNER_TEMP/engine-symbols/$variant/windows-engine-$variant/engine-restore.json"
+            python tool/flutter_windows_release_engine.py verify-receipt \
+              --architecture "$architecture" --receipt "$receipt" --commit "$GITHUB_SHA"
+            gh attestation verify "$receipt" --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml" \
+              --source-ref "refs/tags/$RELEASE_TAG" --source-digest "$GITHUB_SHA" \
+              --signer-digest "$GITHUB_SHA" --deny-self-hosted-runners
+          done
 
       - name: Install pinned Syft
         id: syft
