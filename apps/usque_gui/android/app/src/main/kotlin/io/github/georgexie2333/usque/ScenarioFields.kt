@@ -70,14 +70,20 @@ internal object ScenarioFields {
         return objectMap(source)
     }
 
-    /** Saved templates remain readable without manufacturing a live owner or receipt. */
+    /** Saved templates remain readable without manufacturing a live owner or receipt.
+     * Only drift computed from the saved configuration accompanies them. */
     fun persistedOnly(value: String): Map<String, Any?> {
         require(value.toByteArray(Charsets.UTF_8).size <= 384 * 1024)
         val source = JSONObject(value)
+        val savedState = source.optJSONObject("state")
+        val state = JSONObject().put("apply_status", "unknown")
+        for (key in listOf("modified", "template_updated", "bound_account_missing")) {
+            if (savedState?.opt(key) == true) state.put(key, true)
+        }
         val projected =
             JSONObject()
                 .put("runtime_observed", false)
-                .put("state", JSONObject().put("apply_status", "unknown"))
+                .put("state", state)
         for (key in listOf(
             "scenarios",
             "invalid_scenario_ids",

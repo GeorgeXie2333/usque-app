@@ -219,9 +219,13 @@ void main() {
       await app.scenarios.refresh();
       await tester.pumpAndSettle();
       expect(app.scenarios.runtimeConfirmed, true);
-      expect(scenarioStateKey(app), 'scenario_pending');
+      // Disconnected, the selection waits for the next connection: no result
+      // is pending and none is claimed.
+      expect(scenarioStateKey(app), 'scenario_selected');
       expect(app.scenarios.catalog!.selected!.name, 'Daily');
       expect(find.byKey(const ValueKey('profiles-running')), findsNothing);
+      expect(find.text(app.strings.get('scenario_pending')), findsNothing);
+      expect(find.text(app.strings.get('scenario_unknown')), findsNothing);
 
       engine.extraState = disconnectedCatalog(modified: true);
       await app.scenarios.refresh();
@@ -233,6 +237,67 @@ void main() {
       engine.failQuery = false;
       await app.scenarios.refresh();
       expect(scenarioStateKey(app), 'scenario_modified');
+    },
+  );
+
+  testWidgets(
+    'saved-configuration read without a VPN service shows the selection, not an unconfirmed result',
+    (tester) async {
+      Map<String, Object?> persisted({bool modified = false}) => {
+        'runtime_observed': false,
+        ...{
+          for (final key in const [
+            'scenarios',
+            'selection',
+            'current_settings',
+            'current_account_id',
+          ])
+            key: fixture(selected: 'scene-a')[key],
+        },
+        // A projection never carries a result, even if a stale one leaked.
+        'state': {
+          'apply_status': 'applied',
+          'applied_matches': true,
+          'modified': modified,
+        },
+      };
+      final engine = _QueryFailureEngine()
+        ..selected = 'scene-a'
+        ..extraState = persisted();
+      final app = await pumpWorkflow(
+        tester,
+        engine,
+        section: AppSection.profiles,
+      );
+      app.engineCapabilities = await engine.getCapabilities();
+      app.snapshot = const EngineSnapshot(phase: ConnectionPhase.disconnected);
+      await app.scenarios.refresh();
+      await tester.pumpAndSettle();
+      final catalog = app.scenarios.catalog!;
+      expect(catalog.runtimeObserved, false);
+      expect(catalog.applyStatus, 'unknown');
+      expect(catalog.appliedMatches, isNull);
+      expect(app.scenarios.runtimeConfirmed, false);
+      expect(scenarioStateKey(app), 'scenario_selected');
+      expect(find.text(app.strings.get('scenario_unknown')), findsNothing);
+      expect(find.byKey(const ValueKey('profiles-running')), findsNothing);
+      // The selected row does not offer to use the same scene again.
+      expect(find.byKey(const ValueKey('scenario-use-scene-a')), findsNothing);
+
+      engine.extraState = persisted(modified: true);
+      await app.scenarios.refresh();
+      expect(scenarioStateKey(app), 'scenario_modified');
+
+      // A connection being established has its own result to confirm.
+      app.snapshot = const EngineSnapshot(phase: ConnectionPhase.connectingH3);
+      expect(scenarioStateKey(app), 'scenario_unknown');
+      app.snapshot = const EngineSnapshot(phase: ConnectionPhase.disconnected);
+      expect(scenarioStateKey(app), 'scenario_modified');
+
+      // A failed read never confirms the saved selection.
+      engine.failQuery = true;
+      await app.scenarios.refresh();
+      expect(scenarioStateKey(app), 'scenario_unknown');
     },
   );
 

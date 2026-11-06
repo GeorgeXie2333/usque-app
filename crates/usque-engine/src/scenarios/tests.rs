@@ -375,6 +375,35 @@ async fn restore_is_a_new_explicit_commit_and_preserves_new_global_preferences()
 }
 
 #[tokio::test]
+async fn idle_owner_reports_a_waiting_selection_but_keeps_recorded_outcomes() {
+    let (_directory, service) = fixture().await;
+    let scene = save_scene(&service, ScenarioSettings::default(), None).await;
+    let plan = preview(&service, &scene).await;
+    request(&service, activate_request(&scene, &plan, Uuid::new_v4()))
+        .await
+        .unwrap();
+    // A fresh owner without a session has nothing to confirm.
+    {
+        let mut state = service.settings.lock().await;
+        state.operation_id = None;
+        state.apply_status = ApplyStatus::Unknown;
+    }
+    let listed = request(&service, json!({"action":"list"})).await.unwrap();
+    assert_eq!(listed["state"]["apply_status"], "deferred");
+    assert!(listed["state"]["applied_matches"].is_null());
+    // An unconfirmed or failed recorded operation is never hidden.
+    for status in [ApplyStatus::Unknown, ApplyStatus::Failed] {
+        {
+            let mut state = service.settings.lock().await;
+            state.operation_id = Some(Uuid::new_v4());
+            state.apply_status = status;
+        }
+        let listed = request(&service, json!({"action":"list"})).await.unwrap();
+        assert_eq!(listed["state"]["apply_status"], json!(status));
+    }
+}
+
+#[tokio::test]
 async fn hot_scene_changes_publish_confirmed_profile_and_keep_actual_session_algorithm() {
     for change_rules in [false, true] {
         let (_directory, service) = fixture().await;

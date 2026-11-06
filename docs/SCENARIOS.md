@@ -177,6 +177,10 @@ off VPN mode while Kill Switch is on, it warns that system-wide protection stops
 
 **Selected** and **Saved; waiting to apply** are not runtime success. The page
 distinguishes confirmed application, failure and an unconfirmed result.
+While disconnected, the card shows only the selected scene and any template
+drift: the selection takes effect on the next connection, so there is no result
+to wait for. A failed status read, an unresolved switch, or a recorded failed
+or unconfirmed outcome still shows.
 Refresh an uncertain result before deciding whether to retry; the app does not
 automatically replay a lost activation request. A failed selected exit never
 authorizes switching to direct access or another exit.
@@ -192,7 +196,9 @@ asks you to refresh Scenes.
 模式且 Kill Switch 开启，预览会提示切换后不再保护系统全部流量。
 
 **已选择**、**已保存，待应用** 不代表当前连接已经采用设置。页面区分已确认应用、
-失败与结果待确认。结果不确定时先刷新，应用不会自动重放丢失回复的切换请求；
+失败与结果待确认。未连接时，状态卡只显示已选场景及模板差异：所选场景在下次连接时
+生效，没有需要等待的结果。状态读取失败、切换尚未确定，或已记录的失败或待确认
+结果仍会显示。结果不确定时先刷新，应用不会自动重放丢失回复的切换请求；
 所选出口失败不会擅自改为直连或其他出口。
 
 回复丢失后，连接会等待原生层根据已保存配置确定切换结果：页面显示场景未应用，

@@ -992,17 +992,31 @@ SceneStatus scenarioStatus(AppController app) {
 }
 
 String scenarioStateKey(AppController app) {
-  final state = app.scenarios.catalog;
-  if (app.scenarios.unconfirmed) return 'scenario_unknown';
-  if (state != null && !app.scenarios.runtimeConfirmed) {
+  final scenes = app.scenarios, state = scenes.catalog;
+  if (scenes.unconfirmed) return 'scenario_unknown';
+  // Without a session there is no application result to await: a saved
+  // selection waits for the next connection. A failed read, an unresolved
+  // switch or an outcome the owner reports as unknown or failed still shows.
+  final idle =
+      state != null &&
+      state.sessionId == null &&
+      !app.snapshot.isConnected &&
+      !app.snapshot.isTransitional;
+  if (state != null && !scenes.runtimeConfirmed) {
+    // A saved-configuration read is authoritative for the selection and its
+    // drift, never for a running connection.
+    if (idle && !state.runtimeObserved && !scenes.queryUnconfirmed) {
+      return state.modified ? 'scenario_modified' : 'scenario_selected';
+    }
     return 'scenario_unknown';
   }
   if (state?.modified == true) return 'scenario_modified';
   if (state?.applyStatus == 'failed') return 'scenario_failed';
   if (state?.applyStatus == 'unknown') return 'scenario_unknown';
   if (state?.appliedMatches == true) return 'scenario_applied';
-  if (state?.applyStatus == 'applying' || state?.applyStatus == 'deferred') {
-    return 'scenario_pending';
+  if (state?.applyStatus == 'applying') return 'scenario_pending';
+  if (state?.applyStatus == 'deferred') {
+    return idle ? 'scenario_selected' : 'scenario_pending';
   }
   if ((state?.applyStatus == 'unknown' || app.scenarios.queryUnconfirmed) &&
       app.snapshot.isConnected) {

@@ -39,4 +39,20 @@ class PassiveControlFieldsTest {
             assertFalse(key, result.containsKey(key))
         }
     }
+
+    @Test
+    fun persistedScenesKeepOnlySavedConfigurationDrift() {
+        val result =
+            ScenarioFields.persistedOnly(
+                """{"scenarios":[],"selection":{"scenario_id":"saved"},"state":{"apply_status":"deferred","applied_matches":true,"modified":true,"template_updated":true,"bound_account_missing":false}}""",
+            )
+        assertEquals(
+            mapOf("apply_status" to "unknown", "modified" to true, "template_updated" to true),
+            result["state"],
+        )
+        // A malformed or truthy non-boolean flag is not carried.
+        val malformed =
+            ScenarioFields.persistedOnly("""{"scenarios":[],"state":{"modified":"yes","template_updated":1}}""")
+        assertEquals(mapOf("apply_status" to "unknown"), malformed["state"])
+    }
 }

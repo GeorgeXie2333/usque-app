@@ -172,7 +172,7 @@ class ScenarioCatalog {
            : value['session_id'] as String?,
        observationSessionId = _observationSession(value),
        state = value['runtime_observed'] == false
-           ? const {'apply_status': 'unknown'}
+           ? _savedDrift(value['state'])
            : scenarioMap(value['state']),
        canRestore =
            value['runtime_observed'] != false && value['can_restore'] == true,
@@ -181,6 +181,21 @@ class ScenarioCatalog {
            : value['last_operation_id'] as String?;
   final List<ConnectionScenario> scenarios;
   final String? revision;
+
+  /// A saved-configuration read carries only drift computed from saved
+  /// values. It never carries an application result.
+  static Map<String, Object?> _savedDrift(Object? value) {
+    final state = scenarioMap(value);
+    return Map.unmodifiable({
+      'apply_status': 'unknown',
+      for (final key in const [
+        'modified',
+        'template_updated',
+        'bound_account_missing',
+      ])
+        if (state[key] == true) key: true,
+    });
+  }
 
   static String? _observationSession(Map<String, Object?> value) {
     if (value['runtime_observed'] == false) return null;
