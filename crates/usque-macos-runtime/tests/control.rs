@@ -21,6 +21,7 @@ struct Evidence {
     hold_start: AtomicBool,
     failed: AtomicBool,
     fail_release: AtomicBool,
+    path: Mutex<Option<ProviderPath>>,
 }
 impl Evidence {
     fn event(&self, value: &'static str) {
@@ -70,12 +71,14 @@ impl SessionBackend for TestBackend {
         if self.evidence.failed.load(Ordering::Acquire) {
             SessionHealth::Failed
         } else if self.active {
-            SessionHealth::Connected(ProviderPath {
-                transport: Transport::Http2,
-                endpoint_family: AddressFamily::Ipv4,
-                ipv4_available: true,
-                ipv6_available: true,
-            })
+            SessionHealth::Connected(self.evidence.path.lock().unwrap().clone().unwrap_or(
+                ProviderPath {
+                    transport: Transport::Http2,
+                    endpoint_family: AddressFamily::Ipv4,
+                    ipv4_available: true,
+                    ipv6_available: true,
+                },
+            ))
         } else {
             SessionHealth::Starting
         }
@@ -203,6 +206,47 @@ async fn acceptance_is_not_connection_and_stop_reverses_order() {
             "clear_dns_routes",
             "release"
         ]
+    );
+}
+
+#[tokio::test]
+async fn connected_path_changes_refresh_snapshot_without_readmitting_the_session() {
+    let (controller, evidence, key) = setup(2);
+    controller
+        .submit(envelope(&key, start_command(false)))
+        .unwrap();
+    wait_phase(&controller, Phase::Connected).await;
+    let changed = ProviderPath {
+        transport: Transport::Http3,
+        endpoint_family: AddressFamily::Ipv6,
+        ipv4_available: false,
+        ipv6_available: true,
+    };
+    *evidence.path.lock().unwrap() = Some(changed.clone());
+    let snapshot = tokio::time::timeout(std::time::Duration::from_secs(3), async {
+        loop {
+            let snapshot = controller.snapshot();
+            if snapshot.selected_path.as_ref() == Some(&changed) {
+                return snapshot;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .expect("connected path change reached the provider snapshot");
+    assert_eq!(snapshot.phase, Phase::Connected);
+    assert_eq!(snapshot.session.as_ref(), Some(&key));
+    assert!(snapshot.protection_active);
+    assert_eq!(
+        evidence.events.lock().unwrap().as_slice(),
+        ["protect", "dns_routes", "connect", "allow"]
+    );
+    controller.submit(envelope(&key, Command::Stop)).unwrap();
+    assert!(
+        wait_phase(&controller, Phase::Stopped)
+            .await
+            .selected_path
+            .is_none()
     );
 }
 

@@ -20,6 +20,7 @@ final class DesktopIntegration: NSObject, NSWindowDelegate, UNUserNotificationCe
   private var authenticationSession: ASWebAuthenticationSession?
   private var dialogOpen = false
   private var lastVisibility: Bool?
+  private var deferredWindowPlacementRecovery = false
   private var observers: [NSObjectProtocol] = []
   private let closePreference = "usque.closeToTray"
 
@@ -63,6 +64,9 @@ final class DesktopIntegration: NSObject, NSWindowDelegate, UNUserNotificationCe
         [weak self] _ in self?.publishVisibility()
       })
     }
+    observers.append(NotificationCenter.default.addObserver(
+      forName: NSApplication.didChangeScreenParametersNotification, object: NSApp, queue: .main
+    ) { [weak self] _ in self?.recoverWindowPlacement() })
   }
 
   deinit {
@@ -122,6 +126,38 @@ final class DesktopIntegration: NSObject, NSWindowDelegate, UNUserNotificationCe
   func windowDidMiniaturize(_ notification: Notification) { publishVisibility() }
   func windowDidDeminiaturize(_ notification: Notification) { publishVisibility() }
   func windowDidBecomeKey(_ notification: Notification) { publishVisibility() }
+  func windowDidChangeScreen(_ notification: Notification) { refreshMinimumWindowSize() }
+  func windowDidExitFullScreen(_ notification: Notification) {
+    if deferredWindowPlacementRecovery { recoverWindowPlacement() }
+    else { refreshMinimumWindowSize() }
+  }
+
+  private func refreshMinimumWindowSize() {
+    guard let window, !window.styleMask.contains(.fullScreen),
+      let screen = DesktopWindowPlacement.targetScreen(
+        for: window.frame, screens: NSScreen.screens.map { $0.visibleFrame }) else { return }
+    let content = window.contentRect(forFrameRect: window.frame)
+    let decoration = CGSize(
+      width: max(0, window.frame.width - content.width),
+      height: max(0, window.frame.height - content.height))
+    window.contentMinSize = DesktopWindowPlacement.minimumContentSize(
+      on: screen, decoration: decoration)
+  }
+
+  private func recoverWindowPlacement() {
+    guard let window else { return }
+    guard !window.styleMask.contains(.fullScreen) else {
+      deferredWindowPlacementRecovery = true
+      return
+    }
+    deferredWindowPlacementRecovery = false
+    // Relax a former display's minimum before applying a smaller frame. Screen
+    // moves only update that minimum, so dragging across displays stays native.
+    refreshMinimumWindowSize()
+    let frame = DesktopWindowPlacement.restoredFrame(
+      window.frame, screens: NSScreen.screens.map { $0.visibleFrame })
+    if frame != window.frame { window.setFrame(frame, display: true) }
+  }
 
   private func publishVisibility() {
     let next = visible

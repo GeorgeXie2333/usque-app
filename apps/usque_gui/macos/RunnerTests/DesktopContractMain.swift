@@ -143,6 +143,14 @@ enum DesktopContractMain {
     let secondary = CGRect(x: -1500, y: 100, width: 1400, height: 900)
     let onSecondary = CGRect(x: -1300, y: 180, width: 1040, height: 782)
     try require(DesktopWindowPlacement.restoredFrame(onSecondary, screens: [screen, secondary]) == onSecondary, "valid secondary monitor placement changed")
+    let moved = CGRect(x: -580, y: 40, width: 640, height: 480)
+    let movedScreen = DesktopWindowPlacement.targetScreen(for: moved, screens: [screen, smallScreen])!
+    try require(movedScreen == smallScreen, "window move keeps the former display's minimum")
+    try require(DesktopWindowPlacement.minimumContentSize(on: movedScreen, decoration: decoration) == CGSize(width: 600, height: 398), "moved window cannot shrink to its smaller display")
+    let resized = DesktopWindowPlacement.restoredFrame(onSecondary, screens: [smallScreen])
+    try require(smallScreen.contains(resized), "display removal leaves the running window unreachable")
+    try require(DesktopWindowPlacement.targetScreen(for: resized, screens: [smallScreen]) == smallScreen, "recovered frame uses the removed display's minimum")
+    try require(DesktopWindowPlacement.targetScreen(for: normal, screens: []) == nil, "missing displays produce a synthetic placement")
     let xml = try XMLDocument(contentsOf: URL(fileURLWithPath: CommandLine.arguments[1]))
     let defaults = try xml.nodes(forXPath: "//window/rect[@key='contentRect']").first as? XMLElement
     try require(defaults?.attribute(forName: "width")?.stringValue == "1040" && defaults?.attribute(forName: "height")?.stringValue == "760", "XIB initial content size differs from the placement contract")

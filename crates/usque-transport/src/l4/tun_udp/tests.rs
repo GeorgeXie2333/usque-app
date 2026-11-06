@@ -696,7 +696,22 @@ async fn issue_138_expired_direct_udp_target_releases_its_lease_before_the_next_
         .unwrap();
     fixture.io.receive_packet().await.unwrap();
     tokio::time::advance(Duration::from_millis(100)).await;
-    fixture.udp().await;
+    {
+        // This exchange uses a real loopback socket. Keep a task runnable so
+        // the paused clock cannot advance to maintenance while OS I/O is pending.
+        let exchange = fixture.udp();
+        tokio::pin!(exchange);
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        loop {
+            tokio::select! {
+                biased;
+                () = &mut exchange => break,
+                () = tokio::task::yield_now() => {
+                    assert!(std::time::Instant::now() < deadline, "loopback UDP exchange stalled");
+                }
+            }
+        }
+    }
     assert_eq!(Instant::now() - started, Duration::from_millis(100));
     assert_eq!(fixture.protector.leases.load(Ordering::SeqCst), 1);
 

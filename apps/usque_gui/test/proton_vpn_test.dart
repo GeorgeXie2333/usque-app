@@ -523,6 +523,73 @@ Future<void> _startProtonAuthentication(
 
 void main() {
   _protonWidgetTest(
+    'polling runs only during active jobs and restarts after terminal states',
+    (tester) async {
+      final engine = PendingLogoutEngine();
+      final app = await hostChain(tester, engine);
+      final key = GlobalKey<ProtonVpnPanelState>();
+      final pollTimers = <Timer>[];
+      int activeTimers() => pollTimers.where((timer) => timer.isActive).length;
+      int reads() =>
+          engine.requests.where((request) => request['action'] == 'get').length;
+      await runZoned(
+        () async {
+          await tester.pumpWidget(
+            workflowHost(
+              app,
+              home: Scaffold(
+                body: SingleChildScrollView(
+                  child: ProtonVpnPanel(
+                    key: key,
+                    controller: app,
+                    onChanged: () {},
+                  ),
+                ),
+              ),
+            ),
+          );
+          await tester.pumpAndSettle();
+          expect(activeTimers(), 0);
+          await tester.pump(const Duration(seconds: 12));
+          expect(reads(), 1);
+
+          for (final state in ['completed', 'cancelled', 'failed']) {
+            await key.currentState!.logout('proton-profile');
+            await tester.pump();
+            expect(activeTimers(), 1);
+            final before = reads();
+            await tester.pump(const Duration(seconds: 2));
+            await tester.pump();
+            expect(reads(), before + 1);
+            expect(activeTimers(), 1);
+
+            engine.job = {'id': 'logout-job', 'state': state};
+            await tester.pump(const Duration(seconds: 2));
+            await tester.pumpAndSettle();
+            expect(reads(), before + 2);
+            expect(activeTimers(), 0);
+            await tester.pump(const Duration(seconds: 12));
+            expect(reads(), before + 2);
+          }
+
+          await key.currentState!.logout('proton-profile');
+          await tester.pump();
+          expect(activeTimers(), 1);
+          await tester.pumpWidget(const SizedBox.shrink());
+          expect(activeTimers(), 0);
+        },
+        zoneSpecification: ZoneSpecification(
+          createPeriodicTimer: (self, parent, zone, duration, callback) {
+            final timer = parent.createPeriodicTimer(zone, duration, callback);
+            if (duration == const Duration(seconds: 2)) pollTimers.add(timer);
+            return timer;
+          },
+        ),
+      );
+    },
+  );
+
+  _protonWidgetTest(
     'macOS rejects guest and browser verification before reaching the engine',
     (tester) async {
       final engine = ProtonEngine();

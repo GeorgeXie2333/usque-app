@@ -400,6 +400,11 @@ async fn run(
                                     Ok(()) => update(&shared, |s| { s.phase = Phase::Connected; s.selected_path = Some(path); }),
                                     Err(code) => failure(&shared, &code),
                                 }
+                            } else if snapshot.selected_path.as_ref() != Some(&path) {
+                                // Recovery or migration can change the live path
+                                // without leaving Connected. Publish that backend
+                                // observation without repeating filter admission.
+                                update(&shared, |s| s.selected_path = Some(path));
                             }
                         }
                         SessionHealth::Starting => {

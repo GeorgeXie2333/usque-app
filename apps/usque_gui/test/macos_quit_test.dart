@@ -24,6 +24,26 @@ class _CleanupEngine extends FakeEngineClient {
   }
 }
 
+class _QueuedWritesEngine extends _CleanupEngine {
+  final renames = <Completer<void>>[];
+  final operations = <String>[];
+
+  @override
+  Future<void> renameProfile(String profileId, String name) async {
+    operations.add('rename:$name');
+    final pending = Completer<void>();
+    renames.add(pending);
+    await pending.future;
+    await super.renameProfile(profileId, name);
+  }
+
+  @override
+  Future<EngineSnapshot> disconnect() {
+    operations.add('disconnect');
+    return super.disconnect();
+  }
+}
+
 const _channel = MethodChannel('io.github.georgexie2333.usque/engine');
 
 Future<Object?> _requestQuit(WidgetTester tester) {
@@ -84,6 +104,38 @@ void main() {
         const EngineSnapshot(phase: ConnectionPhase.disconnected),
       );
       expect(await quitting, {'cleanup_complete': true});
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.macOS),
+  );
+
+  testWidgets(
+    'Quit drains queued account saves before requesting cleanup',
+    (tester) async {
+      final engine = _QueuedWritesEngine();
+      final app = AppController(engine);
+      await app.initialize();
+      addTearDown(app.dispose);
+      app.renameProfile(app.activeProfileId, 'first');
+      app.renameProfile(app.activeProfileId, 'second');
+      final quitting = app.disconnectForExit();
+      await tester.pump();
+      expect(engine.renames, hasLength(1));
+      engine.renames.first.complete();
+      await tester.pump();
+      expect(engine.renames, hasLength(2));
+      engine.renames.last.complete();
+      await tester.pump();
+      expect(engine.attempts, hasLength(1));
+      engine.attempts.single.complete(
+        const EngineSnapshot(phase: ConnectionPhase.disconnected),
+      );
+      await quitting;
+      expect(engine.operations, [
+        'rename:first',
+        'rename:second',
+        'disconnect',
+      ]);
+      expect(engine.storedProfiles.single.name, 'second');
     },
     variant: TargetPlatformVariant.only(TargetPlatform.macOS),
   );

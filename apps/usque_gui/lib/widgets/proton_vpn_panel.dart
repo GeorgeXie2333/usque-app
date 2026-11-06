@@ -121,7 +121,15 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
   void initState() {
     super.initState();
     unawaited(_command({'action': 'get'}));
-    _timer = Timer.periodic(const Duration(seconds: 2), (_) {
+  }
+
+  void _updatePolling() {
+    if ((!_running && !_verifying) || _launchUnconfirmed) {
+      _timer?.cancel();
+      _timer = null;
+      return;
+    }
+    _timer ??= Timer.periodic(const Duration(seconds: 2), (_) {
       if ((_running || _verifying) &&
           !_launchUnconfirmed &&
           !_busy &&
@@ -332,6 +340,7 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
       if (mounted) {
         setState(() => _busy = false);
         _updateVerification();
+        _updatePolling();
       }
     }
     if (recoverLaunch && mounted) await _command({'action': 'get'});
@@ -795,6 +804,7 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
           _handoffLoading = false;
         });
         _updateVerification();
+        _updatePolling();
       }
     }
   }

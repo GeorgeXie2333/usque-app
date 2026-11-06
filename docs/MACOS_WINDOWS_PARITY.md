@@ -48,6 +48,43 @@ hardware. None of the isolated results establishes physical-egress safety.
 | Extension update and uninstall | Application transaction leaves extensions/user data separate; manual app removal preserves user data | Extension approval/restart orchestration and managed uninstall remain pending |
 | Signed production distribution | Development packages are explicitly ad-hoc and not notarized | Developer ID, notarization, Gatekeeper distribution and full two-architecture acceptance pending |
 
+## Reliability follow-up (2026-11-05)
+
+This follow-up starts from `ffc5865c8ca90ab8c694f0ce992d3b0183673fb3`.
+It corrects four issues without changing the existing networking capabilities:
+
+- Quit waits for the account/network edit queue before asking the Engine for
+  its final cleanup acknowledgement. A delayed second account save can no
+  longer run after that acknowledgement.
+- Connected provider observations refresh the reported transport, endpoint
+  family and address availability after a path change, without repeating
+  protection admission or starting another session.
+- Running windows refresh their minimum size when moved between displays.
+  Display removal or resolution changes recover reachable geometry; full-screen
+  recovery waits until the window exits full screen.
+- The Proton panel keeps its polling timer only while a job is active.
+  Idle and terminal states stop the timer; a later job starts it again.
+
+The queue-order and connected-path regressions were reproduced before their
+fixes. A full Rust run also exposed a paused-clock UDP fixture that could
+auto-advance while waiting for real loopback I/O. Its bounded wait now keeps
+the runtime runnable; exact expiry and lease-release assertions remain in place.
+Verification uses fake engines, synthetic display rectangles and local fixtures.
+Actual display interaction and real-service/network acceptance remain separate;
+no replacement installer or release is published by these changes.
+
+Final validation of this working-tree follow-up:
+
+| Check | Result |
+| --- | --- |
+| `cargo test --workspace --all-targets --locked --offline` | 2,071 passed, 3 ignored, no failures |
+| `flutter test --no-pub --exclude-tags golden` | 1,526 passed, 1 skipped, no failures |
+| `pwsh -NoProfile -File tool/check_source.ps1` | Passed, including strict workspace Clippy, format, Flutter analysis, Kotlin, Ruff, PowerShell and protobuf |
+| Python tooling suite | 326 cases, 21 skipped, no failures/errors |
+| Native desktop, network and maintenance contracts | 8 desktop groups, network contracts and 13 maintenance groups passed |
+| `flutter build macos --debug --no-pub` | Apple Silicon Debug build passed; existing Xcode CoreSimulator warnings remain |
+| Tracked-source repository policy and `git diff --check` | Passed |
+
 ## macOS Proton guest registration removal (2026-11-05)
 
 Current source removes the Proton guest registration entry point, native CEF

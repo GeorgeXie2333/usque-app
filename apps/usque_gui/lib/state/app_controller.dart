@@ -1631,6 +1631,9 @@ class AppController extends ChangeNotifier {
     _connectionIntent++;
     await _onboardingPreferenceWrites;
     await LinuxPreferencesStore.flushPending();
+    // Account and network edits share a queue above the Engine's RPC queue.
+    // Drain already queued edits before the final stop can overtake them.
+    await flushProfileWrites();
     final requiresCleanupConfirmation =
         defaultTargetPlatform == TargetPlatform.macOS;
     // A disconnected snapshot can still have a startup rollback or proxy

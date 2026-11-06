@@ -217,14 +217,16 @@ enum DesktopWindowPlacement {
   /// Screen arrangements can change while the app is closed. Keep the saved
   /// window reachable without changing its preferred size unnecessarily.
   static func restoredFrame(_ frame: CGRect, screens: [CGRect]) -> CGRect {
-    guard let screen = screens.max(by: {
-      $0.intersection(frame).area < $1.intersection(frame).area
-    }) else { return frame }
+    guard let screen = targetScreen(for: frame, screens: screens) else { return frame }
     let size = CGSize(width: min(frame.width, screen.width), height: min(frame.height, screen.height))
     return CGRect(
       x: min(max(frame.minX, screen.minX), screen.maxX - size.width),
       y: min(max(frame.minY, screen.minY), screen.maxY - size.height),
       width: size.width, height: size.height)
+  }
+
+  static func targetScreen(for frame: CGRect, screens: [CGRect]) -> CGRect? {
+    screens.max(by: { $0.intersection(frame).area < $1.intersection(frame).area })
   }
 }
 
