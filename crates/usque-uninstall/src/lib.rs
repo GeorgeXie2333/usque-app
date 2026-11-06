@@ -15,7 +15,10 @@ mod l10n;
 #[cfg(windows)]
 mod windows;
 
+pub mod paint;
 pub mod state;
+#[path = "tokens_generated.rs"]
+pub mod tokens;
 
 /// MSI `ERROR_INSTALL_USEREXIT`. Settings should keep the app listed.
 pub const ERROR_INSTALL_USEREXIT: i32 = 1602;

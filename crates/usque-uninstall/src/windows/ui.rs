@@ -6,9 +6,17 @@ use super::{
 };
 use crate::{
     UninstallError, UninstallRequest, l10n,
+    paint::{
+        BarColors, BarLook, BarMotion, ButtonKind, ButtonLook, Canvas, Rect, Rgb, button_look,
+        render_bar,
+    },
     state::{
         BAR_COMPLETE, Bar, Lifecycle, Outcome, PREVIEW_UNINSTALL, Preview, PreviewStep,
         PreviewTheme, RestartFlow, Stage, error_hint_key,
+    },
+    tokens::{
+        self, FOCUS_RING, PROGRESS_HEIGHT, RADIUS_CHECKBOX, RADIUS_CHIP, RADIUS_CONTROL,
+        STROKE_STRONG,
     },
 };
 use std::{
@@ -16,6 +24,7 @@ use std::{
     mem::size_of,
     ptr,
     sync::mpsc::TryRecvError,
+    time::Instant,
 };
 use windows_sys::Win32::{
     Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, RECT, WPARAM},
@@ -56,6 +65,8 @@ const SAVE: i32 = 113;
 const VIEWPORT: i32 = 114;
 const WARNING_ACCENT: i32 = 115;
 const TIMER: usize = 1;
+/// Repaints only the custom-drawn progress bar while it animates.
+const ANIMATION: usize = 2;
 const WM_RESTART_ABORTED: u32 = WM_APP + 36;
 const PAINT_PROPERTY: &str = "Usque.UninstallPaint";
 const THEME_REQUEST_PROPERTY: &str = "Usque.UninstallThemeRequest";
@@ -65,19 +76,17 @@ const STATIC_TYPE_MASK: u32 = 0x1f;
 const STATIC_RIGHT: u32 = 2;
 const STATIC_OWNER_DRAW: u32 = 13;
 const fn brand_accent(dark: bool) -> u32 {
-    if dark { 0x005ca4ff } else { 0x000c50c2 }
+    tokens::theme(dark).primary
 }
 
+#[cfg(test)]
 const fn brand_on_accent(dark: bool) -> u32 {
-    if dark { 0x00001844 } else { 0x00ffffff }
+    tokens::theme(dark).on_primary
 }
 
+#[cfg(test)]
 const fn brand_pressed(dark: bool) -> u32 {
-    let color = brand_accent(dark);
-    let red = ((color & 0xff) * 9 + 5) / 10;
-    let green = (((color >> 8) & 0xff) * 9 + 5) / 10;
-    let blue = (((color >> 16) & 0xff) * 9 + 5) / 10;
-    red | (green << 8) | (blue << 16)
+    tokens::theme(dark).primary_pressed
 }
 
 #[derive(Clone, Copy, Default)]
@@ -93,6 +102,10 @@ struct PaintStyle {
     native_high_contrast: bool,
     accent_button: u32,
     rtl: bool,
+    /// The custom-drawn progress frame.
+    bar: BarLook,
+    /// The critical notice reports possible data loss rather than a choice.
+    warning_danger: bool,
 }
 
 struct NativeThemeRequest(HWND);
@@ -194,6 +207,12 @@ struct State {
     detail_accessible_name: &'static str,
     /// `None` forces the next render to resend the complete control state.
     applied_bar: Option<BarView>,
+    /// Windows' client-area animation setting; off means no eased or moving bar.
+    motion: bool,
+    bar_motion: BarMotion,
+    bar_look: BarLook,
+    frame_at: Option<Instant>,
+    animating: bool,
     paint: Box<Cell<PaintStyle>>,
 }
 
@@ -230,6 +249,11 @@ impl State {
             controls: Vec::new(),
             detail_accessible_name: "",
             applied_bar: None,
+            motion: true,
+            bar_motion: BarMotion::default(),
+            bar_look: BarLook::default(),
+            frame_at: None,
+            animating: false,
             paint: Box::new(Cell::new(PaintStyle::default())),
         }
     }
@@ -406,6 +430,7 @@ impl State {
         self.scroll = 0;
         self.page = Page::Running;
         self.lifecycle = Lifecycle::default();
+        self.bar_motion = BarMotion::default();
         if self.preview.is_some() {
             self.preview_ticks = 1;
             self.lifecycle.common_data(2, 1);
@@ -699,6 +724,7 @@ pub fn run(
     let instance = unsafe { GetModuleHandleW(ptr::null()) };
     let locale = l10n::setup_locale(requested_locale.unwrap_or(&ui_locale_name()));
     let mut state = State::new(product, preview, preview_theme, locale);
+    state.motion = client_area_animation();
     if let Some(scenario) = preview {
         state.apply_preview(scenario);
     }
@@ -884,6 +910,7 @@ extern "system" fn window_proc(
         // state. End the pump without taking a second mutable state borrow.
         unsafe {
             KillTimer(hwnd, TIMER);
+            KillTimer(hwnd, ANIMATION);
             PostQuitMessage(0);
         }
         return 0;
@@ -949,6 +976,10 @@ extern "system" fn window_proc(
                     render(hwnd, &mut state);
                     return 0;
                 }
+                WM_TIMER if wparam == ANIMATION => {
+                    update_bar_look(hwnd, &mut state);
+                    return 0;
+                }
                 WM_TIMER => {
                     state.tick();
                     render(hwnd, &mut state);
@@ -992,6 +1023,7 @@ extern "system" fn window_proc(
                     return 0;
                 }
                 WM_SETTINGCHANGE | WM_SYSCOLORCHANGE | WM_THEMECHANGED => {
+                    state.motion = client_area_animation();
                     state.palette = palette(state.preview.is_some(), state.preview_theme);
                     refresh_paint_style(&state);
                     apply_title_theme(hwnd, state.palette.dark);
@@ -1448,6 +1480,7 @@ fn render(hwnd: HWND, state: &mut State) {
         BarView::Hidden
     };
     apply_bar(hwnd, state, view);
+    update_bar_look(hwnd, state);
     layout(hwnd, state);
     ensure_focus(hwnd, previous_focus, state);
 }
@@ -1631,7 +1664,7 @@ fn layout(hwnd: HWND, state: &mut State) {
             continue;
         }
         let h = match id {
-            PROGRESS => scale(8),
+            PROGRESS => scale(PROGRESS_HEIGHT),
             DETAIL => scale(112),
             SAVE => scale(36),
             CHECK => measure(
@@ -2035,10 +2068,9 @@ fn palette(preview: bool, preview_theme: Option<PreviewTheme>) -> Palette {
                 GetSysColor(COLOR_WINDOWTEXT),
             )
         }
-    } else if dark {
-        (0x00100e0e, 0x00e9e8e8, 0x009fa5a7)
     } else {
-        (0x00f1f4f5, 0x00181b1c, 0x0061686b)
+        let tokens = tokens::theme(dark);
+        (tokens.canvas, tokens.ink, tokens.muted)
     };
     // SAFETY: creates an owned brush for the chosen COLORREF.
     let brush = unsafe { CreateSolidBrush(background) };
@@ -2152,14 +2184,22 @@ fn apply_progress_theme(hwnd: HWND, palette: &Palette) {
             };
             let track = if palette.high_contrast {
                 palette.background
-            } else if palette.dark {
-                0x00262424
             } else {
-                0x00e9eced
+                tokens::theme(palette.dark).hairline
             };
             SendMessageW(bar, PBM_SETBARCOLOR, 0, fill as isize);
             SendMessageW(bar, PBM_SETBKCOLOR, 0, track as isize);
         }
+        // Switching between native and custom rendering changes the frame.
+        SetWindowPos(
+            bar,
+            ptr::null_mut(),
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
+        );
         InvalidateRect(bar, ptr::null(), 1);
     }
 }
@@ -2172,28 +2212,51 @@ unsafe extern "system" fn progress_proc(
     _id: usize,
     data: usize,
 ) -> LRESULT {
-    // SAFETY: every message first reaches the original native progress
-    // implementation. The stable paint Cell outlives this child window.
-    let result = unsafe { DefSubclassProc(hwnd, message, wparam, lparam) };
     // SAFETY: create_controls supplied this Cell, owned until window teardown.
     let style = unsafe { (*(data as *const Cell<PaintStyle>)).get() };
-    if message == WM_PAINT && !style.high_contrast {
-        // SAFETY: paint only a subtle frame after the native control has drawn
-        // its real position or marquee; no progress value is synthesized.
-        unsafe {
-            let dc = GetDC(hwnd);
-            let mut rect = RECT::default();
-            GetClientRect(hwnd, &mut rect);
-            let border = CreateSolidBrush(if style.dark { 0x00434141 } else { 0x00d0d4d6 });
-            for _ in 0..(style.dpi / 96).max(1) {
-                FrameRect(dc, &rect, border);
-                InflateRect(&mut rect, -1, -1);
-            }
-            DeleteObject(border);
-            ReleaseDC(hwnd, dc);
+    // System high contrast keeps the native control and its system colors.
+    // Every other message reaches the native control, which keeps its range,
+    // position, marquee state and accessibility; only pixels are replaced.
+    if style.native_high_contrast
+        || !matches!(
+            message,
+            WM_PAINT | WM_PRINTCLIENT | WM_ERASEBKGND | WM_NCCALCSIZE | WM_NCPAINT
+        )
+    {
+        // SAFETY: forwards to the original progress implementation.
+        return unsafe { DefSubclassProc(hwnd, message, wparam, lparam) };
+    }
+    // The classic control adds a static edge outside its client area. The
+    // custom bar draws its own rounded track, so it takes the whole window.
+    if matches!(message, WM_NCCALCSIZE | WM_NCPAINT) {
+        return 0;
+    }
+    if message == WM_ERASEBKGND {
+        return 1;
+    }
+    // SAFETY: WM_PAINT uses a matched Begin/EndPaint; WM_PRINTCLIENT supplies
+    // a caller-owned DC for this synchronous call.
+    unsafe {
+        let mut paint = PAINTSTRUCT::default();
+        let dc = if message == WM_PAINT {
+            BeginPaint(hwnd, &mut paint)
+        } else {
+            wparam as HDC
+        };
+        let mut rect = RECT::default();
+        GetClientRect(hwnd, &mut rect);
+        let canvas = render_bar(
+            rect.right.max(0) as usize,
+            rect.bottom.max(0) as usize,
+            style.bar,
+            &bar_colors(&style),
+        );
+        blit(dc, 0, 0, &canvas);
+        if message == WM_PAINT {
+            EndPaint(hwnd, &paint);
         }
     }
-    result
+    0
 }
 
 fn center(hwnd: HWND, dpi: u32) {
@@ -2319,7 +2382,141 @@ fn refresh_paint_style(state: &State) {
             PRIMARY as u32
         },
         rtl: matches!(state.locale, "ar-SA" | "fa-IR"),
+        bar: state.bar_look,
+        warning_danger: state
+            .result
+            .as_ref()
+            .is_some_and(|result| result.outcome == Outcome::DataMayBeDeleted),
     });
+}
+
+fn client_area_animation() -> bool {
+    let mut enabled = 1i32;
+    // SAFETY: SPI_GETCLIENTAREAANIMATION writes one BOOL to this storage.
+    let read = unsafe {
+        SystemParametersInfoW(
+            SPI_GETCLIENTAREAANIMATION,
+            0,
+            ptr::from_mut(&mut enabled).cast(),
+            0,
+        )
+    };
+    read == 0 || enabled != 0
+}
+
+/// Advances the custom-drawn bar, repainting only that control. The 16 ms
+/// timer runs only while an animated bar is visible.
+fn update_bar_look(hwnd: HWND, state: &mut State) {
+    let now = Instant::now();
+    let elapsed = state
+        .frame_at
+        .map_or(0, |at| now.duration_since(at).as_millis().min(100) as u32);
+    state.frame_at = Some(now);
+    let visible = match state.applied_bar {
+        Some(BarView::Visible(bar)) => Some(bar),
+        _ => None,
+    };
+    let animate = visible.is_some() && state.motion && !state.palette.native_high_contrast;
+    if animate != state.animating {
+        // SAFETY: the animation timer belongs to this live UI-thread window.
+        unsafe {
+            if animate {
+                SetTimer(hwnd, ANIMATION, 16, None);
+            } else {
+                KillTimer(hwnd, ANIMATION);
+            }
+        }
+        state.animating = animate;
+    }
+    let Some(bar) = visible else {
+        return;
+    };
+    let look = state.bar_motion.step(bar, elapsed, state.motion);
+    if look != state.bar_look {
+        state.bar_look = look;
+        refresh_paint_style(state);
+        // SAFETY: PROGRESS is a live child; only its pixels are invalidated.
+        unsafe {
+            InvalidateRect(control(hwnd, PROGRESS), ptr::null(), 0);
+        }
+    }
+}
+
+/// Copies a rendered canvas to `dc` at (`left`, `top`). A mirrored (RTL)
+/// device context maps the destination but not DIB contents, so the canvas
+/// is reversed to match: the progress fill then grows from the right.
+fn blit(dc: HDC, left: i32, top: i32, canvas: &Canvas) {
+    let (width, height) = (canvas.width() as i32, canvas.height() as i32);
+    if width == 0 || height == 0 {
+        return;
+    }
+    // SAFETY: GetLayout only reads the live paint DC's layout flags.
+    let layout = unsafe { GetLayout(dc) };
+    let mirrored;
+    let canvas = if layout & LAYOUT_RTL != 0 {
+        let mut copy = canvas.clone();
+        copy.mirror();
+        mirrored = copy;
+        &mirrored
+    } else {
+        canvas
+    };
+    let info = BITMAPINFO {
+        bmiHeader: BITMAPINFOHEADER {
+            biSize: size_of::<BITMAPINFOHEADER>() as u32,
+            biWidth: width,
+            biHeight: -height,
+            biPlanes: 1,
+            biBitCount: 32,
+            biCompression: BI_RGB,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    // SAFETY: the top-down 32-bit header describes exactly the canvas buffer,
+    // which outlives this synchronous copy.
+    unsafe {
+        SetDIBitsToDevice(
+            dc,
+            left,
+            top,
+            width as u32,
+            height as u32,
+            0,
+            0,
+            0,
+            height as u32,
+            canvas.pixels().as_ptr().cast(),
+            &info,
+            DIB_RGB_COLORS,
+        );
+    }
+}
+
+fn bar_colors(style: &PaintStyle) -> BarColors {
+    let background = Rgb::from_colorref(style.background);
+    if style.high_contrast {
+        // Only simulated high contrast reaches custom paint; system high
+        // contrast keeps the native control.
+        // SAFETY: documented system-color index.
+        let highlight = unsafe { GetSysColor(COLOR_HIGHLIGHT) };
+        let text = Rgb::from_colorref(style.foreground);
+        return BarColors {
+            background,
+            track: background,
+            fill: Rgb::from_colorref(highlight),
+            halted: text,
+            outline: Some(text),
+        };
+    }
+    let tokens = tokens::theme(style.dark);
+    BarColors {
+        background,
+        track: Rgb::from_colorref(tokens.hairline),
+        fill: Rgb::from_colorref(tokens.primary),
+        halted: Rgb::from_colorref(tokens.caution),
+        outline: None,
+    }
 }
 
 fn paint_style(hwnd: HWND) -> Option<PaintStyle> {
@@ -2335,84 +2532,92 @@ fn paint_style(hwnd: HWND) -> Option<PaintStyle> {
     }
 }
 
+/// High-contrast buttons keep system colors with the same shapes.
+fn system_button_look(kind: ButtonKind, enabled: bool) -> ButtonLook {
+    // SAFETY: documented system-color indices.
+    let system = |index| Rgb::from_colorref(unsafe { GetSysColor(index) });
+    let ink = if !enabled {
+        system(COLOR_GRAYTEXT)
+    } else if kind == ButtonKind::Filled {
+        system(COLOR_HIGHLIGHTTEXT)
+    } else {
+        system(COLOR_BTNTEXT)
+    };
+    ButtonLook {
+        fill: Some(system(if kind == ButtonKind::Filled && enabled {
+            COLOR_HIGHLIGHT
+        } else {
+            COLOR_BTNFACE
+        })),
+        border: (kind != ButtonKind::Text).then(|| system(COLOR_WINDOWTEXT)),
+        ink,
+        ring: system(if kind == ButtonKind::Filled {
+            COLOR_HIGHLIGHTTEXT
+        } else {
+            COLOR_HIGHLIGHT
+        }),
+    }
+}
+
 fn draw_button(item: &DRAWITEMSTRUCT, style: PaintStyle) {
     let enabled = item.itemState & ODS_DISABLED == 0;
-    let accent = item.CtlID == style.accent_button && enabled;
-    let auxiliary = matches!(item.CtlID as i32, DETAILS | SAVE);
+    let pressed = item.itemState & ODS_SELECTED != 0;
+    let focused = item.itemState & ODS_FOCUS != 0 && item.itemState & ODS_NOFOCUSRECT == 0;
+    let kind = if item.CtlID == style.accent_button {
+        ButtonKind::Filled
+    } else if matches!(item.CtlID as i32, DETAILS | SAVE) {
+        ButtonKind::Text
+    } else {
+        ButtonKind::Outlined
+    };
+    let look = if style.high_contrast {
+        system_button_look(kind, enabled)
+    } else {
+        button_look(kind, enabled, pressed, tokens::theme(style.dark))
+    };
     let scale = |value: i32| value * style.dpi as i32 / 96;
+    let scalef = |value: f32| value * style.dpi as f32 / 96.0;
     let reading = if style.rtl { DT_RTLREADING } else { 0 };
-    // SAFETY: owner-draw supplies this DC and rectangle for the callback. All
-    // temporary selected objects are restored before their handles are deleted.
+    let rect = item.rcItem;
+    let (width, height) = (rect.right - rect.left, rect.bottom - rect.top);
+    let mut canvas = Canvas::new(
+        width.max(0) as usize,
+        height.max(0) as usize,
+        Rgb::from_colorref(style.background),
+    );
+    let bounds = Rect::new(0.0, 0.0, width as f32, height as f32);
+    let radius = scalef(if kind == ButtonKind::Text {
+        RADIUS_CHIP
+    } else {
+        RADIUS_CONTROL
+    } as f32);
+    if let Some(fill) = look.fill {
+        canvas.fill_rounded(bounds, radius, fill);
+    }
+    if let Some(border) = look.border {
+        canvas.stroke_rounded(bounds, radius, scalef(1.0).max(1.0), border);
+    }
+    if focused {
+        // A filled button's ring sits inside its edge in the on-accent color;
+        // other buttons replace their outline with the accent ring.
+        let ring = scalef(FOCUS_RING as f32).max(1.0);
+        let inset = if kind == ButtonKind::Filled {
+            scalef(3.0)
+        } else {
+            0.0
+        };
+        canvas.stroke_rounded(
+            bounds.inset(inset),
+            (radius - inset).max(0.0),
+            ring,
+            look.ring,
+        );
+    }
+    blit(item.hDC, rect.left, rect.top, &canvas);
+    let ink = u32::from(look.ink.r) | u32::from(look.ink.g) << 8 | u32::from(look.ink.b) << 16;
+    // SAFETY: owner-draw supplies this DC and rectangle for the callback. The
+    // selected font is restored before returning.
     unsafe {
-        let mut fill = if style.high_contrast {
-            GetSysColor(if accent {
-                COLOR_HIGHLIGHT
-            } else {
-                COLOR_BTNFACE
-            })
-        } else if accent {
-            brand_accent(style.dark)
-        } else if auxiliary {
-            style.background
-        } else if style.dark {
-            0x00262424
-        } else {
-            0x00e9eced
-        };
-        if item.itemState & ODS_SELECTED != 0 && !style.high_contrast {
-            fill = if accent {
-                brand_pressed(style.dark)
-            } else if style.dark {
-                0x00343436
-            } else {
-                0x00dddfdf
-            };
-        }
-        let ink = if style.high_contrast {
-            GetSysColor(if !enabled {
-                COLOR_GRAYTEXT
-            } else if accent {
-                COLOR_HIGHLIGHTTEXT
-            } else {
-                COLOR_BTNTEXT
-            })
-        } else if !enabled {
-            if style.dark { 0x00797777 } else { 0x006f7476 }
-        } else if accent {
-            brand_on_accent(style.dark)
-        } else {
-            style.foreground
-        };
-        let brush = CreateSolidBrush(fill);
-        let pen = CreatePen(
-            PS_SOLID,
-            scale(1).max(1),
-            if style.high_contrast {
-                GetSysColor(COLOR_WINDOWTEXT)
-            } else if auxiliary {
-                fill
-            } else if style.dark {
-                0x00434141
-            } else {
-                0x00d0d4d6
-            },
-        );
-        FillRect(item.hDC, &item.rcItem, style.brush);
-        let old_brush = SelectObject(item.hDC, brush);
-        let old_pen = SelectObject(item.hDC, pen);
-        RoundRect(
-            item.hDC,
-            item.rcItem.left,
-            item.rcItem.top,
-            item.rcItem.right,
-            item.rcItem.bottom,
-            scale(8),
-            scale(8),
-        );
-        SelectObject(item.hDC, old_brush);
-        SelectObject(item.hDC, old_pen);
-        DeleteObject(brush);
-        DeleteObject(pen);
         let old_font = SelectObject(item.hDC, style.font);
         SetBkMode(item.hDC, TRANSPARENT as i32);
         SetTextColor(item.hDC, ink);
@@ -2438,11 +2643,6 @@ fn draw_button(item: &DRAWITEMSTRUCT, style: PaintStyle) {
             &mut bounds,
             DT_WORDBREAK | DT_CENTER | DT_NOPREFIX | reading,
         );
-        if item.itemState & ODS_FOCUS != 0 && item.itemState & ODS_NOFOCUSRECT == 0 {
-            let mut focus = item.rcItem;
-            InflateRect(&mut focus, -scale(4), -scale(4));
-            DrawFocusRect(item.hDC, &focus);
-        }
         SelectObject(item.hDC, old_font);
     }
 }
@@ -2451,10 +2651,13 @@ fn draw_warning_accent(item: &DRAWITEMSTRUCT, style: PaintStyle) {
     // SAFETY: the empty owner-drawn STATIC supplies its live DC and bounds for
     // paint/print requests. The temporary brush is never selected into a DC.
     unsafe {
+        let tones = tokens::theme(style.dark);
         let accent = CreateSolidBrush(if style.high_contrast {
             style.foreground
+        } else if style.warning_danger {
+            tones.danger
         } else {
-            brand_accent(style.dark)
+            tones.caution
         });
         FillRect(item.hDC, &item.rcItem, accent);
         DeleteObject(accent);
@@ -2488,53 +2691,46 @@ unsafe extern "system" fn checkbox_proc(
             let left = scale(2);
             let top = (rect.bottom - box_size) / 2;
             let ink = style.foreground;
-            let checked_fill = if style.high_contrast {
+            let tones = tokens::theme(style.dark);
+            let checked_fill = Rgb::from_colorref(if style.high_contrast {
                 GetSysColor(COLOR_HIGHLIGHT)
             } else {
-                brand_accent(style.dark)
-            };
-            let brush = CreateSolidBrush(if checked {
-                checked_fill
-            } else {
-                style.background
+                tones.primary
             });
-            let pen = CreatePen(
-                PS_SOLID,
-                scale(1).max(1),
-                if checked { checked_fill } else { ink },
-            );
-            let old_brush = SelectObject(dc, brush);
-            let old_pen = SelectObject(dc, pen);
-            RoundRect(
-                dc,
-                left,
-                top,
-                left + box_size,
-                top + box_size,
-                scale(4),
-                scale(4),
-            );
-            SelectObject(dc, old_brush);
-            SelectObject(dc, old_pen);
-            DeleteObject(brush);
-            DeleteObject(pen);
+            let mark = Rgb::from_colorref(if style.high_contrast {
+                GetSysColor(COLOR_HIGHLIGHTTEXT)
+            } else {
+                tones.on_primary
+            });
+            let outline = Rgb::from_colorref(if style.high_contrast {
+                ink
+            } else {
+                tones.muted
+            });
+            let scalef = |value: f32| value * style.dpi as f32 / 96.0;
+            let size = box_size.max(1) as usize;
+            let mut canvas = Canvas::new(size, size, Rgb::from_colorref(style.background));
+            let bounds = Rect::new(0.0, 0.0, size as f32, size as f32);
+            let radius = scalef(RADIUS_CHECKBOX as f32);
             if checked {
-                let pen = CreatePen(
-                    PS_SOLID,
-                    scale(2).max(1),
-                    if style.high_contrast {
-                        GetSysColor(COLOR_HIGHLIGHTTEXT)
-                    } else {
-                        brand_on_accent(style.dark)
-                    },
+                canvas.fill_rounded(bounds, radius, checked_fill);
+                let (edge, stroke) = (size as f32, scalef(2.0).max(1.0));
+                canvas.line(
+                    (edge * 0.24, edge * 0.52),
+                    (edge * 0.43, edge * 0.70),
+                    stroke,
+                    mark,
                 );
-                let previous = SelectObject(dc, pen);
-                MoveToEx(dc, left + box_size / 5, top + box_size / 2, ptr::null_mut());
-                LineTo(dc, left + box_size * 2 / 5, top + box_size * 3 / 4);
-                LineTo(dc, left + box_size * 4 / 5, top + box_size / 4);
-                SelectObject(dc, previous);
-                DeleteObject(pen);
+                canvas.line(
+                    (edge * 0.43, edge * 0.70),
+                    (edge * 0.77, edge * 0.31),
+                    stroke,
+                    mark,
+                );
+            } else {
+                canvas.stroke_rounded(bounds, radius, scalef(STROKE_STRONG).max(1.0), outline);
             }
+            blit(dc, left, top, &canvas);
             let old_font = SelectObject(dc, style.font);
             SetBkMode(dc, TRANSPARENT as i32);
             SetTextColor(dc, ink);

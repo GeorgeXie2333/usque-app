@@ -191,9 +191,11 @@ App, tray and distribution icons use `#C2500C` with `#F5F4F1` lines.
 `UsqueLogo` selects that light asset or the dark page asset (`#FFA45C` with
 `#441800` lines) from the active Flutter theme. It retains each caller's size
 and is decorative unless a standalone semantic label is supplied. Brand
-decoration follows the existing theme's primary colour. Native setup and
-uninstall controls use the same primary/on-primary pairs, retaining system
-colours in high-contrast mode.
+decoration follows the existing theme's primary colour. The native setup and
+uninstall windows take their colours, radii and motion timing from
+`packaging/windows/setup/tokens.json`, which names the Flutter token behind each
+value; system high contrast keeps system colours. After changing a referenced
+theme value, update that file and run `python tool/generate_windows_setup_tokens.py`.
 
 Android launcher artwork fits the centred 66dp safe area of a 108dp adaptive
 layer. The full-colour icon uses an opaque `#C2500C` background and a transparent

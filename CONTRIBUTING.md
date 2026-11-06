@@ -430,6 +430,11 @@ Run the applicable checks and release build through the helper:
 
 For MSI or installer-bundle work, restore the pinned .NET tool and follow the multilingual CI fixture build. Table, transform, bundle extraction, detach/reattach, and ICE validation are safe; running the bundle or installing the MSI is not.
 
+Native setup and uninstall design tokens live in
+`packaging/windows/setup/tokens.json`. Regenerate the checked-in C++ and Rust
+projections with `python tool/generate_windows_setup_tokens.py`; the Python
+suite rejects stale projections and values that differ from the Flutter theme.
+
 The native setup window has its own compile-only gate. Run this for `x64-v2`
 and `arm64` with the corresponding Visual Studio C++ tools. The helper downloads
 only the exact hash-locked WiX 5.0.2 SDK libraries and generates the shared

@@ -75,13 +75,41 @@ its own deterministic tests, including a randomized forward-only sweep.
    wireframes before implementation, then update pages and all 21 languages.
    Known items: uninstall wording shown during upgrades, the install-scope
    subtitle shown while cleaning up, the empty warning row that still takes
-   space on the uninstall progress page, an invisible high-contrast track in
-   setup, and a seamless hand-off from the setup window to the uninstall
-   window.
+   space on the uninstall progress page, rounded native fields (folder,
+   language and details), and a seamless hand-off from the setup window to the
+   uninstall window.
 4. **Structure (P4):** split `main.cpp` and `windows/ui.rs` into engine
    callbacks, state, layout and drawing. This may land with batch 2 or 3.
 5. **Records (P5):** validation record and any user-facing documentation
    changes in [Installation and removal](INSTALLATION.md).
+
+## Batch 2 visual system
+
+- `packaging/windows/setup/tokens.json` holds 13 Flutter colours, each with
+  the Dart token it mirrors, seven derived colours with their formulas and the
+  shared metrics. `tool/generate_windows_setup_tokens.py` writes the
+  checked-in `setup_tokens.h` and `tokens_generated.rs`; its test rejects stale
+  projections and any value that differs from `usque_theme.dart`.
+- `crates/usque-uninstall/src/paint.rs` and
+  `packaging/windows/bootstrapper/paint.h` implement the same pure,
+  anti-aliased rasterizer, bar renderer, bar motion and button roles, each
+  with its own tests. Text stays native GDI.
+- Progress: a 6-pixel pill with a hairline track and primary fill. The waiting
+  segment travels over `UsqueMotion.scan`; values ease over
+  `UsqueMotion.base`; after 1.2 seconds without progress a soft highlight
+  moves across the fill; rollback uses the caution tone. With client-area
+  animation off, values jump and nothing moves. The native control still owns
+  range, value and marquee state for accessibility; only its painting and
+  non-client edge are replaced. System high contrast keeps the native control.
+  Mirrored (RTL) device contexts receive mirrored canvases.
+- Buttons follow Flutter's filled, outlined and text roles (12-pixel radius,
+  10 for text actions), Flutter's disabled opacities and a visible focus
+  ring. Checkboxes use a 5-pixel radius and a 1.6-pixel outline in the muted
+  tone, chosen over Flutter's hairline for 3:1 non-text contrast. Setup's
+  option-result notice follows `WarningBanner`; the uninstall warning accent
+  is caution for the deletion choice and danger for possible data loss.
+- Painting only: no transaction, cancellation, deletion, registration or
+  exit-code behavior changes, and both previews remain inert.
 
 ## Privacy and safety analysis for batch 1
 
@@ -122,6 +150,36 @@ Not run: the arm64 bootstrapper compile (no ARM64 C++ tools on the host),
 Windows PowerShell 5.1 checks (no scripts changed), and every real install,
 upgrade, uninstall, rollback and registration-cleanup run, which require
 `usque-snapshot-vm`.
+
+## Batch 2 validation, 2026-11-06
+
+Uncommitted working tree on `e247ecf0`, using the same Linux and temporary
+Windows copy arrangement as batch 1.
+
+| Command | Result |
+| --- | --- |
+| `cargo fmt --all --check` | Passed |
+| `cargo clippy --workspace --all-targets --locked -- -D warnings` (Linux) | Passed |
+| `cargo test --workspace --all-targets --locked` (Linux) | Passed |
+| `ruff check tool`, `ruff format --check tool` | Passed |
+| `python -m unittest discover -s tool -p "test_*.py"` (Linux) | 353 tests passed, 109 Windows-only skips |
+| `python tool/generate_windows_setup_tokens.py --check` | Passed |
+| `& .\tool\build_windows_rust_release.ps1 -Variant x64-v2 -CargoAction clippy` | Passed |
+| `& .\tool\build_windows_rust_release.ps1 -Variant x64-v2 -CargoAction test` | Passed |
+| Helper-initialized `cargo clippy` and release build of `usque-uninstall` with `--features preview` | Passed |
+| `& ./tool/build_windows_bootstrapper.ps1 -Variant x64-v2 -OutputDirectory <absolute> -Test -Preview` | Passed, `BOOTSTRAPPER_STATE_TESTS=PASS` |
+| `& ./tool/test_windows_installer_authoring.ps1 -Variant x64-v2 ...` | Passed; bootstrapper and installer execution `not_run` by design |
+| `python tool/check_repository_policy.py`, `git diff --check` | Passed |
+
+Inert preview review covered both windows in zh-CN light and dark, en-US,
+ar-SA (RTL fill direction) and the simulated high-contrast palette. Repeated
+30 ms sampling still showed one waiting-to-fill transition, no decreasing
+value and an unchanged bar position. Screenshot captures of right-to-left
+windows are mirrored by `PrintWindow`; the review accounted for that.
+
+Not run: the arm64 bootstrapper compile, system high-contrast themes on a real
+session, Windows PowerShell 5.1 checks (no scripts changed) and every real
+install, upgrade or uninstall in `usque-snapshot-vm`.
 
 ## Validation boundary
 
