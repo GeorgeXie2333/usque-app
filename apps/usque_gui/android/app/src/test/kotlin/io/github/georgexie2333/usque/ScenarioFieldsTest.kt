@@ -86,15 +86,27 @@ class ScenarioFieldsTest {
             "preview_restore",
             ScenarioFields.previewRequest(JSONObject().put("action", "restore")).getString("action"),
         )
+        val reset =
+            ScenarioFields.previewRequest(
+                JSONObject()
+                    .put("action", "reset")
+                    .put("operation_id", "operation")
+                    .put("preview_token", "token"),
+            )
+        assertEquals("preview_reset", reset.getString("action"))
+        assertEquals(setOf("action"), reset.keys().asSequence().toSet())
     }
 
     @Test
     fun onlyExplicitActivationRequestsMayReconfigureRuntime() {
-        for (action in listOf("list", "save", "delete", "preview", "preview_restore")) {
+        for (action in listOf("list", "save", "delete", "preview", "preview_restore", "preview_reset")) {
+            assertEquals(action, ScenarioFields.action(JSONObject().put("action", action).toString()))
             assertFalse(ScenarioFields.activates(action))
         }
-        assertTrue(ScenarioFields.activates("activate"))
-        assertTrue(ScenarioFields.activates("restore"))
+        for (action in listOf("activate", "restore", "reset")) {
+            assertEquals(action, ScenarioFields.action(JSONObject().put("action", action).toString()))
+            assertTrue(ScenarioFields.activates(action))
+        }
         assertEquals("SCENARIO_UNCONFIRMED", ScenarioFields.failure("private server details"))
         assertEquals("SCENARIO_ACCOUNT_UNAVAILABLE", ScenarioFields.failure("SCENARIO_ACCOUNT_UNAVAILABLE"))
     }

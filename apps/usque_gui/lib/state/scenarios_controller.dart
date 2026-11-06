@@ -310,6 +310,7 @@ class ScenariosController extends ChangeNotifier {
       'list',
       'preview',
       'preview_restore',
+      'preview_reset',
     }.contains(request['action']);
     busy = true;
     errorCode = null;
@@ -459,20 +460,33 @@ class ScenariosController extends ChangeNotifier {
     return value.token.isEmpty ? null : value;
   }
 
-  Future<ScenarioPreview?> previewRestore() async {
-    final result = await _run({'action': 'preview_restore'});
+  Future<ScenarioPreview?> previewRestore() =>
+      _previewSwitch({'action': 'preview_restore'});
+
+  /// Previews returning to Custom with Usque's default scene settings.
+  Future<ScenarioPreview?> previewReset() =>
+      _previewSwitch({'action': 'preview_reset'});
+
+  Future<ScenarioPreview?> _previewSwitch(Map<String, Object?> request) async {
+    final result = await _run(request);
     return result == null ? null : ScenarioPreview.fromMap(result);
   }
 
-  Future<bool> activate(ScenarioPreview preview) async =>
-      await _run({
-        'action': preview.restore ? 'restore' : 'activate',
-        if (!preview.restore) 'id': preview.scenarioId,
-        if (!preview.restore) 'expected_revision': preview.scenarioRevision,
-        'preview_token': preview.token,
-        'operation_id': _operationId(),
-      }, activation: true) !=
-      null;
+  Future<bool> activate(ScenarioPreview preview) async {
+    final scene = !preview.restore && !preview.reset;
+    return await _run({
+          'action': preview.reset
+              ? 'reset'
+              : preview.restore
+              ? 'restore'
+              : 'activate',
+          if (scene) 'id': preview.scenarioId,
+          if (scene) 'expected_revision': preview.scenarioRevision,
+          'preview_token': preview.token,
+          'operation_id': _operationId(),
+        }, activation: true) !=
+        null;
+  }
 
   void reset() {
     _generation++;

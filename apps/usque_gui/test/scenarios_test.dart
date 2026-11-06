@@ -123,6 +123,8 @@ class SceneEngine extends WorkflowEngine {
         entries.removeWhere((e) => e['id'] == command['id']);
       case 'activate':
         selected = command['id'] as String;
+      case 'reset':
+        selected = null;
     }
     return {
       ...fixture(
@@ -141,6 +143,7 @@ class SceneEngine extends WorkflowEngine {
         'list',
         'preview',
         'preview_restore',
+        'preview_reset',
       }.contains(command['action']))
         'persisted': true,
       if (command['action'] == 'preview')
@@ -162,6 +165,30 @@ class SceneEngine extends WorkflowEngine {
           'actual_changed_fields': actualPreviewFields,
           'preview_token': 'token-a',
           'restore': false,
+          'apply_kind': 'select',
+          'needs_reconnect': false,
+          ...previewExtra,
+        },
+      if (command['action'] == 'preview_reset')
+        'preview': {
+          'scenario_id': null,
+          'scenario_revision': null,
+          'account_id': storedActiveProfileId,
+          'previous_account_id': storedActiveProfileId,
+          'account_changed': false,
+          'changed_fields': previewFields,
+          'before_settings':
+              settingsOverride ??
+              ScenarioSettings.fromProfile(
+                UsqueProfile.defaultProfile(),
+              ).toMap(),
+          'target_settings': ScenarioSettings.fromProfile(
+            UsqueProfile.defaultProfile(),
+          ).toMap(),
+          'actual_changed_fields': actualPreviewFields,
+          'preview_token': 'token-reset',
+          'restore': false,
+          'reset': true,
           'apply_kind': 'select',
           'needs_reconnect': false,
           ...previewExtra,
@@ -1429,6 +1456,7 @@ void main() {
         'scenario-update-scene-a',
         'scenario-save-as',
         'scenario-restore',
+        'scenario-use-custom',
       ]) {
         expect(inBlock(find.byKey(ValueKey(key))), findsOneWidget);
       }
@@ -1469,6 +1497,76 @@ void main() {
         isEmpty,
       );
       expect(engine.sceneCalls.where((r) => r['action'] == 'save'), isEmpty);
+    },
+  );
+
+  testWidgets(
+    'Switch to Custom previews Usque defaults and clears only the selection',
+    (tester) async {
+      final engine = SceneEngine()..selected = 'scene-a';
+      final app = await pumpWorkflow(
+        tester,
+        engine,
+        section: AppSection.profiles,
+      );
+      app.engineCapabilities = await engine.getCapabilities();
+      await app.scenarios.refresh();
+      await tester.pumpAndSettle();
+      final custom = find.byKey(const ValueKey('scenario-use-custom'));
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey('profiles-scene-status')),
+          matching: custom,
+        ),
+        findsOneWidget,
+      );
+      await tester.tap(custom);
+      await tester.pumpAndSettle();
+      // Previewing changes nothing; the dialog states what Custom means.
+      expect(
+        engine.sceneCalls.where((r) => r['action'] == 'preview_reset'),
+        hasLength(1),
+      );
+      expect(engine.selected, 'scene-a');
+      final dialog = find.byType(UsqueDialog);
+      expect(
+        find.descendant(
+          of: dialog,
+          matching: find.text(app.strings.get('scenario_use_custom')),
+        ),
+        findsNWidgets(2),
+      );
+      expect(
+        find.byKey(const ValueKey('scenario-custom-hint')),
+        findsOneWidget,
+      );
+      expect(find.text(app.strings.get('scenario_keep_account')), findsOne);
+
+      // Cancelling sends no switch.
+      await tester.tap(find.text(app.strings.get('cancel')));
+      await tester.pumpAndSettle();
+      expect(engine.sceneCalls.where((r) => r['action'] == 'reset'), isEmpty);
+
+      await tester.tap(custom);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('scenario-confirm-use')));
+      await tester.pumpAndSettle();
+      final reset = engine.sceneCalls.singleWhere(
+        (r) => r['action'] == 'reset',
+      );
+      expect(reset['preview_token'], 'token-reset');
+      expect(reset['operation_id'], isA<String>());
+      // A reset names no scene; the owner resolves its own target.
+      expect(reset.keys.toSet(), {'action', 'preview_token', 'operation_id'});
+      expect(app.scenarios.catalog!.selectedId, isNull);
+      expect(
+        tester
+            .widget<Text>(find.byKey(const ValueKey('profiles-selected-scene')))
+            .data,
+        app.strings.get('scenario_custom'),
+      );
+      // Custom offers no action to switch to itself.
+      expect(custom, findsNothing);
     },
   );
 

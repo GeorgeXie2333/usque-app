@@ -174,15 +174,13 @@ impl ControlService {
         request: v1::ScenarioRequest,
     ) -> Result<v1::ScenarioResponse, ControlServiceError> {
         let command = ScenarioCommand::parse(&request.command_json)?;
-        let applying = matches!(
-            command,
-            ScenarioCommand::Activate { .. } | ScenarioCommand::Restore { .. }
-        );
         let operation_id = match &command {
             ScenarioCommand::Activate { operation_id, .. }
-            | ScenarioCommand::Restore { operation_id, .. } => Some(*operation_id),
+            | ScenarioCommand::Restore { operation_id, .. }
+            | ScenarioCommand::Reset { operation_id, .. } => Some(*operation_id),
             _ => None,
         };
+        let applying = operation_id.is_some();
         let _submission = self.settings_submission.lock().await;
         self.resolve_unconfirmed_scenario().await;
         // Queries and template edits remain available during connection

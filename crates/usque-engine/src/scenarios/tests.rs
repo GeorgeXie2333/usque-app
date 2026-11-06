@@ -375,6 +375,52 @@ async fn restore_is_a_new_explicit_commit_and_preserves_new_global_preferences()
 }
 
 #[tokio::test]
+async fn reset_returns_to_custom_through_the_same_explicit_commit() {
+    let (_directory, service) = fixture().await;
+    let settings = ScenarioSettings {
+        transport: usque_core::TransportPolicy::Http2,
+        ..Default::default()
+    };
+    let scene = save_scene(&service, settings, None).await;
+    let plan = preview(&service, &scene).await;
+    request(&service, activate_request(&scene, &plan, Uuid::new_v4()))
+        .await
+        .unwrap();
+    service
+        .update_config(|config| {
+            config.network.auto_connect = true;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    let reset = request(&service, json!({"action":"preview_reset"}))
+        .await
+        .unwrap();
+    assert_eq!(reset["preview"]["reset"], true);
+    assert_eq!(reset["preview"]["apply_kind"], "select");
+    assert!(service.store.load().unwrap().scenario_selection.is_some());
+    let operation = Uuid::new_v4();
+    let response = request(
+        &service,
+        json!({"action":"reset","preview_token":reset["preview"]["preview_token"],"operation_id":operation}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(response["persisted"], true);
+    assert_eq!(response["persisted_operation_id"], operation.to_string());
+    assert!(response["selection"].is_null());
+    assert_eq!(response["can_restore"], true);
+    let saved = service.store.load().unwrap();
+    assert!(saved.scenario_selection.is_none());
+    assert_eq!(saved.network.transport, usque_core::TransportPolicy::Auto);
+    assert!(saved.network.auto_connect);
+    let record = saved.last_scenario_switch.unwrap();
+    assert_eq!(record.operation_id, operation);
+    assert!(!record.recovery_retired);
+    assert!(service.data_plane.lock().await.is_none());
+}
+
+#[tokio::test]
 async fn idle_owner_reports_a_waiting_selection_but_keeps_recorded_outcomes() {
     let (_directory, service) = fixture().await;
     let scene = save_scene(&service, ScenarioSettings::default(), None).await;

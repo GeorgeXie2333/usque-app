@@ -46,7 +46,8 @@ pub(crate) fn command(path: &str, request: &str) -> Result<String, String> {
         ScenarioCommand::parse(&envelope.request.to_string()).map_err(|error| error.to_string())?;
     let operation = match &request {
         ScenarioCommand::Activate { operation_id, .. }
-        | ScenarioCommand::Restore { operation_id, .. } => Some(*operation_id),
+        | ScenarioCommand::Restore { operation_id, .. }
+        | ScenarioCommand::Reset { operation_id, .. } => Some(*operation_id),
         _ => None,
     };
     let parent = path.parent().ok_or("SCENARIO_INVALID_REQUEST")?;
@@ -564,6 +565,53 @@ mod tests {
             acknowledged["persisted_operation_id"],
             operation.to_string()
         );
+    }
+
+    #[test]
+    fn disconnected_reset_returns_to_custom_through_the_identity_checked_commit() {
+        let _guard = crate::network_settings::TEST_STATE.lock().unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("profiles-v2.json");
+        let store = ConfigStore::new(&path);
+        let config = AppConfig::default();
+        store.save(&config).unwrap();
+        crate::network_settings::command(path.to_str().unwrap(), r#"{"command":"reset"}"#).unwrap();
+        let invoke = |request: Value, identity: Option<Uuid>| -> Result<Value, String> {
+            let source = command(path.to_str().unwrap(), &json!({"request": request, "phase":"disconnected","available":false,"session_id":"1","vpn_authorized":false,"identity_account_id":identity}).to_string())?;
+            serde_json::from_str(&source).map_err(|error| error.to_string())
+        };
+        let settings = scenarios::ScenarioSettings {
+            transport: usque_core::TransportPolicy::Http2,
+            ..Default::default()
+        };
+        let saved = invoke(
+            json!({"action":"save","name":"Work","settings":settings}),
+            None,
+        )
+        .unwrap();
+        let scenario = &saved["scenarios"][0];
+        let preview = invoke(json!({"action":"preview","id":scenario["id"],"expected_revision":scenario["revision"]}), None).unwrap();
+        invoke(json!({"action":"activate","id":scenario["id"],"expected_revision":scenario["revision"],"preview_token":preview["preview"]["preview_token"],"operation_id":Uuid::new_v4()}), config.active_profile_id).unwrap();
+        let reset = invoke(json!({"action":"preview_reset"}), None).unwrap();
+        assert_eq!(reset["preview"]["reset"], true);
+        assert_eq!(reset["preview"]["apply_kind"], "select");
+        assert!(reset["preview_target"].is_object());
+        let operation = Uuid::new_v4();
+        let request = json!({"action":"reset","preview_token":reset["preview"]["preview_token"],"operation_id":operation});
+        assert_eq!(
+            invoke(request.clone(), None).unwrap_err(),
+            "SCENARIO_ACCOUNT_UNAVAILABLE"
+        );
+        assert!(store.load().unwrap().scenario_selection.is_some());
+        let applied = invoke(request, config.active_profile_id).unwrap();
+        assert!(applied["target"].is_null());
+        assert_eq!(applied["persisted"], true);
+        assert!(applied["selection"].is_null());
+        assert_eq!(applied["state"]["apply_status"], "deferred");
+        let stored = store.load().unwrap();
+        assert!(stored.scenario_selection.is_none());
+        assert_eq!(stored.network.transport, usque_core::TransportPolicy::Auto);
+        assert_eq!(stored.last_scenario_switch.unwrap().operation_id, operation);
     }
 
     #[test]

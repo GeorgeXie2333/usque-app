@@ -36,6 +36,9 @@ const kScenarioJa = <String, String>{
   'scenario_failed': "保存済み・適用失敗",
   'scenario_unknown': "結果を確認できません",
   'scenario_custom': "カスタム",
+  'scenario_use_custom': 'カスタムに切り替え',
+  'scenario_custom_hint':
+      '選択中のシーンを解除し、エンドポイント、トランスポート、IP 優先設定、出口を Usque の既定値に戻します。その他の設定はそのままです。',
   'scenario_unsupported': "このバージョンの Usque はシーンに対応していません。アカウント管理は引き続き利用できます。",
   'scenario_save_failed': "操作を完了できませんでした。状態を更新してから再試行してください。",
   'scenario_reference_missing': "このシーンで必要なアカウントまたは出口を利用できません。",
@@ -110,6 +113,9 @@ const kScenarioKo = <String, String>{
   'scenario_failed': "저장됨 · 적용 실패",
   'scenario_unknown': "결과 미확인",
   'scenario_custom': "사용자 지정",
+  'scenario_use_custom': '사용자 지정으로 전환',
+  'scenario_custom_hint':
+      '선택한 시나리오를 해제하고 엔드포인트, 전송, IP 선호 설정, 출구를 Usque 기본값으로 되돌립니다. 다른 설정은 그대로 유지됩니다.',
   'scenario_unsupported': "이 버전의 Usque는 시나리오를 지원하지 않습니다. 계정 관리는 계속 사용할 수 있습니다.",
   'scenario_save_failed': "작업을 완료하지 못했습니다. 상태를 새로 고친 후 다시 시도하세요.",
   'scenario_reference_missing': "이 시나리오에 필요한 계정이나 출구를 사용할 수 없습니다.",
@@ -192,6 +198,9 @@ const kScenarioEs = <String, String>{
   'scenario_failed': "Guardado; no se pudo aplicar",
   'scenario_unknown': "Resultado sin confirmar",
   'scenario_custom': "Personalizado",
+  'scenario_use_custom': 'Cambiar a Personalizado',
+  'scenario_custom_hint':
+      'Quita el escenario seleccionado. El extremo, el transporte, la preferencia de IP y la salida vuelven a los valores predeterminados de Usque; los demás ajustes no cambian.',
   'scenario_unsupported':
       "Esta versión de Usque no admite escenarios. Puedes seguir gestionando las cuentas.",
   'scenario_save_failed':
@@ -284,6 +293,9 @@ const kScenarioPt = <String, String>{
   'scenario_failed': "Salvo; falha ao aplicar",
   'scenario_unknown': "Resultado não confirmado",
   'scenario_custom': "Personalizado",
+  'scenario_use_custom': 'Mudar para Personalizado',
+  'scenario_custom_hint':
+      'Remove o cenário selecionado. O endpoint, o transporte, a preferência de IP e a saída voltam aos padrões do Usque; as demais configurações permanecem.',
   'scenario_unsupported':
       "Esta versão do Usque não suporta cenários. Você ainda pode gerenciar as contas.",
   'scenario_save_failed':
@@ -375,6 +387,9 @@ const kScenarioFr = <String, String>{
   'scenario_failed': "Enregistré ; échec de l’application",
   'scenario_unknown': "Résultat non confirmé",
   'scenario_custom': "Personnalisé",
+  'scenario_use_custom': 'Passer en Personnalisé',
+  'scenario_custom_hint':
+      'Désélectionne le scénario. Le point de terminaison, le transport, la préférence IP et le point de sortie reprennent les valeurs par défaut d’Usque ; les autres réglages restent inchangés.',
   'scenario_unsupported':
       "Cette version d’Usque ne prend pas en charge les scénarios. La gestion des comptes reste disponible.",
   'scenario_save_failed':
@@ -467,6 +482,9 @@ const kScenarioNl = <String, String>{
   'scenario_failed': "Opgeslagen; toepassen mislukt",
   'scenario_unknown': "Resultaat niet bevestigd",
   'scenario_custom': "Aangepast",
+  'scenario_use_custom': 'Overschakelen naar Aangepast',
+  'scenario_custom_hint':
+      'Heft de selectie van het scenario op. Eindpunt, transport, IP-voorkeur en uitgang gaan terug naar de standaardwaarden van Usque; andere instellingen blijven ongewijzigd.',
   'scenario_unsupported':
       "Deze versie van Usque ondersteunt geen scenario’s. Accountbeheer blijft beschikbaar.",
   'scenario_save_failed':
@@ -559,6 +577,9 @@ const kScenarioTr = <String, String>{
   'scenario_failed': "Kaydedildi; uygulanamadı",
   'scenario_unknown': "Sonuç doğrulanmadı",
   'scenario_custom': "Özel",
+  'scenario_use_custom': 'Özel’e geç',
+  'scenario_custom_hint':
+      'Seçili senaryo kaldırılır. Uç nokta, aktarım, IP tercihi ve çıkış Usque varsayılanlarına döner; diğer ayarlar değişmez.',
   'scenario_unsupported':
       "Usque’nin bu sürümü senaryoları desteklemiyor. Hesap yönetimi yine de kullanılabilir.",
   'scenario_save_failed':
@@ -648,6 +669,9 @@ const kScenarioRu = <String, String>{
   'scenario_failed': "Сохранён; не удалось применить",
   'scenario_unknown': "Результат не подтверждён",
   'scenario_custom': "Пользовательский",
+  'scenario_use_custom': 'Переключиться на «Пользовательский»',
+  'scenario_custom_hint':
+      'Снимает выбор сценария. Конечная точка, транспорт, предпочтение IP и выход возвращаются к значениям Usque по умолчанию; остальные настройки не меняются.',
   'scenario_unsupported':
       "Эта версия Usque не поддерживает сценарии. Управление аккаунтами по-прежнему доступно.",
   'scenario_save_failed':
@@ -740,6 +764,9 @@ const kScenarioDe = <String, String>{
   'scenario_failed': "Gespeichert; Anwendung fehlgeschlagen",
   'scenario_unknown': "Ergebnis nicht bestätigt",
   'scenario_custom': "Benutzerdefiniert",
+  'scenario_use_custom': 'Zu „Benutzerdefiniert“ wechseln',
+  'scenario_custom_hint':
+      'Hebt die Auswahl des Szenarios auf. Endpunkt, Transport, IP-Präferenz und Ausgang werden auf die Usque-Standardwerte zurückgesetzt; andere Einstellungen bleiben unverändert.',
   'scenario_unsupported':
       "Diese Version von Usque unterstützt keine Szenarien. Die Kontoverwaltung ist weiterhin verfügbar.",
   'scenario_save_failed':
@@ -833,6 +860,9 @@ const kScenarioIt = <String, String>{
   'scenario_failed': "Salvato; applicazione non riuscita",
   'scenario_unknown': "Risultato non confermato",
   'scenario_custom': "Personalizzato",
+  'scenario_use_custom': 'Passa a Personalizzato',
+  'scenario_custom_hint':
+      'Deseleziona lo scenario. Endpoint, trasporto, preferenza IP e uscita tornano ai valori predefiniti di Usque; le altre impostazioni restano invariate.',
   'scenario_unsupported':
       "Questa versione di Usque non supporta gli scenari. La gestione degli account resta disponibile.",
   'scenario_save_failed':
@@ -923,6 +953,9 @@ const kScenarioPl = <String, String>{
   'scenario_failed': "Zapisano; zastosowanie nie powiodło się",
   'scenario_unknown': "Wynik niepotwierdzony",
   'scenario_custom': "Niestandardowy",
+  'scenario_use_custom': 'Przełącz na Niestandardowy',
+  'scenario_custom_hint':
+      'Usuwa wybór scenariusza. Punkt końcowy, transport, preferencja IP i wyjście wracają do ustawień domyślnych Usque; pozostałe ustawienia się nie zmieniają.',
   'scenario_unsupported':
       "Ta wersja Usque nie obsługuje scenariuszy. Zarządzanie kontami jest nadal dostępne.",
   'scenario_save_failed':

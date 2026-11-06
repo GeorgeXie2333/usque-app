@@ -262,6 +262,9 @@ class ScenarioPreview {
       ? scenarioMap(values['applied_settings'])
       : null;
   bool get restore => values['restore'] == true;
+
+  /// Returning to Custom: no scene, with Usque's default scene settings.
+  bool get reset => values['reset'] == true;
   List<String> get changedFields =>
       (values['changed_fields'] as List? ?? const []).cast<String>();
 }

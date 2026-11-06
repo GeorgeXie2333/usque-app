@@ -628,6 +628,16 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
           icon: const Icon(LucideIcons.history, size: 18),
           label: Text(strings.get('scenario_restore')),
         ),
+      // Leaving the selection previews Usque's default scene settings.
+      if (state.selectedId != null)
+        TextButton.icon(
+          key: const ValueKey('scenario-use-custom'),
+          onPressed: busy || state.currentAccountId == null
+              ? null
+              : () => previewAndUseCustom(context, app),
+          icon: const Icon(LucideIcons.rotateCcw, size: 18),
+          label: Text(strings.get('scenario_use_custom')),
+        ),
     ];
     final narrow = MediaQuery.sizeOf(context).width < 600;
     return Panel(
@@ -1026,10 +1036,31 @@ String scenarioStateKey(AppController app) {
 }
 
 final _scenePreviewLocks = Expando<bool>();
+
+/// Previews and applies [scene], or restores the previous settings when null.
 Future<bool> previewAndUseScenario(
   BuildContext context,
   AppController app,
   ConnectionScenario? scene,
+) => _previewAndUse(
+  context,
+  app,
+  scene,
+  () => scene == null
+      ? app.scenarios.previewRestore()
+      : app.scenarios.preview(scene),
+);
+
+/// Previews and applies Custom: no selected scene, with Usque's default
+/// scene settings for the current account.
+Future<bool> previewAndUseCustom(BuildContext context, AppController app) =>
+    _previewAndUse(context, app, null, app.scenarios.previewReset);
+
+Future<bool> _previewAndUse(
+  BuildContext context,
+  AppController app,
+  ConnectionScenario? scene,
+  Future<ScenarioPreview?> Function() load,
 ) async {
   if (_scenePreviewLocks[app] == true) return false;
   _scenePreviewLocks[app] = true;
@@ -1042,7 +1073,7 @@ Future<bool> previewAndUseScenario(
       return false;
     }
     if (!context.mounted) return false;
-    return await _previewAndUseScenario(context, app, scene);
+    return await _previewAndUseScenario(context, app, scene, load);
   } finally {
     await app.releaseControlOperation(releaseControl);
     _scenePreviewLocks[app] = false;
@@ -1053,13 +1084,12 @@ Future<bool> _previewAndUseScenario(
   BuildContext context,
   AppController app,
   ConnectionScenario? scene,
+  Future<ScenarioPreview?> Function() load,
 ) async {
   final route = ModalRoute.of(context);
   bool canPresent() =>
       app.section == AppSection.profiles && (route?.isCurrent ?? true);
-  final preview = scene == null
-      ? await app.scenarios.previewRestore()
-      : await app.scenarios.preview(scene);
+  final preview = await load();
   if (preview == null || !context.mounted || !canPresent()) return false;
   if (preview.values['zero_trust_endpoint_warning'] == true) {
     final acknowledged = await showDialog<bool>(
@@ -1112,7 +1142,11 @@ Future<bool> _previewAndUseScenario(
     builder: (context) => UsqueDialog(
       icon: LucideIcons.layers3,
       title: strings.get(
-        preview.restore ? 'scenario_restore' : 'scenario_preview',
+        preview.reset
+            ? 'scenario_use_custom'
+            : preview.restore
+            ? 'scenario_restore'
+            : 'scenario_preview',
       ),
       subtitle: scene?.name,
       content: SingleChildScrollView(
@@ -1132,6 +1166,13 @@ Future<bool> _previewAndUseScenario(
                 key: const ValueKey('scenario-kill-switch-warning'),
                 title: null,
                 message: strings.get('scenario_kill_switch_output'),
+              ),
+            ],
+            if (preview.reset) ...[
+              const SizedBox(height: 16),
+              Text(
+                strings.get('scenario_custom_hint'),
+                key: const ValueKey('scenario-custom-hint'),
               ),
             ],
             const SizedBox(height: 16),
@@ -1206,7 +1247,11 @@ Future<bool> _previewAndUseScenario(
         FilledButton(
           key: const ValueKey('scenario-confirm-use'),
           onPressed: () => Navigator.pop(context, true),
-          child: Text(strings.get('scenario_confirm_use')),
+          child: Text(
+            strings.get(
+              preview.reset ? 'scenario_use_custom' : 'scenario_confirm_use',
+            ),
+          ),
         ),
       ],
     ),

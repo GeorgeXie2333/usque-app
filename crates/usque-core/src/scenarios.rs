@@ -231,6 +231,13 @@ pub enum ScenarioCommand {
         preview_token: String,
         operation_id: Uuid,
     },
+    /// Return to Custom: clear the selection and apply Usque's default
+    /// scene-managed settings to the selected account.
+    PreviewReset,
+    Reset {
+        preview_token: String,
+        operation_id: Uuid,
+    },
 }
 
 impl ScenarioCommand {
@@ -245,7 +252,7 @@ impl ScenarioCommand {
         let object = value.as_object().ok_or(ScenarioError::InvalidRequest)?;
         let allowed: &[&str] = match object.get("action").and_then(Value::as_str) {
             Some("list") => &["action", "known_revision"],
-            Some("preview_restore") => &["action"],
+            Some("preview_restore" | "preview_reset") => &["action"],
             Some("save") => &[
                 "action",
                 "id",
@@ -262,7 +269,7 @@ impl ScenarioCommand {
                 "preview_token",
                 "operation_id",
             ],
-            Some("restore") => &["action", "preview_token", "operation_id"],
+            Some("restore" | "reset") => &["action", "preview_token", "operation_id"],
             _ => return Err(ScenarioError::InvalidRequest),
         };
         if object.keys().any(|key| !allowed.contains(&key.as_str())) {
@@ -274,7 +281,11 @@ impl ScenarioCommand {
     pub fn is_mutation(&self) -> bool {
         matches!(
             self,
-            Self::Save { .. } | Self::Delete { .. } | Self::Activate { .. } | Self::Restore { .. }
+            Self::Save { .. }
+                | Self::Delete { .. }
+                | Self::Activate { .. }
+                | Self::Restore { .. }
+                | Self::Reset { .. }
         )
     }
 }
@@ -599,6 +610,36 @@ fn target_snapshot(
     })
 }
 
+/// Custom: no selected scene, with Usque's default scene-managed settings for
+/// the selected account. The account choice and device settings are kept.
+fn reset_snapshot(config: &AppConfig) -> Result<ScenarioSnapshot, ScenarioError> {
+    Ok(ScenarioSnapshot {
+        account_id: config
+            .active_profile_id
+            .ok_or(ScenarioError::AccountUnavailable)?,
+        settings: ScenarioSettings::default(),
+        selection: None,
+    })
+}
+
+/// A preview token authorizes only the switch kind it previewed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SwitchKind {
+    Scene,
+    Restore,
+    Reset,
+}
+
+impl SwitchKind {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::Scene => "scene",
+            Self::Restore => "restore",
+            Self::Reset => "reset",
+        }
+    }
+}
+
 fn restore_snapshot(config: &AppConfig) -> Result<ScenarioSnapshot, ScenarioError> {
     if !can_restore(config) {
         return Err(ScenarioError::RestoreUnavailable);
@@ -638,6 +679,7 @@ pub fn candidate_profile(
         ScenarioCommand::PreviewRestore | ScenarioCommand::Restore { .. } => {
             restore_snapshot(config)?
         }
+        ScenarioCommand::PreviewReset | ScenarioCommand::Reset { .. } => reset_snapshot(config)?,
         _ => return Ok(None),
     };
     let restoring = matches!(
@@ -673,7 +715,7 @@ fn preview_token(
     config: &AppConfig,
     target: &ScenarioSnapshot,
     context: &ScenarioContext,
-    restore: bool,
+    kind: SwitchKind,
 ) -> Result<String, ScenarioError> {
     if context.source_epoch.is_nil() {
         return Err(ScenarioError::PreviewStale);
@@ -687,7 +729,7 @@ fn preview_token(
         "selection":config.scenario_selection,"last_operation":config.last_scenario_switch.as_ref().map(|r|r.operation_id),
         "source_epoch":context.source_epoch,"session_id":context.session_id,
         "applied":context.applied_profile,"apply_status":context.apply_status,
-        "dependencies":context.dependency_fingerprint,"restore":restore
+        "dependencies":context.dependency_fingerprint,"kind":kind.label()
     }))
 }
 
@@ -921,14 +963,39 @@ pub fn command(
             snapshot(&next)?;
             let target = target_snapshot(&next, id, expected_revision)?;
             let profile = target_for(&next, &target.settings, target.account_id, false)?;
-            preview = Some(preview_value(&next, &target, &profile, context, false)?);
+            preview = Some(preview_value(
+                &next,
+                &target,
+                &profile,
+                context,
+                SwitchKind::Scene,
+            )?);
             preview_target = Some(profile);
         }
         ScenarioCommand::PreviewRestore => {
             snapshot(&next)?;
             let target = restore_snapshot(&next)?;
             let profile = target_for(&next, &target.settings, target.account_id, true)?;
-            preview = Some(preview_value(&next, &target, &profile, context, true)?);
+            preview = Some(preview_value(
+                &next,
+                &target,
+                &profile,
+                context,
+                SwitchKind::Restore,
+            )?);
+            preview_target = Some(profile);
+        }
+        ScenarioCommand::PreviewReset => {
+            snapshot(&next)?;
+            let target = reset_snapshot(&next)?;
+            let profile = target_for(&next, &target.settings, target.account_id, false)?;
+            preview = Some(preview_value(
+                &next,
+                &target,
+                &profile,
+                context,
+                SwitchKind::Reset,
+            )?);
             preview_target = Some(profile);
         }
         ScenarioCommand::Activate {
@@ -944,7 +1011,7 @@ pub fn command(
                 context,
                 &token,
                 operation_id,
-                false,
+                SwitchKind::Scene,
             )?);
             changed = true;
         }
@@ -959,7 +1026,22 @@ pub fn command(
                 context,
                 &token,
                 operation_id,
-                true,
+                SwitchKind::Restore,
+            )?);
+            changed = true;
+        }
+        ScenarioCommand::Reset {
+            preview_token: token,
+            operation_id,
+        } => {
+            let target = reset_snapshot(&next)?;
+            target_profile = Some(commit_target(
+                &mut next,
+                target,
+                context,
+                &token,
+                operation_id,
+                SwitchKind::Reset,
             )?);
             changed = true;
         }
@@ -1007,7 +1089,7 @@ fn preview_value(
     target: &ScenarioSnapshot,
     profile: &Profile,
     context: &ScenarioContext,
-    restore: bool,
+    kind: SwitchKind,
 ) -> Result<Value, ScenarioError> {
     let runtime_target = context
         .applied_profile
@@ -1054,7 +1136,8 @@ fn preview_value(
         "account_changed":config.active_profile_id!=Some(target.account_id),
         "changed_fields":managed_changed_fields(config,profile,context),
         "actual_changed_fields":actual_changed_fields,"apply_kind":apply_kind,"needs_reconnect":needs_reconnect,
-        "preview_token":preview_token(config,target,context,restore)?,"restore":restore,
+        "preview_token":preview_token(config,target,context,kind)?,
+        "restore":kind == SwitchKind::Restore,"reset":kind == SwitchKind::Reset,
         "kill_switch_output_removed":kill_switch_output_removed(config,profile,context),
         "before_settings":before_fits.then_some(before_settings),
         "before_settings_omitted":!before_fits,
@@ -1090,8 +1173,9 @@ fn commit_target(
     context: &ScenarioContext,
     token: &str,
     operation_id: Uuid,
-    restore: bool,
+    kind: SwitchKind,
 ) -> Result<Profile, ScenarioError> {
+    let restore = kind == SwitchKind::Restore;
     if !valid_id(operation_id) {
         return Err(ScenarioError::InvalidRequest);
     }
@@ -1102,7 +1186,7 @@ fn commit_target(
     {
         return Err(ScenarioError::OperationReused);
     }
-    if token.len() != 64 || token != preview_token(config, &target, context, restore)? {
+    if token.len() != 64 || token != preview_token(config, &target, context, kind)? {
         return Err(ScenarioError::PreviewStale);
     }
     let profile = target_for(config, &target.settings, target.account_id, restore)?;

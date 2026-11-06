@@ -35,6 +35,8 @@ const kScenarioZhTw = <String, String>{
   'scenario_failed': '已儲存，套用失敗',
   'scenario_unknown': '結果待確認',
   'scenario_custom': '自訂',
+  'scenario_use_custom': '切換為自訂',
+  'scenario_custom_hint': '取消所選情境，端點、傳輸、IP 偏好與出口還原為 Usque 預設值，其他設定保持不變。',
   'scenario_unsupported': '此版本的 Usque 不支援情境，仍可管理帳號。',
   'scenario_save_failed': '操作未能完成，請先重新整理狀態再重試。',
   'scenario_reference_missing': '此情境需要的帳號或出口無法使用。',
@@ -112,6 +114,9 @@ const kScenarioAr = <String, String>{
   'scenario_failed': 'تم الحفظ؛ فشل التطبيق',
   'scenario_unknown': 'النتيجة غير مؤكدة',
   'scenario_custom': 'مخصص',
+  'scenario_use_custom': 'التبديل إلى مخصص',
+  'scenario_custom_hint':
+      'يلغي تحديد المشهد. تعود نقطة النهاية والنقل وتفضيل IP والمخرج إلى إعدادات Usque الافتراضية، وتبقى الإعدادات الأخرى كما هي.',
   'scenario_unsupported':
       'لا يدعم هذا الإصدار من Usque المشاهد. تظل إدارة الحسابات متاحة.',
   'scenario_save_failed': 'تعذر إكمال العملية. حدّث الحالة قبل إعادة المحاولة.',
@@ -199,6 +204,9 @@ const kScenarioFa = <String, String>{
   'scenario_failed': 'ذخیره شد؛ اعمال ناموفق بود',
   'scenario_unknown': 'نتیجه تأیید نشده است',
   'scenario_custom': 'سفارشی',
+  'scenario_use_custom': 'تغییر به سفارشی',
+  'scenario_custom_hint':
+      'انتخاب سناریو لغو می‌شود. نقطهٔ پایانی، انتقال، ترجیح IP و خروجی به پیش‌فرض‌های Usque برمی‌گردند و سایر تنظیمات تغییری نمی‌کنند.',
   'scenario_unsupported':
       'این نسخه از Usque از سناریوها پشتیبانی نمی‌کند. مدیریت حساب‌ها همچنان در دسترس است.',
   'scenario_save_failed':
@@ -290,6 +298,9 @@ const kScenarioId = <String, String>{
   'scenario_failed': 'Disimpan; penerapan gagal',
   'scenario_unknown': 'Hasil belum dikonfirmasi',
   'scenario_custom': 'Kustom',
+  'scenario_use_custom': 'Beralih ke Kustom',
+  'scenario_custom_hint':
+      'Menghapus pilihan skenario. Endpoint, transport, preferensi IP, dan pintu keluar kembali ke default Usque; pengaturan lain tetap sama.',
   'scenario_unsupported':
       'Versi Usque ini tidak mendukung skenario. Pengelolaan akun tetap tersedia.',
   'scenario_save_failed':
@@ -381,6 +392,9 @@ const kScenarioTh = <String, String>{
   'scenario_failed': 'บันทึกแล้ว แต่นำไปใช้ไม่สำเร็จ',
   'scenario_unknown': 'ยังไม่ยืนยันผลลัพธ์',
   'scenario_custom': 'กำหนดเอง',
+  'scenario_use_custom': 'เปลี่ยนเป็นกำหนดเอง',
+  'scenario_custom_hint':
+      'ยกเลิกการเลือกสถานการณ์ ปลายทาง ทรานสปอร์ต ค่ากำหนด IP และทางออกจะกลับเป็นค่าเริ่มต้นของ Usque ส่วนการตั้งค่าอื่นยังคงเดิม',
   'scenario_unsupported':
       'Usque เวอร์ชันนี้ไม่รองรับสถานการณ์ แต่ยังจัดการบัญชีได้',
   'scenario_save_failed': 'ดำเนินการไม่สำเร็จ โปรดรีเฟรชสถานะก่อนลองอีกครั้ง',
@@ -470,6 +484,9 @@ const kScenarioUk = <String, String>{
   'scenario_failed': 'Збережено; не вдалося застосувати',
   'scenario_unknown': 'Результат не підтверджено',
   'scenario_custom': 'Власні налаштування',
+  'scenario_use_custom': 'Перейти до «Власні налаштування»',
+  'scenario_custom_hint':
+      'Скасовує вибір сценарію. Кінцева точка, транспорт, перевага IP і вихід повертаються до типових значень Usque; інші налаштування не змінюються.',
   'scenario_unsupported':
       'Ця версія Usque не підтримує сценарії. Керування обліковими записами й далі доступне.',
   'scenario_save_failed':
@@ -563,6 +580,9 @@ const kScenarioVi = <String, String>{
   'scenario_failed': 'Đã lưu; áp dụng thất bại',
   'scenario_unknown': 'Chưa xác nhận kết quả',
   'scenario_custom': 'Tùy chỉnh',
+  'scenario_use_custom': 'Chuyển sang Tùy chỉnh',
+  'scenario_custom_hint':
+      'Bỏ chọn kịch bản. Điểm cuối, truyền tải, ưu tiên IP và lối ra trở về mặc định của Usque; các thiết lập khác giữ nguyên.',
   'scenario_unsupported':
       'Phiên bản Usque này không hỗ trợ kịch bản. Bạn vẫn có thể quản lý tài khoản.',
   'scenario_save_failed':
@@ -648,6 +668,8 @@ const kScenarioZhHk = <String, String>{
   'scenario_failed': '已儲存，套用失敗',
   'scenario_unknown': '結果待確認',
   'scenario_custom': '自訂',
+  'scenario_use_custom': '切換為自訂',
+  'scenario_custom_hint': '取消所選情境，端點、傳輸、IP 偏好及出口還原為 Usque 預設值，其他設定保持不變。',
   'scenario_unsupported': '此版本的 Usque 不支援情境，仍可管理帳戶。',
   'scenario_save_failed': '操作未能完成，請先重新整理狀態再重試。',
   'scenario_reference_missing': '此情境需要的帳戶或出口無法使用。',

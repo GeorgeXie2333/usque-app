@@ -38,6 +38,9 @@ const kScenarioEn = <String, String>{
   'scenario_failed': 'Saved; application failed',
   'scenario_unknown': 'Result not confirmed',
   'scenario_custom': 'Custom',
+  'scenario_use_custom': 'Switch to Custom',
+  'scenario_custom_hint':
+      'Clears the selected scene. Endpoint, transport, IP preference and exit return to Usque defaults; other settings stay as they are.',
   'scenario_unsupported':
       'This version of Usque does not support scenes. Account management is still available.',
   'scenario_save_failed':
@@ -125,6 +128,8 @@ const kScenarioZhCn = <String, String>{
   'scenario_failed': '已保存，应用失败',
   'scenario_unknown': '结果待确认',
   'scenario_custom': '自定义',
+  'scenario_use_custom': '切换为自定义',
+  'scenario_custom_hint': '取消所选场景，端点、传输协议、IP 偏好和出口恢复为 Usque 默认设置，其他设置保持不变。',
   'scenario_unsupported': '此版本的 Usque 不支持场景，仍可管理账号。',
   'scenario_save_failed': '操作未能完成，请先刷新状态再重试。',
   'scenario_reference_missing': '此场景需要的账号或出口不可用。',

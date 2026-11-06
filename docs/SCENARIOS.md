@@ -14,7 +14,7 @@ the top shows the selected scene with its state (for example **Modified** or
 current connection, with a refresh button. When the current settings differ
 from the selected scene, the card offers **Update from current settings** and
 **Save as a new scene**; after a switch it also offers **Restore previous
-settings**. Each scene row lists what sets it apart: the exit, the endpoint,
+settings**. While a scene is selected, **Switch to Custom** leaves it. Each scene row lists what sets it apart: the exit, the endpoint,
 a non-default transport or IP version, and a bound account. The selected row
 offers **Use scene** again only when using it would change something. An empty
 library shows **New scene** in its empty state. Engines without scenes continue
@@ -27,7 +27,8 @@ to show account management at the root.
 同一保护。页头提供 **账号管理** 和 **新建场景**。顶部状态卡显示已选场景及其状态
 （如 **已修改**、**已应用**）、已选账号；存在会话时还显示已确认的当前连接，旁边
 提供刷新按钮。当前设置与所选场景不同时，状态卡提供 **用当前设置更新** 和
-**另存为新场景**；切换后还提供 **恢复切换前配置**。每个场景行列出其区别：出口、
+**另存为新场景**；切换后还提供 **恢复切换前配置**。已选场景时可用 **切换为自定义**
+取消选择。每个场景行列出其区别：出口、
 端点、非默认的传输协议或 IP 偏好，以及绑定账号。已选场景只有在再次使用会产生
 变化时才显示 **使用场景**。场景库为空时，**新建场景** 位于空状态中。不支持场景的
 引擎继续在场景首页提供账号管理。
@@ -218,6 +219,11 @@ asks you to refresh Scenes.
   binding change before saving; an unbound scene stays unbound.
 - Editing a template can show **Scene has an update** while the existing
   connection continues using its previous snapshot.
+- **Switch to Custom** clears the selection and returns the endpoint,
+  transport, IP preference and exit to Usque defaults for the current account.
+  Its preview lists the changes first; other device settings stay as they are.
+  The switch is recorded like any other, so **Restore previous settings** can
+  return to the scene. Zero Trust accounts keep their account-owned addresses.
 - Deleting a scene keeps current network settings and shows **Custom**.
   Deleting a bound account removes its credentials normally. The scene then
   offers **Use the current account** to repair its binding before use.
@@ -233,7 +239,10 @@ Profiles keeps the saved choices visible but shows the current scene as
 unconfirmed until the native owner confirms it again.
 
 修改当前场景受管设置不会覆盖模板；修改输出、分流或 DNS 不会使场景显示已修改，
-使用或恢复场景也不会覆盖这些全局值。手动换账号可以使绑定场景显示 **账号与绑定不同**。
+使用或恢复场景也不会覆盖这些全局值。**切换为自定义** 取消所选场景，并把当前账号的
+端点、传输协议、IP 偏好和出口恢复为 Usque 默认设置；预览先列出变更，其他全局设置
+保持不变。该操作与其他切换一样会被记录，可通过 **恢复切换前配置** 回到原场景；
+Zero Trust 账号保留其账号地址。手动换账号可以使绑定场景显示 **账号与绑定不同**。
 再次使用会恢复绑定账号。更新模板不会打断当前连接。删除模板保留当前设置并显示
 **自定义**；删除账号照常移除凭据，场景卡片提供 **沿用当前账号** 以修复绑定。
 **恢复切换前配置** 只针对最近切换，先显示预览；后续修改账号或场景受管设置会使

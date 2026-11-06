@@ -5,14 +5,15 @@ import org.json.JSONObject
 
 /** Only metadata leaves the VPN host; the application target is owner-private. */
 internal object ScenarioFields {
-    private val actions = setOf("list", "save", "delete", "preview", "activate", "preview_restore", "restore")
+    private val actions =
+        setOf("list", "save", "delete", "preview", "activate", "preview_restore", "restore", "preview_reset", "reset")
 
     fun action(request: String): String {
         require(request.toByteArray(Charsets.UTF_8).size <= 256 * 1024)
         return JSONObject(request).getString("action").also { require(it in actions) }
     }
 
-    fun activates(action: String): Boolean = action == "activate" || action == "restore"
+    fun activates(action: String): Boolean = action == "activate" || action == "restore" || action == "reset"
 
     fun previewRequest(request: JSONObject): JSONObject =
         when (request.getString("action")) {
@@ -25,6 +26,10 @@ internal object ScenarioFields {
 
             "restore" -> {
                 JSONObject().put("action", "preview_restore")
+            }
+
+            "reset" -> {
+                JSONObject().put("action", "preview_reset")
             }
 
             else -> {
