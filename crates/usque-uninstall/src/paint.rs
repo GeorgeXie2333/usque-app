@@ -214,6 +214,8 @@ impl Canvas {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ButtonKind {
     Filled,
+    /// A filled action that deletes data; it uses the danger tone.
+    Destructive,
     Outlined,
     Text,
 }
@@ -246,6 +248,18 @@ pub fn button_look(kind: ButtonKind, enabled: bool, pressed: bool, tokens: &Toke
             ink: ink(tokens.on_primary),
             ring: color(tokens.on_primary),
         },
+        ButtonKind::Destructive => ButtonLook {
+            fill: Some(color(if !enabled {
+                tokens.disabled_fill
+            } else if pressed {
+                tokens.danger_pressed
+            } else {
+                tokens.danger
+            })),
+            border: None,
+            ink: ink(tokens.on_danger),
+            ring: color(tokens.on_danger),
+        },
         ButtonKind::Outlined => ButtonLook {
             fill: pressed_fill,
             border: Some(color(if enabled {
@@ -263,6 +277,130 @@ pub fn button_look(kind: ButtonKind, enabled: bool, pressed: bool, tokens: &Toke
             ring: color(tokens.primary),
         },
     }
+}
+
+/// The result shown by a page's status mark. Decorative: the page title
+/// states the same result in words.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Mark {
+    #[default]
+    Success,
+    Caution,
+    Danger,
+    Neutral,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MarkColors {
+    pub background: Rgb,
+    /// The tone at Flutter's tint over the canvas.
+    pub soft: Rgb,
+    pub tone: Rgb,
+    /// High contrast outlines the circle instead of tinting it.
+    pub outline: Option<Rgb>,
+}
+
+/// Draws a glyph inside the square `frame`.
+fn glyph(canvas: &mut Canvas, mark: Mark, frame: Rect, width: f32, color: Rgb) {
+    let size = frame.right - frame.left;
+    let point = |x: f32, y: f32| (frame.left + x * size, frame.top + y * size);
+    let mut line = |from: (f32, f32), to: (f32, f32)| {
+        canvas.line(point(from.0, from.1), point(to.0, to.1), width, color);
+    };
+    match mark {
+        Mark::Success => {
+            line((0.29, 0.52), (0.44, 0.66));
+            line((0.44, 0.66), (0.71, 0.37));
+        }
+        Mark::Danger => {
+            line((0.36, 0.36), (0.64, 0.64));
+            line((0.64, 0.36), (0.36, 0.64));
+        }
+        Mark::Caution => {
+            line((0.5, 0.29), (0.5, 0.55));
+            line((0.5, 0.70), (0.5, 0.70));
+        }
+        Mark::Neutral => line((0.34, 0.5), (0.66, 0.5)),
+    }
+}
+
+/// A circular result mark for completion and failure pages.
+pub fn render_mark(size: usize, mark: Mark, colors: &MarkColors) -> Canvas {
+    let mut canvas = Canvas::new(size, size, colors.background);
+    let edge = size as f32;
+    let circle = Rect::new(0.0, 0.0, edge, edge);
+    match colors.outline {
+        Some(outline) => canvas.stroke_rounded(circle, edge / 2.0, (edge / 18.0).max(1.0), outline),
+        None => canvas.fill_rounded(circle, edge / 2.0, colors.soft),
+    }
+    glyph(
+        &mut canvas,
+        mark,
+        circle,
+        (edge * 0.085).max(1.5),
+        colors.tone,
+    );
+    canvas
+}
+
+/// Flutter `WarningBanner` geometry in logical pixels: padding before the
+/// icon, its top offset, icon size, and the gap before the text.
+pub const NOTICE_PADDING: f32 = 14.0;
+pub const NOTICE_TOP: f32 = 13.0;
+pub const NOTICE_ICON: f32 = 18.0;
+pub const NOTICE_GAP: f32 = 11.0;
+pub const NOTICE_TRAILING: f32 = 10.0;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct NoticeColors {
+    pub background: Rgb,
+    pub fill: Rgb,
+    pub border: Rgb,
+    pub tone: Rgb,
+}
+
+/// A rounded caution or danger notice with its icon; text is drawn natively
+/// at `NOTICE_PADDING + NOTICE_ICON + NOTICE_GAP` from the leading edge.
+pub fn render_notice(
+    width: usize,
+    height: usize,
+    danger: bool,
+    colors: &NoticeColors,
+    scale: f32,
+) -> Canvas {
+    let mut canvas = Canvas::new(width, height, colors.background);
+    let bounds = Rect::new(0.0, 0.0, width as f32, height as f32);
+    let radius = crate::tokens::RADIUS_CONTROL as f32 * scale;
+    canvas.fill_rounded(bounds, radius, colors.fill);
+    canvas.stroke_rounded(bounds, radius, scale.max(1.0), colors.border);
+    let (left, top, size) = (
+        NOTICE_PADDING * scale,
+        NOTICE_TOP * scale,
+        NOTICE_ICON * scale,
+    );
+    let stroke = (1.7 * scale).max(1.0);
+    if danger {
+        let icon = Rect::new(left, top, left + size, top + size);
+        canvas.stroke_rounded(icon, size / 2.0, stroke, colors.tone);
+        glyph(&mut canvas, Mark::Danger, icon, stroke, colors.tone);
+    } else {
+        let point = |x: f32, y: f32| (left + x * size, top + y * size);
+        for (from, to) in [
+            ((0.5, 0.1), (0.06, 0.88)),
+            ((0.06, 0.88), (0.94, 0.88)),
+            ((0.94, 0.88), (0.5, 0.1)),
+        ] {
+            canvas.line(
+                point(from.0, from.1),
+                point(to.0, to.1),
+                stroke,
+                colors.tone,
+            );
+        }
+        canvas.line(point(0.5, 0.38), point(0.5, 0.60), stroke, colors.tone);
+        canvas.line(point(0.5, 0.74), point(0.5, 0.74), stroke, colors.tone);
+    }
+    canvas
 }
 
 /// What one progress-bar frame shows.
@@ -594,6 +732,81 @@ mod tests {
                 assert_eq!(disabled.ink, color(tokens.disabled_ink));
                 assert_ne!(disabled.fill, Some(color(tokens.primary_pressed)));
             }
+        }
+    }
+
+    #[test]
+    fn destructive_buttons_use_the_danger_pair() {
+        for tokens in [&crate::tokens::LIGHT, &crate::tokens::DARK] {
+            let color = Rgb::from_colorref;
+            let look = button_look(ButtonKind::Destructive, true, false, tokens);
+            assert_eq!(look.fill, Some(color(tokens.danger)));
+            assert_eq!(look.ink, color(tokens.on_danger));
+            let pressed = button_look(ButtonKind::Destructive, true, true, tokens);
+            assert_eq!(pressed.fill, Some(color(tokens.danger_pressed)));
+        }
+    }
+
+    #[test]
+    fn marks_tint_a_circle_and_draw_their_glyph_in_the_tone() {
+        let tokens = &crate::tokens::LIGHT;
+        let colors = MarkColors {
+            background: BACKGROUND,
+            soft: Rgb::from_colorref(tokens.success_soft),
+            tone: Rgb::from_colorref(tokens.success),
+            outline: None,
+        };
+        for mark in [Mark::Success, Mark::Caution, Mark::Danger, Mark::Neutral] {
+            let canvas = render_mark(36, mark, &colors);
+            assert_eq!(
+                canvas.pixel(0, 0),
+                BACKGROUND,
+                "{mark:?} keeps square corners clear"
+            );
+            assert_eq!(
+                canvas.pixel(18, 3),
+                colors.soft,
+                "{mark:?} fills its circle"
+            );
+            let toned = (0..36 * 36)
+                .filter(|index| canvas.pixel(index % 36, index / 36) == colors.tone)
+                .count();
+            assert!(toned > 10, "{mark:?} draws a visible glyph");
+        }
+        let outlined = render_mark(
+            36,
+            Mark::Danger,
+            &MarkColors {
+                outline: Some(Rgb::WHITE),
+                ..colors
+            },
+        );
+        assert_eq!(
+            outlined.pixel(18, 3),
+            BACKGROUND,
+            "high contrast leaves the circle unfilled"
+        );
+    }
+
+    #[test]
+    fn notices_round_their_frame_and_place_the_icon_at_the_leading_edge() {
+        let tokens = &crate::tokens::LIGHT;
+        let colors = NoticeColors {
+            background: BACKGROUND,
+            fill: Rgb::from_colorref(tokens.caution_fill),
+            border: Rgb::from_colorref(tokens.caution_border),
+            tone: Rgb::from_colorref(tokens.caution),
+        };
+        for danger in [false, true] {
+            let canvas = render_notice(300, 60, danger, &colors, 1.0);
+            assert_eq!(canvas.pixel(0, 0), BACKGROUND);
+            assert_eq!(canvas.pixel(150, 30), colors.fill);
+            let icon = (14..32)
+                .flat_map(|x| (13..31).map(move |y| (x, y)))
+                .filter(|(x, y)| canvas.pixel(*x, *y) == colors.tone)
+                .count();
+            assert!(icon > 8, "the icon is drawn in the tone");
+            assert!((60..290).all(|x| canvas.pixel(x, 30) == colors.fill));
         }
     }
 

@@ -103,6 +103,14 @@ class SetupTokenTests(unittest.TestCase):
         for name, entry in self.source["metrics"].items():
             if "flutter" in entry:
                 self.assertEqual(entry["value"], flutter.metric(entry["flutter"]), name)
+        for name, entry in self.source["ratios"].items():
+            owner, field = entry["flutter"].split(".")
+            self.assertEqual(owner, "UsqueTokens")
+            for theme in generator.THEMES:
+                opening = "_dark = UsqueTokens(" if theme == "dark" else "_light = UsqueTokens("
+                self.assertEqual(
+                    entry[theme], float(flutter.field(opening, field)), f"{name}/{theme}"
+                )
 
     def test_established_brand_values_survive_the_shared_source(self) -> None:
         light, dark = self.model["palettes"]["light"], self.model["palettes"]["dark"]
@@ -113,7 +121,11 @@ class SetupTokenTests(unittest.TestCase):
         self.assertEqual(generator.colorref(dark["on_primary"]), "0x00001844")
 
     def test_notices_follow_the_flutter_warning_banner_blend(self) -> None:
-        light = self.model["palettes"]["light"]
+        light, dark = self.model["palettes"]["light"], self.model["palettes"]["dark"]
+        self.assertEqual(
+            light["success_soft"], generator.mix(light["success"], light["canvas"], 0.12)
+        )
+        self.assertEqual(dark["success_soft"], generator.mix(dark["success"], dark["canvas"], 0.16))
         self.assertEqual(
             light["caution_fill"], generator.mix(light["caution"], light["canvas"], 0.10)
         )

@@ -92,6 +92,27 @@ int main(int argc, char** argv) {
             !outlined.has_fill && outlined.border == Rgb::FromColorref(tokens->hairline_strong) &&
             text.has_fill && !text.has_border && text.ink == Rgb::FromColorref(tokens->primary) &&
             disabled.ink == Rgb::FromColorref(tokens->disabled_ink), "button roles follow Flutter");
+      const auto destructive = ButtonLookFor(ButtonKind::destructive, true, false, *tokens);
+      check(destructive.fill == Rgb::FromColorref(tokens->danger) && destructive.ink == Rgb::FromColorref(tokens->on_danger),
+            "destructive buttons use the danger pair");
+    }
+    const MarkColors mark_colors{background, Rgb::FromColorref(kLightTokens.success_soft),
+                                 Rgb::FromColorref(kLightTokens.success), false, {}};
+    for (const Mark mark : {Mark::success, Mark::caution, Mark::danger, Mark::neutral}) {
+      const auto canvas = RenderMark(36, mark, mark_colors);
+      int toned = 0;
+      for (int y = 0; y < 36; ++y) for (int x = 0; x < 36; ++x) toned += canvas.Pixel(x, y) == mark_colors.tone ? 1 : 0;
+      check(canvas.Pixel(0, 0) == background && canvas.Pixel(18, 3) == mark_colors.soft && toned > 10,
+            "marks tint a circle and draw their glyph");
+    }
+    const NoticeColors notice_colors{background, Rgb::FromColorref(kLightTokens.caution_fill),
+                                     Rgb::FromColorref(kLightTokens.caution_border), Rgb::FromColorref(kLightTokens.caution)};
+    for (const bool danger : {false, true}) {
+      const auto canvas = RenderNotice(300, 60, danger, notice_colors, 1.0f);
+      int icon = 0;
+      for (int y = 13; y < 31; ++y) for (int x = 14; x < 32; ++x) icon += canvas.Pixel(x, y) == notice_colors.tone ? 1 : 0;
+      check(canvas.Pixel(0, 0) == background && canvas.Pixel(150, 30) == notice_colors.fill && icon > 8,
+            "notices round their frame and draw a leading icon");
     }
   }
   check(SelectMode({}) == Mode::install, "fresh install");
@@ -184,6 +205,24 @@ int main(int argc, char** argv) {
         "strict 240-character boundary receives length guidance");
   check(FolderProblemKey(InstallFolderProblem(L"C:\\Usque*")) == "folder_invalid_characters",
         "path reason maps to a localized, controlled message");
+  check(SetupStepKey(L"InstallFiles", StepContext::install) == "step_files", "fresh install names file work");
+  check(SetupStepKey(L"RemoveFiles", StepContext::install).empty() &&
+        SetupStepKey(L"StopServices", StepContext::install).empty() &&
+        SetupStepKey(L"RemoveExistingProducts", StepContext::install).empty(),
+        "fresh install never claims to remove or close anything");
+  check(SetupStepKey(L"RemoveExistingProducts", StepContext::upgrade) == "step_replacing" &&
+        SetupStepKey(L"StopServices", StepContext::upgrade) == "uninstall_closing_apps" &&
+        SetupStepKey(L"RecoverAgentState", StepContext::upgrade) == "uninstall_restoring_network" &&
+        SetupStepKey(L"RemoveFiles", StepContext::upgrade) == "step_files",
+        "upgrade names the replacement steps");
+  check(SetupStepKey(L"InstallServices", StepContext::install) == "step_services" &&
+        SetupStepKey(L"PublishProduct", StepContext::install) == "step_finishing" &&
+        SetupStepKey(L"InstallValidate", StepContext::install) == "planning", "install phases are named");
+  check(SetupStepKey(L"RemoveFiles", StepContext::uninstall) == "uninstall_removing_files" &&
+        SetupStepKey(L"PurgeUserData", StepContext::uninstall) == "uninstall_deleting_data" &&
+        SetupStepKey(L"InstallFiles", StepContext::uninstall).empty(), "removal keeps its own wording");
+  check(SetupStepKey(L"Rollback", StepContext::install) == "rolling_back" &&
+        SetupStepKey(L"CostFinalize", StepContext::upgrade).empty(), "rollback is named; unlisted actions keep the step");
   SetupProgress bar;
   check(bar.mode == BarMode::waiting && bar.value == 0, "bar waits for the first engine progress");
   bar.Cache(0);

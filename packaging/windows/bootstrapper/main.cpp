@@ -39,17 +39,19 @@ constexpr UINT_PTR kAnimationTimer = 21;
 enum Control {
   title = 100, subtitle, version, folder_label, folder_edit, browse, language_label,
   language, license, accept, scope, progress, status, details, desktop, launch_app,
-  startup, more, license_text, folder_summary, folder_error, change_folder, option_summary, save_details, primary, secondary, tertiary,
+  startup, more, license_text, folder_summary, folder_error, change_folder, option_summary, save_details, status_mark,
+  primary, secondary, tertiary,
 };
 enum class EventType { detected, planned, applied, cache_progress, execute_progress, status, failed, options, queried,
                        files_in_use, cancel_permission };
 enum class FinishIntent { normal, restart_later, restart_now };
 // Labels that change on the working page without a page change.
-constexpr std::string_view kWorkingSubtitleKeys[] = {"install_scope", "wait_no_cancel", "detecting"};
+constexpr std::string_view kWorkingSubtitleKeys[] = {"working_note", "wait_no_cancel", "detecting"};
 constexpr std::string_view kWorkingStatusKeys[] = {
   "detecting", "planning", "installing", "uninstalling", "uninstall_closing_apps", "uninstall_restoring_network",
   "uninstall_deleting_data", "uninstall_removing_files", "uninstall_registration", "rolling_back",
-  "cancel_requested", "failed_description",
+  "cancel_requested", "failed_description", "uninstall_preparing", "step_files", "step_services", "step_replacing",
+  "step_finishing",
 };
 struct Event {
   EventType type;
@@ -285,13 +287,9 @@ class Application final : public CBootstrapperApplicationBase {
     if (type == INSTALLMESSAGE_ACTIONSTART && count && data && data[0]) {
       const std::wstring_view action(data[0]);
       cancel_stage_ = ActionCancelStage(action, cancel_stage_.load());
-      const std::string key = action == L"StopServices" ? "uninstall_closing_apps" :
-        action == L"EmergencyRemoveKillSwitch" || action == L"RecoverAgentState" ? "uninstall_restoring_network" :
-        action == L"PurgeUserData" ? "uninstall_deleting_data" :
-        action == L"RemoveFiles" ? "uninstall_removing_files" :
-        action == L"FinalizeAgentUninstall" ? "uninstall_registration" :
-        action == L"Rollback" ? "rolling_back" : "installing";
-      if (!IsRollingBack()) Post({EventType::status, S_OK, 0, key});
+      // Name the real step; unlisted actions keep the current one.
+      const auto key = SetupStepKey(action, step_context_.load());
+      if (!key.empty() && !IsRollingBack()) Post({EventType::status, S_OK, 0, std::string(key)});
     }
     *result = CanReturnCancellation(cancel_stage_, native_cancel_enabled_, CheckCanceled()) ? IDCANCEL : recommendation;
     if (*result == IDCANCEL && !CallbackCancellationAllowed()) *result = IDNOACTION;
@@ -310,7 +308,7 @@ class Application final : public CBootstrapperApplicationBase {
     const bool rolling_back = IsRollingBack() || cancel_stage_.load() == CancelStage::rollback;
     const std::string key = rolling_back ? "rolling_back" :
       action_ == BOOTSTRAPPER_ACTION_UNINSTALL || registration == BOOTSTRAPPER_REGISTRATION_TYPE_NONE ?
-        "uninstall_registration" : "installing";
+        "uninstall_registration" : "step_finishing";
     cancel_stage_ = CancelStage::registration_cleanup;
     Post({EventType::status, S_OK, 0, key});
     return S_OK;
@@ -469,6 +467,7 @@ class Application final : public CBootstrapperApplicationBase {
     if (secondary_font_) DeleteObject(secondary_font_);
     if (strong_font_) DeleteObject(strong_font_);
     if (background_) DeleteObject(background_);
+    if (field_brush_) DeleteObject(field_brush_);
     if (rich_edit_) FreeLibrary(rich_edit_);
     CoUninitialize();
   }
@@ -514,8 +513,9 @@ class Application final : public CBootstrapperApplicationBase {
       0, 0, 0, 0, window_.load(), nullptr, GetModuleHandleW(nullptr), nullptr);
     SetWindowSubclass(body_, BodyProc, 1, reinterpret_cast<DWORD_PTR>(this));
     const auto add = [this](int id, const wchar_t* type, DWORD style) {
-      const bool fixed = id == title || id == primary || id == secondary || id == tertiary;
-      const HWND child = CreateWindowExW(type == std::wstring_view(L"EDIT") && id != details ? WS_EX_CLIENTEDGE : 0,
+      const bool fixed = id == title || id == status_mark || id == primary || id == secondary || id == tertiary;
+      // Text fields are framed by their parent's rounded field, not a 3D edge.
+      const HWND child = CreateWindowExW(0,
         type, L"", WS_CHILD | style, 0, 0, 0, 0, fixed ? window_.load() : body_,
         reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)), GetModuleHandleW(nullptr), nullptr);
       controls_[static_cast<size_t>(id - title)] = child;
@@ -524,6 +524,8 @@ class Application final : public CBootstrapperApplicationBase {
     };
     for (int id : {title, subtitle, version, folder_label})
       add(id, L"STATIC", SS_LEFT | SS_NOPREFIX);
+    // Decorative result mark; the title states the result in words.
+    add(status_mark, L"STATIC", SS_OWNERDRAW);
     add(folder_edit, L"EDIT", WS_TABSTOP | ES_AUTOHSCROLL);
     add(language_label, L"STATIC", SS_LEFT | SS_NOPREFIX);
     add(language, WC_COMBOBOXW, WS_TABSTOP | CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS | WS_VSCROLL);
@@ -544,6 +546,7 @@ class Application final : public CBootstrapperApplicationBase {
     SendMessageW(C(details), EM_SETTEXTMODE, TM_PLAINTEXT, 0);
     add(license_text, MSFTEDIT_CLASS, WS_TABSTOP | ES_READONLY | ES_MULTILINE | ES_AUTOVSCROLL | WS_VSCROLL);
     for (int id : {details, license_text}) SetWindowSubclass(C(id), DocumentProc, 1, reinterpret_cast<DWORD_PTR>(this));
+    SetWindowSubclass(C(folder_edit), FieldProc, 1, reinterpret_cast<DWORD_PTR>(this));
     SetWindowTextW(C(folder_edit), folder_.c_str());
     // Let an overlong value remain editable so validation can explain it,
     // rather than silently truncating it to a different accepted folder.
@@ -583,6 +586,8 @@ class Application final : public CBootstrapperApplicationBase {
     motion_ = !SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &animation, 0) || animation;
     if (background_) DeleteObject(background_);
     background_ = CreateSolidBrush(background_color_);
+    if (field_brush_) DeleteObject(field_brush_);
+    field_brush_ = CreateSolidBrush(FieldColor());
     const BOOL use_dark = dark_;
     DwmSetWindowAttribute(window_.load(), DWMWA_USE_IMMERSIVE_DARK_MODE, &use_dark, sizeof(use_dark));
     const wchar_t* frame_theme = high_contrast_ && !PreviewContrast() ? nullptr :
@@ -657,7 +662,7 @@ class Application final : public CBootstrapperApplicationBase {
   }
 
   COLORREF FieldColor() const {
-    return high_contrast_ ? SystemColor(COLOR_WINDOW) : ThemeTokens(dark_).surface;
+    return high_contrast_ ? SystemColor(COLOR_WINDOW) : ThemeTokens(dark_).field;
   }
 
   COLORREF BorderColor() const {
@@ -671,11 +676,11 @@ class Application final : public CBootstrapperApplicationBase {
   void ApplyDocumentColors() {
     CHARFORMAT2W format{};
     format.cbSize = sizeof(format); format.dwMask = CFM_COLOR | CFM_BACKCOLOR;
-    format.crTextColor = text_color_; format.crBackColor = background_color_;
+    format.crTextColor = text_color_; format.crBackColor = FieldColor();
     // RTF carries its own color table; WM_CTLCOLOR alone cannot recolor it.
     // SCF_ALL retains the license's text, emphasis and read-only behavior.
     for (int id : {license_text, details}) if (C(id)) {
-      SendMessageW(C(id), EM_SETBKGNDCOLOR, 0, background_color_);
+      SendMessageW(C(id), EM_SETBKGNDCOLOR, 0, FieldColor());
       SendMessageW(C(id), EM_SETCHARFORMAT, SCF_ALL, reinterpret_cast<LPARAM>(&format));
     }
   }
@@ -732,10 +737,15 @@ class Application final : public CBootstrapperApplicationBase {
     return result;
   }
 
+  // Text starts after the WarningBanner padding, icon and gap.
+  static constexpr int kNoticeTextStart =
+    static_cast<int>(paint::kNoticePadding + paint::kNoticeIcon + paint::kNoticeGap);
+
   int NoticeHeight(int width) const {
-    int height = 24;
+    int height = 26;
     for (const auto& row : option_rows_)
-      height += (std::max)(22, TextHeight(OptionRowText(row), width - 32, row.done ? secondary_font_ : strong_font_)) + 4;
+      height += (std::max)(22, TextHeight(OptionRowText(row), width - kNoticeTextStart - 10,
+        row.done ? secondary_font_ : strong_font_)) + 4;
     return height - 4;
   }
 
@@ -771,6 +781,45 @@ class Application final : public CBootstrapperApplicationBase {
     MoveWindow(C(id), Scale(x), Scale(y - (body ? scroll_ + 72 : 0)), Scale(width), Scale(height), TRUE);
   }
 
+  // Text fields sit inside a rounded frame that the body paints, matching
+  // Flutter's filled input decoration. The native control keeps its input,
+  // scrolling and accessibility; only its own 3D edge is gone.
+  static constexpr int kFieldIds[] = {folder_edit, details, license_text};
+
+  RECT& FieldFrame(int id) {
+    return field_frames_[id == folder_edit ? 0 : id == details ? 1 : 2];
+  }
+
+  void PlaceField(int id, int x, int y, int width, int height) {
+    const int top = y - (scroll_ + 72);
+    RECT& frame = FieldFrame(id);
+    frame = {Scale(x), Scale(top), Scale(x) + Scale(width), Scale(top) + Scale(height)};
+    if (id == folder_edit) {
+      const int line = TextHeight(L"Ag", width, font_) + 2;
+      MoveWindow(C(id), Scale(x + 12), Scale(top + (height - line) / 2), Scale(width - 24), Scale(line), TRUE);
+    } else {
+      MoveWindow(C(id), Scale(x + 6), Scale(top + 6), Scale(width - 12), Scale(height - 12), TRUE);
+    }
+  }
+
+  void PaintFields(HDC dc) {
+    const auto& tokens = ThemeTokens(dark_);
+    const auto rgb = [](COLORREF value) { return paint::Rgb::FromColorref(value); };
+    for (const int id : kFieldIds) {
+      if (!IsWindowVisible(C(id))) continue;
+      const RECT frame = FieldFrame(id);
+      const bool focused = GetFocus() == C(id);
+      paint::Canvas canvas(frame.right - frame.left, frame.bottom - frame.top, rgb(background_color_));
+      const paint::Rect shape{0.0f, 0.0f, static_cast<float>(canvas.Width()), static_cast<float>(canvas.Height())};
+      const float radius = ScaleF(static_cast<float>(kRadiusControl));
+      canvas.FillRounded(shape, radius, rgb(FieldColor()));
+      const COLORREF border = high_contrast_ ? SystemColor(focused ? COLOR_HIGHLIGHT : COLOR_WINDOWTEXT) :
+        focused ? tokens.primary : tokens.hairline;
+      canvas.StrokeRounded(shape, radius, (std::max)(1.0f, ScaleF(focused ? kStrokeStrong : 1.0f)), rgb(border));
+      Blit(dc, frame.left, frame.top, canvas);
+    }
+  }
+
   void Layout() {
     if (layout_active_) return;
     layout_active_ = true;
@@ -779,7 +828,9 @@ class Application final : public CBootstrapperApplicationBase {
     const int height = MulDiv(area.bottom, 96, static_cast<int>(EffectiveDpi()));
     const int content = (std::max)(200, width - 64);
     const int title_height = (std::max)(42, TextHeight(ReadControl(C(title)), content, title_font_));
-    const int header_extra = title_height - 42;
+    // Result pages lead with a 36-pixel status mark above the title.
+    const int mark_space = IsWindowVisible(C(status_mark)) ? 48 : 0;
+    const int header_extra = title_height - 42 + mark_space;
     const bool second = IsWindowVisible(C(secondary)) != FALSE;
     const bool third = IsWindowVisible(C(tertiary)) != FALSE;
     const bool stack_footer = content < 360;
@@ -794,7 +845,8 @@ class Application final : public CBootstrapperApplicationBase {
     const int footer = height - footer_height;
     MoveWindow(body_, 0, Scale(72 + header_extra), area.right,
       Scale((std::max)(1, footer - 72 - header_extra)), TRUE);
-    Place(title, 32, 27, content, title_height, false);
+    Place(status_mark, 32, 24, 36, 36, false);
+    Place(title, 32, 27 + mark_space, content, title_height, false);
     int subtitle_height = (std::max)(24, TextHeight(ReadControl(C(subtitle)), content, font_));
     const bool live = page_ == Page::working || page_ == Page::detecting;
     // Live MSI records replace these labels without a page change. Reserve the
@@ -805,15 +857,16 @@ class Application final : public CBootstrapperApplicationBase {
     int end = 79 + subtitle_height;
     if (page_ == Page::ready) {
       int y = end + 12;
-      const int version_height = (std::max)(22, TextHeight(ReadControl(C(version)), content, secondary_font_));
-      Place(version, 32, y, content, version_height); y += version_height + 16;
+      const bool show_version = mode_ != Mode::residual;
+      const int version_height = show_version ? (std::max)(22, TextHeight(ReadControl(C(version)), content, secondary_font_)) : 0;
+      Place(version, 32, y, content, version_height); y += version_height + (show_version ? 16 : 0);
       const int label_height = (std::max)(18, TextHeight(ReadControl(C(folder_label)), content, secondary_font_));
       Place(folder_label, 32, y, content, label_height); y += label_height + 4;
       const int change_width = IsWindowVisible(C(change_folder)) ? (std::min)(content / 2, NaturalWidth(change_folder)) : 0;
       const int browse_width = folder_expanded_ ? (std::min)(130, NaturalWidth(browse)) : 0;
       const int path_width = content - (change_width ? change_width + 12 : 0) - (browse_width ? browse_width + 8 : 0);
       Place(folder_summary, 32, y + 8, path_width, 24);
-      Place(folder_edit, 32, y, path_width, 36);
+      PlaceField(folder_edit, 32, y, path_width, 36);
       Place(browse, 32 + path_width + 8, y, browse_width, 36);
       Place(change_folder, 32 + content - change_width, y, change_width, 36); y += 36;
       if (IsWindowVisible(C(folder_error))) {
@@ -838,7 +891,8 @@ class Application final : public CBootstrapperApplicationBase {
       Place(accept, 32 + license_width + 20, y, accept_width, consent_height); y += consent_height + 12;
       const int scope_height = (std::max)(26, TextHeight(ReadControl(C(scope)), content, secondary_font_));
       Place(scope, 32, y, content, scope_height);
-      end = (mode_ == Mode::install || mode_ == Mode::upgrade) ? y + scope_height : 79 + subtitle_height + 12 + version_height;
+      end = (mode_ == Mode::install || mode_ == Mode::upgrade) ? y + scope_height :
+        79 + subtitle_height + (show_version ? 12 + version_height : 0);
     } else if (page_ == Page::complete || page_ == Page::options_failed) {
       int y = end + 12;
       const int scope_height = (std::max)(22, TextHeight(ReadControl(C(scope)), content, secondary_font_));
@@ -856,13 +910,13 @@ class Application final : public CBootstrapperApplicationBase {
         Place(option_summary, 32, y + 14, content, notice_height);
         end = y + 14 + notice_height;
         const int details_height = (std::max)(90, TextHeight(ReadControl(C(details)), content - 24, font_) + 24);
-        Place(details, 32, end + 12, content, details_height);
+        PlaceField(details, 32, end + 12, content, details_height);
         Place(save_details, 32, end + details_height + 24, (std::min)(content, NaturalWidth(save_details)), 36);
         if (details_expanded_) end += details_height + 60;
       }
     } else if (page_ == Page::license) {
       const int license_height = (std::max)(90, footer - header_extra - end - 28);
-      Place(license_text, 32, end + 12, content, license_height);
+      PlaceField(license_text, 32, end + 12, content, license_height);
       end += 12 + license_height;
     } else if (page_ == Page::working || page_ == Page::detecting) {
       // Centered where the former 12-pixel bar was, so the page rhythm holds.
@@ -874,7 +928,7 @@ class Application final : public CBootstrapperApplicationBase {
     } else {
       const int details_height = page_ == Page::files_in_use ? 120 :
         (std::max)(100, TextHeight(ReadControl(C(details)), content - 24, font_) + 24);
-      Place(details, 32, end + 24, content, details_height);
+      PlaceField(details, 32, end + 24, content, details_height);
       Place(save_details, 32, end + details_height + 36, (std::min)(content, NaturalWidth(save_details)), 36);
       if (page_ == Page::files_in_use) end += details_height + 24;
       else if (details_expanded_) end += details_height + 72;
@@ -891,6 +945,8 @@ class Application final : public CBootstrapperApplicationBase {
       stack_footer ? height - button_height * 2 - 32 : footer + 10, button_width, button_height, false);
     Place(tertiary, 32, footer + 10, third_width, button_height, false);
     layout_active_ = false;
+    // Field frames belong to the body; repaint them with their moved fields.
+    InvalidateRect(body_, nullptr, FALSE);
     if (previous_scroll != scroll_) Layout();
   }
 
@@ -900,6 +956,9 @@ class Application final : public CBootstrapperApplicationBase {
     EnableWindow(C(secondary), !options_busy_);
     EnableWindow(C(tertiary), !options_busy_);
     Show(title); Show(subtitle); Show(primary);
+    mark_ = ResultMark();
+    Show(status_mark, mark_ != paint::Mark::none);
+    InvalidateRect(C(status_mark), nullptr, FALSE);
     Text(primary, "close"); Text(secondary, "cancel");
     const std::string_view heading = page_ == Page::detecting ? "detecting" :
       page_ == Page::license ? "license" : page_ == Page::files_in_use ? "uninstall_files_in_use" : page_ == Page::working ?
@@ -918,7 +977,8 @@ class Application final : public CBootstrapperApplicationBase {
     if (preview_) SetWindowTextW(window_.load(), (L("setup_title") + L" — " + L("preview")).c_str());
     else SetWindowTextW(window_.load(), L("setup_title").c_str());
     if (page_ == Page::ready) {
-      Show(version);
+      // Cleanup has no version to install; the version line would only distract.
+      Show(version, mode_ != Mode::residual);
       std::wstring versions = current_version_.empty() ? L"" : L("current_version") + L": " + current_version_ + L"   ";
       versions += L("target_version") + L": " + target_version_;
       SetWindowTextW(C(version), versions.c_str());
@@ -1019,7 +1079,7 @@ class Application final : public CBootstrapperApplicationBase {
 
   std::string_view WorkingSubtitleKey() const {
     if (!cancel_requested_ && !CanReturnCancellation(cancel_stage_, native_cancel_enabled_, true)) return "wait_no_cancel";
-    return page_ == Page::working ? "install_scope" : "detecting";
+    return page_ == Page::working ? "working_note" : "detecting";
   }
 
   void SetTextIfChanged(int id, const std::wstring& text) {
@@ -1089,10 +1149,11 @@ class Application final : public CBootstrapperApplicationBase {
 
   // Copies a rendered canvas to `dc`. A mirrored (RTL) DC maps the
   // destination but not DIB contents, so the canvas is reversed to match.
-  static void Blit(HDC dc, int left, int top, const paint::Canvas& source) {
+  // Glyphs pass `mirror = false` to keep their orientation.
+  static void Blit(HDC dc, int left, int top, const paint::Canvas& source, bool mirror = true) {
     if (!source.Width() || !source.Height()) return;
     paint::Canvas canvas = source;
-    if (GetLayout(dc) & LAYOUT_RTL) canvas.Mirror();
+    if (mirror && (GetLayout(dc) & LAYOUT_RTL)) canvas.Mirror();
     BITMAPINFO info{};
     info.bmiHeader.biSize = sizeof(info.bmiHeader);
     info.bmiHeader.biWidth = canvas.Width(); info.bmiHeader.biHeight = -canvas.Height();
@@ -1191,6 +1252,8 @@ class Application final : public CBootstrapperApplicationBase {
     cancel_requested_ = false; bar_ = {}; bar_motion_ = {}; preview_tick_ = 0; scroll_ = 0;
     last_cache_percent_ = MAXDWORD; last_execute_percent_ = MAXDWORD;
     cancel_stage_ = CancelStage::running; native_cancel_enabled_ = true; detail_stage_ = "planning";
+    step_context_ = action == BOOTSTRAPPER_ACTION_UNINSTALL ? StepContext::uninstall :
+      mode_ == Mode::upgrade ? StepContext::upgrade : StepContext::install;
     EnterCriticalSection(&m_csCanceled); m_fCanceled = FALSE; LeaveCriticalSection(&m_csCanceled);
     Render();
     if (preview_) { SetTimer(window_.load(), kPreviewTimer, 90, nullptr); return; }
@@ -1241,7 +1304,12 @@ class Application final : public CBootstrapperApplicationBase {
     if (!ValidInstallFolder(folder)) { Fail(E_INVALIDARG, "uninstall_helper_failed", true); return; }
     DWORD error = 0;
     const auto helper = (std::filesystem::path(folder) / L"usque-uninstall.exe").wstring();
-    if (!Launch(helper, L"--wait-for-pid " + std::to_wstring(GetCurrentProcessId()), &error)) {
+    // The uninstall window opens where this window is, so the hand-off does
+    // not jump. The helper clamps the origin to that monitor's work area.
+    RECT frame{}; GetWindowRect(window_.load(), &frame);
+    const auto arguments = L"--wait-for-pid " + std::to_wstring(GetCurrentProcessId()) + L" --window-origin=" +
+      std::to_wstring(frame.left) + L"," + std::to_wstring(frame.top);
+    if (!Launch(helper, arguments, &error)) {
       Fail(HRESULT_FROM_WIN32(error), "uninstall_helper_failed"); return;
     }
     Quit(0);
@@ -1349,7 +1417,7 @@ class Application final : public CBootstrapperApplicationBase {
       case EventType::detected: Detected(event.result); break;
       case EventType::planned:
         if (FAILED(event.result)) Fail(event.result);
-        else { status_key_ = action_ == BOOTSTRAPPER_ACTION_UNINSTALL ? "uninstalling" : "installing";
+        else { status_key_ = action_ == BOOTSTRAPPER_ACTION_UNINSTALL ? "uninstall_preparing" : "planning";
           Render(); const HRESULT result = m_pEngine->Apply(window_.load()); if (FAILED(result)) Fail(result); }
         break;
       case EventType::applied: Completed(event); break;
@@ -1568,11 +1636,36 @@ class Application final : public CBootstrapperApplicationBase {
         // WS_CLIPCHILDREN preserves control pixels while repainting every
         // uncovered part of this scrollable viewport with the current theme.
         FillRect(dc, &ps.rcPaint, app->background_);
+        app->PaintFields(dc);
         EndPaint(hwnd, &ps);
         return 0;
       }
       default: return DefSubclassProc(hwnd, message, wparam, lparam);
     }
+  }
+
+  paint::Mark ResultMark() const {
+    switch (page_) {
+      case Page::complete: return finish_.reboot ? paint::Mark::caution : paint::Mark::success;
+      case Page::options_failed: return paint::Mark::caution;
+      case Page::failed: return paint::Mark::danger;
+      case Page::cancelled: return paint::Mark::neutral;
+      default: return paint::Mark::none;
+    }
+  }
+
+  void DrawStatusMark(const DRAWITEMSTRUCT& draw) {
+    const auto& tokens = ThemeTokens(dark_);
+    const auto rgb = [](COLORREF value) { return paint::Rgb::FromColorref(value); };
+    const COLORREF tone = mark_ == paint::Mark::success ? tokens.success : mark_ == paint::Mark::caution ? tokens.caution :
+      mark_ == paint::Mark::danger ? tokens.danger : tokens.muted;
+    const COLORREF soft = mark_ == paint::Mark::success ? tokens.success_soft : mark_ == paint::Mark::caution ?
+      tokens.caution_soft : mark_ == paint::Mark::danger ? tokens.danger_soft : tokens.pressed;
+    paint::MarkColors colors{rgb(background_color_), rgb(soft), rgb(tone), false, {}};
+    if (high_contrast_) colors = {rgb(background_color_), rgb(background_color_), rgb(text_color_), true, rgb(text_color_)};
+    // Glyphs keep their orientation in right-to-left layouts.
+    Blit(draw.hDC, draw.rcItem.left, draw.rcItem.top,
+      paint::RenderMark(draw.rcItem.right - draw.rcItem.left, mark_, colors), false);
   }
 
   void DrawButton(const DRAWITEMSTRUCT& draw) {
@@ -1583,7 +1676,10 @@ class Application final : public CBootstrapperApplicationBase {
     const bool accent = (draw.CtlID == primary && emphasis == FooterButton::primary) ||
       (draw.CtlID == secondary && emphasis == FooterButton::secondary);
     const bool disclosure = draw.CtlID == more;
-    const auto kind = accent ? paint::ButtonKind::filled : disclosure ? paint::ButtonKind::text : paint::ButtonKind::outlined;
+    // The leading footer action (details, or close beside uninstall) is a text
+    // action, matching the uninstall window and Flutter's TextButton.
+    const auto kind = accent ? paint::ButtonKind::filled :
+      disclosure || draw.CtlID == tertiary ? paint::ButtonKind::text : paint::ButtonKind::outlined;
     const auto look = high_contrast_ ? SystemButtonLook(kind, enabled) :
       paint::ButtonLookFor(kind, enabled, pressed, ThemeTokens(dark_));
     const RECT item = draw.rcItem;
@@ -1654,24 +1750,27 @@ class Application final : public CBootstrapperApplicationBase {
     auto* app = reinterpret_cast<Application*>(reference);
     const LRESULT result = DefSubclassProc(hwnd, message, wparam, lparam);
     if (message == WM_SIZE) {
+      // The rounded frame adds the outer padding; keep the native RichEdit
+      // scroll, input and accessibility behavior inside it.
       RECT text{}; GetClientRect(hwnd, &text);
-      InflateRect(&text, -app->Scale(10), -app->Scale(8));
+      InflateRect(&text, -app->Scale(4), -app->Scale(2));
       SendMessageW(hwnd, EM_SETRECT, 0, reinterpret_cast<LPARAM>(&text));
     }
-    if (message == WM_PAINT || message == WM_PRINTCLIENT) {
-      // Keep the native RichEdit scroll/input/accessibility behavior. A client
-      // frame avoids the bright WS_EX_CLIENTEDGE border in the dark palette;
-      // RichEdit also hides its scrollbar when all text already fits.
-      const HDC dc = message == WM_PAINT ? GetDC(hwnd) : reinterpret_cast<HDC>(wparam);
-      const int saved = SaveDC(dc);
-      RECT area{}; GetClientRect(hwnd, &area);
-      const HPEN pen = CreatePen(PS_SOLID, app->Scale(1), app->BorderColor());
-      SelectObject(dc, pen); SelectObject(dc, GetStockObject(NULL_BRUSH));
-      Rectangle(dc, area.left, area.top, area.right, area.bottom);
-      RestoreDC(dc, saved); DeleteObject(pen);
-      if (message == WM_PAINT) ReleaseDC(hwnd, dc);
-    }
+    if (message == WM_SETFOCUS || message == WM_KILLFOCUS) app->InvalidateField(GetDlgCtrlID(hwnd));
     return result;
+  }
+
+  static LRESULT CALLBACK FieldProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam,
+                                    UINT_PTR, DWORD_PTR reference) {
+    auto* app = reinterpret_cast<Application*>(reference);
+    const LRESULT result = DefSubclassProc(hwnd, message, wparam, lparam);
+    if (message == WM_SETFOCUS || message == WM_KILLFOCUS) app->InvalidateField(GetDlgCtrlID(hwnd));
+    return result;
+  }
+
+  void InvalidateField(int id) {
+    const RECT frame = FieldFrame(id);
+    InvalidateRect(body_, &frame, FALSE);
   }
 
   static LRESULT CALLBACK ComboProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam,
@@ -1684,12 +1783,19 @@ class Application final : public CBootstrapperApplicationBase {
       PAINTSTRUCT ps{}; const HDC dc = BeginPaint(hwnd, &ps);
       RECT area{}; GetClientRect(hwnd, &area);
       const int saved = SaveDC(dc);
-      const HBRUSH fill = CreateSolidBrush(app->FieldColor());
-      FillRect(dc, &area, fill); DeleteObject(fill);
+      // A rounded filled field like Flutter's dropdowns; focus shows as the
+      // accent border instead of a dotted rectangle.
+      const auto rgb = [](COLORREF value) { return paint::Rgb::FromColorref(value); };
+      const bool focused = GetFocus() == hwnd;
+      paint::Canvas canvas(area.right, area.bottom, rgb(app->background_color_));
+      const paint::Rect shape{0.0f, 0.0f, static_cast<float>(area.right), static_cast<float>(area.bottom)};
+      const float radius = app->ScaleF(static_cast<float>(kRadiusControl));
+      canvas.FillRounded(shape, radius, rgb(app->FieldColor()));
+      const COLORREF border = app->high_contrast_ ? app->SystemColor(focused ? COLOR_HIGHLIGHT : COLOR_WINDOWTEXT) :
+        focused ? ThemeTokens(app->dark_).primary : ThemeTokens(app->dark_).hairline;
+      canvas.StrokeRounded(shape, radius, (std::max)(1.0f, app->ScaleF(focused ? kStrokeStrong : 1.0f)), rgb(border));
+      Blit(dc, 0, 0, canvas);
       const COLORREF ink = IsWindowEnabled(hwnd) ? app->text_color_ : app->MutedColor();
-      const HPEN pen = CreatePen(PS_SOLID, app->Scale(1), app->BorderColor());
-      SelectObject(dc, pen); SelectObject(dc, GetStockObject(NULL_BRUSH));
-      Rectangle(dc, area.left, area.top, area.right, area.bottom);
       COMBOBOXINFO info{sizeof(info)}; GetComboBoxInfo(hwnd, &info);
       RECT bounds = info.rcItem;
       bounds.left += app->Scale(10); bounds.right -= app->Scale(8);
@@ -1702,10 +1808,7 @@ class Application final : public CBootstrapperApplicationBase {
       SelectObject(dc, arrow);
       MoveToEx(dc, x - app->Scale(4), y - app->Scale(2), nullptr);
       LineTo(dc, x, y + app->Scale(2)); LineTo(dc, x + app->Scale(4), y - app->Scale(2));
-      if (GetFocus() == hwnd && !(SendMessageW(hwnd, WM_QUERYUISTATE, 0, 0) & UISF_HIDEFOCUS)) {
-        RECT focus = area; InflateRect(&focus, -app->Scale(3), -app->Scale(3)); DrawFocusRect(dc, &focus);
-      }
-      RestoreDC(dc, saved); DeleteObject(pen); DeleteObject(arrow);
+      RestoreDC(dc, saved); DeleteObject(arrow);
       EndPaint(hwnd, &ps); return 0;
     }
     if (message == WM_ERASEBKGND && (!app->high_contrast_ || app->PreviewContrast())) return 1;
@@ -1726,19 +1829,17 @@ class Application final : public CBootstrapperApplicationBase {
       // Flutter's WarningBanner: the caution tone at 10% fill and 30% border.
       const auto& tokens = ThemeTokens(app->dark_);
       const COLORREF amber = app->high_contrast_ ? app->SystemColor(COLOR_WINDOWTEXT) : tokens.caution;
-      paint::Canvas canvas(area.right, area.bottom, paint::Rgb::FromColorref(app->background_color_));
-      const paint::Rect shape{0.0f, 0.0f, static_cast<float>(area.right), static_cast<float>(area.bottom)};
-      const float radius = app->ScaleF(static_cast<float>(kRadiusControl));
-      if (!app->high_contrast_) canvas.FillRounded(shape, radius, paint::Rgb::FromColorref(tokens.caution_fill));
-      canvas.StrokeRounded(shape, radius, (std::max)(1.0f, app->ScaleF(1.0f)),
-        paint::Rgb::FromColorref(app->high_contrast_ ? amber : tokens.caution_border));
-      Blit(dc, 0, 0, canvas);
-      int y = app->Scale(12);
+      const auto rgb = [](COLORREF value) { return paint::Rgb::FromColorref(value); };
+      const paint::NoticeColors colors{rgb(app->background_color_),
+        rgb(app->high_contrast_ ? app->background_color_ : tokens.caution_fill),
+        rgb(app->high_contrast_ ? amber : tokens.caution_border), rgb(amber)};
+      Blit(dc, 0, 0, paint::RenderNotice(area.right, area.bottom, false, colors, app->ScaleF(1.0f)));
+      int y = app->Scale(13);
       SetBkMode(dc, TRANSPARENT);
       for (const auto& row : app->option_rows_) {
         SelectObject(dc, row.done ? app->secondary_font_ : app->strong_font_);
         SetTextColor(dc, row.done ? app->MutedColor() : amber);
-        RECT bounds{app->Scale(16), y, area.right - app->Scale(16), area.bottom};
+        RECT bounds{app->Scale(kNoticeTextStart), y, area.right - app->Scale(10), area.bottom};
         const auto text = app->OptionRowText(row);
         RECT measured = bounds;
         DrawTextW(dc, text.c_str(), -1, &measured, DT_CALCRECT | DT_WORDBREAK | DT_NOPREFIX);
@@ -1803,7 +1904,7 @@ class Application final : public CBootstrapperApplicationBase {
       } else {
         canvas.StrokeRounded(shape, radius, (std::max)(1.0f, app->ScaleF(kStrokeStrong)), outline);
       }
-      Blit(dc, left, top, canvas);
+      Blit(dc, left, top, canvas, false);
       const auto old_font = SelectObject(dc, app->font_);
       SetBkMode(dc, TRANSPARENT); SetTextColor(dc, ink);
       RECT text = rect; text.left = left + box + app->Scale(12);
@@ -1836,6 +1937,8 @@ class Application final : public CBootstrapperApplicationBase {
       case WM_DRAWITEM:
         if (reinterpret_cast<DRAWITEMSTRUCT*>(lparam)->CtlType == ODT_COMBOBOX)
           app->DrawComboItem(*reinterpret_cast<DRAWITEMSTRUCT*>(lparam));
+        else if (reinterpret_cast<DRAWITEMSTRUCT*>(lparam)->CtlType == ODT_STATIC)
+          app->DrawStatusMark(*reinterpret_cast<DRAWITEMSTRUCT*>(lparam));
         else app->DrawButton(*reinterpret_cast<DRAWITEMSTRUCT*>(lparam));
         return TRUE;
       case WM_MEASUREITEM:
@@ -1903,7 +2006,9 @@ class Application final : public CBootstrapperApplicationBase {
           else if (tick >= 14 && tick <= 37) app->bar_.Execute((tick - 13) * 4);
           else if (tick >= 38 && tick <= 42) app->bar_.Execute(60 + (tick - 38) * 10);
           app->native_cancel_enabled_ = tick < 25 || tick > 31;
-          app->status_key_ = tick < 4 ? "planning" : tick < 25 ? "installing" : tick < 32 ? "uninstall_closing_apps" : "installing";
+          // Step names as an upgrade reports them; the title stays "Installing".
+          app->status_key_ = tick < 14 ? "planning" : tick < 25 ? "step_files" : tick < 32 ? "uninstall_closing_apps" :
+            tick < 38 ? "step_replacing" : tick < 41 ? "step_services" : "step_finishing";
           app->ApplyBar(); app->RefreshWorking();
           if (tick >= 44) { KillTimer(hwnd, kPreviewTimer); app->Completed({EventType::applied}); }
         }
@@ -1912,6 +2017,7 @@ class Application final : public CBootstrapperApplicationBase {
         const HDC dc = reinterpret_cast<HDC>(wparam);
         const int id = GetDlgCtrlID(reinterpret_cast<HWND>(lparam));
         SetTextColor(dc, id == folder_error ? app->ErrorColor() : IsSecondaryText(id) ? app->MutedColor() : app->text_color_);
+        if (id == folder_edit) { SetBkColor(dc, app->FieldColor()); return reinterpret_cast<LRESULT>(app->field_brush_); }
         SetBkColor(dc, app->background_color_);
         return reinterpret_cast<LRESULT>(app->background_);
       }
@@ -1951,6 +2057,8 @@ class Application final : public CBootstrapperApplicationBase {
   std::string detail_stage_ = "detecting";
   HRESULT result_ = S_OK;
   SetupProgress bar_;
+  paint::Mark mark_ = paint::Mark::none;
+  std::atomic<StepContext> step_context_{StepContext::install};
   paint::BarMotion bar_motion_;
   paint::BarLook bar_look_;
   ULONGLONG frame_at_ = 0;
@@ -1977,7 +2085,8 @@ class Application final : public CBootstrapperApplicationBase {
   bool layout_active_ = false;
   bool theme_active_ = false;
   HFONT font_ = nullptr, title_font_ = nullptr, secondary_font_ = nullptr, strong_font_ = nullptr;
-  HBRUSH background_ = nullptr;
+  HBRUSH background_ = nullptr, field_brush_ = nullptr;
+  std::array<RECT, 3> field_frames_{};
   HMODULE rich_edit_ = nullptr;
   COLORREF background_color_ = kLightTokens.canvas, text_color_ = kLightTokens.ink;
 };

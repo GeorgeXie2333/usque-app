@@ -84,6 +84,34 @@ inline CancelStage ActionCancelStage(std::wstring_view action, CancelStage curre
   return current;  // The boundary remains closed until the transaction ends.
 }
 
+enum class StepContext { install, upgrade, uninstall };
+
+// The working-page step for an MSI action. An empty key keeps the current
+// step, so unlisted actions never replace a meaningful one. Removal steps only
+// appear when an older version or the product itself is being removed; a fresh
+// installation still runs those standard actions without effect.
+inline std::string_view SetupStepKey(std::wstring_view action, StepContext context) {
+  if (action == L"Rollback") return "rolling_back";
+  const bool removing = context != StepContext::install;
+  if (removing && action == L"StopServices") return "uninstall_closing_apps";
+  if (removing && (action == L"EmergencyRemoveKillSwitch" || action == L"RecoverAgentState"))
+    return "uninstall_restoring_network";
+  if (context == StepContext::uninstall) {
+    if (action == L"PurgeUserData") return "uninstall_deleting_data";
+    if (action == L"RemoveFiles") return "uninstall_removing_files";
+    if (action == L"FinalizeAgentUninstall") return "uninstall_registration";
+    return {};
+  }
+  if (action == L"InstallValidate" || action == L"InstallInitialize") return "planning";
+  if (action == L"InstallFiles" || action == L"MoveFiles" || action == L"DuplicateFiles" ||
+      (removing && (action == L"RemoveFiles" || action == L"RemoveDuplicateFiles"))) return "step_files";
+  if (action == L"InstallServices" || action == L"StartServices" || action == L"ValidateAgentStartup" ||
+      (removing && action == L"DeleteServices")) return "step_services";
+  if (removing && action == L"RemoveExistingProducts") return "step_replacing";
+  if (action == L"PublishFeatures" || action == L"PublishProduct" || action == L"RegisterProduct") return "step_finishing";
+  return {};
+}
+
 inline std::string DiagnosticToken(std::wstring_view value) {
   if (value.empty() || value.size() > 64) return "unknown";
   std::string result;

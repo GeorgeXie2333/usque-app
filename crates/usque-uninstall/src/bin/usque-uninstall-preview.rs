@@ -12,11 +12,12 @@ fn preview_arguments(arguments: impl IntoIterator<Item = String>) -> Result<Vec<
             || argument.starts_with("--preview=")
             || argument.starts_with("--preview-locale=")
             || argument.starts_with("--preview-theme=")
+            || argument.starts_with("--window-origin=")
         {
             result.push(argument);
         } else {
             return Err(
-                "This preview only accepts preview scenario, language, and theme options."
+                "This preview only accepts preview scenario, language, theme, and window position options."
                     .to_owned(),
             );
         }

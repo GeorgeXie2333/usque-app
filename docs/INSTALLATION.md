@@ -173,7 +173,8 @@ does not match the release.
    installation folder** to choose another location, or **Language** to change
    the installer's language. Usque's app language is configured separately.
 3. Choose **Install** and approve Windows' administrator request. Progress and
-   the result stay in the same installer window.
+   the result stay in the same installer window, which names the current step,
+   such as updating program files or setting up the background service.
 4. On **Installation complete**, optionally select **Create a desktop shortcut**
    (off by default). **Open Usque after setup** is selected by default. Under
    **More options**, **Start Usque when I sign in to Windows** reads your existing
@@ -252,15 +253,15 @@ The implementation and recovery ordering are documented in
    choose Usque's uninstall action.
 2. Leave **Also delete my local data** unchecked to keep your accounts, profiles,
    settings, logs, caches and saved credentials for a later reinstall. Selecting
-   it changes the final button to **Uninstall and delete data** and permanently
-   deletes only the current Windows user's Usque data.
+   it shows a warning and changes the final button to **Uninstall and delete
+   data**, which permanently deletes only the current Windows user's Usque data.
 3. Choose **Uninstall** and keep the window open until it shows the result.
    Windows may ask for administrator approval separately for removal and
    installer-record cleanup. The window reports each stage; when a stage cannot
    be cancelled, wait for it to finish.
 
-You can also reopen the installer EXE and choose **Uninstall** to use the same
-window. If the program was removed but its installer records could not be
+You can also reopen the installer EXE and choose **Uninstall**; the same
+uninstall window opens where the installer window was. If the program was removed but its installer records could not be
 cleaned up, **Retry** repeats only that cleanup. Other failures return to the
 confirmation page after checking the installed state; deleting personal data
 is never automatically retried. A deletion that already started may have

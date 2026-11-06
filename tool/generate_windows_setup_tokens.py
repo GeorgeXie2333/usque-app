@@ -56,6 +56,13 @@ def load(path: Path = SOURCE) -> dict[str, object]:
             raise ValueError(f"Invalid token name: {name}")
         for theme in THEMES:
             palettes[theme][name] = parse_hex(entry[theme])
+    ratios: dict[str, dict[str, float]] = {theme: {} for theme in THEMES}
+    for name, entry in tokens.get("ratios", {}).items():
+        for theme in THEMES:
+            value = entry[theme]
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 < value < 1:
+                raise ValueError(f"Ratios must be between 0 and 1: {name}")
+            ratios[theme][name] = float(value)
     for name, rule in tokens["derived"].items():
         if name in palettes["light"]:
             raise ValueError(f"Derived token shadows a color: {name}")
@@ -64,7 +71,9 @@ def load(path: Path = SOURCE) -> dict[str, object]:
             palette = palettes[theme]
             if kind == "mix":
                 tone, base, amount = arguments
-                palette[name] = mix(palette[tone], palette[base], float(amount))
+                # A named ratio such as Flutter's tint differs per theme.
+                amount = ratios[theme][amount] if isinstance(amount, str) else float(amount)
+                palette[name] = mix(palette[tone], palette[base], amount)
             elif kind == "scale":
                 color, factor = arguments
                 palette[name] = scale(palette[color], float(factor))

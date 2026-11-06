@@ -7,8 +7,9 @@ use super::{
 use crate::{
     UninstallError, UninstallRequest, l10n,
     paint::{
-        BarColors, BarLook, BarMotion, ButtonKind, ButtonLook, Canvas, Rect, Rgb, button_look,
-        render_bar,
+        BarColors, BarLook, BarMotion, ButtonKind, ButtonLook, Canvas, Mark, MarkColors,
+        NOTICE_GAP, NOTICE_ICON, NOTICE_PADDING, NOTICE_TOP, NOTICE_TRAILING, NoticeColors, Rect,
+        Rgb, button_look, render_bar, render_mark, render_notice,
     },
     state::{
         BAR_COMPLETE, Bar, Lifecycle, Outcome, PREVIEW_UNINSTALL, Preview, PreviewStep,
@@ -27,7 +28,7 @@ use std::{
     time::Instant,
 };
 use windows_sys::Win32::{
-    Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, RECT, WPARAM},
+    Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM},
     Graphics::{
         Dwm::{DWMWA_USE_IMMERSIVE_DARK_MODE, DwmSetWindowAttribute},
         Gdi::*,
@@ -64,6 +65,8 @@ const BADGE: i32 = 112;
 const SAVE: i32 = 113;
 const VIEWPORT: i32 = 114;
 const WARNING_ACCENT: i32 = 115;
+/// Decorative result mark above the title of a finished page.
+const GLYPH: i32 = 116;
 const TIMER: usize = 1;
 /// Repaints only the custom-drawn progress bar while it animates.
 const ANIMATION: usize = 2;
@@ -106,6 +109,16 @@ struct PaintStyle {
     bar: BarLook,
     /// The critical notice reports possible data loss rather than a choice.
     warning_danger: bool,
+    critical: bool,
+    notice_fill: u32,
+    notice_brush: HBRUSH,
+    field: u32,
+    field_brush: HBRUSH,
+    /// The rounded frame around DETAIL, in viewport coordinates.
+    detail_frame: RECT,
+    /// The confirmation will also delete data; its action uses the danger tone.
+    destructive: bool,
+    mark: Option<Mark>,
 }
 
 struct NativeThemeRequest(HWND);
@@ -150,15 +163,28 @@ struct Palette {
     foreground: u32,
     muted: u32,
     brush: HBRUSH,
+    field: u32,
+    field_brush: HBRUSH,
+    caution_fill: u32,
+    caution_brush: HBRUSH,
+    danger_fill: u32,
+    danger_brush: HBRUSH,
     dark: bool,
     high_contrast: bool,
     native_high_contrast: bool,
 }
 impl Drop for Palette {
     fn drop(&mut self) {
-        // SAFETY: this palette uniquely owns its solid background brush.
+        // SAFETY: this palette uniquely owns its solid brushes.
         unsafe {
-            DeleteObject(self.brush);
+            for brush in [
+                self.brush,
+                self.field_brush,
+                self.caution_brush,
+                self.danger_brush,
+            ] {
+                DeleteObject(brush);
+            }
         }
     }
 }
@@ -213,6 +239,7 @@ struct State {
     bar_look: BarLook,
     frame_at: Option<Instant>,
     animating: bool,
+    detail_frame: RECT,
     paint: Box<Cell<PaintStyle>>,
 }
 
@@ -254,6 +281,7 @@ impl State {
             bar_look: BarLook::default(),
             frame_at: None,
             animating: false,
+            detail_frame: RECT::default(),
             paint: Box::new(Cell::new(PaintStyle::default())),
         }
     }
@@ -278,11 +306,8 @@ impl State {
         } else if self.prompt.is_some() {
             "uninstall_failed"
         } else if self.page == Page::Running {
-            if self.lifecycle.stage == Stage::Registration {
-                "uninstall_registration"
-            } else {
-                "uninstall_progress_note"
-            }
+            // The stage line already names registration cleanup.
+            "uninstall_progress_note"
         } else {
             "uninstall_body"
         }
@@ -292,11 +317,8 @@ impl State {
         if self.prompt.as_ref().is_some_and(|p| p.files_in_use) {
             Some("close_apps_save_work")
         } else if self.page == Page::Confirm {
-            Some(if self.remove_data {
-                "uninstall_delete_warning"
-            } else {
-                "retained_data"
-            })
+            // An unchecked deletion choice already says nothing is deleted.
+            self.remove_data.then_some("uninstall_delete_warning")
         } else if let Some(result) = &self.result {
             if result.outcome == Outcome::DataMayBeDeleted {
                 Some("uninstall_partial_data")
@@ -717,6 +739,7 @@ pub fn run(
     preview: Option<Preview>,
     requested_locale: Option<&str>,
     preview_theme: Option<PreviewTheme>,
+    origin: Option<(i32, i32)>,
 ) -> Result<i32, UninstallError> {
     let _accessibility_apartment = super::accessibility::Apartment::enter();
     let class = wide(CLASS);
@@ -793,7 +816,7 @@ pub fn run(
         }
         set_fonts(hwnd, &state);
         apply_layout_direction(hwnd, &state);
-        center(hwnd, state.dpi);
+        place(hwnd, state.dpi, origin);
         apply_title_theme(hwnd, state.palette.dark);
         apply_progress_theme(hwnd, &state.palette);
         state.applied_bar = None;
@@ -867,6 +890,8 @@ extern "system" fn window_proc(
         if let Some(style) = paint_style(hwnd) {
             if item.CtlID == WARNING_ACCENT as u32 {
                 draw_warning_accent(item, style);
+            } else if item.CtlID == GLYPH as u32 {
+                draw_mark(item, style);
             } else {
                 draw_button(item, style);
             }
@@ -889,21 +914,9 @@ extern "system" fn window_proc(
         WM_CTLCOLORSTATIC | WM_CTLCOLOREDIT | WM_CTLCOLORBTN
     ) && let Some(style) = paint_style(hwnd)
     {
-        // SAFETY: the supplied child DC is live. The independent paint Cell
-        // remains readable even during synchronous child-window layout messages.
-        unsafe {
-            SetTextColor(
-                wparam as HDC,
-                if GetDlgCtrlID(lparam as HWND) == DESCRIPTION {
-                    style.muted
-                } else {
-                    style.foreground
-                },
-            );
-            SetBkColor(wparam as HDC, style.background);
-            SetBkMode(wparam as HDC, TRANSPARENT as i32);
-        }
-        return style.brush as LRESULT;
+        // The independent paint Cell remains readable even during synchronous
+        // child-window layout messages.
+        return child_colors(wparam as HDC, lparam as HWND, &style);
     }
     if message == WM_DESTROY {
         // SAFETY: destruction can be reentrant while a button handler borrows
@@ -1063,21 +1076,7 @@ extern "system" fn window_proc(
                     return 0;
                 }
                 WM_CTLCOLORSTATIC | WM_CTLCOLOREDIT | WM_CTLCOLORBTN => {
-                    let dc = wparam as HDC;
-                    // SAFETY: Windows supplies this live DC for child painting.
-                    unsafe {
-                        SetTextColor(
-                            dc,
-                            if lparam as HWND == control(hwnd, DESCRIPTION) {
-                                state.palette.muted
-                            } else {
-                                state.palette.foreground
-                            },
-                        );
-                        SetBkColor(dc, state.palette.background);
-                        SetBkMode(dc, TRANSPARENT as i32);
-                    }
-                    return state.palette.brush as LRESULT;
+                    return child_colors(wparam as HDC, lparam as HWND, &state.paint.get());
                 }
                 WM_ERASEBKGND => {
                     let mut rect = RECT::default();
@@ -1152,7 +1151,13 @@ fn create_controls(
         (WARNING, "STATIC", 0),
         // An empty native owner-drawn static is decoration only. WARNING keeps
         // its native text, print handling, and accessible name independently.
-        (WARNING_ACCENT, "STATIC", STATIC_OWNER_DRAW),
+        // Drawn below WARNING's text, so it clips against that sibling.
+        (
+            WARNING_ACCENT,
+            "STATIC",
+            STATIC_OWNER_DRAW | WS_CLIPSIBLINGS,
+        ),
+        (GLYPH, "STATIC", STATIC_OWNER_DRAW),
         (STATUS, "STATIC", 0),
         (BADGE, "STATIC", 0),
         (
@@ -1200,6 +1205,18 @@ fn create_controls(
             return Err(last_error("create uninstall control"));
         }
         state.controls.push(child);
+        if id == DETAIL {
+            // SAFETY: the stable paint Cell lives longer than this edit. The
+            // subclass only repaints its frame on focus changes.
+            unsafe {
+                SetWindowSubclass(
+                    child,
+                    Some(field_proc),
+                    4,
+                    ptr::from_ref(state.paint.as_ref()) as usize,
+                );
+            }
+        }
         if id == CHECK {
             // SAFETY: the stable paint Cell lives longer than this checkbox.
             unsafe {
@@ -1413,8 +1430,31 @@ fn render(hwnd: HWND, state: &mut State) {
         );
         ShowWindow(
             control(hwnd, STATUS),
-            if running { SW_SHOW } else { SW_HIDE },
+            if running && state.prompt.is_none() {
+                SW_SHOW
+            } else {
+                SW_HIDE
+            },
         );
+        // An empty warning row would still take layout space.
+        ShowWindow(
+            control(hwnd, WARNING),
+            if state.warning_key().is_some() {
+                SW_SHOW
+            } else {
+                SW_HIDE
+            },
+        );
+        let glyph = control(hwnd, GLYPH);
+        ShowWindow(
+            glyph,
+            if state.result.is_some() {
+                SW_SHOW
+            } else {
+                SW_HIDE
+            },
+        );
+        InvalidateRect(glyph, ptr::null(), 0);
         ShowWindow(
             control(hwnd, PROGRESS),
             if running && state.prompt.is_none() {
@@ -1645,8 +1685,10 @@ fn layout(hwnd: HWND, state: &mut State) {
     let viewport = (height - footer).max(1);
     let mut y = scale(24);
     let mut items = Vec::new();
+    let mut frame = RECT::default();
     for id in [
         BADGE,
+        GLYPH,
         TITLE,
         BODY,
         CHECK,
@@ -1663,7 +1705,11 @@ fn layout(hwnd: HWND, state: &mut State) {
         if unsafe { GetWindowLongW(child, GWL_STYLE) } as u32 & WS_VISIBLE == 0 {
             continue;
         }
+        let notice_text = (body_width
+            - scale((NOTICE_PADDING + NOTICE_ICON + NOTICE_GAP + NOTICE_TRAILING) as i32))
+        .max(1);
         let h = match id {
+            GLYPH => scale(36),
             PROGRESS => scale(PROGRESS_HEIGHT),
             DETAIL => scale(112),
             SAVE => scale(36),
@@ -1675,12 +1721,7 @@ fn layout(hwnd: HWND, state: &mut State) {
             )
             .max(scale(44)),
             WARNING if state.critical_warning() => {
-                measure(
-                    hwnd,
-                    child,
-                    state.fonts.body,
-                    (body_width - scale(24)).max(1),
-                ) + scale(16)
+                measure(hwnd, child, state.fonts.body, notice_text) + scale(2 * NOTICE_TOP as i32)
             }
             _ => {
                 let font = if id == TITLE {
@@ -1699,22 +1740,40 @@ fn layout(hwnd: HWND, state: &mut State) {
         };
         let child_width = if id == SAVE {
             (text_width(hwnd, child, state.fonts.body) + scale(24)).min(body_width)
-        } else if id == WARNING && state.critical_warning() {
-            (body_width - scale(24)).max(1)
+        } else if id == GLYPH {
+            scale(36)
         } else {
             body_width
         };
         if id == WARNING && state.critical_warning() {
-            // Both controls use parent coordinates, so Windows mirrors their
-            // geometry together for RTL. Text itself remains a native STATIC.
+            // Flutter's WarningBanner: the owner-drawn accent draws the rounded
+            // notice and its icon; the native text sits after the icon. Both
+            // use parent coordinates, so Windows mirrors them together for RTL.
+            let leading = scale((NOTICE_PADDING + NOTICE_ICON + NOTICE_GAP) as i32);
             items.push((
                 child,
-                margin + scale(16),
-                y + scale(8),
-                (h - scale(16)).max(1),
-                child_width,
+                margin + leading,
+                y + scale(NOTICE_TOP as i32),
+                (h - scale(2 * NOTICE_TOP as i32)).max(1),
+                notice_text,
             ));
-            items.push((control(hwnd, WARNING_ACCENT), margin, y, h, scale(3).max(1)));
+            items.push((control(hwnd, WARNING_ACCENT), margin, y, h, body_width));
+        } else if id == DETAIL {
+            // Rounded field: the viewport paints the frame around the edit.
+            let inset = scale(6);
+            frame = RECT {
+                left: margin,
+                top: y - state.scroll,
+                right: margin + body_width,
+                bottom: y - state.scroll + h,
+            };
+            items.push((
+                child,
+                margin + inset,
+                y + inset,
+                (h - 2 * inset).max(1),
+                (body_width - 2 * inset).max(1),
+            ));
         } else {
             items.push((child, margin, y, h, child_width));
         }
@@ -1726,6 +1785,16 @@ fn layout(hwnd: HWND, state: &mut State) {
     }
     state.max_scroll = (y - viewport).max(0);
     state.scroll = state.scroll.clamp(0, state.max_scroll);
+    let same =
+        |a: RECT, b: RECT| (a.left, a.top, a.right, a.bottom) == (b.left, b.top, b.right, b.bottom);
+    if !same(frame, state.detail_frame) {
+        state.detail_frame = frame;
+        refresh_paint_style(state);
+        // SAFETY: the viewport is live; only its background and frame repaint.
+        unsafe {
+            InvalidateRect(GetDlgItem(hwnd, VIEWPORT), ptr::null(), 0);
+        }
+    }
     // SAFETY: native scrollbar state and child dimensions are bounded integers.
     unsafe {
         let info = SCROLLINFO {
@@ -1848,6 +1917,22 @@ unsafe extern "system" fn viewport_proc(
     _id: usize,
     _data: usize,
 ) -> LRESULT {
+    // SAFETY: the viewport is a child of the wizard for its full lifetime.
+    let owner = unsafe { GetParent(hwnd) };
+    if message == WM_PAINT
+        && let Some(style) = paint_style(owner)
+    {
+        // SAFETY: matched Begin/EndPaint for this viewport's paint request.
+        // WS_CLIPCHILDREN keeps every child's own pixels intact.
+        unsafe {
+            let mut paint = PAINTSTRUCT::default();
+            let dc = BeginPaint(hwnd, &mut paint);
+            FillRect(dc, &paint.rcPaint, style.brush);
+            paint_detail_frame(dc, hwnd, &style);
+            EndPaint(hwnd, &paint);
+        }
+        return 0;
+    }
     if matches!(
         message,
         WM_COMMAND
@@ -2072,13 +2157,29 @@ fn palette(preview: bool, preview_theme: Option<PreviewTheme>) -> Palette {
         let tokens = tokens::theme(dark);
         (tokens.canvas, tokens.ink, tokens.muted)
     };
-    // SAFETY: creates an owned brush for the chosen COLORREF.
-    let brush = unsafe { CreateSolidBrush(background) };
+    let tones = tokens::theme(dark);
+    let any_contrast = high_contrast || preview_theme == Some(PreviewTheme::HighContrast);
+    // High contrast keeps fields and notices on the window color.
+    let (field, caution_fill, danger_fill) = if any_contrast {
+        (background, background, background)
+    } else {
+        (tones.field, tones.caution_fill, tones.danger_fill)
+    };
+    // SAFETY: creates owned brushes for the chosen COLORREFs.
+    let [brush, field_brush, caution_brush, danger_brush] =
+        [background, field, caution_fill, danger_fill]
+            .map(|color| unsafe { CreateSolidBrush(color) });
     Palette {
         background,
         foreground,
         muted,
         brush,
+        field,
+        field_brush,
+        caution_fill,
+        caution_brush,
+        danger_fill,
+        danger_brush,
         dark,
         high_contrast: high_contrast || preview_theme == Some(PreviewTheme::HighContrast),
         native_high_contrast: high_contrast,
@@ -2251,12 +2352,51 @@ unsafe extern "system" fn progress_proc(
             style.bar,
             &bar_colors(&style),
         );
-        blit(dc, 0, 0, &canvas);
+        blit(dc, 0, 0, &canvas, true);
         if message == WM_PAINT {
             EndPaint(hwnd, &paint);
         }
     }
     0
+}
+
+/// Opens where the setup window was after a hand-off, clamped into the work
+/// area of the monitor nearest that point; otherwise centers the window.
+fn place(hwnd: HWND, dpi: u32, origin: Option<(i32, i32)>) {
+    let Some((x, y)) = origin else {
+        return center(hwnd, dpi);
+    };
+    let mut monitor = MONITORINFO {
+        cbSize: size_of::<MONITORINFO>() as u32,
+        ..Default::default()
+    };
+    // SAFETY: nearest-monitor query with a writable output structure.
+    let work = unsafe {
+        if GetMonitorInfoW(
+            MonitorFromPoint(POINT { x, y }, MONITOR_DEFAULTTONEAREST),
+            &mut monitor,
+        ) == 0
+        {
+            return center(hwnd, dpi);
+        }
+        monitor.rcWork
+    };
+    let (width, height) = window_size(hwnd, dpi);
+    let width = width.min((work.right - work.left).max(1));
+    let height = height.min((work.bottom - work.top).max(1));
+    // SAFETY: the geometry lies inside that monitor's work area. A different
+    // monitor DPI arrives as WM_DPICHANGED, which resizes the window.
+    unsafe {
+        SetWindowPos(
+            hwnd,
+            ptr::null_mut(),
+            x.clamp(work.left, work.right - width),
+            y.clamp(work.top, work.bottom - height),
+            width,
+            height,
+            SWP_NOZORDER | SWP_NOACTIVATE,
+        );
+    }
 }
 
 fn center(hwnd: HWND, dpi: u32) {
@@ -2366,6 +2506,10 @@ fn close_window(hwnd: HWND) {
 }
 
 fn refresh_paint_style(state: &State) {
+    let warning_danger = state
+        .result
+        .as_ref()
+        .is_some_and(|result| result.outcome == Outcome::DataMayBeDeleted);
     state.paint.set(PaintStyle {
         dpi: state.dpi,
         background: state.palette.background,
@@ -2383,10 +2527,30 @@ fn refresh_paint_style(state: &State) {
         },
         rtl: matches!(state.locale, "ar-SA" | "fa-IR"),
         bar: state.bar_look,
-        warning_danger: state
-            .result
-            .as_ref()
-            .is_some_and(|result| result.outcome == Outcome::DataMayBeDeleted),
+        warning_danger,
+        critical: state.critical_warning(),
+        notice_fill: if warning_danger {
+            state.palette.danger_fill
+        } else {
+            state.palette.caution_fill
+        },
+        notice_brush: if warning_danger {
+            state.palette.danger_brush
+        } else {
+            state.palette.caution_brush
+        },
+        field: state.palette.field,
+        field_brush: state.palette.field_brush,
+        detail_frame: state.detail_frame,
+        destructive: state.page == Page::Confirm && state.remove_data,
+        mark: state.result.as_ref().map(|result| match result.outcome {
+            Outcome::Success => Mark::Success,
+            Outcome::RebootRequired | Outcome::PermissionDenied | Outcome::RegistrationFailed => {
+                Mark::Caution
+            }
+            Outcome::Cancelled => Mark::Neutral,
+            Outcome::MsiFailed | Outcome::NetworkFailed | Outcome::DataMayBeDeleted => Mark::Danger,
+        }),
     });
 }
 
@@ -2445,7 +2609,7 @@ fn update_bar_look(hwnd: HWND, state: &mut State) {
 /// Copies a rendered canvas to `dc` at (`left`, `top`). A mirrored (RTL)
 /// device context maps the destination but not DIB contents, so the canvas
 /// is reversed to match: the progress fill then grows from the right.
-fn blit(dc: HDC, left: i32, top: i32, canvas: &Canvas) {
+fn blit(dc: HDC, left: i32, top: i32, canvas: &Canvas, mirror: bool) {
     let (width, height) = (canvas.width() as i32, canvas.height() as i32);
     if width == 0 || height == 0 {
         return;
@@ -2453,7 +2617,8 @@ fn blit(dc: HDC, left: i32, top: i32, canvas: &Canvas) {
     // SAFETY: GetLayout only reads the live paint DC's layout flags.
     let layout = unsafe { GetLayout(dc) };
     let mirrored;
-    let canvas = if layout & LAYOUT_RTL != 0 {
+    // Glyphs pass `mirror = false` to keep their orientation.
+    let canvas = if mirror && layout & LAYOUT_RTL != 0 {
         let mut copy = canvas.clone();
         copy.mirror();
         mirrored = copy;
@@ -2563,7 +2728,9 @@ fn draw_button(item: &DRAWITEMSTRUCT, style: PaintStyle) {
     let enabled = item.itemState & ODS_DISABLED == 0;
     let pressed = item.itemState & ODS_SELECTED != 0;
     let focused = item.itemState & ODS_FOCUS != 0 && item.itemState & ODS_NOFOCUSRECT == 0;
-    let kind = if item.CtlID == style.accent_button {
+    let kind = if item.CtlID == style.accent_button && style.destructive {
+        ButtonKind::Destructive
+    } else if item.CtlID == style.accent_button {
         ButtonKind::Filled
     } else if matches!(item.CtlID as i32, DETAILS | SAVE) {
         ButtonKind::Text
@@ -2613,7 +2780,7 @@ fn draw_button(item: &DRAWITEMSTRUCT, style: PaintStyle) {
             look.ring,
         );
     }
-    blit(item.hDC, rect.left, rect.top, &canvas);
+    blit(item.hDC, rect.left, rect.top, &canvas, true);
     let ink = u32::from(look.ink.r) | u32::from(look.ink.g) << 8 | u32::from(look.ink.b) << 16;
     // SAFETY: owner-draw supplies this DC and rectangle for the callback. The
     // selected font is restored before returning.
@@ -2647,21 +2814,152 @@ fn draw_button(item: &DRAWITEMSTRUCT, style: PaintStyle) {
     }
 }
 
-fn draw_warning_accent(item: &DRAWITEMSTRUCT, style: PaintStyle) {
-    // SAFETY: the empty owner-drawn STATIC supplies its live DC and bounds for
-    // paint/print requests. The temporary brush is never selected into a DC.
+/// Text and background for native children: notices and fields have their
+/// own surfaces; everything else sits on the window canvas.
+fn child_colors(dc: HDC, child: HWND, style: &PaintStyle) -> LRESULT {
+    // SAFETY: GetDlgCtrlID only reads the live child's identifier.
+    let id = unsafe { GetDlgCtrlID(child) };
+    let (text, background, brush) = match id {
+        DESCRIPTION => (style.muted, style.background, style.brush),
+        WARNING if style.critical => (style.foreground, style.notice_fill, style.notice_brush),
+        DETAIL => (style.foreground, style.field, style.field_brush),
+        _ => (style.foreground, style.background, style.brush),
+    };
+    // SAFETY: Windows supplies this live DC for the child's painting.
     unsafe {
-        let tones = tokens::theme(style.dark);
-        let accent = CreateSolidBrush(if style.high_contrast {
-            style.foreground
-        } else if style.warning_danger {
-            tones.danger
-        } else {
-            tones.caution
-        });
-        FillRect(item.hDC, &item.rcItem, accent);
-        DeleteObject(accent);
+        SetTextColor(dc, text);
+        SetBkColor(dc, background);
+        SetBkMode(dc, TRANSPARENT as i32);
     }
+    brush as LRESULT
+}
+
+/// The critical notice: a rounded caution or danger banner with its icon,
+/// behind WARNING's native text.
+fn draw_warning_accent(item: &DRAWITEMSTRUCT, style: PaintStyle) {
+    let tones = tokens::theme(style.dark);
+    let color = Rgb::from_colorref;
+    let colors = if style.high_contrast {
+        NoticeColors {
+            background: color(style.background),
+            fill: color(style.background),
+            border: color(style.foreground),
+            tone: color(style.foreground),
+        }
+    } else if style.warning_danger {
+        NoticeColors {
+            background: color(style.background),
+            fill: color(tones.danger_fill),
+            border: color(tones.danger_border),
+            tone: color(tones.danger),
+        }
+    } else {
+        NoticeColors {
+            background: color(style.background),
+            fill: color(tones.caution_fill),
+            border: color(tones.caution_border),
+            tone: color(tones.caution),
+        }
+    };
+    let rect = item.rcItem;
+    let canvas = render_notice(
+        (rect.right - rect.left).max(0) as usize,
+        (rect.bottom - rect.top).max(0) as usize,
+        style.warning_danger,
+        &colors,
+        style.dpi as f32 / 96.0,
+    );
+    blit(item.hDC, rect.left, rect.top, &canvas, true);
+}
+
+/// The result mark above a finished page's title. Decorative: the title
+/// states the result. Glyphs keep their orientation in RTL layouts.
+fn draw_mark(item: &DRAWITEMSTRUCT, style: PaintStyle) {
+    let Some(mark) = style.mark else {
+        return;
+    };
+    let tones = tokens::theme(style.dark);
+    let color = Rgb::from_colorref;
+    let (soft, tone) = match mark {
+        Mark::Success => (tones.success_soft, tones.success),
+        Mark::Caution => (tones.caution_soft, tones.caution),
+        Mark::Danger => (tones.danger_soft, tones.danger),
+        Mark::Neutral => (tones.pressed, tones.muted),
+    };
+    let colors = if style.high_contrast {
+        MarkColors {
+            background: color(style.background),
+            soft: color(style.background),
+            tone: color(style.foreground),
+            outline: Some(color(style.foreground)),
+        }
+    } else {
+        MarkColors {
+            background: color(style.background),
+            soft: color(soft),
+            tone: color(tone),
+            outline: None,
+        }
+    };
+    let rect = item.rcItem;
+    let canvas = render_mark((rect.right - rect.left).max(0) as usize, mark, &colors);
+    blit(item.hDC, rect.left, rect.top, &canvas, false);
+}
+
+/// Repaints DETAIL's rounded frame when focus changes its border.
+unsafe extern "system" fn field_proc(
+    hwnd: HWND,
+    message: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+    _id: usize,
+    data: usize,
+) -> LRESULT {
+    // SAFETY: forwards to the native edit, which keeps input and accessibility.
+    let result = unsafe { DefSubclassProc(hwnd, message, wparam, lparam) };
+    if matches!(message, WM_SETFOCUS | WM_KILLFOCUS) {
+        // SAFETY: create_controls supplied this Cell, owned until teardown;
+        // the parent viewport is live while its child receives focus messages.
+        unsafe {
+            let style = (*(data as *const Cell<PaintStyle>)).get();
+            InvalidateRect(GetParent(hwnd), &style.detail_frame, 0);
+        }
+    }
+    result
+}
+
+/// Paints the rounded field frame around a visible DETAIL edit.
+fn paint_detail_frame(dc: HDC, viewport: HWND, style: &PaintStyle) {
+    // SAFETY: DETAIL is a child of this live viewport; these calls only read.
+    let (visible, focused) = unsafe {
+        let detail = GetDlgItem(viewport, DETAIL);
+        (IsWindowVisible(detail) != 0, GetFocus() == detail)
+    };
+    let frame = style.detail_frame;
+    if !visible || frame.right <= frame.left || frame.bottom <= frame.top {
+        return;
+    }
+    let tones = tokens::theme(style.dark);
+    let color = Rgb::from_colorref;
+    let scale = style.dpi as f32 / 96.0;
+    let mut canvas = Canvas::new(
+        (frame.right - frame.left) as usize,
+        (frame.bottom - frame.top) as usize,
+        color(style.background),
+    );
+    let bounds = Rect::new(0.0, 0.0, canvas.width() as f32, canvas.height() as f32);
+    let radius = RADIUS_CONTROL as f32 * scale;
+    canvas.fill_rounded(bounds, radius, color(style.field));
+    let border = if style.high_contrast {
+        style.foreground
+    } else if focused {
+        tones.primary
+    } else {
+        tones.hairline
+    };
+    let width = if focused { STROKE_STRONG } else { 1.0 };
+    canvas.stroke_rounded(bounds, radius, (width * scale).max(1.0), color(border));
+    blit(dc, frame.left, frame.top, &canvas, true);
 }
 
 unsafe extern "system" fn checkbox_proc(
@@ -2730,7 +3028,7 @@ unsafe extern "system" fn checkbox_proc(
             } else {
                 canvas.stroke_rounded(bounds, radius, scalef(STROKE_STRONG).max(1.0), outline);
             }
-            blit(dc, left, top, &canvas);
+            blit(dc, left, top, &canvas, false);
             let old_font = SelectObject(dc, style.font);
             SetBkMode(dc, TRANSPARENT as i32);
             SetTextColor(dc, ink);
@@ -3064,7 +3362,8 @@ mod tests {
                 assert!(state.result.is_none());
                 assert!(state.page == Page::Running);
                 assert_eq!(state.lifecycle.stage, Stage::Registration);
-                assert_eq!(state.body_key(), "uninstall_registration");
+                assert_eq!(state.body_key(), "uninstall_progress_note");
+                assert_eq!(state.lifecycle.stage.key(), "uninstall_registration");
                 assert!(!state.lifecycle.can_cancel());
                 assert_context(state.pending_registration.as_ref().unwrap(), &original);
                 assert!(state.operation.is_none(), "preview never starts a worker");
@@ -3121,7 +3420,8 @@ mod tests {
             assert!(!failed.outcome.can_return_to_confirmation());
             assert_context(failed, &original);
             state.primary(ptr::null_mut());
-            assert_eq!(state.body_key(), "uninstall_registration");
+            assert_eq!(state.body_key(), "uninstall_progress_note");
+            assert_eq!(state.lifecycle.stage.key(), "uninstall_registration");
             assert!(!state.lifecycle.can_cancel());
             assert_context(state.pending_registration.as_ref().unwrap(), &original);
             for _ in 0..30 {

@@ -145,7 +145,8 @@ class Canvas {
 
 // Footer and inline button roles, matching Flutter's filled, outlined and
 // text buttons.
-enum class ButtonKind { filled, outlined, text };
+// `destructive` is a filled action that deletes data, in the danger tone.
+enum class ButtonKind { filled, destructive, outlined, text };
 
 struct ButtonLook {
   bool has_fill = false;
@@ -163,11 +164,18 @@ inline ButtonLook ButtonLookFor(ButtonKind kind, bool enabled, bool pressed, con
   const auto color = [](COLORREF value) { return Rgb::FromColorref(value); };
   ButtonLook look;
   look.ink = color(enabled ? (kind == ButtonKind::filled ? tokens.on_primary :
+    kind == ButtonKind::destructive ? tokens.on_danger :
     kind == ButtonKind::text ? tokens.primary : tokens.ink) : tokens.disabled_ink);
   if (kind == ButtonKind::filled) {
     look.has_fill = true;
     look.fill = color(!enabled ? tokens.disabled_fill : pressed ? tokens.primary_pressed : tokens.primary);
     look.ring = color(tokens.on_primary);
+    return look;
+  }
+  if (kind == ButtonKind::destructive) {
+    look.has_fill = true;
+    look.fill = color(!enabled ? tokens.disabled_fill : pressed ? tokens.danger_pressed : tokens.danger);
+    look.ring = color(tokens.on_danger);
     return look;
   }
   look.has_fill = enabled && pressed;
@@ -176,6 +184,72 @@ inline ButtonLook ButtonLookFor(ButtonKind kind, bool enabled, bool pressed, con
   look.border = color(enabled ? tokens.hairline_strong : tokens.hairline);
   look.ring = color(tokens.primary);
   return look;
+}
+
+// The result shown by a page's status mark. Decorative: the page title states
+// the same result in words.
+enum class Mark { none, success, caution, danger, neutral };
+
+struct MarkColors {
+  Rgb background, soft, tone;
+  bool has_outline = false;  // high contrast outlines the circle instead of tinting it
+  Rgb outline{};
+};
+
+// Draws a glyph inside the square `frame`.
+inline void Glyph(Canvas& canvas, Mark mark, Rect frame, float width, Rgb color) {
+  const float size = frame.right - frame.left;
+  const auto line = [&](float x0, float y0, float x1, float y1) {
+    canvas.Line(frame.left + x0 * size, frame.top + y0 * size, frame.left + x1 * size, frame.top + y1 * size, width, color);
+  };
+  switch (mark) {
+    case Mark::success: line(0.29f, 0.52f, 0.44f, 0.66f); line(0.44f, 0.66f, 0.71f, 0.37f); break;
+    case Mark::danger: line(0.36f, 0.36f, 0.64f, 0.64f); line(0.64f, 0.36f, 0.36f, 0.64f); break;
+    case Mark::caution: line(0.5f, 0.29f, 0.5f, 0.55f); line(0.5f, 0.70f, 0.5f, 0.70f); break;
+    case Mark::neutral: line(0.34f, 0.5f, 0.66f, 0.5f); break;
+    case Mark::none: break;
+  }
+}
+
+// A circular result mark for completion and failure pages.
+inline Canvas RenderMark(int size, Mark mark, const MarkColors& colors) {
+  Canvas canvas(size, size, colors.background);
+  const float edge = static_cast<float>(canvas.Width());
+  const Rect circle{0.0f, 0.0f, edge, edge};
+  if (colors.has_outline) canvas.StrokeRounded(circle, edge / 2.0f, (std::max)(1.0f, edge / 18.0f), colors.outline);
+  else canvas.FillRounded(circle, edge / 2.0f, colors.soft);
+  Glyph(canvas, mark, circle, (std::max)(1.5f, edge * 0.085f), colors.tone);
+  return canvas;
+}
+
+// Flutter WarningBanner geometry in logical pixels.
+inline constexpr float kNoticePadding = 14.0f, kNoticeTop = 13.0f, kNoticeIcon = 18.0f, kNoticeGap = 11.0f,
+                       kNoticeTrailing = 10.0f;
+
+struct NoticeColors { Rgb background, fill, border, tone; };
+
+// A rounded caution or danger notice with its icon; text is drawn natively at
+// kNoticePadding + kNoticeIcon + kNoticeGap from the leading edge.
+inline Canvas RenderNotice(int width, int height, bool danger, const NoticeColors& colors, float scale) {
+  Canvas canvas(width, height, colors.background);
+  const Rect bounds{0.0f, 0.0f, static_cast<float>(canvas.Width()), static_cast<float>(canvas.Height())};
+  const float radius = static_cast<float>(kRadiusControl) * scale;
+  canvas.FillRounded(bounds, radius, colors.fill);
+  canvas.StrokeRounded(bounds, radius, (std::max)(1.0f, scale), colors.border);
+  const float left = kNoticePadding * scale, top = kNoticeTop * scale, size = kNoticeIcon * scale;
+  const float stroke = (std::max)(1.0f, 1.7f * scale);
+  if (danger) {
+    const Rect icon{left, top, left + size, top + size};
+    canvas.StrokeRounded(icon, size / 2.0f, stroke, colors.tone);
+    Glyph(canvas, Mark::danger, icon, stroke, colors.tone);
+  } else {
+    const auto line = [&](float x0, float y0, float x1, float y1) {
+      canvas.Line(left + x0 * size, top + y0 * size, left + x1 * size, top + y1 * size, stroke, colors.tone);
+    };
+    line(0.5f, 0.1f, 0.06f, 0.88f); line(0.06f, 0.88f, 0.94f, 0.88f); line(0.94f, 0.88f, 0.5f, 0.1f);
+    line(0.5f, 0.38f, 0.5f, 0.60f); line(0.5f, 0.74f, 0.5f, 0.74f);
+  }
+  return canvas;
 }
 
 enum class BarLookKind { waiting, filled, halted };

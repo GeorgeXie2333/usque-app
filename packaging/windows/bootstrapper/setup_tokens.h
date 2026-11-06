@@ -18,8 +18,13 @@ struct Tokens {
   COLORREF on_primary;
   COLORREF caution;
   COLORREF danger;
+  COLORREF on_danger;
   COLORREF success;
   COLORREF primary_pressed;
+  COLORREF danger_pressed;
+  COLORREF success_soft;
+  COLORREF caution_soft;
+  COLORREF danger_soft;
   COLORREF disabled_ink;
   COLORREF disabled_fill;
   COLORREF caution_fill;
@@ -41,8 +46,13 @@ inline constexpr Tokens kLightTokens{
   0x00ffffff,  // on_primary
   0x00005ca1,  // caution
   0x001e26b3,  // danger
+  0x00ffffff,  // on_danger
   0x00578212,  // success
   0x000b48af,  // primary_pressed
+  0x001b22a1,  // danger_pressed
+  0x00dfe6da,  // success_soft
+  0x00d4e2eb,  // caution_soft
+  0x00d8dbed,  // danger_soft
   0x009fa2a3,  // disabled_ink
   0x00d7dadb,  // disabled_fill
   0x00d9e5ed,  // caution_fill
@@ -64,8 +74,13 @@ inline constexpr Tokens kDarkTokens{
   0x00001844,  // on_primary
   0x004cb2f2,  // caution
   0x00abb4ff,  // danger
+  0x00050069,  // on_danger
   0x009cde4a,  // success
   0x005394e6,  // primary_pressed
+  0x009aa2e6,  // danger_pressed
+  0x00262f18,  // success_soft
+  0x001a2832,  // caution_soft
+  0x00292935,  // danger_soft
   0x00616262,  // disabled_ink
   0x002a2829,  // disabled_fill
   0x00161e25,  // caution_fill
