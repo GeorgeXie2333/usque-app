@@ -406,7 +406,7 @@ struct ConnectionGeneration {
 }
 
 enum ResolverPool {
-    Doh([Mutex<Option<Arc<DohConnection>>>; MAX_CONNECTIONS]),
+    Doh(Box<[Mutex<Option<Arc<DohConnection>>>; MAX_CONNECTIONS]>),
     Dot(Box<[Mutex<Option<DotConnection>>; MAX_CONNECTIONS]>),
 }
 
@@ -594,7 +594,7 @@ impl EncryptedResolver {
             MAX_IN_FLIGHT * MAX_DNS_MESSAGE,
         );
         let pool = if mode == ConfigMode::Doh {
-            ResolverPool::Doh(std::array::from_fn(|_| Mutex::new(None)))
+            ResolverPool::Doh(Box::new(std::array::from_fn(|_| Mutex::new(None))))
         } else {
             ResolverPool::Dot(Box::new(std::array::from_fn(|_| Mutex::new(None))))
         };

@@ -157,7 +157,10 @@ class NativeBridgeTest(unittest.TestCase):
             timeout=30,
         )
         cls.scripts = {}
-        for platform, arguments in (("windows", ["captcha"]), ("linux", [])):
+        for platform, arguments in (
+            ("windows", ["captcha"]),
+            ("linux", []),
+        ):
             cls.scripts[platform] = subprocess.run(  # noqa: S603 - freshly compiled local script producer only.
                 [str(executable), *arguments],
                 check=True,

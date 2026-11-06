@@ -1,14 +1,23 @@
-#[cfg(all(any(windows, target_os = "linux"), feature = "wireguard"))]
+#[cfg(all(
+    any(windows, target_os = "macos", target_os = "linux"),
+    feature = "wireguard"
+))]
 use crate::VaultEndpointPinRefresher;
 use crate::{ControlService, ControlServiceError};
-#[cfg(all(any(windows, target_os = "linux"), feature = "wireguard"))]
+#[cfg(all(
+    any(windows, target_os = "macos", target_os = "linux"),
+    feature = "wireguard"
+))]
 use std::sync::Arc;
 use usque_ipc::v1;
 
 impl ControlService {
     pub(crate) async fn cancel_warp_jobs(&self) -> Result<(), ControlServiceError> {
         self.cancel_proton_jobs().await?;
-        #[cfg(all(any(windows, target_os = "linux"), feature = "wireguard"))]
+        #[cfg(all(
+            any(windows, target_os = "macos", target_os = "linux"),
+            feature = "wireguard"
+        ))]
         {
             let manager = self.warp_generator.clone();
             if !tokio::task::spawn_blocking(move || manager.stop_blocking())
@@ -26,7 +35,10 @@ impl ControlService {
         &self,
         request: v1::WarpWireguardRequest,
     ) -> Result<v1::WarpWireguardResponse, ControlServiceError> {
-        #[cfg(all(any(windows, target_os = "linux"), feature = "wireguard"))]
+        #[cfg(all(
+            any(windows, target_os = "macos", target_os = "linux"),
+            feature = "wireguard"
+        ))]
         {
             let request = usque_core::warp_wireguard::Request::parse(&request.command_json)
                 .map_err(ControlServiceError::configuration)?;
@@ -61,6 +73,8 @@ impl ControlService {
                 #[cfg(all(target_os = "linux", not(test)))]
                 let allow_physical =
                     existing.is_none() && crate::linux_observation::disconnected_probe_safe().await;
+                #[cfg(target_os = "macos")]
+                let allow_physical = false;
                 #[cfg(all(target_os = "linux", test))]
                 let allow_physical = existing.is_none();
                 let identity = if existing.is_none() && allow_physical {
@@ -109,7 +123,10 @@ impl ControlService {
                     .map_err(ControlServiceError::configuration)?,
             })
         }
-        #[cfg(not(all(any(windows, target_os = "linux"), feature = "wireguard")))]
+        #[cfg(not(all(
+            any(windows, target_os = "macos", target_os = "linux"),
+            feature = "wireguard"
+        )))]
         {
             let _ = request;
             Err(ControlServiceError::InvalidRequest(

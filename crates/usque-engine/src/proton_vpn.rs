@@ -1,11 +1,17 @@
 use crate::{ControlService, ControlServiceError};
-#[cfg(all(any(windows, target_os = "linux"), feature = "wireguard"))]
+#[cfg(all(
+    any(windows, target_os = "macos", target_os = "linux"),
+    feature = "wireguard"
+))]
 use std::sync::Arc;
 use usque_ipc::v1;
 
 impl ControlService {
     pub(crate) async fn cancel_proton_jobs(&self) -> Result<(), ControlServiceError> {
-        #[cfg(all(any(windows, target_os = "linux"), feature = "wireguard"))]
+        #[cfg(all(
+            any(windows, target_os = "macos", target_os = "linux"),
+            feature = "wireguard"
+        ))]
         {
             let manager = self.proton_manager.clone();
             if !tokio::task::spawn_blocking(move || manager.stop_blocking())
@@ -24,10 +30,31 @@ impl ControlService {
         mut request: v1::ProtonVpnRequest,
     ) -> Result<v1::ProtonVpnResponse, ControlServiceError> {
         let input = zeroize::Zeroizing::new(std::mem::take(&mut request.sensitive_input));
-        #[cfg(all(any(windows, target_os = "linux"), feature = "wireguard"))]
+        #[cfg(all(
+            any(windows, target_os = "macos", target_os = "linux"),
+            feature = "wireguard"
+        ))]
         {
             let request = usque_core::proton_vpn::Request::parse(&request.command_json)
                 .map_err(ControlServiceError::configuration)?;
+            // macOS does not provide guest registration or an embedded human-
+            // verification browser. Enforce this at IPC admission as well as
+            // in the GUI, before taking a lease or starting any account work.
+            #[cfg(target_os = "macos")]
+            if let Some(reason) = match request.action.as_str() {
+                "guest" => Some("guest_unavailable"),
+                "handoff" => Some("verification_unavailable"),
+                _ => None,
+            } {
+                return Ok(v1::ProtonVpnResponse {
+                    metadata_json: serde_json::to_string(&usque_core::proton_vpn::Response {
+                        error: Some(reason.into()),
+                        ..Default::default()
+                    })
+                    .map_err(ControlServiceError::configuration)?,
+                    sensitive_handoff: Vec::new(),
+                });
+            }
             let provider_lease = if request.mutates_account() {
                 Some(Arc::new(
                     usque_core::proton_vpn::lifecycle_lease(&self.profile_dir)
@@ -121,7 +148,10 @@ impl ControlService {
                 }),
             }
         }
-        #[cfg(not(all(any(windows, target_os = "linux"), feature = "wireguard")))]
+        #[cfg(not(all(
+            any(windows, target_os = "macos", target_os = "linux"),
+            feature = "wireguard"
+        )))]
         {
             let _ = input;
             Err(ControlServiceError::FeatureUnavailable(
@@ -131,12 +161,18 @@ impl ControlService {
     }
 }
 
-#[cfg(all(any(windows, target_os = "linux"), feature = "wireguard"))]
+#[cfg(all(
+    any(windows, target_os = "macos", target_os = "linux"),
+    feature = "wireguard"
+))]
 struct AccountNetworkProvider {
     service: ControlService,
     selected: Option<uuid::Uuid>,
 }
-#[cfg(all(any(windows, target_os = "linux"), feature = "wireguard"))]
+#[cfg(all(
+    any(windows, target_os = "macos", target_os = "linux"),
+    feature = "wireguard"
+))]
 #[async_trait::async_trait]
 impl usque_transport::proton_vpn::AccountWarpProvider for AccountNetworkProvider {
     async fn context(
@@ -176,6 +212,8 @@ impl usque_transport::proton_vpn::AccountWarpProvider for AccountNetworkProvider
         #[cfg(all(target_os = "linux", not(test)))]
         let allow_physical =
             existing.is_none() && crate::linux_observation::disconnected_probe_safe().await;
+        #[cfg(target_os = "macos")]
+        let allow_physical = false;
         #[cfg(all(target_os = "linux", test))]
         let allow_physical = existing.is_none();
         let identity = if existing.is_none() && allow_physical {

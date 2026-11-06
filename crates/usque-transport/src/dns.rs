@@ -48,6 +48,25 @@ struct ResolverReadiness {
 }
 
 impl Resolver {
+    /// The Network Extension owns DNS policy. Proxy hostnames are preserved
+    /// until the OS-socket dialer registers their exact flow intent.
+    pub(crate) fn system_proxy(protector: Arc<dyn SocketProtector>) -> Self {
+        Self {
+            channel: None,
+            stream_dns: None,
+            assigned_ipv4: Ipv4Addr::UNSPECIFIED,
+            assigned_ipv6: Ipv6Addr::UNSPECIFIED,
+            servers: Vec::new(),
+            mode: ProxyDnsMode::EdgeResolved,
+            routing: Arc::new(crate::geo_direct::GeoDirectPolicy::disabled()),
+            final_exit: false,
+            final_doh: None,
+            final_tcp: None,
+            protector,
+            readiness: None,
+            deferred: None,
+        }
+    }
     pub(crate) fn deferred(
         mut self,
         target: crate::tcp::DeferredServices,

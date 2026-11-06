@@ -223,6 +223,13 @@ impl ControlService {
             let policy = Arc::new(crate::load_geo_direct_policy(profile, &self.cache_dir)?);
             ads_revision = policy.ads_revision().unwrap_or_default().to_owned();
             match &mut active.runtime {
+                #[cfg(target_os = "macos")]
+                crate::active_runtime::ActiveRuntime::MacVpn(runtime) => {
+                    let identity = self.load_warp_identity(profile.id).await?;
+                    runtime
+                        .replace(profile, &identity, selected, startup_cancel)
+                        .await
+                }
                 crate::active_runtime::ActiveRuntime::Proxy(runtime) => {
                     runtime
                         .runtime
@@ -517,12 +524,60 @@ impl ControlService {
             .await
             .active_profile()
             .ok_or_else(|| error(DirectoryError::Unavailable))?;
-        let networks = self
+        #[allow(unused_mut)]
+        let mut networks = self
             .data_plane
             .lock()
             .await
             .as_ref()
             .and_then(|active| active.runtime.internal_networks());
+        #[cfg(target_os = "macos")]
+        let retained_provider = self.macos_reserved.lock().await.is_some()
+            || self
+                .data_plane
+                .lock()
+                .await
+                .as_ref()
+                .is_some_and(|active| active.runtime.is_vpn());
+        #[cfg(target_os = "macos")]
+        let cached_node = {
+            let cached_node = if let Some(request) = &node_request {
+                let store = CatalogueStore::new(&self.cache_dir);
+                let selection = request.selection();
+                tokio::task::spawn_blocking(move || {
+                    store.load_selection(&selection).is_ok()
+                        || store
+                            .load()
+                            .ok()
+                            .flatten()
+                            .is_some_and(|(catalogue, _, _)| catalogue.prepare(&selection).is_ok())
+                })
+                .await
+                .map_err(|_| error(DirectoryError::CacheIo))?
+            } else {
+                false
+            };
+            // Local preparation/favorites remain usable during recovery. A
+            // cache race must fail offline rather than start any new session.
+            if cached_node {
+                networks = None;
+            }
+            if !cached_node {
+                // A download must not start another WARP session while the
+                // previous output owns an unfinished proxy transaction.
+                self.await_disconnect_cleanup().await?;
+                if let Some(pending) = *self.macos_proxy_recovery_error.lock().await {
+                    return Err(ControlServiceError::MacSystemProxy(pending));
+                }
+                admit_catalogue_warp(
+                    networks
+                        .as_ref()
+                        .map(|(network, warp)| (network.health_snapshot(), warp.health_snapshot())),
+                    retained_provider,
+                )?;
+            }
+            cached_node
+        };
         #[cfg(windows)]
         let allow_physical = networks.is_none()
             && crate::windows_agent::catalogue_physical_network_permitted().await;
@@ -530,8 +585,17 @@ impl ControlService {
         #[cfg(all(target_os = "linux", not(test)))]
         let allow_physical =
             networks.is_none() && crate::linux_observation::disconnected_probe_safe().await;
-        #[cfg(not(any(windows, all(target_os = "linux", not(test)))))]
+        #[cfg(target_os = "macos")]
+        let allow_physical = false;
+        #[cfg(not(any(windows, target_os = "macos", all(target_os = "linux", not(test)))))]
         let allow_physical = networks.is_none();
+        // Bootstrap WARP and direct directory access are separate decisions.
+        // macOS may create a temporary, authenticated, listener-free WARP
+        // session without admitting a physical-network catalogue request.
+        #[cfg(target_os = "macos")]
+        let allow_warp_bootstrap = !cached_node && networks.is_none() && !retained_provider;
+        #[cfg(not(target_os = "macos"))]
+        let allow_warp_bootstrap = allow_physical;
         let primary: Arc<dyn CatalogueHttp> = match &networks {
             Some((network, _))
                 if matches!(network.health_snapshot(), RuntimeHealth::Connected { .. }) =>
@@ -555,7 +619,7 @@ impl ControlService {
                     service: service.clone(),
                     profile,
                     existing: networks.map(|(_, warp)| warp),
-                    allow_physical,
+                    allow_warp_bootstrap,
                 };
                 if let Some(request) = node_request {
                     let _ = service
@@ -578,7 +642,7 @@ impl ControlService {
         profile: &usque_core::Profile,
     ) -> Result<Option<(ServerSummary, PreparedProfile)>, ControlServiceError> {
         self.validate_chain_selection(profile)?;
-        #[cfg(any(windows, target_os = "linux"))]
+        #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
         if profile.custom_chain().is_some() {
             let mut selected = usque_core::chain_exit::prepare_selection(
                 &self.profile_dir,
@@ -648,6 +712,27 @@ impl ControlService {
     }
 }
 
+#[cfg(target_os = "macos")]
+pub(crate) fn admit_catalogue_warp(
+    networks: Option<(RuntimeHealth, RuntimeHealth)>,
+    retained_provider: bool,
+) -> Result<(), ControlServiceError> {
+    // A reconnecting final exit must not hide the already connected WARP
+    // control handle used by WarpSource.existing. The primary exit is checked
+    // independently below. A missing runtime may bootstrap an isolated WARP
+    // session only when no retained provider owns network protection. Neither
+    // decision authorizes a physical-network catalogue request.
+    if networks
+        .as_ref()
+        .is_some_and(|(_, warp)| matches!(warp, RuntimeHealth::Connected { .. }))
+        || (networks.is_none() && !retained_provider)
+    {
+        Ok(())
+    } else {
+        Err(ControlServiceError::MacWarpConnectionRequired)
+    }
+}
+
 struct UnavailableHttp;
 #[async_trait::async_trait]
 impl CatalogueHttp for UnavailableHttp {
@@ -659,7 +744,7 @@ struct WarpSource {
     service: ControlService,
     profile: usque_core::Profile,
     existing: Option<InternalNetwork>,
-    allow_physical: bool,
+    allow_warp_bootstrap: bool,
 }
 #[async_trait::async_trait]
 impl WarpCatalogueSource for WarpSource {
@@ -670,8 +755,11 @@ impl WarpCatalogueSource for WarpSource {
         if let Some(existing) = &self.existing {
             return Ok(Arc::new(existing.clone()));
         }
-        if !self.allow_physical {
+        if !self.allow_warp_bootstrap {
             return Err(DirectoryError::Unavailable);
+        }
+        if cancel.is_cancelled() {
+            return Err(DirectoryError::Cancelled);
         }
         let warp = self
             .service

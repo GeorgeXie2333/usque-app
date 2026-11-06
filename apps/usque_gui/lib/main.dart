@@ -13,6 +13,8 @@ void main() {
   WidgetsFlutterBinding.ensureInitialized();
   if (!kIsWeb && Platform.isLinux) {
     LinuxPreferencesStore.register();
+  }
+  if (!kIsWeb && (Platform.isLinux || Platform.isMacOS)) {
     GuiStartupObservation.instance.start();
   }
   LicenseRegistry.addLicense(() async* {
@@ -44,8 +46,8 @@ void main() {
       'Proton go-srp algorithm and interoperability vectors',
     ], await rootBundle.loadString('assets/licenses/proton-srp.txt'));
   });
-  // The Windows runner removes the native caption, so Flutter has to draw one.
-  if (!kIsWeb && Platform.isWindows) {
+  // Desktop runners leave the caption content to Flutter.
+  if (!kIsWeb && (Platform.isWindows || Platform.isMacOS)) {
     WindowFrame.instance.enable();
   }
   runApp(const UsqueBootstrap());

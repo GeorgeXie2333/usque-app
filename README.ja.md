@@ -10,6 +10,8 @@
   ·
   <a href="README.zh-CN.md">简体中文</a>
   ·
+  <a href="README.zh-Hant.md">繁體中文</a>
+  ·
   日本語
   ·
   <a href="README.ko.md">한국어</a>
@@ -233,7 +235,13 @@ VPN、SOCKS5、HTTP は既定で有効、システムプロキシは無効です
 
 ### 実験的な機能と未対応の範囲
 
-[Zero Trust 登録](docs/ZERO_TRUST_EXPERIMENTAL.md)は実験的な機能です。組織の ID を使って MASQUE インターネットトンネルを構成しますが、Cloudflare One™ Client の全機能との互換性は提供しません。macOS のソースは保持していますが、ビルドやリリースは行いません。iOS、アプリストアでの配布、公開 CLI は今回のリリース範囲に含まれません。
+[Zero Trust 登録](docs/ZERO_TRUST_EXPERIMENTAL.md)は実験的な機能です。組織の ID を使って MASQUE インターネットトンネルを構成しますが、Cloudflare One™ Client の全機能との互換性は提供しません。
+macOS には arm64 と x86_64 向けの個別の[開発用 DMG ビルド](docs/MACOS_DEVELOPMENT_PACKAGING.md)があり、デスクトップ機能とプロキシ機能を検証中です。
+システム VPN と正式版の自動インストールは、署名済みビルドの実機検証が完了するまで無効です。
+実装済みの機能と未完了の機能については、[macOS 機能対応表](docs/MACOS_WINDOWS_PARITY.md)を参照してください。
+現在の `dev` ソースでは macOS の接続シーン、終了前のクリーンアップ確認、VPN Gate 用の保護された一時 WARP 接続を追加しています。保存済みのチェーン設定は保持され、物理ネットワークからディレクトリを直接取得しません。既存の開発用インストーラーはこれらの変更前のもので、更新版はまだ公開していません。
+macOS では Proton のゲスト登録と内蔵認証ブラウザーを削除しました。通常のアカウントログインは利用できますが、ブラウザー認証が必要なログインは完了できません。
+iOS、アプリストアでの配布、公開 CLI は今回のリリース範囲に含まれません。
 
 ## 既定のネットワーク設定
 

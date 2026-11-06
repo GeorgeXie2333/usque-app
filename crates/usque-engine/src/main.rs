@@ -34,7 +34,7 @@ struct Arguments {
     #[arg(long, hide = true)]
     pipe: Option<String>,
     /// Exit when the desktop UI process exits (development and sidecar use).
-    #[cfg(any(windows, target_os = "linux"))]
+    #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
     #[arg(long, hide = true)]
     parent_pid: Option<u32>,
     /// Override the current-user desktop Unix Socket path (development only).
@@ -172,7 +172,30 @@ async fn run(
         };
         usque_engine::linux_ipc::LinuxIpcServer::bind(socket).await?
     };
+    #[cfg(target_os = "macos")]
+    let macos_server = {
+        let socket = arguments.socket.clone().unwrap_or_else(|| {
+            config_path
+                .parent()
+                .unwrap_or_else(|| std::path::Path::new("."))
+                .join("engine-v1.sock")
+        });
+        usque_engine::macos_ipc::MacOsIpcServer::bind(socket).await?
+    };
     let service = ControlService::open(store)?;
+    #[cfg(target_os = "macos")]
+    if let Ok(provider) = usque_engine::macos_runtime::BundledProviderControl::from_current_bundle()
+    {
+        service
+            .set_macos_provider_control(Arc::new(provider))
+            .await?;
+    }
+
+    #[cfg(target_os = "macos")]
+    if let Err(error) = service.recover_macos_user_state().await {
+        warn!(%error, "current-user system proxy recovery remains retryable");
+    }
+
     #[cfg(not(target_os = "linux"))]
     if let Err(error) = service.migrate_shared_proxy_password().await {
         warn!(%error, "shared proxy-password migration will be retried later");
@@ -222,21 +245,25 @@ async fn run(
 
     #[cfg(target_os = "macos")]
     {
-        let socket_path = arguments.socket.unwrap_or_else(|| {
-            config_path
-                .parent()
-                .unwrap_or_else(|| std::path::Path::new("."))
-                .join("engine-v1.sock")
-        });
-        info!(path = %socket_path.display(), "starting current-user Unix Socket control service");
+        info!("starting current-user Unix Socket control and event service");
         let service = Arc::new(service);
-        tokio::select! {
-            result = usque_engine::macos_ipc::serve(Arc::clone(&service), socket_path) => result?,
-            result = tokio::signal::ctrl_c() => result?,
+        let mut terminate =
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+        let result = tokio::select! {
+            result = macos_server.serve(Arc::clone(&service)) => result,
+            result = tokio::signal::ctrl_c() => result,
+            _ = terminate.recv() => Ok(()),
+            result = wait_for_parent_exit(arguments.parent_pid) => result,
+        };
+        // UI/Engine process lifetime is distinct from explicit user Stop. The
+        // extension retains its session and protection after losing the UI.
+        if let Err(error) = service.detach_macos_process().await {
+            warn!(%error, "engine local frontend detach failed");
         }
-        if let Err(error) = service.shutdown().await {
-            warn!(%error, "engine shutdown could not fully restore platform state");
-        }
+        // Keep the process lease through detach so a relaunch cannot recover
+        // the same proxy journal concurrently with the exiting Engine.
+        drop(macos_server);
+        result?;
     }
 
     #[cfg(target_os = "linux")]
@@ -377,9 +404,58 @@ fn wait_for_parent_signal(
     Ok(())
 }
 
+/// Compare the live parent relationship rather than probing the PID: a reused
+/// PID must not keep an orphaned GUI sidecar (and its Engine lease) alive.
+#[cfg(target_os = "macos")]
+async fn wait_for_parent_exit(parent_pid: Option<u32>) -> std::io::Result<()> {
+    let Some(parent_pid) = parent_pid else {
+        return std::future::pending().await;
+    };
+    if parent_pid <= 1 || parent_pid > i32::MAX as u32 {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "invalid desktop parent PID",
+        ));
+    }
+    loop {
+        // SAFETY: getppid has no arguments and only reads process metadata.
+        if unsafe { libc::getppid() } as u32 != parent_pid {
+            return Ok(());
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(target_os = "macos")]
+    #[tokio::test]
+    async fn parent_monitor_detects_lost_parent_and_does_not_stop_for_live_parent() {
+        // SAFETY: these metadata calls have no arguments or side effects.
+        let parent = unsafe { libc::getppid() } as u32;
+        let current = std::process::id();
+        tokio::time::timeout(Duration::from_secs(1), wait_for_parent_exit(Some(current)))
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            tokio::time::timeout(
+                Duration::from_millis(250),
+                wait_for_parent_exit(Some(parent))
+            )
+            .await
+            .is_err()
+        );
+        assert!(wait_for_parent_exit(Some(0)).await.is_err());
+        assert!(wait_for_parent_exit(Some(u32::MAX)).await.is_err());
+        assert!(
+            tokio::time::timeout(Duration::from_millis(10), wait_for_parent_exit(None))
+                .await
+                .is_err()
+        );
+    }
 
     #[test]
     fn runtime_shutdown_returns_with_a_pending_worker_without_destroying_its_state() {

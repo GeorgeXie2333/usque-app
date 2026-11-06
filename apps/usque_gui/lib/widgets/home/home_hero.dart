@@ -21,6 +21,7 @@ import 'home_scenario.dart';
 typedef _HeroView = ({
   ConnectionPhase phase,
   bool busy,
+  bool canAct,
   String? errorCode,
   String profileName,
   bool identityReady,
@@ -34,6 +35,7 @@ typedef _HeroView = ({
 _HeroView _heroView(AppController controller) => (
   phase: controller.snapshot.phase,
   busy: controller.busy,
+  canAct: controller.connectionActionEnabled,
   errorCode: controller.snapshot.errorCode,
   profileName: controller.strings.accountName(controller.activeProfile),
   identityReady:
@@ -115,14 +117,7 @@ class HomeConnectionHero extends StatelessWidget {
           ? 'configure_identity'
           : connection.actionKey,
     );
-    final canAct =
-        (!view.busy ||
-            view.phase == ConnectionPhase.preparing ||
-            view.phase == ConnectionPhase.connectingH3 ||
-            view.phase == ConnectionPhase.connectingH2 ||
-            view.phase == ConnectionPhase.reconnecting) &&
-        view.phase != ConnectionPhase.disconnecting &&
-        !recoveryBlocked;
+    final canAct = view.canAct;
     // After first-run setup the ring settles into place inside the arriving
     // page, picking up the ring that setup just closed.
     Widget ring(double size) => SetupEntranceTransition(

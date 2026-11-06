@@ -1,4 +1,9 @@
 const kProtonTr = <String, String>{
+  'guest_unavailable_macos':
+      'macOS’ta misafir girişi kullanılamaz. Bir Proton hesabıyla giriş yapın.',
+  'verification_unavailable_macos':
+      'Proton, bu macOS uygulamasında desteklenmeyen bir insan doğrulaması gerektiriyor. Başka bir Proton hesabı kullanın veya WireGuard yapılandırması içe aktarın.',
+  'empty_login': 'Proton hesabı eklemek için giriş yapın.',
   'fallback_account':
       'Proton’a ulaşılamadı. Mevcut bir WARP hesabını seçip yeniden deneyin.',
   'fallback_failed':

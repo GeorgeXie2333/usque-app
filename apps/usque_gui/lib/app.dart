@@ -24,6 +24,7 @@ typedef _BootstrapView = ({
   bool onboardingComplete,
   ThemePreference theme,
   LocalePreference locale,
+  String catalogId,
   bool onboardingBusy,
   String? onboardingError,
   String? startupError,
@@ -58,7 +59,11 @@ class _UsqueBootstrapState extends State<UsqueBootstrap>
       widget.engine ?? createDefaultEngineClient(),
       updateDownloader: widget.updateDownloader,
     );
-    if (defaultTargetPlatform == TargetPlatform.windows) {
+    controller.noteSystemLocale(
+      WidgetsBinding.instance.platformDispatcher.locale,
+    );
+    if (defaultTargetPlatform == TargetPlatform.windows ||
+        defaultTargetPlatform == TargetPlatform.macOS) {
       // The native visibility query also covers an initially hidden --background
       // launch, before Flutter has received any window lifecycle transition.
       controller.setUiVisible(false);
@@ -67,7 +72,8 @@ class _UsqueBootstrapState extends State<UsqueBootstrap>
     final lifecycle = WidgetsBinding.instance.lifecycleState;
     if (lifecycle != null) didChangeAppLifecycleState(lifecycle);
     shellBridge = PlatformShellBridge(controller);
-    if (defaultTargetPlatform == TargetPlatform.linux) {
+    if (defaultTargetPlatform == TargetPlatform.linux ||
+        defaultTargetPlatform == TargetPlatform.macOS) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         GuiStartupObservation.instance.mark(2);
@@ -76,6 +82,13 @@ class _UsqueBootstrapState extends State<UsqueBootstrap>
     } else {
       controller.initialize();
     }
+  }
+
+  @override
+  void didChangeLocales(List<Locale>? locales) {
+    controller.noteSystemLocale(
+      locales?.firstOrNull ?? WidgetsBinding.instance.platformDispatcher.locale,
+    );
   }
 
   @override
@@ -115,6 +128,7 @@ class _UsqueBootstrapState extends State<UsqueBootstrap>
           onboardingComplete: controller.onboardingComplete,
           theme: controller.themePreference,
           locale: controller.localePreference,
+          catalogId: controller.strings.catalogId,
           onboardingBusy: controller.onboardingComplete
               ? false
               : controller.busy,
@@ -129,36 +143,9 @@ class _UsqueBootstrapState extends State<UsqueBootstrap>
             ThemePreference.light => ThemeMode.light,
             ThemePreference.dark => ThemeMode.dark,
           };
-          final locale = switch (view.locale) {
-            LocalePreference.system => null,
-            LocalePreference.english => const Locale('en'),
-            LocalePreference.simplifiedChinese => const Locale('zh', 'CN'),
-            LocalePreference.traditionalChineseHongKong => const Locale(
-              'zh',
-              'HK',
-            ),
-            LocalePreference.traditionalChineseTaiwan => const Locale(
-              'zh',
-              'TW',
-            ),
-            LocalePreference.japanese => const Locale('ja'),
-            LocalePreference.korean => const Locale('ko'),
-            LocalePreference.spanish => const Locale('es'),
-            LocalePreference.portuguese => const Locale('pt', 'BR'),
-            LocalePreference.french => const Locale('fr'),
-            LocalePreference.dutch => const Locale('nl'),
-            LocalePreference.turkish => const Locale('tr'),
-            LocalePreference.russian => const Locale('ru'),
-            LocalePreference.persian => const Locale('fa'),
-            LocalePreference.arabic => const Locale('ar'),
-            LocalePreference.german => const Locale('de'),
-            LocalePreference.indonesian => const Locale('id'),
-            LocalePreference.italian => const Locale('it'),
-            LocalePreference.polish => const Locale('pl'),
-            LocalePreference.thai => const Locale('th'),
-            LocalePreference.ukrainian => const Locale('uk'),
-            LocalePreference.vietnamese => const Locale('vi'),
-          };
+          final locale = view.locale == LocalePreference.system
+              ? null
+              : AppStrings(view.locale).locale;
           return MaterialApp(
             title: 'Usque',
             debugShowCheckedModeBanner: false,
@@ -166,6 +153,10 @@ class _UsqueBootstrapState extends State<UsqueBootstrap>
             darkTheme: UsqueTheme.dark(),
             themeMode: themeMode,
             locale: locale,
+            localeListResolutionCallback: (locales, _) => AppStrings(
+              view.locale,
+              systemLocale: locales?.firstOrNull,
+            ).locale,
             supportedLocales: const <Locale>[
               Locale('en'),
               Locale('zh', 'CN'),
@@ -226,7 +217,7 @@ class _UsqueBootstrapState extends State<UsqueBootstrap>
 
 typedef _ChromeView = ({ConnectionPhase phase, LocalePreference locale});
 
-/// Wraps every route in the Flutter-drawn Windows caption.
+/// Wraps every route in the Flutter-drawn desktop caption.
 class _WindowChrome extends StatelessWidget {
   const _WindowChrome({required this.controller, required this.child});
 
@@ -242,7 +233,7 @@ class _WindowChrome extends StatelessWidget {
         locale: controller.localePreference,
       ),
       builder: (context, view) => WindowFrameScaffold(
-        strings: AppStrings(view.locale),
+        strings: controller.strings,
         phase: view.phase,
         child: child,
       ),

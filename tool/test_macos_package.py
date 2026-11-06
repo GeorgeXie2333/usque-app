@@ -1,0 +1,464 @@
+from __future__ import annotations
+
+import errno
+import json
+import plistlib
+import struct
+import subprocess
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+import macos_package
+
+
+def macho(architecture="arm64", *, minimum=0x000D0000, subtype=None, target_platform=1):
+    cpu, default_subtype = macos_package.ARCHITECTURES[architecture]
+    command = struct.pack("<6I", 0x32, 24, target_platform, minimum, 0x001B0000, 0)
+    return (
+        struct.pack(
+            "<8I",
+            0xFEEDFACF,
+            cpu,
+            default_subtype if subtype is None else subtype,
+            2,
+            1,
+            len(command),
+            0,
+            0,
+        )
+        + command
+    )
+
+
+def write(path: Path, data: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(data)
+    if data[:4] in macos_package.MACHO_MAGICS:
+        path.chmod(0o755)
+
+
+def symlink_fixture(link: Path, target: str | Path, *, directory: bool = False) -> None:
+    try:
+        link.symlink_to(target, target_is_directory=directory)
+    except OSError as error:
+        if getattr(error, "winerror", None) == 1314:
+            raise unittest.SkipTest(
+                "symlink fixtures require Windows symlink permission"
+            ) from error
+        if error.errno in (errno.EPERM, errno.EACCES, errno.ENOSYS, errno.ENOTSUP):
+            raise unittest.SkipTest("symlink fixtures unavailable on this filesystem") from error
+        raise
+
+
+def flutter_fixture(app: Path, architecture="arm64") -> None:
+    for relative in (
+        "MacOS/Usque",
+        "Frameworks/App.framework/Versions/A/App",
+        "Frameworks/FlutterMacOS.framework/Versions/A/FlutterMacOS",
+    ):
+        write(app / "Contents" / relative, macho(architecture))
+    for name in ("App", "FlutterMacOS"):
+        framework = app / f"Contents/Frameworks/{name}.framework"
+        symlink_fixture(framework / name, f"Versions/A/{name}")
+        symlink_fixture(framework / "Versions/Current", "A", directory=True)
+    write(
+        app / "Contents/Info.plist",
+        plistlib.dumps({"CFBundleIdentifier": macos_package.IDENTIFIER}),
+    )
+
+
+def prototype_fixture(app: Path, architecture="arm64") -> None:
+    write(app / "Contents/MacOS/usque-macos-control", macho(architecture))
+    for suffix, name in macos_package.PROVIDERS.items():
+        path = app / (
+            f"Contents/Library/SystemExtensions/{macos_package.IDENTIFIER}."
+            f"{suffix}.systemextension/Contents/MacOS/{name}"
+        )
+        write(path, macho(architecture))
+
+
+class MacOSPackageTests(unittest.TestCase):
+    def test_symlink_capability_guard_skips_permission_errors_only(self) -> None:
+        with patch.object(Path, "symlink_to", side_effect=PermissionError(errno.EPERM, "denied")):
+            with self.assertRaises(unittest.SkipTest):
+                symlink_fixture(Path("unused"), "target")
+        with patch.object(Path, "symlink_to", side_effect=FileExistsError(errno.EEXIST, "exists")):
+            with self.assertRaises(FileExistsError):
+                symlink_fixture(Path("unused"), "target")
+
+    def test_names_are_architecture_specific_and_reject_path_injection(self) -> None:
+        self.assertEqual(
+            macos_package.artifact_name("0.3.3", "arm64"), "usque-v0.3.3-macos-arm64.dmg"
+        )
+        self.assertEqual(
+            macos_package.artifact_name("0.3.4-beta.1", "x86_64"),
+            "usque-v0.3.4-beta.1-macos-x86_64.dmg",
+        )
+        for version, architecture in (
+            ("../0.3.3", "arm64"),
+            ("0.3.3\n", "arm64"),
+            ("01.3.3", "arm64"),
+            ("0.3.3", "x64"),
+        ):
+            with self.assertRaises(ValueError):
+                macos_package.artifact_name(version, architecture)
+
+    def test_macho_checks_minimum_os_architecture_cpu_and_platform_without_execution(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "inert"
+            for arch in macos_package.ARCHITECTURES:
+                path.write_bytes(macho(arch))
+                self.assertEqual(macos_package.inspect_macho(path, arch)["minimum_macos"], "13.0.0")
+                other = "arm64" if arch == "x86_64" else "x86_64"
+                with self.assertRaises(ValueError):
+                    macos_package.inspect_macho(path, other)
+            for invalid in (
+                macho(minimum=0x000D0001),
+                macho(minimum=0),
+                macho(subtype=2),
+                macho("x86_64", subtype=8),
+                macho(target_platform=2),
+                macho()[:-1],
+                b"\xcf\xfa\xed\xfe",
+            ):
+                path.write_bytes(invalid)
+                with self.assertRaises(ValueError):
+                    macos_package.inspect_macho(path, "arm64")
+
+    def test_universal_framework_must_be_thinned_and_overlapping_slices_are_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "inert"
+            arm, intel = macho(), macho("x86_64")
+            header = struct.pack(">II", 0xCAFEBABE, 2)
+            entries = struct.pack(">5I", 0x0100000C, 0, 48, len(arm), 0)
+            entries += struct.pack(">5I", 0x01000007, 3, 48 + len(arm), len(intel), 0)
+            path.write_bytes(header + entries + arm + intel)
+            self.assertEqual(
+                macos_package.inspect_macho(path, "arm64", universal=True)["architectures"],
+                ["arm64", "x86_64"],
+            )
+            with self.assertRaises(ValueError):
+                macos_package.inspect_macho(path, "arm64")
+            overlapping = bytearray(path.read_bytes())
+            struct.pack_into(">I", overlapping, 36, 48)
+            path.write_bytes(overlapping)
+            with self.assertRaises(ValueError):
+                macos_package.inspect_macho(path, "arm64", universal=True)
+
+    def test_escape_and_dangling_symlinks_cannot_enter_a_package(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            app = root / "Usque.app"
+            app.mkdir()
+            outside = root / "private-file"
+            outside.write_text("fixture")
+            link = app / "link"
+            for target in (outside, Path("../private-file"), Path("missing")):
+                symlink_fixture(link, target)
+                with self.assertRaises((ValueError, FileNotFoundError)):
+                    macos_package.bundle_files(app)
+                link.unlink()
+
+    def test_assembly_connects_engine_and_helper_layout_and_fails_mixed_architecture(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source, prototype, engine = root / "GUI.app", root / "Prototype.app", root / "engine"
+            flutter_fixture(source)
+            prototype_fixture(prototype)
+            engine.write_bytes(macho())
+            # Existing GUI builds sometimes carry an old Engine in Resources.
+            write(source / "Contents/Resources/usque-engine", b"old engine")
+            destination = root / "Usque.app"
+            with patch.object(macos_package, "run", return_value=""):
+                reports = macos_package.assemble_app(
+                    source, engine, prototype, destination, "arm64", "0.3.3", "29"
+                )
+            self.assertEqual(len(reports), 9)
+            compatibility = destination / "Contents/Resources/usque-engine"
+            self.assertTrue(compatibility.is_symlink())
+            self.assertEqual(compatibility.resolve().parent.name, "MacOS")
+            self.assertEqual(compatibility.read_bytes(), engine.read_bytes())
+            self.assertTrue((destination / "Contents/Helpers/usque-macos-control").is_file())
+            write(destination / "Contents/Helpers/usque-macos-control", macho("x86_64"))
+            with self.assertRaises(ValueError):
+                macos_package.inspect_bundle(destination, "arm64")
+
+    def test_developer_manifest_hashes_files_and_cannot_advertise_production(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source, prototype, engine = root / "GUI.app", root / "Prototype.app", root / "engine"
+            flutter_fixture(source, "x86_64")
+            prototype_fixture(prototype, "x86_64")
+            engine.write_bytes(macho("x86_64"))
+            output = root / "result"
+            with patch.object(macos_package, "run", return_value=""):
+                manifest = macos_package.package(
+                    source, engine, prototype, output, "x86_64", "0.3.3", "29", create_dmg=False
+                )
+            self.assertFalse(manifest["production_capable"])
+            self.assertFalse(manifest["automatic_installation_enabled"])
+            self.assertFalse(manifest["notarized"])
+            self.assertEqual(
+                manifest["components"]["proton_guest_registration"], "unavailable_on_macos"
+            )
+            self.assertNotIn("cef_locales", manifest["packaging"])
+            self.assertNotIn("proton_cef_verification", manifest["components"])
+            self.assertEqual(manifest["validation"]["intel_native_execution"], "not_run")
+            self.assertEqual(
+                manifest["files"][0]["sha256"],
+                macos_package.digest(output / "Usque.app" / manifest["files"][0]["path"]),
+            )
+            self.assertFalse(list(output.glob("*.dmg")))
+            document = json.loads(next(output.glob("*.spdx.json")).read_text())
+            self.assertEqual(document["spdxVersion"], "SPDX-2.3")
+            self.assertEqual(len(document["files"]), len(manifest["files"]))
+            info_path = output / "Usque.app/Contents/Info.plist"
+            info = plistlib.loads(info_path.read_bytes())
+            for key in (
+                "UsqueProductionCapable",
+                "UsqueAutomaticInstallationEnabled",
+                "UsqueSignedPrototype",
+            ):
+                for value in (True, 0, None):
+                    with self.subTest(key=key, value=value):
+                        invalid = dict(info)
+                        if value is None:
+                            invalid.pop(key)
+                        else:
+                            invalid[key] = value
+                        info_path.write_bytes(plistlib.dumps(invalid))
+                        with self.assertRaises(ValueError):
+                            macos_package.inspect_bundle(output / "Usque.app", "x86_64")
+
+    def test_missing_or_non_executable_components_fail_verification(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            app = Path(directory) / "Usque.app"
+            flutter_fixture(app)
+            with self.assertRaises(ValueError):
+                macos_package.inspect_bundle(app, "arm64")
+
+    def test_maintenance_is_included_and_wrong_architecture_is_rejected(self) -> None:
+        for architecture in macos_package.ARCHITECTURES:
+            with (
+                self.subTest(architecture=architecture),
+                tempfile.TemporaryDirectory() as directory,
+            ):
+                root = Path(directory)
+                source, prototype, engine = (
+                    root / "GUI.app",
+                    root / "Prototype.app",
+                    root / "engine",
+                )
+                maintenance = root / "maintenance"
+                flutter_fixture(source, architecture)
+                prototype_fixture(prototype, architecture)
+                engine.write_bytes(macho(architecture))
+                write(maintenance, macho(architecture))
+                with patch.object(macos_package, "run", return_value=""):
+                    manifest = macos_package.package(
+                        source,
+                        engine,
+                        prototype,
+                        root / "output",
+                        architecture,
+                        "0.3.3",
+                        "29",
+                        create_dmg=False,
+                        maintenance=maintenance,
+                    )
+                self.assertEqual(len(manifest["mach_o"]), 10)
+                self.assertEqual(
+                    manifest["components"]["atomic_update"], "helper_included_installation_disabled"
+                )
+                self.assertFalse(manifest["automatic_installation_enabled"])
+                packaged = root / "output/Usque.app"
+                self.assertEqual(
+                    (packaged / "Contents/Helpers/usque-maintenance").read_bytes(),
+                    maintenance.read_bytes(),
+                )
+                other = "arm64" if architecture == "x86_64" else "x86_64"
+                maintenance.write_bytes(macho(other))
+                with (
+                    patch.object(macos_package, "run", return_value=""),
+                    self.assertRaises(ValueError),
+                ):
+                    macos_package.assemble_app(
+                        source,
+                        engine,
+                        prototype,
+                        root / "mixed.app",
+                        architecture,
+                        "0.3.3",
+                        "29",
+                        maintenance=maintenance,
+                    )
+
+    def test_stale_proton_browser_outputs_are_rejected_before_copy_or_signing(self) -> None:
+        for relative, directory_artifact in (
+            ("Contents/Helpers/UsqueProtonVerification.app", True),
+            ("Contents/Frameworks/Chromium Embedded Framework.framework", True),
+            ("Contents/Frameworks/UsqueProtonVerification Helper (Renderer).app", True),
+            ("Contents/MacOS/UsqueProtonVerification", False),
+        ):
+            with (
+                self.subTest(artifact=relative),
+                tempfile.TemporaryDirectory() as directory,
+            ):
+                root = Path(directory)
+                source, prototype, engine = (
+                    root / "GUI.app",
+                    root / "Prototype.app",
+                    root / "engine",
+                )
+                flutter_fixture(source)
+                prototype_fixture(prototype)
+                engine.write_bytes(macho())
+                artifact = source / relative
+                if directory_artifact:
+                    artifact.mkdir(parents=True)
+                else:
+                    write(artifact, macho())
+                destination = root / "Usque.app"
+                with patch.object(macos_package, "run") as tool:
+                    with self.assertRaisesRegex(ValueError, "stale browser artifacts"):
+                        macos_package.assemble_app(
+                            source, engine, prototype, destination, "arm64", "0.3.3", "29"
+                        )
+                tool.assert_not_called()
+                self.assertFalse(destination.exists())
+                self.assertTrue(artifact.exists())
+
+    def test_inspection_rejects_a_stale_browser_added_to_an_otherwise_valid_bundle(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source, prototype, engine = root / "GUI.app", root / "Prototype.app", root / "engine"
+            flutter_fixture(source)
+            prototype_fixture(prototype)
+            engine.write_bytes(macho())
+            destination = root / "Usque.app"
+            with patch.object(macos_package, "run", return_value=""):
+                macos_package.assemble_app(
+                    source, engine, prototype, destination, "arm64", "0.3.3", "29"
+                )
+            stale = destination / "Contents/Helpers/UsqueProtonVerification.app"
+            stale.mkdir()
+            with self.assertRaisesRegex(ValueError, "stale browser artifacts"):
+                macos_package.inspect_bundle(destination, "arm64")
+            stale.rmdir()
+            for path in macos_package.required_files(destination):
+                if path.parent.name == "MacOS" or path.name == "usque-macos-control":
+                    for mode in (0o644, 0o744, 0o645):
+                        path.chmod(mode)
+                        with self.subTest(non_executable=path.name, mode=mode):
+                            with self.assertRaises(ValueError):
+                                macos_package.inspect_bundle(destination, "arm64")
+                    path.chmod(0o755)
+
+    def test_signs_unsigned_engine_before_sealing_outer_app(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            app = Path(directory) / "Usque.app"
+            flutter_fixture(app, "x86_64")
+            write(app / "Contents/MacOS/usque-engine", macho("x86_64"))
+            nested = app / "Contents/Helpers/Fixture.app"
+            write(
+                nested / "Contents/Info.plist",
+                plistlib.dumps(
+                    {
+                        "CFBundleExecutable": "Verify",
+                    }
+                ),
+            )
+            principal = nested / "Contents/MacOS/Verify"
+            write(principal, macho("x86_64"))
+            write(nested / "Contents/MacOS/sidecar", macho("x86_64"))
+            operations = []
+
+            def tool(arguments):
+                operations.append(arguments)
+                return "_exported_fixture_symbol\n" if arguments[:2] == ["xcrun", "nm"] else ""
+
+            with patch.object(macos_package, "run", side_effect=tool):
+                macos_package._thin_and_sign(app, "x86_64")
+            signed = [args[-1] for args in operations if "--sign" in args]
+            self.assertNotIn(app / "Contents/MacOS/Usque", signed)
+            self.assertNotIn(principal, signed)
+            self.assertLess(signed.index(app / "Contents/MacOS/usque-engine"), signed.index(app))
+            self.assertLess(signed.index(nested / "Contents/MacOS/sidecar"), signed.index(nested))
+            self.assertLess(signed.index(nested), signed.index(app))
+            self.assertEqual(operations[-1], ["codesign", "--verify", "--strict", "--deep", app])
+            first_sign = next(index for index, args in enumerate(operations) if "--sign" in args)
+            for binary in macos_package.macho_files(app):
+                symbols = ["xcrun", "nm", "-gjU", binary]
+                strip = ["xcrun", "strip", "-S", "-x", binary]
+                symbol_checks = [index for index, args in enumerate(operations) if args == symbols]
+                self.assertEqual(len(symbol_checks), 2)
+                self.assertLess(symbol_checks[0], operations.index(strip))
+                self.assertLess(operations.index(strip), symbol_checks[1])
+                self.assertLess(symbol_checks[1], first_sign)
+
+    def test_symbol_trimming_rejects_lost_exports_before_signing(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            app = Path(directory) / "Usque.app"
+            flutter_fixture(app)
+            operations = []
+            checks = 0
+
+            def tool(arguments):
+                nonlocal checks
+                operations.append(arguments)
+                if arguments[:2] == ["xcrun", "nm"]:
+                    checks += 1
+                    return "_public_api\n" if checks == 1 else ""
+                return ""
+
+            with (
+                patch.object(macos_package, "run", side_effect=tool),
+                self.assertRaises(ValueError),
+            ):
+                macos_package._thin_and_sign(app, "arm64")
+            self.assertFalse(any("--sign" in arguments for arguments in operations))
+            self.assertTrue(
+                any(arguments[:4] == ["xcrun", "strip", "-S", "-x"] for arguments in operations)
+            )
+
+    def test_image_is_verified_before_replacing_an_existing_artifact(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source, prototype, engine = root / "GUI.app", root / "Prototype.app", root / "engine"
+            flutter_fixture(source)
+            prototype_fixture(prototype)
+            engine.write_bytes(macho())
+            output = root / "result"
+            output.mkdir()
+            name = macos_package.artifact_name("0.3.3", "arm64")
+            previous = output / name
+            previous.write_bytes(b"previous image")
+            operations = []
+
+            def tool(arguments, **_):
+                if arguments[0] == "hdiutil":
+                    operations.append(arguments[1])
+                    if arguments[1] == "create":
+                        self.assertEqual(arguments[arguments.index("-format") + 1], "ULMO")
+                        volume = Path(arguments[arguments.index("-srcfolder") + 1])
+                        self.assertEqual(
+                            (volume / "Applications").readlink(), Path("/Applications")
+                        )
+                        self.assertTrue((volume / "Usque.app").is_dir())
+                        Path(arguments[-1]).write_bytes(b"new image")
+                    else:
+                        raise subprocess.CalledProcessError(1, arguments)
+                return ""
+
+            with patch.object(macos_package, "run", side_effect=tool):
+                with self.assertRaises(subprocess.CalledProcessError):
+                    macos_package.package(source, engine, prototype, output, "arm64", "0.3.3", "29")
+            self.assertEqual(operations, ["create", "verify"])
+            self.assertEqual(previous.read_bytes(), b"previous image")
+            self.assertFalse((output / "Usque.app").exists())
+
+
+if __name__ == "__main__":
+    unittest.main()

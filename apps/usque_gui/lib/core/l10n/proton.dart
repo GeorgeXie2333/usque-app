@@ -19,6 +19,11 @@ import 'proton/zh_hk.dart';
 import 'proton/zh_tw.dart';
 
 const kProtonEn = <String, String>{
+  'guest_unavailable_macos':
+      'Guest sign-in is unavailable on macOS. Sign in with a Proton account.',
+  'verification_unavailable_macos':
+      'Proton requires human verification, which is unavailable in this macOS app. Use another Proton account or import a WireGuard configuration.',
+  'empty_login': 'Sign in to add a Proton account.',
   'fallback_account':
       'Could not reach Proton. Select an existing WARP account and retry.',
   'fallback_failed':
@@ -160,6 +165,10 @@ const kProtonEn = <String, String>{
 };
 
 const kProtonZhCn = <String, String>{
+  'guest_unavailable_macos': 'macOS 不支持游客登录。请使用 Proton 账号登录。',
+  'verification_unavailable_macos':
+      'Proton 要求人机验证，但此 macOS 应用不支持该功能。请使用其他 Proton 账号，或导入 WireGuard 配置。',
+  'empty_login': '请登录以添加 Proton 账号。',
   'fallback_account': '无法连接 Proton。请选择已有的 WARP 账号后重试。',
   'fallback_failed': '无法通过 WARP 连接。请检查所选 WARP 账号及网络后重试。',
   'fallback_starting': '正在通过 WARP 连接…',

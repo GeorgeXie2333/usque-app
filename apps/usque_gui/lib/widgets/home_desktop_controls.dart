@@ -253,7 +253,8 @@ class _HomeDesktopControlsState extends State<HomeDesktopControls> {
       final failure = view.failure ?? _saveFailure;
       final desktop =
           defaultTargetPlatform == TargetPlatform.windows ||
-          defaultTargetPlatform == TargetPlatform.linux;
+          defaultTargetPlatform == TargetPlatform.linux ||
+          defaultTargetPlatform == TargetPlatform.macOS;
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         mainAxisSize: MainAxisSize.min,
@@ -267,6 +268,8 @@ class _HomeDesktopControlsState extends State<HomeDesktopControls> {
                   strings.get(
                     view.tunnelSupported
                         ? 'home_tun_hint'
+                        : defaultTargetPlatform == TargetPlatform.macOS
+                        ? 'macos_output_unavailable'
                         : 'linux_output_unavailable',
                   ),
                 ),
@@ -283,7 +286,9 @@ class _HomeDesktopControlsState extends State<HomeDesktopControls> {
                   details: Text(
                     strings.get(
                       !view.systemProxySupported
-                          ? 'linux_output_unavailable'
+                          ? defaultTargetPlatform == TargetPlatform.macOS
+                                ? 'macos_proxy_unavailable'
+                                : 'linux_output_unavailable'
                           : !view.http && !view.systemProxy
                           ? 'home_system_proxy_requires_http'
                           : 'home_system_proxy_hint',

@@ -34,6 +34,23 @@ Future<AppController> _home(
 
 void main() {
   testWidgets(
+    'desktop home omits its redundant page heading',
+    (tester) async {
+      final app = await _home(tester, const Size(1040, 760));
+      expect(find.text(app.strings.get('home')), findsNothing);
+      expect(
+        tester.widget<PageFrame>(find.byType(PageFrame)).showHeading,
+        isFalse,
+      );
+      expect(tester.takeException(), isNull);
+    },
+    variant: const TargetPlatformVariant({
+      TargetPlatform.macOS,
+      TargetPlatform.windows,
+    }),
+  );
+
+  testWidgets(
     'desktop session and output cards share one height and text column',
     (tester) async {
       for (final size in const [Size(1020, 688), Size(1280, 900)]) {
