@@ -6,7 +6,7 @@ const Map<String, String> kUiWorkflowVi = <String, String>{
   'preview_restart_onboarding': 'Bắt đầu lại thiết lập ban đầu',
   'home_local_proxies': 'Proxy cục bộ',
   'home_manage_proxies': 'Quản lý proxy',
-  'home_exit_ip': 'IP đầu ra:',
+  'home_exit_ip': 'IP lối ra:',
   'home_enabled_interfaces': 'Đã bật: {interfaces}',
   'home_system_proxy': 'Proxy hệ thống',
   'home_tun_hint': 'Tiếp quản lưu lượng của ứng dụng trên thiết bị này',
@@ -49,7 +49,7 @@ const Map<String, String> kUiWorkflowVi = <String, String>{
   'shared_network_scope': 'Cài đặt mạng được dùng chung cho mọi tài khoản.',
   'connection_details': 'Chi tiết kết nối',
   'home_overview': 'Tổng quan kết nối',
-  'home_exit_region': 'Vùng thoát',
+  'home_exit_region': 'Khu vực lối ra',
   'home_kill_switch': 'Kill Switch',
   'home_traffic': 'Lưu lượng',
   'home_traffic_window': '60 giây gần nhất',
@@ -74,7 +74,8 @@ const Map<String, String> kNetworkQualityVi = <String, String>{
   'diag_check_quality_packet_loss': 'Mất gói',
   'diag_check_quality_queue_pressure': 'Áp lực hàng đợi',
   'diag_check_quality_pmtu': 'MTU đường dẫn',
-  'diag_check_transport_migration_capability': 'Chuyển họ địa chỉ cùng loại',
+  'diag_check_transport_migration_capability':
+      'Chuyển mạng trong cùng phiên bản IP',
   'diag_check_dns_direct_encrypted_configuration': 'Cấu hình DNS trực tiếp',
   'diag_check_dns_direct_encrypted_runtime_state':
       'Trạng thái chạy DNS trực tiếp',
@@ -87,7 +88,7 @@ const Map<String, String> kNetworkQualityVi = <String, String>{
   'nq_finding_unsupported':
       'Cập nhật Usque để dùng DNS mã hóa. Ứng dụng không tự chuyển sang DNS không mã hóa.',
   'nq_finding_dns_custom_valid':
-      'Cấu hình DNS mã hóa tùy chỉnh hợp lệ. Đã tắt dự phòng DNS không mã hóa (plaintext).',
+      'Cấu hình DNS mã hóa tùy chỉnh hợp lệ. Đã tắt dự phòng sang DNS không mã hóa.',
   'nq_finding_stale': 'Số liệu đã cũ hoặc mạng vật lý đã đổi.',
   'nq_finding_rtt_high': 'Thời gian khứ hồi đo được đang cao.',
   'nq_finding_healthy': 'Các chỉ số kết nối đo được đều bình thường.',
@@ -153,7 +154,7 @@ const Map<String, String> kNetworkQualityVi = <String, String>{
   'nq_loss_interval': 'Đo trên khoảng gần nhất; không phải mất gói cả đời.',
   'nq_congestion': 'Tắc nghẽn',
   'nq_cwnd': 'Cửa sổ tắc nghẽn',
-  'nq_in_flight': 'Bytes đang gửi',
+  'nq_in_flight': 'Byte đang truyền',
   'nq_send_rate': 'Tốc độ giao',
   'nq_h2_window': 'Cửa sổ nhận HTTP/2',
   'nq_stream_window': "Cửa sổ luồng",
@@ -163,7 +164,7 @@ const Map<String, String> kNetworkQualityVi = <String, String>{
   'nq_outer_pmtu': 'Giới hạn tải UDP ngoài',
   'nq_inner_payload': 'Giới hạn tải CONNECT-IP',
   'nq_pmtu_help':
-      'Kích thước gói tin mà đường truyền có thể chuyển được. Kiểm tra tự động giúp giảm mất gói và không tăng MTU của VPN đã đặt trong cài đặt mạng nâng cao.',
+      'Kích thước gói tin mà đường truyền có thể chuyển được. Usque tự động kiểm tra để giúp tránh mất gói; việc này không tăng MTU của VPN đã đặt trong Cài đặt mạng nâng cao.',
   'nq_migration': 'Chuyển mạng',
   'nq_migration_help':
       'Cố gắng giữ kết nối khi chuyển giữa Wi-Fi và dữ liệu di động. Hai mạng phải dùng cùng phiên bản IP, tức IPv4 hoặc IPv6.',
@@ -248,7 +249,7 @@ const Map<String, String> kNetworkQualityVi = <String, String>{
   'nq_dns_system_privacy':
       'Nhà cung cấp DNS của mạng hiện tại có thể thấy các tên miền được truy vấn cho lưu lượng trực tiếp.',
   'nq_dns_scope':
-      'Dùng cho quy tắc bỏ qua theo quốc gia và tên miền tùy chỉnh. DNS của lưu lượng VPN không đổi.',
+      'Dùng cho quy tắc trực tiếp theo quốc gia và tên miền tùy chỉnh. DNS của lưu lượng VPN không đổi.',
   'nq_dns_no_capability':
       'Cập nhật Usque để dùng DNS mã hóa cho kết nối trực tiếp. Các cài đặt đã lưu vẫn được giữ lại. Nếu chấp nhận ảnh hưởng đến quyền riêng tư, bạn có thể tự chọn “DNS của mạng hiện tại”.',
   'nq_dns_invalid_name':
@@ -277,13 +278,13 @@ const Map<String, String> kWindowsRecoveryVi = <String, String>{
   'WINDOWS_RECOVERY_EXHAUSTED':
       'Windows không khôi phục được trạng thái mạng VPN trước đó sau ba lần thử tự động. Hãy thử lại khi sẵn sàng, hoặc xem chẩn đoán cục bộ.',
   'WINDOWS_RECOVERY_BLOCKED':
-      'Đã dừng sửa chữa tự động vì chưa xác nhận được việc khôi phục an toàn. Cập nhật Usque trong Cài đặt. Nếu vẫn gặp lỗi, hãy xuất nhật ký trong Chẩn đoán.',
+      'Usque đã dừng sửa chữa tự động vì không xác nhận được việc khôi phục cài đặt VPN trước đó có an toàn hay không. Hãy mở Cài đặt và kiểm tra bản cập nhật; nếu vẫn gặp lỗi, hãy mở Chẩn đoán và xuất gói chẩn đoán.',
   'WINDOWS_RECOVERY_TIMEOUT':
       'Việc khôi phục mạng Windows lâu hơn dự kiến. Chưa khởi động kết nối VPN mới. Hãy đợi khôi phục xong rồi mới thử lại.',
   'WINDOWS_RECOVERY_CONFLICT':
       'Trạng thái mạng đã đổi hoặc phiên khác vẫn đang dùng. Đã dừng khôi phục tự động để bảo vệ kết nối đang hoạt động.',
   'WINDOWS_RECOVERY_UNSUPPORTED':
-      'Bản cài đặt này không thể tự khôi phục kết nối VPN trước. Cập nhật Usque trong Cài đặt rồi thử lại.',
+      'Bản cài đặt này không thể tự khôi phục cài đặt VPN trước đó. Cập nhật Usque trong Cài đặt rồi thử lại.',
 };
 
 const String kWindowsAdapterCleanupVi =
@@ -343,7 +344,7 @@ const Map<String, String> kNetworkSettingsVi = <String, String>{
 const Map<String, String> kChainVi = <String, String>{
   'invalid_endpoint': 'Nhập địa chỉ máy chủ hợp lệ và cổng từ 1 đến 65535.',
   'missing_configuration': 'Nhập địa chỉ và cổng máy chủ proxy.',
-  'source_mismatch': 'Dùng cấu hình phù hợp với loại đầu ra đã chọn.',
+  'source_mismatch': 'Dùng cấu hình phù hợp với nguồn lối ra đã chọn.',
   'invalid_dns': 'Kiểm tra địa chỉ máy chủ DNS và chế độ DNS đã chọn.',
   'unexpected_credentials':
       'Bật xác thực bằng tên người dùng và mật khẩu hoặc xóa thông tin đăng nhập.',
@@ -354,12 +355,12 @@ const Map<String, String> kChainVi = <String, String>{
   "dns_doh": "DNS mã hóa · Cloudflare",
   "dns_tcp": "DNS qua TCP",
   "dns_auto_hint":
-      "Chế độ tự động dùng DoH qua lối ra này; DNS tùy chỉnh dùng TCP. Lỗi DoH không bỏ qua lối ra này.",
+      "Chế độ tự động dùng DoH qua lối ra này; DNS tùy chỉnh dùng TCP. Khi DoH lỗi, truy vấn vẫn đi qua lối ra này.",
 
   "add_proxy": "Thêm proxy",
   "proxy_hint":
       "Kết nối qua WARP. HTTP truyền TCP; SOCKS5 còn có thể truyền UDP với H3/H2.",
-  "dns_inherit": "Để trống để dùng DNS mạng. Truy vấn đi qua đầu ra này.",
+  "dns_inherit": "Để trống để dùng DNS mạng. Truy vấn đi qua lối ra này.",
   "scope_proxy_only":
       "Usque chỉ chuyển tiếp qua proxy những kết nối mà ứng dụng gửi tới. Các kết nối khác có thể làm lộ IP công cộng của thiết bị.",
   "scope_bypass":
@@ -367,7 +368,7 @@ const Map<String, String> kChainVi = <String, String>{
   "scope_interrupted":
       "Kết nối đã gián đoạn. Thiết bị có thể trở về kết nối mạng thông thường.",
   "scope_android_settings":
-      "Để tiếp tục chặn sau khi dịch vụ dừng, hãy bật VPN luôn bật và Chặn kết nối không qua VPN trong cài đặt hệ thống.",
+      "Để tiếp tục chặn sau khi dịch vụ dừng, hãy bật “VPN luôn bật” và “Chặn các đường kết nối không qua VPN” trong cài đặt hệ thống.",
 
   "batch_title": "Nhập cấu hình",
   "batch_counts":
@@ -384,29 +385,31 @@ const Map<String, String> kChainVi = <String, String>{
   "file_count_limit": "Chọn tối đa 128 tệp mỗi lần.",
   'duplicate_directive': 'Chỉ thị này chỉ được xuất hiện một lần.',
   'mixed_protocols':
-      'Mọi điểm cuối remote phải dùng cùng một giao vận TCP hoặc UDP.',
-  'conflicting_protocol': 'remote mâu thuẫn với thiết lập giao vận chung.',
+      'Mọi điểm cuối remote phải dùng cùng một kiểu truyền tải TCP hoặc UDP.',
+  'conflicting_protocol':
+      'Thiết lập remote mâu thuẫn với thiết lập truyền tải chung.',
   'too_many_endpoints': 'Chỉ dùng tối đa 16 điểm cuối remote.',
   'conflicting_authentication':
       'CLIENT_CERT mâu thuẫn với chứng chỉ nhúng hoặc chế độ xác thực.',
-  'serialized_size_limit': 'Bản ghi đã mã hóa sẽ vượt giới hạn dung lượng lưu.',
+  'serialized_size_limit': 'Cấu hình quá lớn để lưu.',
   'multi_endpoint_unavailable':
-      'Hãy cập nhật bộ máy để dùng cấu hình có nhiều điểm cuối.',
-  'candidates': 'Điểm cuối khi khởi động',
+      'Cấu hình này có nhiều máy chủ. Hãy cập nhật Usque để sử dụng.',
+  'candidates': 'Máy chủ sẽ thử',
   'random_order':
-      'Mỗi lần kết nối thử các điểm cuối theo một thứ tự ngẫu nhiên mới.',
-  'file_order': 'Thử các điểm cuối theo thứ tự trong tệp.',
-  'attempting': 'Điểm cuối đang thử',
-  'actual_endpoint': 'Điểm cuối đã kết nối',
+      'Mỗi lần kết nối thử các máy chủ này theo một thứ tự ngẫu nhiên mới.',
+  'file_order':
+      'Mỗi lần kết nối thử các máy chủ này theo thứ tự trong danh sách.',
+  'attempting': 'Máy chủ đang thử',
+  'actual_endpoint': 'Máy chủ đã kết nối',
   'attempt_failures': 'Lần thử thất bại',
-  'failure_transport': 'giao vận đã đóng',
-  'failure_authentication': 'xác thực',
-  'failure_certificate': 'chứng chỉ',
-  'failure_configuration': 'cấu hình',
-  'failure_address_changed': 'địa chỉ đã đổi',
-  'failure_protocol': 'giao thức',
-  'failure_cleanup': 'dọn dẹp',
-  'failure_reason': 'Lỗi: {reason}.',
+  'failure_transport': 'kết nối bị ngắt',
+  'failure_authentication': 'xác thực thất bại',
+  'failure_certificate': 'chứng chỉ bị từ chối',
+  'failure_configuration': 'cấu hình không hợp lệ',
+  'failure_address_changed': 'địa chỉ máy chủ đã đổi',
+  'failure_protocol': 'lỗi giao thức',
+  'failure_cleanup': 'dọn dẹp thất bại',
+  'failure_reason': 'Lý do: {reason}.',
   'dns_fallback': 'DNS đường hầm (OpenVPN có thể thương lượng DNS)',
   'dns_unavailable_title': 'Không có DNS qua lối ra này',
   'dns_unavailable':
@@ -414,7 +417,7 @@ const Map<String, String> kChainVi = <String, String>{
   'authentication_failed':
       'Xác thực thất bại. Hãy cập nhật thông tin đăng nhập trước khi kết nối lại.',
   'profile_limit': 'Thư viện cấu hình đã đầy (128 cấu hình).',
-  'metadata_limit': 'Siêu dữ liệu của thư viện cấu hình đã đầy.',
+  'metadata_limit': 'Thư viện cấu hình không còn chỗ cho mục mới.',
   'title': 'Proxy chuỗi',
   'subtitle': 'Chọn lối ra đi qua WARP.',
   'source': 'Nguồn lối ra',
@@ -470,19 +473,19 @@ const Map<String, String> kChainVi = <String, String>{
   'unsupported':
       'Phiên bản Usque này không dùng được nguồn lối ra này. Hãy kiểm tra bản cập nhật trong Cài đặt.',
   'scope':
-      'Các quy tắc đi thẳng đã chỉ định vẫn có hiệu lực. Lưu lượng còn lại dùng lối ra đã chọn.',
+      'Các quy tắc kết nối trực tiếp của bạn vẫn có hiệu lực. Mọi lưu lượng khác đi qua lối ra đã chọn.',
   'allowed': 'Đích được phép',
   'dns': 'DNS',
   'addresses': 'Địa chỉ đường hầm',
-  'address_family': 'Họ địa chỉ',
-  'transport': 'Giao vận',
+  'address_family': 'Phiên bản IP',
+  'transport': 'Truyền tải',
   'endpoint': 'Máy chủ',
   'restricted': 'Đích nằm ngoài AllowedIPs bị chặn trên đường proxy.',
   'delete_confirm': 'Xóa cấu hình đã lưu này? Tệp đã nhập ban đầu không đổi.',
   'profile_in_use':
       'Hãy chọn cấu hình khác hoặc xóa lựa chọn đã lưu trước khi xóa cấu hình này.',
   'stale_revision': 'Cấu hình đã thay đổi. Hãy làm mới danh sách rồi thử lại.',
-  'secure_storage_failed': 'Không đọc hoặc lưu được cấu hình đã mã hóa.',
+  'secure_storage_failed': 'Không đọc hoặc ghi được các cấu hình đã lưu.',
   'invalid_configuration':
       'Cấu hình không hợp lệ hoặc chứa tùy chọn không được hỗ trợ.',
   'looks_like_wireguard':
@@ -504,8 +507,8 @@ const Map<String, String> kChainVi = <String, String>{
   'changed': 'Đã lưu thay đổi',
   "source_group_custom": "Cấu hình của bạn",
   "source_group_service": "Dịch vụ",
-  "endpoint_ip": "IP endpoint",
-  "endpoint_select_first": "Chọn một cấu hình để thay đổi endpoint của nó.",
+  "endpoint_ip": "IP điểm cuối",
+  "endpoint_select_first": "Chọn một cấu hình để thay đổi điểm cuối của nó.",
   "delete_blocked": "Đã chọn hoặc đang dùng",
   "save_select": "Lưu và chọn",
   "switch_source": "Chuyển sang {source}",
@@ -515,5 +518,5 @@ const Map<String, String> kChainVi = <String, String>{
   "not_verified": "Chưa xác minh",
   "unavailable": "Không khả dụng",
   "udp_association":
-      "Đã chấp nhận liên kết; chưa xác minh chuyển tiếp đầu cuối",
+      "Đã chấp nhận trung chuyển UDP; chưa xác minh chuyển tiếp đầu cuối",
 };

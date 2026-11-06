@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../core/app_strings.dart';
+import '../core/chain_strings.dart';
 import '../core/proton_strings.dart';
 import '../core/usque_theme.dart';
 import '../models/app_models.dart';
@@ -148,7 +149,10 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
         : catalog!.currentAccountId;
     final strings = app.strings;
     String account(String? id) =>
-        app.profiles.where((p) => p.id == id).firstOrNull?.name ??
+        app.profiles
+            .where((p) => p.id == id)
+            .map(strings.accountName)
+            .firstOrNull ??
         strings.get('scenario_reference_missing');
     final fields = current.values.keys
         .where(
@@ -225,6 +229,101 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
     );
   }
 
+  /// The selected scene's bound account no longer matches the current one.
+  bool _bindingDiffers(ConnectionScenario scene) {
+    final account = scene.boundAccountId;
+    return account != null &&
+        app.profiles.any((a) => a.id == account) &&
+        account != app.scenarios.catalog?.currentAccountId;
+  }
+
+  /// Using the selected scene again only matters when its saved template and
+  /// the current or applied state have drifted apart, or the last result is
+  /// not a success.
+  bool _selectionNeedsUse(ConnectionScenario scene) =>
+      app.scenarios.catalog?.templateUpdated == true ||
+      _bindingDiffers(scene) ||
+      const {
+        'scenario_modified',
+        'scenario_failed',
+        'scenario_unknown',
+      }.contains(scenarioStateKey(app));
+
+  /// What sets one scene apart: the exit, the endpoint, any non-default
+  /// transport or IP version, and a bound account. Defaults stay unstated.
+  List<Widget> _facts(ConnectionScenario scene, UsqueProfile? account) {
+    final strings = app.strings;
+    final profile = scene.settings.toProfile(app.activeProfile);
+    return [
+      _SceneFact(
+        icon: profile.chainEnabled ? LucideIcons.route : LucideIcons.globe,
+        label: profile.chainEnabled
+            ? scenarioValueLabel(
+                strings,
+                scene.settings.values,
+                profile.chainSource == ChainSource.vpnGate
+                    ? 'vpn_gate'
+                    : 'chain_exit',
+                exitNames: _exitNames,
+              )
+            : 'WARP',
+      ),
+      _SceneFact(
+        icon: LucideIcons.mapPin,
+        label: scenarioFact(
+          strings,
+          strings.get('endpoint_section'),
+          scenarioEndpointLabel(strings, profile),
+        ),
+      ),
+      if (profile.transport != TransportPolicy.automatic)
+        _SceneFact(
+          icon: LucideIcons.arrowDownUp,
+          label: scenarioFact(
+            strings,
+            strings.get('transport'),
+            strings.get(profile.transport.name),
+          ),
+        ),
+      if (profile.ipPolicy != IpPolicy.automatic)
+        _SceneFact(
+          icon: LucideIcons.network,
+          label: scenarioValueLabel(
+            strings,
+            scene.settings.values,
+            'ip_policy',
+          ),
+        ),
+      if (scene.boundAccountId != null)
+        _SceneFact(
+          icon: LucideIcons.user,
+          label: scenarioFact(
+            strings,
+            strings.get('scenario_bound_account'),
+            account == null
+                ? strings.get('not_available')
+                : strings.accountName(account),
+          ),
+        ),
+    ];
+  }
+
+  Widget _menuItem(IconData icon, String label, {bool danger = false}) {
+    final color = danger ? statusToneColor(context, StatusTone.danger) : null;
+    return Row(
+      children: [
+        Icon(icon, size: 18, color: color),
+        const SizedBox(width: 12),
+        Flexible(
+          child: Text(
+            label,
+            style: color == null ? null : TextStyle(color: color),
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _scene(ConnectionScenario scene) {
     final strings = app.strings;
     final theme = Theme.of(context);
@@ -232,44 +331,19 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
     final state = app.scenarios.catalog;
     final busy = app.scenarios.busy;
     final selected = state?.selectedId == scene.id;
-    final profile = scene.settings.toProfile(app.activeProfile);
     final account = app.profiles
         .where((a) => a.id == scene.boundAccountId)
         .firstOrNull;
     final invalid = state?.invalidIds.contains(scene.id) == true;
     final bindingMissing = scene.boundAccountId != null && account == null;
-    final exit = profile.chainEnabled
-        ? scenarioValueLabel(
-            strings,
-            scene.settings.values,
-            profile.chainSource == ChainSource.vpnGate
-                ? 'vpn_gate'
-                : 'chain_exit',
-            exitNames: _exitNames,
-          )
-        : 'WARP';
-    final status = selected ? scenarioStatus(app) : null;
-    // States that need attention; the plain facts follow in a quieter line.
+    // The row marks the list choice; the selection's Engine state, drift and
+    // their actions live in the status block above the list.
     final tags = <Widget>[
-      if (status != null)
+      if (selected)
         InlineStatus(
-          label: strings.get(status.key),
-          tone: status.tone,
-          icon: status.icon,
-        ),
-      if (selected && state?.templateUpdated == true)
-        InlineStatus(
-          label: strings.get('scenario_template_updated'),
-          tone: StatusTone.warning,
-          icon: LucideIcons.refreshCcw,
-        ),
-      if (selected &&
-          scene.boundAccountId != null &&
-          !bindingMissing &&
-          scene.boundAccountId != state?.currentAccountId)
-        InlineStatus(
-          label: strings.get('scenario_binding_modified'),
-          tone: StatusTone.warning,
+          label: strings.get('scenario_selected'),
+          tone: StatusTone.brand,
+          icon: LucideIcons.circleDot,
         ),
       if (bindingMissing)
         InlineStatus(
@@ -285,20 +359,7 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
     final facts = Wrap(
       spacing: 16,
       runSpacing: 6,
-      children: [
-        _SceneFact(
-          icon: profile.chainEnabled ? LucideIcons.route : LucideIcons.globe,
-          label: exit,
-        ),
-        _SceneFact(
-          icon: scene.boundAccountId == null
-              ? LucideIcons.user
-              : LucideIcons.link,
-          label: scene.boundAccountId == null
-              ? strings.get('scenario_follow_account')
-              : '${strings.get('scenario_bound_account')}: ${account?.name ?? strings.get('not_available')}',
-        ),
-      ],
+      children: _facts(scene, account),
     );
     // Edit stays directly before Use so D-pad focus moves between them.
     final actions = Wrap(
@@ -318,24 +379,19 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
             icon: const Icon(LucideIcons.user, size: 18),
             label: Text(strings.get('scenario_follow_account')),
           ),
-        // A switch action, not a completed state: no check mark.
-        TextButton.icon(
-          key: ValueKey('scenario-use-${scene.id}'),
-          onPressed: busy || invalid || bindingMissing
-              ? null
-              : () => previewAndUseScenario(context, app, scene),
-          icon: const Icon(LucideIcons.arrowLeftRight, size: 18),
-          label: Text(strings.get('scenario_use')),
-        ),
-        // The template's most likely next step once live settings diverge.
-        if (selected && state?.modified == true)
+        // A switch action, not a completed state: no check mark. The selected
+        // scene offers it again only when using it would change something.
+        if (!selected || _selectionNeedsUse(scene))
           TextButton.icon(
-            key: ValueKey('scenario-update-${scene.id}'),
-            onPressed: busy ? null : () => _update(scene),
-            icon: const Icon(LucideIcons.save, size: 18),
-            label: Text(strings.get('scenario_update_current')),
+            key: ValueKey('scenario-use-${scene.id}'),
+            onPressed: busy || invalid || bindingMissing
+                ? null
+                : () => previewAndUseScenario(context, app, scene),
+            icon: const Icon(LucideIcons.arrowLeftRight, size: 18),
+            label: Text(strings.get('scenario_use')),
           ),
         PopupMenuButton<String>(
+          key: ValueKey('scenario-menu-${scene.id}'),
           enabled: !busy,
           onSelected: (value) {
             switch (value) {
@@ -350,24 +406,39 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
           itemBuilder: (_) => [
             PopupMenuItem(
               value: 'duplicate',
-              child: Text(strings.get('scenario_duplicate')),
+              child: _menuItem(
+                LucideIcons.copy,
+                strings.get('scenario_duplicate'),
+              ),
             ),
             PopupMenuItem(
               value: 'update',
-              child: Text(strings.get('scenario_update_current')),
+              child: _menuItem(
+                LucideIcons.save,
+                strings.get('scenario_update_current'),
+              ),
             ),
-            PopupMenuItem(value: 'delete', child: Text(strings.get('delete'))),
+            const PopupMenuDivider(),
+            PopupMenuItem(
+              value: 'delete',
+              child: _menuItem(
+                LucideIcons.trash2,
+                strings.get('delete'),
+                danger: true,
+              ),
+            ),
           ],
         ),
       ],
     );
-    // Rows share the Accounts grammar: selection wash and start marker, the
-    // name above its tags, actions beside the block or under a hairline.
+    // Rows share the Accounts selection marks (wash and start marker) and put
+    // the name above its tags; actions sit beside the block or under a
+    // hairline.
     return Semantics(
       selected: selected,
       container: true,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
         decoration: BoxDecoration(
           color: selected
               ? theme.colorScheme.primary.withValues(alpha: tokens.tint * 0.55)
@@ -465,41 +536,217 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
     );
   }
 
-  Widget _toolbar() {
-    final strings = app.strings, scenes = app.scenarios;
-    final heading = Text(
-      strings.get('scenario_scenes'),
-      style: Theme.of(context).textTheme.titleSmall,
-    );
-    final create = FilledButton.icon(
+  Widget _createButton() {
+    final scenes = app.scenarios;
+    return FilledButton.icon(
       key: const ValueKey('scenario-create'),
       onPressed: scenes.busy || scenes.catalog?.currentSettings == null
           ? null
           : () => _edit(),
       icon: const Icon(LucideIcons.plus),
-      label: Text(strings.get('scenario_create')),
+      label: Text(app.strings.get('scenario_create')),
     );
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        if (constraints.maxWidth < 560 ||
-            MediaQuery.textScalerOf(context).scale(14) > 21) {
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              heading,
-              const SizedBox(height: 12),
-              Align(alignment: AlignmentDirectional.centerEnd, child: create),
-            ],
-          );
-        }
-        return Row(
+  }
+
+  /// The selection, its Engine state and the account and connection behind
+  /// it, with the actions that resolve a drifted or uncertain selection.
+  Widget _status(ScenarioCatalog state) {
+    final strings = app.strings, scenes = app.scenarios;
+    final theme = Theme.of(context);
+    final muted = theme.colorScheme.onSurfaceVariant;
+    final busy = scenes.busy;
+    final scene = state.selected;
+    final status = scenarioStatus(app);
+    final running = profilesRunningLabel(app);
+    // The heading already says "selected"; a tag repeats it only as a state.
+    final tags = <Widget>[
+      if (status.key != 'scenario_selected')
+        InlineStatus(
+          label: strings.get(status.key),
+          tone: status.tone,
+          icon: status.icon,
+        ),
+      if (scene != null && state.templateUpdated)
+        InlineStatus(
+          label: strings.get('scenario_template_updated'),
+          tone: StatusTone.warning,
+          icon: LucideIcons.refreshCcw,
+        ),
+      if (scene != null && _bindingDiffers(scene))
+        InlineStatus(
+          label: strings.get('scenario_binding_modified'),
+          tone: StatusTone.warning,
+        ),
+    ];
+    Widget readout(
+      IconData icon,
+      String label,
+      String value, {
+      required Key key,
+    }) => Wrap(
+      // Long labels or large text put the value on the next line instead
+      // of pushing it past the card's edge.
+      spacing: 8,
+      runSpacing: 2,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Expanded(child: heading),
-            const SizedBox(width: 16),
-            create,
+            ExcludeSemantics(child: Icon(icon, size: 16, color: muted)),
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(
+                label,
+                style: theme.textTheme.bodySmall?.copyWith(color: muted),
+              ),
+            ),
           ],
-        );
-      },
+        ),
+        Text(value, key: key, style: theme.textTheme.titleSmall),
+      ],
+    );
+    final actions = <Widget>[
+      // Live settings left the template: keep them in it, or as a new scene.
+      if (scene != null && state.modified) ...[
+        FilledButton.tonalIcon(
+          key: ValueKey('scenario-update-${scene.id}'),
+          onPressed: busy ? null : () => _update(scene),
+          icon: const Icon(LucideIcons.save, size: 18),
+          label: Text(strings.get('scenario_update_current')),
+        ),
+        TextButton.icon(
+          key: const ValueKey('scenario-save-as'),
+          onPressed: busy || state.currentSettings == null
+              ? null
+              : () => _edit(),
+          icon: const Icon(LucideIcons.copyPlus, size: 18),
+          label: Text(strings.get('scenario_save_as')),
+        ),
+      ],
+      if (state.canRestore)
+        TextButton.icon(
+          key: const ValueKey('scenario-restore'),
+          onPressed: busy
+              ? null
+              : () => previewAndUseScenario(context, app, null),
+          icon: const Icon(LucideIcons.history, size: 18),
+          label: Text(strings.get('scenario_restore')),
+        ),
+      // Leaving the selection previews Usque's default scene settings.
+      if (state.selectedId != null)
+        TextButton.icon(
+          key: const ValueKey('scenario-use-custom'),
+          onPressed: busy || state.currentAccountId == null
+              ? null
+              : () => previewAndUseCustom(context, app),
+          icon: const Icon(LucideIcons.rotateCcw, size: 18),
+          label: Text(strings.get('scenario_use_custom')),
+        ),
+    ];
+    final narrow = MediaQuery.sizeOf(context).width < 600;
+    return Panel(
+      key: const ValueKey('profiles-scene-status'),
+      padding: EdgeInsetsDirectional.fromSTEB(
+        narrow ? 16 : 20,
+        16,
+        narrow ? 8 : 12,
+        narrow ? 16 : 18,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const SizedBox(height: 4),
+                    Text(
+                      strings.get('scenario_current'),
+                      style: theme.textTheme.bodySmall?.copyWith(color: muted),
+                    ),
+                    const SizedBox(height: 6),
+                    Wrap(
+                      spacing: 14,
+                      runSpacing: 6,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        Text(
+                          scene?.name ?? strings.get('scenario_custom'),
+                          key: const ValueKey('profiles-selected-scene'),
+                          style: theme.textTheme.headlineSmall,
+                        ),
+                        ...tags,
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              // Small and always beside the state: an uncertain switch is
+              // resolved by refreshing before anything else.
+              IconButton(
+                tooltip: strings.get('settings_refresh'),
+                onPressed: busy ? null : scenes.refresh,
+                icon: const Icon(LucideIcons.refreshCw),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Padding(
+            padding: const EdgeInsetsDirectional.only(end: 8),
+            child: Wrap(
+              spacing: 28,
+              runSpacing: 8,
+              children: [
+                readout(
+                  LucideIcons.user,
+                  strings.get('scenario_current_account'),
+                  profilesSelectedAccountLabel(app),
+                  key: const ValueKey('profiles-selected-account'),
+                ),
+                if (running != null)
+                  readout(
+                    LucideIcons.activity,
+                    strings.chain('current'),
+                    running,
+                    key: const ValueKey('profiles-running'),
+                  ),
+              ],
+            ),
+          ),
+          if (actions.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            Wrap(spacing: 8, runSpacing: 8, children: actions),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// The list's label and size; creating a scene is a page action.
+  Widget _listHeading(ScenarioCatalog? state) {
+    final theme = Theme.of(context);
+    final count = state?.scenarios.length ?? 0;
+    return Row(
+      children: [
+        Text(
+          app.strings.get('scenario_scenes'),
+          style: theme.textTheme.titleSmall,
+        ),
+        if (count > 0) ...[
+          const SizedBox(width: 8),
+          Text(
+            '$count',
+            style: theme.textTheme.titleSmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ],
     );
   }
 
@@ -507,6 +754,16 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
     final strings = app.strings, scenes = app.scenarios, state = scenes.catalog;
     final theme = Theme.of(context);
     if (state == null) {
+      if (scenes.queryUnconfirmed) {
+        return Center(
+          child: TextButton.icon(
+            key: const ValueKey('scenario-retry'),
+            onPressed: scenes.refresh,
+            icon: const Icon(LucideIcons.refreshCw),
+            label: Text(strings.get('retry')),
+          ),
+        );
+      }
       return const Padding(
         padding: EdgeInsets.symmetric(vertical: 32),
         child: Center(child: CircularProgressIndicator()),
@@ -545,6 +802,17 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
                     color: theme.colorScheme.onSurfaceVariant,
                   ),
                 ),
+                const SizedBox(height: 4),
+                // What a scene leaves to the device, before the first one.
+                Text(
+                  strings.get('scenario_global_hint'),
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 24),
+                _createButton(),
               ],
             ),
           )
@@ -558,30 +826,30 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
   Widget build(BuildContext context) {
     final strings = app.strings, scenes = app.scenarios;
     final available = scenes.supported;
+    final state = scenes.catalog;
     return PageFrame(
       title: strings.get('profiles'),
       subtitle: strings.get('profiles_subtitle'),
       contentWidth: 880,
       actions: [
-        if (available)
+        if (available) ...[
           TextButton.icon(
             key: const ValueKey('profiles-manage-accounts'),
             onPressed: _openAccounts,
             icon: const Icon(LucideIcons.users, size: 18),
             label: Text(strings.get('profiles_manage_accounts')),
           ),
+          // An empty library carries its only create action in the list.
+          if (state == null || state.scenarios.isNotEmpty) _createButton(),
+        ],
       ],
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           BannerSlot(child: profilesOperationBanner(app)),
           if (available) ...[
-            ProfilesSummary(
-              controller: app,
-              onRestore: () => previewAndUseScenario(context, app, null),
-            ),
-            const SizedBox(height: 24),
-            _toolbar(),
+            if (state != null) ...[_status(state), const SizedBox(height: 28)],
+            _listHeading(state),
           ] else ...[
             // Without scenes there is nothing to switch to, only Accounts.
             HintText(strings.get('scenario_unsupported')),
@@ -591,7 +859,7 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
               child: AddAccountButton(controller: app),
             ),
           ],
-          const SizedBox(height: 16),
+          SizedBox(height: available ? 8 : 16),
           if (!available) AccountsScreen(controller: app) else _scenes(),
         ],
       ),
@@ -739,17 +1007,31 @@ SceneStatus scenarioStatus(AppController app) {
 }
 
 String scenarioStateKey(AppController app) {
-  final state = app.scenarios.catalog;
-  if (app.scenarios.unconfirmed) return 'scenario_unknown';
-  if (state != null && !app.scenarios.runtimeConfirmed) {
+  final scenes = app.scenarios, state = scenes.catalog;
+  if (scenes.unconfirmed) return 'scenario_unknown';
+  // Without a session there is no application result to await: a saved
+  // selection waits for the next connection. A failed read, an unresolved
+  // switch or an outcome the owner reports as unknown or failed still shows.
+  final idle =
+      state != null &&
+      state.sessionId == null &&
+      !app.snapshot.isConnected &&
+      !app.snapshot.isTransitional;
+  if (state != null && !scenes.runtimeConfirmed) {
+    // A saved-configuration read is authoritative for the selection and its
+    // drift, never for a running connection.
+    if (idle && !state.runtimeObserved && !scenes.queryUnconfirmed) {
+      return state.modified ? 'scenario_modified' : 'scenario_selected';
+    }
     return 'scenario_unknown';
   }
   if (state?.modified == true) return 'scenario_modified';
   if (state?.applyStatus == 'failed') return 'scenario_failed';
   if (state?.applyStatus == 'unknown') return 'scenario_unknown';
   if (state?.appliedMatches == true) return 'scenario_applied';
-  if (state?.applyStatus == 'applying' || state?.applyStatus == 'deferred') {
-    return 'scenario_pending';
+  if (state?.applyStatus == 'applying') return 'scenario_pending';
+  if (state?.applyStatus == 'deferred') {
+    return idle ? 'scenario_selected' : 'scenario_pending';
   }
   if ((state?.applyStatus == 'unknown' || app.scenarios.queryUnconfirmed) &&
       app.snapshot.isConnected) {
@@ -759,16 +1041,46 @@ String scenarioStateKey(AppController app) {
 }
 
 final _scenePreviewLocks = Expando<bool>();
+
+/// Previews and applies [scene], or restores the previous settings when null.
 Future<bool> previewAndUseScenario(
   BuildContext context,
   AppController app,
   ConnectionScenario? scene,
+) => _previewAndUse(
+  context,
+  app,
+  scene,
+  () => scene == null
+      ? app.scenarios.previewRestore()
+      : app.scenarios.preview(scene),
+);
+
+/// Previews and applies Custom: no selected scene, with Usque's default
+/// scene settings for the current account.
+Future<bool> previewAndUseCustom(BuildContext context, AppController app) =>
+    _previewAndUse(context, app, null, app.scenarios.previewReset);
+
+Future<bool> _previewAndUse(
+  BuildContext context,
+  AppController app,
+  ConnectionScenario? scene,
+  Future<ScenarioPreview?> Function() load,
 ) async {
   if (_scenePreviewLocks[app] == true) return false;
   _scenePreviewLocks[app] = true;
+  Future<void> Function()? releaseControl;
   try {
-    return await _previewAndUseScenario(context, app, scene);
+    try {
+      releaseControl = await app.acquireControlOperation();
+    } on Object {
+      app.scenarios.previewUnavailable();
+      return false;
+    }
+    if (!context.mounted) return false;
+    return await _previewAndUseScenario(context, app, scene, load);
   } finally {
+    await app.releaseControlOperation(releaseControl);
     _scenePreviewLocks[app] = false;
   }
 }
@@ -777,13 +1089,12 @@ Future<bool> _previewAndUseScenario(
   BuildContext context,
   AppController app,
   ConnectionScenario? scene,
+  Future<ScenarioPreview?> Function() load,
 ) async {
   final route = ModalRoute.of(context);
   bool canPresent() =>
       app.section == AppSection.profiles && (route?.isCurrent ?? true);
-  final preview = scene == null
-      ? await app.scenarios.previewRestore()
-      : await app.scenarios.preview(scene);
+  final preview = await load();
   if (preview == null || !context.mounted || !canPresent()) return false;
   if (preview.values['zero_trust_endpoint_warning'] == true) {
     final acknowledged = await showDialog<bool>(
@@ -810,7 +1121,10 @@ Future<bool> _previewAndUseScenario(
       .where((field) => !_managedScenarioFields.contains(field))
       .toSet();
   String account(String? id) =>
-      app.profiles.where((a) => a.id == id).firstOrNull?.name ??
+      app.profiles
+          .where((a) => a.id == id)
+          .map(strings.accountName)
+          .firstOrNull ??
       strings.get('scenario_reference_missing');
   final impact = switch (preview.applyKind == 'select'
       ? 'scenario_disconnected_hint'
@@ -836,7 +1150,11 @@ Future<bool> _previewAndUseScenario(
     builder: (context) => UsqueDialog(
       icon: LucideIcons.layers3,
       title: strings.get(
-        preview.restore ? 'scenario_restore' : 'scenario_preview',
+        preview.reset
+            ? 'scenario_use_custom'
+            : preview.restore
+            ? 'scenario_restore'
+            : 'scenario_preview',
       ),
       subtitle: scene?.name,
       content: SingleChildScrollView(
@@ -856,6 +1174,13 @@ Future<bool> _previewAndUseScenario(
                 key: const ValueKey('scenario-kill-switch-warning'),
                 title: null,
                 message: strings.get('scenario_kill_switch_output'),
+              ),
+            ],
+            if (preview.reset) ...[
+              const SizedBox(height: 16),
+              Text(
+                strings.get('scenario_custom_hint'),
+                key: const ValueKey('scenario-custom-hint'),
               ),
             ],
             const SizedBox(height: 16),
@@ -930,7 +1255,11 @@ Future<bool> _previewAndUseScenario(
         FilledButton(
           key: const ValueKey('scenario-confirm-use'),
           onPressed: () => Navigator.pop(context, true),
-          child: Text(strings.get('scenario_confirm_use')),
+          child: Text(
+            strings.get(
+              preview.reset ? 'scenario_use_custom' : 'scenario_confirm_use',
+            ),
+          ),
         ),
       ],
     ),
@@ -1070,6 +1399,31 @@ Future<Map<String, String>> scenarioExitNames(
   return names;
 }
 
+/// One labelled fact with the locale's own colon and spacing, such as a
+/// full-width colon in Chinese and Japanese or a spaced one in French.
+String scenarioFact(AppStrings strings, String label, String value) => strings
+    .get('scenario_fact')
+    .replaceAllMapped(
+      RegExp(r'\{(label|value)\}'),
+      (match) => match[1] == 'label' ? label : value,
+    );
+
+/// A scene's endpoint in one short value: the selection mode, a preset's
+/// country, or the first manual address.
+String scenarioEndpointLabel(AppStrings strings, UsqueProfile profile) {
+  if (profile.endpointSelection == EndpointSelection.automatic) {
+    return strings.get('endpoint_automatic');
+  }
+  if (profile.endpointPresetRegion case final region?) {
+    return strings.get('endpoint_preset_${region.name}');
+  }
+  final address = [
+    profile.endpointIpv4,
+    profile.endpointIpv6,
+  ].map((value) => value.trim()).where((value) => value.isNotEmpty);
+  return address.firstOrNull ?? strings.get('endpoint_custom');
+}
+
 String scenarioValueLabel(
   AppStrings strings,
   Map<String, Object?> settings,
@@ -1109,8 +1463,8 @@ String scenarioValueLabel(
       final label =
           ChainSource.values
               .where((item) => item.wire == source)
-              .firstOrNull
-              ?.label ??
+              .map(strings.chainSourceLabel)
+              .firstOrNull ??
           strings.get('not_available');
       final name = exitNames[value['profile_id']];
       final base = name == null ? label : '$label · $name';

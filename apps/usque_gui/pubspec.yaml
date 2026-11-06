@@ -1,7 +1,7 @@
 name: usque
 description: "A native, unofficial Consumer WARP client powered by Rust."
 publish_to: 'none'
-version: 0.3.3+29
+version: 0.3.4+30
 
 environment:
   sdk: ^3.12.2
@@ -13,7 +13,7 @@ dependencies:
     sdk: flutter
   lucide_icons_flutter:
     path: ../../third_party/lucide_icons_flutter-3.1.19
-  flutter_svg: 2.3.0
+  flutter_svg: 2.3.2
   shared_preferences: ^2.5.6
   shared_preferences_platform_interface: 2.4.2
   url_launcher: ^6.3.3

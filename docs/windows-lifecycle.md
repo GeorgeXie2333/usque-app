@@ -124,7 +124,7 @@ update; new TUN requests cannot fall back to the old per-connection device path.
 recovery journal to bypass an error.
 
 Established CONNECT-IP reconnects reuse the physical-network observer described in
-[connection recovery](h3-client-reliability.md#established-connect-ip-recovery).
+[connection recovery](h3-client-reliability.md#continuous-connect-ip-recovery).
 The observer distinguishes confirmed `AGENT_PHYSICAL_NETWORK_OFFLINE` from failed
 queries and older Agents' generic errors. This does not relax the Agent's startup,
 exact-egress, cleanup or automatic-recovery checks.

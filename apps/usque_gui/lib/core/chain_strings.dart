@@ -1,7 +1,14 @@
+import '../models/chain_exit_models.dart';
+
 import 'app_strings.dart';
 import 'l10n/chain.dart';
 
 extension ChainStrings on AppStrings {
+  String chainSourceLabel(ChainSource source) =>
+      source == ChainSource.warpWireguard
+      ? get('warp_via_wireguard')
+      : source.label;
+
   String chain(String key) {
     final table = kChainCatalogs[catalogId] ?? kChainEn;
     return table[key] ?? kChainEn[key] ?? kChainEn['invalid_configuration']!;

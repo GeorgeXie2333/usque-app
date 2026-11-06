@@ -38,8 +38,8 @@ const Map<String, String> kEsCatalog = <String, String>{
   'window_restore': 'Restaurar tamaño de ventana',
   'window_close': 'Cerrar',
   'tray_open': 'Abrir Usque',
-  'tray_connect_profile': 'Conectar la cuenta activa',
-  'tray_disconnect_profile': 'Desconectar la cuenta activa',
+  'tray_connect_profile': 'Conectar la cuenta actual',
+  'tray_disconnect_profile': 'Desconectar la cuenta actual',
   'tray_disconnect_exit': 'Desconectar y salir',
   'notice_connection_interrupted':
       'La conexión se interrumpió. Usque está intentando restablecerla.',
@@ -50,8 +50,8 @@ const Map<String, String> kEsCatalog = <String, String>{
       'Kill Switch bloquea el tráfico de red hasta que se restablezca la conexión o te desconectes.',
   'connection_status': 'Estado de la conexión',
   'home': 'Inicio',
-  'profiles': 'Cuentas',
-  'profiles_subtitle': 'Cambiar y administrar las cuentas WARP.',
+  'profiles': 'Perfiles',
+  'profiles_subtitle': 'Guarda escenarios y gestiona cuentas.',
   'proxy': 'Proxy',
   'proxy_subtitle':
       'Configura las direcciones de escucha y la autenticación del proxy compartidas.',
@@ -59,7 +59,7 @@ const Map<String, String> kEsCatalog = <String, String>{
   'settings_subtitle': 'Ajustes de conexión, proxy y aplicación.',
   'diagnostics': 'Diagnóstico',
   'nav_home': 'Inicio',
-  'nav_profiles': 'Cuentas',
+  'nav_profiles': 'Perfiles',
   'nav_proxy': 'Proxy',
   'nav_settings': 'Ajustes',
   'status_stream_degraded': 'La actualización del estado se está retrasando',
@@ -78,7 +78,7 @@ const Map<String, String> kEsCatalog = <String, String>{
   'error': 'Error de conexión',
   'active_profile': 'Cuenta actual',
   'protocol': 'Protocolo',
-  'address_family': 'Familia de direcciones',
+  'address_family': 'Versión de IP',
   'duration': 'Duración',
   'download': 'Descarga',
   'upload': 'Carga',
@@ -92,7 +92,7 @@ const Map<String, String> kEsCatalog = <String, String>{
   'dismiss': 'Descartar',
   'new_profile': 'Añadir cuenta',
   'profile_name': 'Nombre de la cuenta',
-  'profile_name_too_long': 'No use más de 64 caracteres.',
+  'profile_name_too_long': 'No uses más de 64 caracteres.',
   'configure_identity': 'Configurar cuenta WARP',
   'identity_ready': 'Cuenta lista',
   'warp_free': 'WARP Free',
@@ -146,21 +146,21 @@ const Map<String, String> kEsCatalog = <String, String>{
   "zero_trust_reauth_endpoints":
       "Al iniciar sesión de nuevo se restauran las direcciones registradas y se eliminan tus direcciones personalizadas.",
   'experimental': 'Experimental',
-  'show_license': 'Mostrar License Key',
-  'hide_license': 'Ocultar License Key',
-  'license_copied': 'License Key copiada',
-  'warp_secret_saved': 'WARP Secret guardado',
+  'show_license': 'Mostrar clave de licencia',
+  'hide_license': 'Ocultar clave de licencia',
+  'license_copied': 'Clave de licencia copiada',
+  'warp_secret_saved': 'Datos de acceso de WARP guardados en',
   'create': 'Crear',
   'cancel': 'Cancelar',
   'active': 'Activo',
-  'set_active': 'Establecer como activo',
+  'set_active': 'Establecer como activa',
   'switch_account_reconnect_body':
       'La conexión actual se restablecerá con esta cuenta.',
   'edit': 'Editar',
   'delete': 'Eliminar',
   'delete_profile': '¿Eliminar cuenta?',
   'delete_profile_body':
-      "¿Eliminar esta cuenta y sus datos de inicio de sesión de WARP de este dispositivo? Si hay una License Key vinculada, Usque también intentará desvincularla.",
+      "¿Eliminar esta cuenta y sus datos de acceso de WARP de este dispositivo? Si hay una clave de licencia vinculada, Usque también intentará desvincularla.",
   'delete_zero_trust_profile_body':
       'Se borrarán la cuenta y sus datos de acceso de este dispositivo. Pide al administrador que elimine también el registro del dispositivo en el panel Zero Trust de la organización.',
   'license_not_applicable': 'Cuenta de organización · Experimental',
@@ -210,7 +210,7 @@ const Map<String, String> kEsCatalog = <String, String>{
   'proxy_auth_saved': 'Usuario y contraseña del proxy guardados.',
   'proxy_auth_cleared': 'Protección por contraseña del proxy eliminada.',
   'proxy_password_set':
-      'La contraseña está establecida. Introduzca una nueva para reemplazarla.',
+      'La contraseña está establecida. Introduce una nueva para reemplazarla.',
   'proxy_auth_clear': 'Quitar protección por contraseña',
   'general': 'General',
   'start_on_boot': 'Iniciar Usque al iniciar sesión',
@@ -261,16 +261,16 @@ const Map<String, String> kEsCatalog = <String, String>{
   'update_confirm_body':
       'Las conexiones VPN y proxy se desconectarán temporalmente durante la instalación.',
   'update_package_unavailable':
-      'No hay un instalador disponible para este dispositivo. Descárguelo desde la página de la versión.',
+      'No hay un instalador disponible para este dispositivo. Descárgalo desde la página de la versión.',
   'notice': 'Completado',
   'identity': 'Cuenta WARP',
   'identity_and_license': 'Cuenta y licencia',
   'license_cleanup_pending':
       'El registro antiguo del dispositivo WARP aún no se ha eliminado.',
-  'copy_license': 'Copiar License Key',
-  'change_license': 'Cambiar License Key',
+  'copy_license': 'Copiar clave de licencia',
+  'change_license': 'Cambiar clave de licencia',
   'unbind_license': 'Volver a WARP gratuito',
-  'export_warp_secret': 'Exportar WARP Secret',
+  'export_warp_secret': 'Exportar datos de acceso de WARP',
   'close': 'Cerrar',
   'advanced': 'Ajustes avanzados de red',
   'advanced_subtitle': 'Extremos, DNS, MTU y enrutamiento.',
@@ -296,11 +296,11 @@ const Map<String, String> kEsCatalog = <String, String>{
   'mtu': 'MTU',
   'dns_ipv4': 'DNS IPv4',
   'dns_ipv6': 'DNS IPv6',
-  'ip_policy': 'Versión de IP del extremo',
-  'prefer_ipv4': 'Preferir extremo IPv4',
-  'prefer_ipv6': 'Preferir extremo IPv6',
-  'ipv4_only': 'Solo extremo IPv4',
-  'ipv6_only': 'Solo extremo IPv6',
+  'ip_policy': 'Preferencia de IP del extremo',
+  'prefer_ipv4': 'Preferir IPv4',
+  'prefer_ipv6': 'Preferir IPv6',
+  'ipv4_only': 'Solo IPv4',
+  'ipv6_only': 'Solo IPv6',
   'kill_switch': 'Kill Switch',
   'on': 'Activado',
   'off': 'Desactivado',
@@ -317,12 +317,12 @@ const Map<String, String> kEsCatalog = <String, String>{
   'kill_switch_help_android':
       'Bloquea el tráfico al conectar, reconectar o ante fallos. Solo con el servicio VPN activo.',
   'start_on_boot_android':
-      'Inicie Usque cuando el dispositivo se reinicie. Para conectarse automáticamente, active también “Conectar la cuenta actual automáticamente al iniciar”.',
+      'Inicia Usque cuando el dispositivo se reinicie. Para conectarte automáticamente, activa también “Conectar la cuenta actual automáticamente al iniciar”.',
   'add_quick_settings_tile_help':
-      'Añada el acceso de Usque en Android 13 o posterior. En versiones anteriores, añádalo manualmente desde Ajustes rápidos.',
-  'always_on_vpn': 'Abrir ajustes de VPN siempre activada',
+      'Añade el mosaico de Usque en Android 13 o posterior. En versiones anteriores, añádelo manualmente desde Ajustes rápidos.',
+  'always_on_vpn': 'Abrir ajustes de “VPN siempre activada”',
   'always_on_vpn_help':
-      'Active VPN siempre activada y Bloquear conexiones sin VPN para protegerse de fugas tras la detención forzada de la aplicación.',
+      'Activa “VPN siempre activada” y “Bloquear conexiones sin VPN” para protegerte de fugas si se fuerza la detención de la aplicación.',
   'per_app_proxy': 'Proxy por aplicación',
   'per_app_proxy_off': 'Todas las aplicaciones usan la VPN',
   'per_app_proxy_on': 'Proxy de {count} aplicaciones',
@@ -330,7 +330,7 @@ const Map<String, String> kEsCatalog = <String, String>{
   'per_app_proxy_help':
       'Solo las aplicaciones marcadas usan la VPN. Las aplicaciones recién instaladas deben marcarse para usarla.',
   'per_app_proxy_lockdown_help':
-      'Si VPN siempre activada y Bloquear conexiones sin VPN están activados, las aplicaciones que no seleccione se bloquean; no se envían fuera del túnel.',
+      'Si “VPN siempre activada” y “Bloquear conexiones sin VPN” están activados, las aplicaciones que no selecciones se bloquean; no se envían fuera del túnel.',
   'per_app_proxy_tunnel_hint':
       'Se aplica cuando la VPN está activada. Los proxies SOCKS5 y HTTP no filtran por aplicación.',
   'per_app_search': 'Buscar aplicaciones',
@@ -338,11 +338,11 @@ const Map<String, String> kEsCatalog = <String, String>{
   'per_app_select_visible': 'Seleccionar visibles',
   'per_app_clear_visible': 'Desmarcar visibles',
   'per_app_selected_count': '{count} seleccionadas',
-  'per_app_need_one': 'Seleccione al menos una aplicación antes de activar.',
+  'per_app_need_one': 'Selecciona al menos una aplicación antes de activar.',
   'per_app_loading': 'Cargando aplicaciones instaladas…',
   'per_app_empty': 'Ninguna aplicación coincide con este filtro.',
   'allow_lan': 'Permitir la red local',
-  'bypass_cidrs': 'CIDR de omisión adicionales',
+  'bypass_cidrs': 'CIDR directos adicionales',
   'bypass_hint': 'Un CIDR por línea',
   'reset_defaults': 'Restablecer valores de red predeterminados',
   'reset_defaults_body':
@@ -350,7 +350,7 @@ const Map<String, String> kEsCatalog = <String, String>{
   'reset': 'Restablecer',
   'save': 'Guardar',
   'saved': 'Guardado',
-  'invalid_fields': 'Revise los campos resaltados.',
+  'invalid_fields': 'Revisa los campos resaltados.',
   'required': 'Obligatorio',
   'invalid_address': 'Dirección no válida',
   'invalid_dns_name': 'Nombre DNS no válido',
@@ -359,7 +359,7 @@ const Map<String, String> kEsCatalog = <String, String>{
       'Revisa problemas de conexión, exporta registros y administra los datos locales.',
   'engine_status': 'Información de conexión',
   'version': 'Versión',
-  'app_version': 'Usque 0.3.3',
+  'app_version': 'Usque 0.3.4',
   'logs': 'Registros locales',
   'export_diagnostics': 'Exportar paquete de diagnóstico',
   'diagnostics_saved': 'Paquete de diagnóstico guardado en',
@@ -396,22 +396,23 @@ const Map<String, String> kEsCatalog = <String, String>{
   'continue': 'Continuar',
   'heads_up': 'Antes de conectar',
   'permission_note':
-      'El sistema operativo puede mostrar una confirmación adicional la primera vez que se conecte.',
+      'El sistema operativo puede mostrar una confirmación adicional la primera vez que te conectes.',
   'setup_failed': 'No se pudo completar la configuración',
-  'profile_required': 'Conserve al menos una cuenta.',
+  'profile_required': 'Conserva al menos una cuenta.',
   'socks_capabilities': 'TCP y UDP',
   'http_capabilities': 'CONNECT y reenvío ordinario',
-  'geo_direct': 'Ajustes de omisión',
-  'bypass_custom': 'Destinos personalizados',
+  'geo_direct': 'Conexión directa',
+  'bypass_custom': 'Destinos directos personalizados',
   'bypass_countries': 'Países / regiones',
   'bypass_targets_hint':
       'Un CIDR, IP o dominio por línea. Incluye todos los subdominios. Las apps con DNS cifrado propio solo se identifican por IP.',
-  'bypass_unsupported': 'Este motor no admite destinos personalizados.',
+  'bypass_unsupported':
+      'Esta versión de Usque no admite destinos directos personalizados. Busca actualizaciones en Ajustes.',
   'bypass_limit': 'Máximo 256 reglas de direcciones y 256 dominios.',
   'bypass_line_error': 'Línea {line}: {reason}',
   'bypass_summary': '{countries} regiones · {targets} destinos personalizados',
   'geo_direct_help':
-      'El tráfico que coincida con estos países o regiones omite la VPN/TUN de Usque y los proxies locales HTTP y SOCKS5. El proveedor DNS de tu red puede ver los dominios consultados. Las aplicaciones con DNS cifrado se clasifican solo por IP.',
+      'El tráfico que coincida con estos países o regiones va directo, sin pasar por la VPN/TUN de Usque ni por los proxies locales HTTP y SOCKS5. El proveedor DNS de tu red puede ver los dominios consultados. Las aplicaciones con DNS cifrado se clasifican solo por IP.',
   'geo_update_all': 'Actualizar datos geográficos',
   'geo_last_updated': 'Última actualización correcta: {current}',
   'geo_never_updated': 'Aún no actualizado',
@@ -424,13 +425,13 @@ const Map<String, String> kEsCatalog = <String, String>{
   'geo_downloaded': 'Descargado',
   'geo_chip': 'Directo: {current}',
   'geo_download_first':
-      'Descargue los datos geográficos de este país antes de activarlo.',
+      'Descarga los datos geográficos de este país antes de activarlo.',
   'geo_update_complete':
       'Datos geográficos: {updated} actualizados, {current} ya estaban al día.',
   'geo_update_failed':
       'No se pudieron actualizar algunas reglas ({current}). Revisa la red y vuelve a intentarlo.',
   'diagnostics_page_subtitle':
-      'Compruebe problemas de conexión. Los resultados permanecen en este dispositivo.',
+      'Comprueba problemas de conexión. Los resultados permanecen en este dispositivo.',
   'diag_refresh_timeline': 'Actualizar cronología',
   'diag_operation_failed': 'Error en la operación de diagnóstico',
   'diag_event_stream_degraded': 'Flujo de eventos de diagnóstico interrumpido',
@@ -440,9 +441,9 @@ const Map<String, String> kEsCatalog = <String, String>{
       'Códigos de error, pasos de conexión, tiempos, estadísticas de tráfico y estado de las funciones',
   'diag_export_excluded': 'Excluido:',
   'diag_export_excluded_body':
-      'Claves, tokens, nombres de perfil, direcciones completas, SSID, listas de aplicaciones y rutas de usuario',
+      'Claves, tokens, nombres de cuenta, direcciones completas, SSID, listas de aplicaciones y rutas de usuario',
   'diag_export_local_only':
-      'El archivo se escribe solo en la ubicación que elija y nunca se carga automáticamente.',
+      'El archivo se escribe solo en la ubicación que elijas y nunca se sube automáticamente.',
   'diag_run_title': 'Ejecutar diagnóstico de red',
   'diag_run_subtitle':
       'Las comprobaciones estándar no envían tráfico ni cambian ajustes.',
@@ -467,7 +468,7 @@ const Map<String, String> kEsCatalog = <String, String>{
   'diag_timeline': 'Cronología de conexión',
   'diag_timeline_subtitle': 'Cambios recientes en el estado de la conexión.',
   'diag_logs_subtitle':
-      'Exporte un paquete de diagnóstico sin información sensible.',
+      'Exporta un paquete de diagnóstico sin información sensible.',
   'diag_session_pending': 'Pendiente',
   'diag_session_running': 'En ejecución',
   'diag_session_cancelling': 'Cancelando',
@@ -570,7 +571,7 @@ const Map<String, String> kEsCatalog = <String, String>{
   'diag_fail_H2_GOAWAY': 'HTTP/2 recibió GOAWAY',
   'diag_fail_ALL_TRANSPORTS_FAILED': 'Fallaron HTTP/3 y HTTP/2',
   'diag_fail_ENDPOINT_PIN_MISMATCH': 'El pin de extremo no coincide',
-  'diag_fail_IDENTITY_INVALID': 'Identidad no válida',
+  'diag_fail_IDENTITY_INVALID': 'Cuenta WARP no válida',
   'diag_fail_AUTHENTICATION_FAILED': 'Error de autenticación',
   'diag_fail_CONFIGURATION_INVALID': 'Configuración no válida',
   'diag_fail_CONNECT_IP_REJECTED': 'CONNECT-IP rechazado',
@@ -607,7 +608,7 @@ const Map<String, String> kEsCatalog = <String, String>{
   'diag_fix_try_http2':
       'En Ajustes → Ajustes avanzados de red, elige HTTP/2, aplica los cambios e intenta conectar de nuevo.',
   'diag_fix_check_physical_network':
-      'Comprueba que el Wi-Fi o la red móvil funcionan e intenta conectar de nuevo.',
+      'Comprueba que el Wi-Fi o los datos móviles funcionan sin Usque e intenta conectar de nuevo.',
   'diag_fix_refresh_or_replace_identity':
       'En Cuentas, elige Configurar cuenta WARP para esta cuenta. Inicia sesión de nuevo o crea una cuenta WARP y vuelve a conectar.',
   'diag_fix_replace_identity':
@@ -615,23 +616,23 @@ const Map<String, String> kEsCatalog = <String, String>{
   'diag_fix_review_configuration':
       'En Ajustes → Ajustes avanzados de red, corrige los campos marcados y aplica los cambios.',
   'diag_fix_restore_platform_state':
-      'Cierra Usque por completo y ábrelo de nuevo. Si sigue fallando, exporta un paquete desde Diagnóstico para solicitar ayuda.',
+      'Cierra Usque por completo, ábrelo de nuevo e inténtalo otra vez. Si sigue fallando, abre Diagnóstico y exporta un paquete de diagnóstico para solicitar ayuda.',
   'diag_fix_resolve_dependency':
       'Resuelve primero las comprobaciones fallidas de la lista y vuelve a ejecutar el diagnóstico.',
   'diag_fix_run_deep_diagnostics':
       'En Diagnóstico, elige Profundo e inicia las comprobaciones. Pueden enviar tráfico de prueba; algunas se omiten mientras estás conectado.',
   'diag_fix_run_release_leak_gate':
-      'Exporte un paquete de diagnóstico y envíelo al soporte. La información sensible se elimina.',
+      'Exporta un paquete de diagnóstico y envíalo al soporte. La información sensible se elimina.',
   'diag_fix_inspect_platform_state':
-      'En Diagnóstico, revisa los fallos de Protección del sistema. Si persisten, exporta un paquete de diagnóstico para solicitar ayuda.',
+      'Abre Diagnóstico y revisa las comprobaciones de Protección del sistema. Si siguen fallando, exporta un paquete de diagnóstico para solicitar ayuda.',
   'diag_fix_generate_tunnel_traffic':
       'Abre una página web a través de Usque y repite la comprobación.',
   'diag_fix_export_diagnostics':
-      'Exporte un paquete de diagnóstico y envíelo al soporte. La información sensible se elimina.',
-  'diag_fix_retry': 'Vuelva a intentarlo en breve.',
+      'Exporta un paquete de diagnóstico y envíalo al soporte. La información sensible se elimina.',
+  'diag_fix_retry': 'Vuelve a intentarlo en breve.',
   'diag_fix_none': 'No se requiere ninguna acción.',
   'diag_fix_default':
-      'Inténtalo de nuevo. Si el problema persiste, abre Diagnóstico y exporta un paquete para solicitar ayuda.',
+      'Inténtalo de nuevo. Si el problema persiste, abre Diagnóstico y exporta un paquete de diagnóstico para solicitar ayuda.',
   'diag_event_attempt_started': 'Intento de conexión iniciado',
   'diag_event_endpoint_resolved': 'Dirección del extremo resuelta',
   'diag_event_socket_connected': 'Socket conectado',
@@ -656,7 +657,7 @@ const Map<String, String> kEsCatalog = <String, String>{
   'diag_event_disconnected': 'Desconectado',
   'diag_event_failed': 'Conexión fallida',
   'operation_failed':
-      'No se pudo completar la operación. Inténtalo de nuevo; si el problema persiste, exporta un paquete de diagnóstico para solicitar ayuda.',
+      'No se pudo completar la operación. Inténtalo de nuevo; si sigue fallando, abre Diagnóstico y exporta un paquete de diagnóstico para solicitar ayuda.',
   'operation_timeout':
       'La operación agotó el tiempo de espera. Revisa la red e inténtalo de nuevo.',
   'accounts_reset':
@@ -675,15 +676,15 @@ const Map<String, String> kEsCatalog = <String, String>{
   "routing_action": "Acción",
   "routing_target": "Dominio, IP o CIDR",
   "routing_priority":
-      "Gana la regla más específica. Las reglas propias prevalecen sobre Ads y países; el bloqueo IP sigue vigente.",
+      "Gana la regla más específica. Las reglas personalizadas prevalecen sobre el bloqueo de anuncios y las reglas por país; las reglas de bloqueo de IP siguen vigentes.",
   "routing_conflict":
       "Acciones distintas para el mismo destino. Modifica estas reglas.",
   "routing_overlap": "La regla más específica prevalece sobre la más amplia.",
   "routing_duplicate": "Los duplicados se combinarán al guardar.",
-  "routing_ads": "anuncios y rastreo",
-  "routing_ads_ready": "Los datos de Ads están disponibles.",
+  "routing_ads": "Bloqueo de anuncios y rastreadores",
+  "routing_ads_ready": "Las reglas de bloqueo de anuncios están listas.",
   "routing_ads_unavailable":
-      "Ads no está disponible. Las conexiones y reglas propias siguen disponibles.",
+      "Las reglas de bloqueo de anuncios no están disponibles. Las conexiones y las reglas personalizadas siguen disponibles.",
   "routing_pending": "Las reglas descargadas se aplican al volver a conectar.",
   'routing_current': "Conexión actual",
 };

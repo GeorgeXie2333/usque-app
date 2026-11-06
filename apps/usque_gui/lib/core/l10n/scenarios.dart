@@ -2,6 +2,7 @@ import 'scenarios_asia.dart';
 import 'scenarios_europe.dart';
 
 const kScenarioEn = <String, String>{
+  'scenario_fact': '{label}: {value}',
   'scenario_platform_unsupported':
       'This scene contains a setting unavailable on this device.',
   'scenario_limit':
@@ -37,15 +38,18 @@ const kScenarioEn = <String, String>{
   'scenario_failed': 'Saved; application failed',
   'scenario_unknown': 'Result not confirmed',
   'scenario_custom': 'Custom',
+  'scenario_use_custom': 'Switch to Custom',
+  'scenario_custom_hint':
+      'Clears the selected scene. Endpoint, transport, IP preference and exit return to Usque defaults; other settings stay as they are.',
   'scenario_unsupported':
-      'This Engine does not support scenes. Account management is available.',
+      'This version of Usque does not support scenes. Account management is still available.',
   'scenario_save_failed':
       'The operation could not be completed. Refresh the state before retrying.',
   'scenario_reference_missing':
       'An account or exit required by this scene is unavailable.',
   'scenario_global_hint':
-      "Outputs, LAN access, ad blocking, routing and DNS use device settings.",
-  'scenario_output': 'Outputs',
+      "{tunnel} and proxy switches, LAN access, ad blocking, routing and DNS use device settings.",
+  'scenario_output': '{tunnel} and proxies',
   'scenario_exit': 'Exit',
   'scenario_connection': 'Connection preferences',
   'scenario_current': 'Selected scene',
@@ -53,7 +57,7 @@ const kScenarioEn = <String, String>{
   'scenario_running_account': 'Connected account',
   'scenario_no_changes': 'The selected settings already match.',
   'scenario_will_reconnect':
-      'The Engine will apply these changes using the required connection lifecycle. A reconnect may be needed.',
+      'Usque will apply these changes automatically. It may need to reconnect.',
   'scenario_disconnected_hint': 'The connection will remain disconnected.',
   'scenario_delete_title': 'Delete scene?',
   'scenario_delete_body':
@@ -62,7 +66,7 @@ const kScenarioEn = <String, String>{
   'scenario_keep_account': 'The current account is kept.',
   'scenario_account_change': 'Account change',
   'scenario_library_hint':
-      "Create, import or manage nodes here. Your selection returns to the scene draft.",
+      "Create, import or manage exits here. Your selection is added to the scene you are editing.",
   'scenario_saved': 'Scene saved',
   'scenario_confirm_use': 'Apply scene',
   'scenario_new_flows':
@@ -84,10 +88,21 @@ const kScenarioEn = <String, String>{
   'scenario_unsaved': 'Unsaved scene changes',
   'scenario_inherited_changes': 'Other saved settings that also take effect',
   'scenario_choose_exit': "Use this selection",
-  'scenario_choose_account': "Bind to scene",
+  'scenario_account_hint':
+      "Using the scene connects with the account chosen here.",
+  'scenario_follow_account_hint': "Follows the selected account, now {account}",
+  'scenario_follow_account_named': "Use the current account ({account})",
+  'account_selected': 'Selected',
+  'account_connected': 'Connected',
+  'account_default_name': 'Default',
+  'warp_via_wireguard': 'WARP via WireGuard',
+  'scenario_saving': 'Saving scene…',
+  'scenario_discard_title': 'Discard unsaved scene changes?',
+  'scenario_discard_body': 'Unsaved changes to this scene will be lost.',
 };
 
 const kScenarioZhCn = <String, String>{
+  'scenario_fact': '{label}：{value}',
   'scenario_platform_unsupported': '此场景包含当前设备不支持的设置。',
   'scenario_limit': "场景库超过限制，请删除不再使用的场景。",
   'profiles': '配置',
@@ -114,31 +129,33 @@ const kScenarioZhCn = <String, String>{
   'scenario_selected': '已选择',
   'scenario_applied': '已应用',
   'scenario_modified': '已修改',
-  'scenario_binding_modified': '账号与绑定不同',
+  'scenario_binding_modified': '账号与场景绑定不一致',
   'scenario_template_updated': '场景有更新',
   'scenario_pending': '已保存，待应用',
   'scenario_failed': '已保存，应用失败',
   'scenario_unknown': '结果待确认',
   'scenario_custom': '自定义',
-  'scenario_unsupported': '当前引擎不支持场景，仍可管理账号。',
+  'scenario_use_custom': '切换为自定义',
+  'scenario_custom_hint': '取消所选场景，端点、传输协议、IP 偏好和出口恢复为 Usque 默认设置，其他设置保持不变。',
+  'scenario_unsupported': '此版本的 Usque 不支持场景，仍可管理账号。',
   'scenario_save_failed': '操作未能完成，请先刷新状态再重试。',
   'scenario_reference_missing': '此场景需要的账号或出口不可用。',
-  'scenario_global_hint': "输出、局域网访问、广告拦截、分流与 DNS 沿用全局设置。",
-  'scenario_output': '输出',
+  'scenario_global_hint': "{tunnel}与代理开关、局域网访问、广告拦截、分流与 DNS 沿用全局设置。",
+  'scenario_output': '{tunnel}与代理',
   'scenario_exit': '出口',
   'scenario_connection': '连接偏好',
   'scenario_current': '已选场景',
   'scenario_current_account': '已选账号',
   'scenario_running_account': '连接使用的账号',
   'scenario_no_changes': '所选设置已一致。',
-  'scenario_will_reconnect': '引擎将按所需的连接流程应用变更，可能需要重连。',
+  'scenario_will_reconnect': 'Usque 会自动应用这些更改，可能需要重新连接。',
   'scenario_disconnected_hint': '连接将保持断开。',
   'scenario_delete_title': '删除场景？',
-  'scenario_delete_body': '删除此场景模板，保留当前网络设置。',
+  'scenario_delete_body': '删除此场景，保留当前网络设置。',
   'scenario_validation_name': '请输入 1–64 个字符的名称。',
   'scenario_keep_account': '保持当前账号。',
   'scenario_account_change': '账号变更',
-  'scenario_library_hint': "可在此新建、导入或管理节点，选择只写入场景草稿。",
+  'scenario_library_hint': "可在此新建、导入或管理出口，所选内容会写入正在编辑的场景。",
   'scenario_saved': '场景已保存',
   'scenario_confirm_use': '应用场景',
   'scenario_new_flows': '变更对新连接生效，已有连接可能保留原路径。',
@@ -153,7 +170,16 @@ const kScenarioZhCn = <String, String>{
   'scenario_unsaved': '场景有未保存的修改',
   'scenario_inherited_changes': '同时生效的其他已保存设置',
   'scenario_choose_exit': "使用此选择",
-  'scenario_choose_account': "绑定到场景",
+  'scenario_account_hint': "使用场景时以这里选择的账号连接。",
+  'scenario_follow_account_hint': "跟随已选账号，当前为 {account}",
+  'scenario_follow_account_named': "沿用当前账号（{account}）",
+  'account_selected': '已选择',
+  'account_connected': '已连接',
+  'account_default_name': '默认账号',
+  'warp_via_wireguard': 'WARP（通过 WireGuard）',
+  'scenario_saving': '正在保存场景…',
+  'scenario_discard_title': '放弃未保存的场景修改？',
+  'scenario_discard_body': '此场景尚未保存的修改将丢失。',
 };
 
 const kScenarioCatalogs = <String, Map<String, String>>{

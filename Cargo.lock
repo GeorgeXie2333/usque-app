@@ -321,9 +321,9 @@ dependencies = [
 
 [[package]]
 name = "brotli-decompressor"
-version = "6.1.1"
+version = "6.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "28a996bd762f99a48a3aebaa662ff203cc4fb388706eff2e88e7cb459d013a62"
+checksum = "34c6783f42c21c952ad7112b354f0ba2f10760e9decea5b1b60523d6e270faaf"
 dependencies = [
  "alloc-no-stdlib",
  "alloc-stdlib",
@@ -584,9 +584,9 @@ dependencies = [
 
 [[package]]
 name = "crypto-bigint"
-version = "0.7.6"
+version = "0.7.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6bb08299a6046833a879ace115697f12fd2bd6c8d3e93c909ffc9e0738e7cae0"
+checksum = "9c035cb64cba03dad2fb921f3e218785e8cf9a41790da5eb3a1400f62fa2be11"
 dependencies = [
  "cpubits",
  "ctutils",
@@ -622,9 +622,9 @@ dependencies = [
 
 [[package]]
 name = "ctutils"
-version = "0.4.5"
+version = "0.4.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "38d28fb6aa7dd680b3ffd1a3e64e115c177bdba63c0ae7f9cd48129ff05c4fa0"
+checksum = "a2376ffd6f96d8a9db59875b4b6b0237d6900b5baf64279714e05493ce64828a"
 dependencies = [
  "cmov",
  "subtle",
@@ -3088,7 +3088,7 @@ dependencies = [
 
 [[package]]
 name = "usque-agent"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "async-trait",
  "bytes",
@@ -3113,7 +3113,7 @@ dependencies = [
 
 [[package]]
 name = "usque-android"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "async-trait",
  "bytes",
@@ -3135,7 +3135,7 @@ dependencies = [
 
 [[package]]
 name = "usque-core"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "async-trait",
  "base64 0.23.1",
@@ -3165,7 +3165,7 @@ dependencies = [
 
 [[package]]
 name = "usque-engine"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "async-trait",
  "base64 0.23.1",
@@ -3199,7 +3199,7 @@ dependencies = [
 
 [[package]]
 name = "usque-geo"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "bytes",
  "futures",
@@ -3217,7 +3217,7 @@ dependencies = [
 
 [[package]]
 name = "usque-ipc"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "bytes",
  "libc",
@@ -3230,7 +3230,7 @@ dependencies = [
 
 [[package]]
 name = "usque-macos-runtime"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "async-trait",
  "bytes",
@@ -3250,7 +3250,7 @@ dependencies = [
 
 [[package]]
 name = "usque-openvpn"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "bytes",
  "cmake",
@@ -3261,7 +3261,7 @@ dependencies = [
 
 [[package]]
 name = "usque-platform"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "async-trait",
  "libc",
@@ -3277,7 +3277,7 @@ dependencies = [
 
 [[package]]
 name = "usque-protocol"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "bytes",
  "proptest",
@@ -3288,7 +3288,7 @@ dependencies = [
 
 [[package]]
 name = "usque-transport"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "async-trait",
  "base64 0.23.1",
@@ -3339,7 +3339,7 @@ dependencies = [
 
 [[package]]
 name = "usque-uninstall"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "serde_json",
  "thiserror",
@@ -3350,7 +3350,7 @@ dependencies = [
 
 [[package]]
 name = "usque-update"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "clap",
  "libc",
@@ -3378,9 +3378,9 @@ checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 
 [[package]]
 name = "uuid"
-version = "1.28.0"
+version = "1.29.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7cc1186384beb7dd8eedea376413fd654937285ea6c9cfbb928dc3043ea4b606"
+checksum = "4a0e2d11620c50695fe12bbbfde96b3477fe606e7284c22d505c12ce51214514"
 dependencies = [
  "getrandom 0.4.3",
  "js-sys",
@@ -3524,9 +3524,9 @@ dependencies = [
 
 [[package]]
 name = "webpki-roots"
-version = "1.0.10"
+version = "1.0.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1c1c8e20c8a38fc7d65abfe74eb7280e4aa667e8eec8bc84996d2874810748d9"
+checksum = "f5f280bbb2b287bc8e7de7e3852945a0ff50d1bbcb5ed42b6c7a568c546df171"
 dependencies = [
  "rustls-pki-types",
 ]

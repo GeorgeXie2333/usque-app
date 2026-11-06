@@ -79,8 +79,14 @@ Future<void> _answer(
   WidgetTester tester,
   AppStrings strings, {
   required bool discard,
+  bool scene = false,
 }) async {
-  expect(find.text(strings.get('discard_changes_title')), findsOneWidget);
+  expect(
+    find.text(
+      strings.get(scene ? 'scenario_discard_title' : 'discard_changes_title'),
+    ),
+    findsOneWidget,
+  );
   await tester.tap(
     find.text(strings.get(discard ? 'discard_changes' : 'keep_editing')),
   );
@@ -108,8 +114,8 @@ void main() {
           ),
         );
         expect(await section.closeSubpages(), false);
-        await _answer(tester, app.strings, discard: true);
-        await _answer(tester, app.strings, discard: false);
+        await _answer(tester, app.strings, scene: true, discard: true);
+        await _answer(tester, app.strings, scene: true, discard: false);
         expect(find.byType(ChainProxyScreen), findsOneWidget);
         expect(app.section, AppSection.profiles);
 
@@ -134,10 +140,10 @@ void main() {
         }
 
         await back();
-        await _answer(tester, app.strings, discard: false);
+        await _answer(tester, app.strings, scene: true, discard: false);
         expect(find.byType(ChainProxyScreen), findsOneWidget);
         await back();
-        await _answer(tester, app.strings, discard: true);
+        await _answer(tester, app.strings, scene: true, discard: true);
         expect(find.byType(ChainProxyScreen), findsNothing);
         expect(
           tester

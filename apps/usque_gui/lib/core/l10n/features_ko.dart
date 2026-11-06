@@ -70,7 +70,7 @@ const Map<String, String> kNetworkQualityKo = <String, String>{
   'diag_check_quality_packet_loss': '패킷 손실',
   'diag_check_quality_queue_pressure': '큐 부하',
   'diag_check_quality_pmtu': '경로 MTU',
-  'diag_check_transport_migration_capability': '동일 패밀리 마이그레이션',
+  'diag_check_transport_migration_capability': '같은 IP 버전 내 마이그레이션',
   'diag_check_dns_direct_encrypted_configuration': '직접 DNS 구성',
   'diag_check_dns_direct_encrypted_runtime_state': '직접 DNS 런타임',
   'diag_check_dns_direct_encrypted_reachability': '암호화 DNS 도달 여부',
@@ -110,7 +110,7 @@ const Map<String, String> kNetworkQualityKo = <String, String>{
   'nq_live': '실시간',
   'nq_stale': '오래된 측정값',
   'nq_updated': '최근 샘플',
-  'nq_seconds': '{count} 초 전',
+  'nq_seconds': '{count}초 전',
   'nq_good': '양호',
   'nq_fair': '보통',
   'nq_poor': '불량',
@@ -258,7 +258,7 @@ const Map<String, String> kWindowsRecoveryKo = <String, String>{
       'Windows가 자동으로 세 번 시도한 뒤에도 이전 VPN 네트워크 상태를 '
       '복원하지 못했습니다. 준비가 되면 다시 시도하거나 로컬 진단을 확인하세요.',
   'WINDOWS_RECOVERY_BLOCKED':
-      '이전 VPN 설정을 안전하게 복원할 수 있는지 확인하지 못해 자동 복구를 멈췄습니다. 설정에서 업데이트를 확인하고 문제가 계속되면 진단 패키지를 내보내세요.',
+      '이전 VPN 설정을 안전하게 복원할 수 있는지 확인하지 못해 Usque가 자동 복구를 멈췄습니다. 설정에서 업데이트를 확인하고, 문제가 계속되면 진단에서 진단 번들을 내보내세요.',
   'WINDOWS_RECOVERY_TIMEOUT':
       'Windows 네트워크 복구가 예상보다 오래 걸리고 있습니다. 새 VPN '
       '연결은 시작되지 않았습니다. 복구가 끝날 때까지 기다린 뒤 다시 시도하세요.',
@@ -337,7 +337,7 @@ const Map<String, String> kChainKo = <String, String>{
   "scope_bypass": "설정한 직접 연결 및 앱별 규칙은 계속 적용됩니다.",
   "scope_interrupted": "연결이 끊어졌습니다. 기기가 일반 네트워크 연결로 돌아갈 수 있습니다.",
   "scope_android_settings":
-      "서비스가 중지된 후에도 차단하려면 시스템 설정에서 VPN 항상 켜기와 VPN 없는 연결 차단을 켜세요.",
+      "서비스가 중지된 후에도 차단하려면 시스템 설정에서 ‘연결 유지 VPN’과 ‘VPN 없는 연결 차단’을 켜세요.",
 
   "batch_title": "설정 일괄 가져오기",
   "batch_counts":
@@ -358,12 +358,12 @@ const Map<String, String> kChainKo = <String, String>{
   'too_many_endpoints': 'remote 엔드포인트는 16개를 넘길 수 없습니다.',
   'conflicting_authentication': 'CLIENT_CERT가 인라인 인증서 또는 인증 방식과 충돌합니다.',
   'serialized_size_limit': '암호화된 기록이 저장 크기 한도를 초과합니다.',
-  'multi_endpoint_unavailable': '엔드포인트가 여러 개인 구성을 쓰려면 엔진을 업데이트하세요.',
-  'candidates': '시작 후보 엔드포인트',
+  'multi_endpoint_unavailable': '이 구성에는 서버가 여러 개 있습니다. 사용하려면 Usque를 업데이트하세요.',
+  'candidates': '시도할 서버',
   'random_order': '연결할 때마다 새로운 무작위 순서로 후보를 시도합니다.',
   'file_order': '구성 파일 순서대로 후보를 시도합니다.',
-  'attempting': '시도 중인 엔드포인트',
-  'actual_endpoint': '연결된 엔드포인트',
+  'attempting': '시도 중인 서버',
+  'actual_endpoint': '연결된 서버',
   'attempt_failures': '실패한 시도',
   'failure_transport': '전송 끊김',
   'failure_authentication': '인증',
@@ -389,7 +389,7 @@ const Map<String, String> kChainKo = <String, String>{
   'profiles': '저장된 구성',
   'empty': '구성을 가져오면 출구를 선택할 수 있습니다.',
   'empty_hint_openvpn':
-      '.ovpn 파일을 가져오거나 텍스트를 붙여넣으세요. TCP/UDP 엔드포인트, 인라인 인증서, 사용자 이름/암호를 지원합니다.',
+      '.ovpn 파일을 가져오거나 텍스트를 붙여넣으세요. TCP/UDP 엔드포인트, 인라인 인증서, 사용자 이름/비밀번호를 지원합니다.',
   'empty_hint_wireguard':
       '.conf 파일을 가져오거나 텍스트를 붙여넣으세요. [Interface]와 [Peer]를 각각 하나씩 지원합니다.',
   'import_limits':
@@ -405,10 +405,10 @@ const Map<String, String> kChainKo = <String, String>{
   'configuration': '구성 텍스트',
   'file_loaded': '파일에서 구성을 읽었습니다({lines}줄).',
   'username': '사용자 이름',
-  'password': '암호',
+  'password': '비밀번호',
   'key_password': '개인 키 암호',
-  'show_password': '암호 표시',
-  'hide_password': '암호 숨기기',
+  'show_password': '비밀번호 표시',
+  'hide_password': '비밀번호 숨기기',
   'credentials': '자격 증명 업데이트',
   'rename': '이름 바꾸기',
   'delete': '삭제',
@@ -437,7 +437,7 @@ const Map<String, String> kChainKo = <String, String>{
   'allowed': '허용된 대상',
   'dns': 'DNS',
   'addresses': '터널 주소',
-  'address_family': '주소 패밀리',
+  'address_family': 'IP 버전',
   'transport': '전송 방식',
   'endpoint': '서버',
   'restricted': '프록시 경로에서는 AllowedIPs 범위 밖의 대상을 거부합니다.',
@@ -446,7 +446,7 @@ const Map<String, String> kChainKo = <String, String>{
   'stale_revision': '구성이 변경되었습니다. 목록을 새로 고친 뒤 다시 시도하세요.',
   'secure_storage_failed': '암호화된 구성을 읽거나 저장할 수 없습니다.',
   'invalid_configuration': '구성이 잘못되었거나 지원하지 않는 항목이 있습니다.',
-  'looks_like_wireguard': 'WireGuard 구성으로 보입니다. 출구 소스를 WireGuard으로 전환하세요.',
+  'looks_like_wireguard': 'WireGuard 구성으로 보입니다. 출구 소스를 WireGuard로 전환하세요.',
   'looks_like_openvpn': 'OpenVPN 구성으로 보입니다. 출구 소스를 OpenVPN으로 전환하세요.',
   'error_location': '{message}({field}, {line}행)',
   'error_field': '{message}({field})',
@@ -472,5 +472,5 @@ const Map<String, String> kChainKo = <String, String>{
   "verified": "검증됨",
   "not_verified": "미검증",
   "unavailable": "사용 불가",
-  "udp_association": "연결 요청 수락됨, 종단 간 전달은 확인되지 않음",
+  "udp_association": "UDP 중계 수락됨, 종단 간 전달은 확인되지 않음",
 };

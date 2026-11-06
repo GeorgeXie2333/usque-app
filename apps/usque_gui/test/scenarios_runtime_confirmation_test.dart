@@ -7,6 +7,8 @@ import 'package:usque/models/network_settings.dart';
 import 'package:usque/screens/profiles_hub_screen.dart';
 import 'package:usque/state/scenarios_controller.dart';
 
+import 'android_passive_observation_test.dart'
+    show storedCatalog, storedSettings;
 import 'scenarios_test.dart' show SceneEngine, fixture;
 import 'ui_workflow_test.dart' show pumpWorkflow;
 
@@ -58,6 +60,26 @@ NetworkSettingsState runtime({
   persisted: true,
 );
 
+/// Android with no running VPN service: each passive read waits for the
+/// control bind deadline, then reports only the saved configuration.
+class _InactiveServiceEngine extends SceneEngine {
+  static const bindDeadline = Duration(seconds: 10);
+  int settingsReads = 0, sceneReads = 0;
+
+  @override
+  Future<NetworkSettingsState> getNetworkSettingsState() {
+    settingsReads++;
+    return Future.delayed(bindDeadline, storedSettings);
+  }
+
+  @override
+  Future<Map<String, Object?>> scenarioCommand(Map<String, Object?> request) {
+    if (request['action'] != 'list') return super.scenarioCommand(request);
+    sceneReads++;
+    return Future.delayed(bindDeadline, storedCatalog);
+  }
+}
+
 class _QueryFailureEngine extends SceneEngine {
   bool failQuery = false;
   @override
@@ -70,6 +92,100 @@ class _QueryFailureEngine extends SceneEngine {
 }
 
 void main() {
+  testWidgets(
+    'a saved scene read survives a stored settings observation without a second read',
+    (tester) async {
+      final firstReply = Completer<Map<String, Object?>>();
+      var reads = 0;
+      final controller =
+          ScenariosController((_) {
+              reads++;
+              return firstReply.future;
+            })
+            ..setSupported(true)
+            ..setVisible(true);
+      addTearDown(controller.dispose);
+      final firstRead = controller.refresh();
+      controller.observeRuntime(storedSettings());
+      // The ordinary invalidation fires before the pending scene reply arrives.
+      controller.invalidate();
+      await tester.pump(const Duration(milliseconds: 150));
+      expect(reads, 1);
+      firstReply.complete(storedCatalog());
+      await firstRead;
+      await tester.pump(const Duration(milliseconds: 150));
+      expect(reads, 1);
+      expect(controller.catalog?.scenarios.single.name, 'Daily');
+      expect(controller.runtimeConfirmed, false);
+      expect(controller.queryUnconfirmed, false);
+    },
+  );
+
+  testWidgets('a live observation retires a pending saved scene read', (
+    tester,
+  ) async {
+    final firstReply = Completer<Map<String, Object?>>();
+    var reads = 0;
+    final controller =
+        ScenariosController((_) {
+            reads++;
+            return reads == 1
+                ? firstReply.future
+                : Future.value(confirmedCatalog());
+          })
+          ..setSupported(true)
+          ..setVisible(true);
+    addTearDown(controller.dispose);
+    final firstRead = controller.refresh();
+    controller.observeRuntime(runtime());
+    controller.invalidate();
+    await tester.pump(const Duration(milliseconds: 150));
+    expect(reads, 1);
+    firstReply.complete(storedCatalog());
+    await firstRead;
+    // The saved catalogue must not stand in for the live runtime.
+    expect(controller.catalog, isNull);
+    await tester.pump(const Duration(milliseconds: 150));
+    await tester.pump();
+    expect(reads, 2);
+    expect(controller.catalog?.scenarios.single.name, 'Daily');
+    expect(controller.catalog?.runtimeObserved, true);
+    expect(controller.runtimeConfirmed, true);
+  });
+
+  testWidgets(
+    'Android cold start without a VPN service shows saved scenes after one bind deadline',
+    (tester) async {
+      final engine = _InactiveServiceEngine();
+      final app = await pumpWorkflow(
+        tester,
+        engine,
+        section: AppSection.profiles,
+      );
+      app.engineCapabilities = await engine.getCapabilities();
+      await tester.pump();
+      expect(engine.settingsReads, 1);
+      expect(engine.sceneReads, 1);
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      // Android reports the settings fallback first, then the scene fallback.
+      await tester.pump(_InactiveServiceEngine.bindDeadline);
+      await tester.pump();
+      expect(app.networkSettings.state?.runtimeObserved, false);
+      expect(app.scenarios.catalog?.scenarios.single.name, 'Daily');
+      expect(app.scenarios.runtimeConfirmed, false);
+      expect(app.scenarios.queryUnconfirmed, false);
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+      expect(find.text('Daily'), findsOneWidget);
+      expect(engine.sceneReads, 1);
+      // Background invalidation may still read again; it keeps the catalogue.
+      await tester.pump(const Duration(milliseconds: 150));
+      await tester.pump(_InactiveServiceEngine.bindDeadline);
+      await tester.pumpAndSettle();
+      expect(find.text('Daily'), findsOneWidget);
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+    },
+  );
+
   testWidgets(
     'confirmed Android disconnect keeps saved scene status without claiming a running session',
     (tester) async {
@@ -103,9 +219,13 @@ void main() {
       await app.scenarios.refresh();
       await tester.pumpAndSettle();
       expect(app.scenarios.runtimeConfirmed, true);
-      expect(scenarioStateKey(app), 'scenario_pending');
+      // Disconnected, the selection waits for the next connection: no result
+      // is pending and none is claimed.
+      expect(scenarioStateKey(app), 'scenario_selected');
       expect(app.scenarios.catalog!.selected!.name, 'Daily');
       expect(find.byKey(const ValueKey('profiles-running')), findsNothing);
+      expect(find.text(app.strings.get('scenario_pending')), findsNothing);
+      expect(find.text(app.strings.get('scenario_unknown')), findsNothing);
 
       engine.extraState = disconnectedCatalog(modified: true);
       await app.scenarios.refresh();
@@ -117,6 +237,67 @@ void main() {
       engine.failQuery = false;
       await app.scenarios.refresh();
       expect(scenarioStateKey(app), 'scenario_modified');
+    },
+  );
+
+  testWidgets(
+    'saved-configuration read without a VPN service shows the selection, not an unconfirmed result',
+    (tester) async {
+      Map<String, Object?> persisted({bool modified = false}) => {
+        'runtime_observed': false,
+        ...{
+          for (final key in const [
+            'scenarios',
+            'selection',
+            'current_settings',
+            'current_account_id',
+          ])
+            key: fixture(selected: 'scene-a')[key],
+        },
+        // A projection never carries a result, even if a stale one leaked.
+        'state': {
+          'apply_status': 'applied',
+          'applied_matches': true,
+          'modified': modified,
+        },
+      };
+      final engine = _QueryFailureEngine()
+        ..selected = 'scene-a'
+        ..extraState = persisted();
+      final app = await pumpWorkflow(
+        tester,
+        engine,
+        section: AppSection.profiles,
+      );
+      app.engineCapabilities = await engine.getCapabilities();
+      app.snapshot = const EngineSnapshot(phase: ConnectionPhase.disconnected);
+      await app.scenarios.refresh();
+      await tester.pumpAndSettle();
+      final catalog = app.scenarios.catalog!;
+      expect(catalog.runtimeObserved, false);
+      expect(catalog.applyStatus, 'unknown');
+      expect(catalog.appliedMatches, isNull);
+      expect(app.scenarios.runtimeConfirmed, false);
+      expect(scenarioStateKey(app), 'scenario_selected');
+      expect(find.text(app.strings.get('scenario_unknown')), findsNothing);
+      expect(find.byKey(const ValueKey('profiles-running')), findsNothing);
+      // The selected row does not offer to use the same scene again.
+      expect(find.byKey(const ValueKey('scenario-use-scene-a')), findsNothing);
+
+      engine.extraState = persisted(modified: true);
+      await app.scenarios.refresh();
+      expect(scenarioStateKey(app), 'scenario_modified');
+
+      // A connection being established has its own result to confirm.
+      app.snapshot = const EngineSnapshot(phase: ConnectionPhase.connectingH3);
+      expect(scenarioStateKey(app), 'scenario_unknown');
+      app.snapshot = const EngineSnapshot(phase: ConnectionPhase.disconnected);
+      expect(scenarioStateKey(app), 'scenario_modified');
+
+      // A failed read never confirms the saved selection.
+      engine.failQuery = true;
+      await app.scenarios.refresh();
+      expect(scenarioStateKey(app), 'scenario_unknown');
     },
   );
 

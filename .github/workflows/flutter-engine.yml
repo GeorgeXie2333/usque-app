@@ -1,0 +1,106 @@
+name: Flutter Windows engine
+
+on:
+  push:
+    branches: [main, dev]
+    paths:
+      - .github/workflows/flutter-engine.yml
+      - tool/build_flutter_windows_engine.ps1
+      - tool/flutter_windows_engine*.py
+      - tool/flutter_windows_engine_manifest.json
+      - tool/test_flutter_windows_engine*.py
+      - tool/flutter_windows_timer.py
+      - tool/test_flutter_windows_timer.*
+      - tool/fixtures/flutter_windows_engine/**
+      - tool/fixtures/flutter_windows_timer/**
+  workflow_dispatch:
+
+concurrency:
+  group: flutter-windows-engine-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  engine:
+    name: Engine ${{ matrix.architecture }}
+    if: >-
+      github.repository == 'GeorgeXie2333/usque-app' &&
+      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 360
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - architecture: x64
+            runner: windows-2025
+          - architecture: arm64
+            runner: windows-11-arm
+    steps:
+      - name: Checkout trusted engine recipe
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install pinned Python
+        id: python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12.10"
+
+      - name: Validate recipe and regression tooling
+        shell: pwsh
+        run: |
+          python -m unittest discover -s tool -p "test_flutter_windows*.py" -v
+          if ($LASTEXITCODE -ne 0) { throw "Engine tooling tests failed." }
+          if ("${{ matrix.architecture }}" -eq "x64") {
+            & ./tool/test_flutter_windows_timer.ps1 -Python "${{ steps.python.outputs.python-path }}"
+          }
+
+      - name: Build pinned engine and applicable native tests
+        shell: pwsh
+        run: |
+          $selectionText = python tool/flutter_windows_engine.py create-build-directory `
+            --parent "$env:RUNNER_TEMP" --parent "$env:LOCALAPPDATA"
+          if ($LASTEXITCODE -ne 0) { throw "A fresh engine directory with at least 40 GiB free is required." }
+          $engineDirectory = ($selectionText -join "`n" | ConvertFrom-Json).path
+          "USQUE_FLUTTER_ENGINE_ROOT=$engineDirectory" | Out-File -FilePath $env:GITHUB_ENV -Append
+          $runEngineTests = "${{ matrix.architecture }}" -eq "x64"
+          & ./tool/build_flutter_windows_engine.ps1 `
+            -Architecture "${{ matrix.architecture }}" `
+            -BuildDirectory $engineDirectory -Jobs 2 -RunTests:$runEngineTests `
+            -Python "${{ steps.python.outputs.python-path }}"
+
+      - name: Package complete local-engine application inputs
+        id: package
+        shell: pwsh
+        run: |
+          $packageText = python tool/flutter_windows_engine_package.py pack `
+            --architecture "${{ matrix.architecture }}" `
+            --build-root "$env:USQUE_FLUTTER_ENGINE_ROOT" `
+            --output "$env:RUNNER_TEMP/engine-package/engine.zip"
+          if ($LASTEXITCODE -ne 0) { throw "Engine package validation failed." }
+          $package = $packageText -join "`n" | ConvertFrom-Json
+          "artifact_name=$($package.artifact_name)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "Engine package: $($package.package_sha256) ($($package.size_bytes) bytes)" |
+            Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+
+      - name: Attest engine package provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: ${{ runner.temp }}/engine-package/engine.zip
+
+      - name: Upload immutable compile-only engine dependency
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ steps.package.outputs.artifact_name }}
+          path: ${{ runner.temp }}/engine-package/engine.zip
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90

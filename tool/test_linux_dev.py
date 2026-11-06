@@ -114,6 +114,54 @@ class LinuxDevTests(unittest.TestCase):
             "Linux golden images: not_run; reviewed baselines require Linux amd64."
         )
 
+    def test_readme_assets_require_amd64_fonts(self):
+        with (
+            patch.object(linux_dev.platform, "machine", return_value="aarch64"),
+            patch.object(linux_dev, "run") as run,
+            self.assertRaisesRegex(ValueError, "amd64"),
+        ):
+            linux_dev.readme_assets(Path("/opt/usque-test/flutter"))
+        run.assert_not_called()
+
+    def test_readme_assets_render_then_encode_both_animations(self):
+        calls = []
+
+        def run_fixture(args, cwd=linux_dev.ROOT, *, capture=False, env=None):
+            calls.append((args, env))
+            if "readme-assets" in args:
+                for theme in ("light", "dark"):
+                    frames = Path(env["USQUE_README_FRAMES"]) / f"connect-{theme}"
+                    frames.mkdir()
+                    (frames / "frame_0000.png").write_bytes(b"")
+            return ""
+
+        with (
+            patch.object(linux_dev.platform, "machine", return_value="x86_64"),
+            patch.object(linux_dev, "command", return_value="/usr/bin/ffmpeg"),
+            patch.object(linux_dev, "run", side_effect=run_fixture),
+        ):
+            linux_dev.readme_assets(Path("/opt/usque-test/flutter"))
+        render = next(env for args, env in calls if "readme-assets" in args)
+        self.assertEqual(render["USQUE_README_ASSETS"], str(linux_dev.ROOT))
+        outputs = [args[-1] for args, _ in calls if args[0] == "/usr/bin/ffmpeg"]
+        self.assertEqual(
+            outputs,
+            [
+                str(linux_dev.ROOT / "assets/screenshots/usque-android-connect.gif"),
+                str(linux_dev.ROOT / "assets/screenshots/usque-android-connect-dark.gif"),
+            ],
+        )
+
+    def test_readme_assets_fail_when_frames_are_missing(self):
+        with (
+            patch.object(linux_dev.platform, "machine", return_value="x86_64"),
+            patch.object(linux_dev, "command", return_value="/usr/bin/ffmpeg"),
+            patch.object(linux_dev, "run") as run,
+            self.assertRaisesRegex(ValueError, "No light animation frames"),
+        ):
+            linux_dev.readme_assets(Path("/opt/usque-test/flutter"))
+        self.assertFalse(any(call.args[0][0] == "/usr/bin/ffmpeg" for call in run.call_args_list))
+
 
 if __name__ == "__main__":
     unittest.main()

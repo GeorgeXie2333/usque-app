@@ -8,8 +8,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:usque/models/app_models.dart';
+import 'package:usque/widgets/home/home_phone.dart';
 
-import 'scenarios_test.dart' show SceneEngine;
+import 'scenarios_test.dart'
+    show SceneEngine, confirmRichScenes, richSceneEngine, seedGoldenAccounts;
 import 'ui_workflow_test.dart' show pumpWorkflow, workflowHost;
 
 void main() {
@@ -139,6 +141,7 @@ void main() {
         );
         app.localePreference = scene.locale;
         app.engineCapabilities = await engine.getCapabilities();
+        if (scene.accounts) seedGoldenAccounts(engine, app);
         await app.scenarios.refresh();
         await tester.pumpWidget(workflowHost(app, scale: scene.scale));
         await tester.pumpAndSettle();
@@ -170,6 +173,70 @@ void main() {
             ? TargetPlatform.windows
             : TargetPlatform.android,
       }),
+    );
+  }
+  testWidgets(
+    'scene golden profiles_scenes_modified_desktop',
+    (tester) async {
+      // A drifted selection with a running session and differing rows.
+      final engine = richSceneEngine();
+      final app = await pumpWorkflow(
+        tester,
+        engine,
+        section: AppSection.profiles,
+        size: const Size(1280, 900),
+      );
+      app.localePreference = LocalePreference.english;
+      await confirmRichScenes(engine, app);
+      await tester.pumpWidget(workflowHost(app));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      await expectLater(
+        find.byType(MaterialApp),
+        matchesGoldenFile('goldens/profiles_scenes_modified_desktop.png'),
+      );
+    },
+    skip: !Platform.isWindows,
+    variant: TargetPlatformVariant.only(TargetPlatform.windows),
+  );
+  for (final scale in [1.0, 2.0]) {
+    testWidgets(
+      'phone scene status card at text scale $scale',
+      (tester) async {
+        final engine = SceneEngine()..selected = 'scene-a';
+        final app = await pumpWorkflow(
+          tester,
+          engine,
+          section: AppSection.home,
+          size: const Size(424, 924),
+        );
+        app.localePreference = LocalePreference.simplifiedChinese;
+        app.engineCapabilities = await engine.getCapabilities();
+        await app.scenarios.refresh();
+        await tester.pumpWidget(
+          workflowHost(
+            app,
+            scale: scale,
+            home: Scaffold(
+              body: SingleChildScrollView(
+                padding: const EdgeInsets.all(16),
+                child: RepaintBoundary(
+                  key: const ValueKey('scene-status-golden'),
+                  child: HomeStatusCard(controller: app, strings: app.strings),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        await expectLater(
+          find.byKey(const ValueKey('scene-status-golden')),
+          matchesGoldenFile('goldens/home_scene_phone_${scale.toInt()}x.png'),
+        );
+      },
+      skip: !Platform.isWindows,
+      variant: TargetPlatformVariant.only(TargetPlatform.android),
     );
   }
 }

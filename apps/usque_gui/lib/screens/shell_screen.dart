@@ -41,6 +41,34 @@ const EdgeInsets _destinationPadding = EdgeInsets.symmetric(
   horizontal: 8,
 );
 
+/// Keeps translated navigation names on one line in the fixed-size controls.
+TextStyle? _fitNavigationLabels(
+  BuildContext context,
+  List<String> labels,
+  TextStyle? style,
+  double width,
+) {
+  if (style == null) return null;
+  final scaler = MediaQuery.textScalerOf(context).clamp(maxScaleFactor: 1.3);
+  var widest = 0.0;
+  for (final label in labels) {
+    final painter = TextPainter(
+      text: TextSpan(text: label, style: style),
+      textDirection: Directionality.of(context),
+      textScaler: scaler,
+      locale: Localizations.maybeLocaleOf(context),
+      maxLines: 1,
+    )..layout();
+    if (painter.width > widest) widest = painter.width;
+    painter.dispose();
+  }
+  return widest <= width
+      ? style
+      : style.copyWith(
+          fontSize: (style.fontSize ?? 12) * width / widest * 0.98,
+        );
+}
+
 class ShellScreen extends StatefulWidget {
   const ShellScreen({required this.controller, super.key});
 
@@ -524,6 +552,10 @@ class _ShellScreenState extends State<ShellScreen> {
                     bool startOnBoot,
                     bool closeToTray,
                     bool trayAvailable,
+                    bool hideFromRecents,
+                    bool hideFromRecentsKnown,
+                    bool hideFromRecentsBusy,
+                    bool recentsSettingsError,
                     bool tunnelOutputSupported,
                     bool networkQualitySupported,
                     bool updateChecksEnabled,
@@ -549,6 +581,10 @@ class _ShellScreenState extends State<ShellScreen> {
                     startOnBoot: controller.startOnBoot,
                     closeToTray: controller.closeToTray,
                     trayAvailable: controller.trayAvailable,
+                    hideFromRecents: controller.hideFromRecents,
+                    hideFromRecentsKnown: controller.hideFromRecentsKnown,
+                    hideFromRecentsBusy: controller.hideFromRecentsBusy,
+                    recentsSettingsError: controller.recentsSettingsError,
                     tunnelOutputSupported: controller.tunnelOutputSupported,
                     networkQualitySupported:
                         controller.engineCapabilities?.networkQuality ?? false,
@@ -658,6 +694,22 @@ class _ShellScreenState extends State<ShellScreen> {
                           onKeyEvent: (_, event) =>
                               _handleNavigationKey(event, vertical: false),
                           child: NavigationBar(
+                            labelTextStyle: WidgetStateProperty.resolveWith(
+                              (states) => _fitNavigationLabels(
+                                context,
+                                labels,
+                                Theme.of(context)
+                                    .navigationBarTheme
+                                    .labelTextStyle
+                                    ?.resolve(states),
+                                (constraints.maxWidth -
+                                            MediaQuery.paddingOf(
+                                              context,
+                                            ).horizontal) /
+                                        labels.length -
+                                    2,
+                              ),
+                            ),
                             selectedIndex: selected,
                             onDestinationSelected: (index) =>
                                 unawaited(_selectSection(sections[index])),

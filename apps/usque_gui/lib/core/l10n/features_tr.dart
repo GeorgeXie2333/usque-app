@@ -76,7 +76,7 @@ const kNetworkQualityTr = <String, String>{
   'diag_check_quality_packet_loss': 'Paket kaybı',
   'diag_check_quality_queue_pressure': 'Kuyruk baskısı',
   'diag_check_quality_pmtu': 'Yol MTU’su',
-  'diag_check_transport_migration_capability': 'Aynı ailede taşıma',
+  'diag_check_transport_migration_capability': 'Aynı IP sürümünde ağ taşıması',
   'diag_check_dns_direct_encrypted_configuration':
       'Doğrudan DNS yapılandırması',
   'diag_check_dns_direct_encrypted_runtime_state':
@@ -105,7 +105,7 @@ const kNetworkQualityTr = <String, String>{
   'nq_finding_dns_changed': 'Kayıtlı DNS kipi çalışan bağlantıdan farklı.',
   'nq_finding_dns_runtime': 'Şifreli DNS çalışıyor.',
   'nq_finding_dns_degraded':
-      'Şifreli DNS’te sorun var. Başarısız sorgular mevcut ağın şifresiz DNS’ine gönderilmedi.',
+      'Şifreli DNS’te sorun var. Başarısız sorgular mevcut ağın şifresiz DNS’ine gönderilmez.',
   'nq_finding_probe_unsafe': 'Bu ölçüm geçerli durumda kullanılamıyor.',
   'nq_finding_probe_success': 'Bu denetim geçti.',
   'nq_finding_probe_cancelled': 'Bu denetim iptal edildi.',
@@ -122,7 +122,7 @@ const kNetworkQualityTr = <String, String>{
   'network_quality': 'Ağ kalitesi',
   'nq_subtitle': 'Gecikme, paket kaybı ve aktarım hızı.',
   'nq_local_only': 'Yalnızca yerel ölçümler. Hiçbir şey yüklenmez.',
-  'nq_doctor': 'Ağ tanılmasını çalıştır',
+  'nq_doctor': 'Ağ tanılamasını çalıştır',
   'nq_doctor_help':
       'Standart denetimler trafik göndermez ve ayarları değiştirmez.',
   'nq_live': 'Canlı',
@@ -283,7 +283,7 @@ const Map<String, String> kWindowsRecoveryTr = <String, String>{
   'WINDOWS_RECOVERY_EXHAUSTED':
       'Windows, üç otomatik denemeden sonra önceki VPN ağ durumunu geri yükleyemedi. Hazır olduğunuzda yeniden deneyin veya yerel tanılamayı inceleyin.',
   'WINDOWS_RECOVERY_BLOCKED':
-      'Güvenli geri yükleme doğrulanamadığı için otomatik onarım durduruldu. Ayarlar’dan Usque’yi güncelleyin. Sorun sürerse Tanılama’dan günlükleri dışa aktarın.',
+      'Usque, önceki VPN ayarlarının güvenle geri yüklenebileceğini doğrulayamadığı için otomatik onarımı durdurdu. Ayarlar’dan güncellemeleri denetleyin; sorun sürerse Tanılama’yı açıp bir tanılama paketi dışa aktarın.',
   'WINDOWS_RECOVERY_TIMEOUT':
       'Windows ağ kurtarması beklenenden uzun sürüyor. Yeni bir VPN bağlantısı başlatılmadı. Yeniden denemeden önce kurtarmanın bitmesini bekleyin.',
   'WINDOWS_RECOVERY_CONFLICT':
@@ -375,7 +375,7 @@ const Map<String, String> kChainTr = <String, String>{
   "scope_interrupted":
       "Bağlantı kesildi. Cihazınız normal ağ bağlantısına dönebilir.",
   "scope_android_settings":
-      "Hizmet durduktan sonra engellemeyi sürdürmek için sistem ayarlarında Her zaman açık VPN ve VPN olmayan bağlantıları engelle seçeneklerini açın.",
+      "Hizmet durduktan sonra engellemeyi sürdürmek için sistem ayarlarında “Her zaman açık VPN” ve “VPN'si olmayan bağlantıları engelle” seçeneklerini açın.",
 
   "batch_title": "Yapılandırmaları içe aktar",
   "batch_counts":
@@ -397,17 +397,17 @@ const Map<String, String> kChainTr = <String, String>{
   'too_many_endpoints': 'En fazla 16 remote uç noktası kullanın.',
   'conflicting_authentication':
       'CLIENT_CERT, gömülü sertifika veya kimlik doğrulama moduyla çelişiyor.',
-  'serialized_size_limit': 'Şifreli kayıt depolama boyutu sınırını aşardı.',
+  'serialized_size_limit': 'Yapılandırma kaydedilemeyecek kadar büyük.',
   'multi_endpoint_unavailable':
-      'Birden çok uç noktalı yapılandırmalar için motoru güncelleyin.',
-  'candidates': 'Başlangıç uç noktaları',
+      'Bu yapılandırmada birden çok sunucu var. Kullanmak için Usque’yi güncelleyin.',
+  'candidates': 'Denenecek sunucular',
   'random_order':
-      'Uç noktalar her bağlantıda yeni bir rastgele sırayla denenir.',
-  'file_order': 'Uç noktalar dosya sırasıyla denenir.',
-  'attempting': 'Denenen uç nokta',
-  'actual_endpoint': 'Bağlanılan uç nokta',
+      'Her bağlantıda bu sunucular yeni bir rastgele sırayla denenir.',
+  'file_order': 'Her bağlantıda bu sunucular listelenen sırayla denenir.',
+  'attempting': 'Denenen sunucu',
+  'actual_endpoint': 'Bağlanılan sunucu',
   'attempt_failures': 'Başarısız denemeler',
-  'failure_transport': 'aktarım kapandı',
+  'failure_transport': 'bağlantı koptu',
   'failure_authentication': 'kimlik doğrulama',
   'failure_certificate': 'sertifika',
   'failure_configuration': 'yapılandırma',
@@ -415,14 +415,14 @@ const Map<String, String> kChainTr = <String, String>{
   'failure_protocol': 'protokol',
   'failure_cleanup': 'temizleme',
   'failure_reason': 'Hata: {reason}.',
-  'dns_fallback': 'Tünel DNS (OpenVPN DNS görüşebilir)',
+  'dns_fallback': 'Tünel tarafından sağlanır (OpenVPN sunucuları atayabilir)',
   'dns_unavailable_title': 'Bu çıkışta DNS yok',
   'dns_unavailable':
       'Bu çıkış üzerinden erişilebilen bir DNS sunucusu yok. IP adresleri kullanın veya erişilebilir DNS sunan başka bir çıkış seçin.',
   'authentication_failed':
       'Kimlik doğrulama başarısız. Yeniden bağlanmadan önce kimlik bilgilerini güncelleyin.',
   'profile_limit': 'Yapılandırma kitaplığı dolu (128 yapılandırma).',
-  'metadata_limit': 'Yapılandırma kitaplığının üst verisi dolu.',
+  'metadata_limit': 'Yapılandırma kitaplığında yeni kayıtlar için yer yok.',
   'title': 'Zincir proxy',
   'subtitle': 'WARP üzerinden ulaşılan bir çıkış seçin.',
   'source': 'Çıkış kaynağı',
@@ -478,11 +478,11 @@ const Map<String, String> kChainTr = <String, String>{
   'unsupported':
       'Usque’nin bu sürümü bu çıkış kaynağını kullanamıyor. Ayarlar’dan güncellemeleri denetleyin.',
   'scope':
-      'Var olan açık doğrudan kurallar geçerli kalır. Diğer trafik seçilen çıkışı kullanır.',
+      'Doğrudan bağlantı kurallarınız geçerli kalır. Diğer tüm trafik seçilen çıkıştan gider.',
   'allowed': 'İzin verilen hedefler',
   'dns': 'DNS',
   'addresses': 'Tünel adresleri',
-  'address_family': 'Adres ailesi',
+  'address_family': 'IP sürümü',
   'transport': 'Aktarım',
   'endpoint': 'Sunucu',
   'restricted': 'AllowedIPs dışındaki hedefler proxy yolunda engellenir.',
@@ -526,6 +526,5 @@ const Map<String, String> kChainTr = <String, String>{
   "verified": "Doğrulandı",
   "not_verified": "Doğrulanmadı",
   "unavailable": "Kullanılamıyor",
-  "udp_association":
-      "İlişkilendirme kabul edildi; uçtan uca iletim doğrulanmadı",
+  "udp_association": "UDP rölesi kabul edildi; uçtan uca iletim doğrulanmadı",
 };

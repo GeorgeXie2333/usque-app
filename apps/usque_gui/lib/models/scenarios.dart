@@ -154,19 +154,51 @@ class ScenarioCatalog {
            : null,
        currentSettingsError = value['current_settings_error'] as String?,
        currentAccountId = value['current_account_id'] as String?,
-       appliedAccountId = value['applied_account_id'] as String?,
-       appliedScenarioId = value['applied_scenario_id'] as String?,
-       appliedSceneConfirmed = value['applied_scene_confirmed'] == true,
-       sourceEpoch = value['source_epoch'] as String,
-       sessionId = value['session_id'] as String?,
+       runtimeObserved = value['runtime_observed'] != false,
+       appliedAccountId = value['runtime_observed'] == false
+           ? null
+           : value['applied_account_id'] as String?,
+       appliedScenarioId = value['runtime_observed'] == false
+           ? null
+           : value['applied_scenario_id'] as String?,
+       appliedSceneConfirmed =
+           value['runtime_observed'] != false &&
+           value['applied_scene_confirmed'] == true,
+       sourceEpoch = value['runtime_observed'] == false
+           ? ''
+           : value['source_epoch'] as String,
+       sessionId = value['runtime_observed'] == false
+           ? null
+           : value['session_id'] as String?,
        observationSessionId = _observationSession(value),
-       state = scenarioMap(value['state']),
-       canRestore = value['can_restore'] == true,
-       lastOperationId = value['last_operation_id'] as String?;
+       state = value['runtime_observed'] == false
+           ? _savedDrift(value['state'])
+           : scenarioMap(value['state']),
+       canRestore =
+           value['runtime_observed'] != false && value['can_restore'] == true,
+       lastOperationId = value['runtime_observed'] == false
+           ? null
+           : value['last_operation_id'] as String?;
   final List<ConnectionScenario> scenarios;
   final String? revision;
 
+  /// A saved-configuration read carries only drift computed from saved
+  /// values. It never carries an application result.
+  static Map<String, Object?> _savedDrift(Object? value) {
+    final state = scenarioMap(value);
+    return Map.unmodifiable({
+      'apply_status': 'unknown',
+      for (final key in const [
+        'modified',
+        'template_updated',
+        'bound_account_missing',
+      ])
+        if (state[key] == true) key: true,
+    });
+  }
+
   static String? _observationSession(Map<String, Object?> value) {
+    if (value['runtime_observed'] == false) return null;
     if (!value.containsKey('observation_session_id')) {
       throw const FormatException('Missing scene observation identity');
     }
@@ -183,6 +215,7 @@ class ScenarioCatalog {
       currentSettingsError;
   final Map<String, Object?> state;
   final bool canRestore;
+  final bool runtimeObserved;
   final String sourceEpoch;
   final String? appliedScenarioId, sessionId;
 
@@ -229,6 +262,9 @@ class ScenarioPreview {
       ? scenarioMap(values['applied_settings'])
       : null;
   bool get restore => values['restore'] == true;
+
+  /// Returning to Custom: no scene, with Usque's default scene settings.
+  bool get reset => values['reset'] == true;
   List<String> get changedFields =>
       (values['changed_fields'] as List? ?? const []).cast<String>();
 }

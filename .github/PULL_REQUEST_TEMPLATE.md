@@ -4,7 +4,7 @@
 
 ## Change scope
 
-- Platforms: <!-- Windows / Android / Android TV / shared -->
+- Platforms: <!-- Windows / Linux / Android / Android TV / shared -->
 - Outputs: <!-- VPN / SOCKS5 / HTTP / system proxy / none -->
 - Security or privileged-state impact: <!-- Describe explicitly, or write "None". -->
 

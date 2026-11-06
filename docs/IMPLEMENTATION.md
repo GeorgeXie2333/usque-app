@@ -17,7 +17,54 @@ The [documentation index](README.md) separates current contracts from historical
 records. [Reliability testing](RELIABILITY_TESTING.md) defines environments and
 evidence requirements; [Release process](RELEASE.md) defines publication.
 
-## Source changes prepared for v0.3.2
+## v0.3.4 candidate changes since v0.3.3
+
+These changes are prepared for v0.3.4 and are not present in the published
+v0.3.3 packages. Candidate checks and publication are recorded separately;
+see [v0.3.4 preparation](RELEASE.md#preparing-v034).
+
+- [Profiles and scenes](SCENARIOS.md): local connection scenes save account
+  binding, chain proxy, endpoints, IP policy and transport. Profiles leads with
+  the selected-scene status card; account management moves to an Accounts
+  subpage. Configuration schema advances from 26 to 27, which v0.3.3 and older
+  cannot read; see [upgrade compatibility](INSTALLATION.md#configuration-compatibility-when-upgrading).
+- [Routing](ROUTING.md): validated custom-rule revisions apply to new flows
+  without reconnecting, while established paths keep their egress.
+- Windows: the application uses the pinned engine with the
+  [Flutter timer repair](FLUTTER_WINDOWS_TIMER.md); startup retries finish
+  after device retirement.
+- Android: **Hide from recent tasks**, passive UI reads that do not start the
+  VPN service, bounded DIRECT gateway diagnostics and
+  [Android TV text input](ANDROID_TV_INPUT_VALIDATION.md) that separates D-pad
+  focus from editing.
+- Linux: TUN ACK handling, resolved Link paths, IPv6 route counters in network
+  fingerprints and the Debian `libgles2` dependency.
+- First-run setup layout and hand-off into Home, shared status tones and the
+  Proxy/Settings row grammar; see [GUI development](../apps/usque_gui/README.md).
+
+## Released in v0.3.3
+
+[v0.3.3](https://github.com/GeorgeXie2333/usque-app/releases/tag/v0.3.3) was
+published on 2026-10-26 (UTC) from `1d44597d`; v0.3.3-beta.1 and beta.2 were
+its prereleases. It uses configuration schema 26, Agent protocol 3,
+Windows/Linux recovery journals 6/1 and recovery export 2. See the
+[v0.3.3 readiness review](RELEASE_V0.3.3_READINESS.md).
+
+- [Linux desktop](LINUX_DESKTOP.md): real Engine, privileged Linux Agent,
+  nftables/DNS/proxy recovery journal, Secret Service credentials and Ed25519
+  signed amd64/arm64 AppImage, deb and rpm packages.
+- [Native Proton VPN](PROTON_VPN.md) as an optional experimental chain exit.
+- [Upstream transport fixes](UPSTREAM_TRANSPORT_VALIDATION.md): ICMP saturation
+  no longer stalls the netstack, and TCP buffers follow H3 capacity.
+- Automatic endpoint pin rejections stay local to the rejected candidate; the
+  pin refresh and single retry run only after the whole candidate round fails.
+  See [Diagnostics and observability](diagnostics-observability.md).
+- [Network settings](NETWORK_SETTINGS.md) recover unconfirmed saves and lost
+  save acknowledgements through bounded durable-save receipts.
+- [Android packaging](RELEASE.md#beta-packaging-changes) uses
+  `base build * 1000 + ABI suffix` version codes for F-Droid updates.
+
+## Released in v0.3.2
 
 Since v0.3.1, source adds [Chrome 155 MASQUE TLS](TLS_FINGERPRINT.md),
 [built-in IPv6 endpoint presets](NETWORK_SETTINGS.md) and
@@ -28,9 +75,10 @@ changed. Android defers VPN authorization until a connection requires it and
 can reclaim the UI process after tracked preference writes without stopping
 the separate VPN service. Primary pages and chain summaries share layouts.
 
-Configuration schema is 26, Agent protocol 3, recovery journal 6 and sanitized
-recovery export 2. New/missing fingerprint settings and schema-24 migration use
-Chrome 155; explicit choices remain, and older settings have no active preset.
+v0.3.2 introduced configuration schema 26 and recovery journal 6, with Agent
+protocol 3 and sanitized recovery export 2. New/missing fingerprint settings
+and schema-24 migration use Chrome 155; explicit choices remain, and older
+settings have no active preset.
 Older engines/Agents reject the newer schemas. Keep the newer-Agent-first
 upgrade bridge and see [upgrade compatibility](INSTALLATION.md#configuration-compatibility-when-upgrading).
 
@@ -41,24 +89,6 @@ DIRECT/REJECT/PROXY, WARP encrypted DNS, chain exits and native Windows
 installation already existed; do not label them new in this release.
 Static tests do not establish real upgrades, measured performance, anonymity
 or leak prevention. Authentication, pins and DNS policy boundaries remain.
-
-## Unreleased source changes after v0.3.2
-
-These changes are in the development branch, not in the published v0.3.2
-packages. They need a separately reviewed version and release workflow update.
-
-- [Linux desktop](LINUX_DESKTOP.md): real Engine, privileged Linux Agent,
-  nftables/DNS/proxy recovery journal, Secret Service credentials and Ed25519
-  signed amd64/arm64 AppImage, deb and rpm packages.
-- [Upstream transport fixes](UPSTREAM_TRANSPORT_VALIDATION.md): ICMP saturation
-  no longer stalls the netstack, and TCP buffers follow H3 capacity.
-- Automatic endpoint pin rejections stay local to the rejected candidate; the
-  pin refresh and single retry run only after the whole candidate round fails.
-  See [Diagnostics and observability](diagnostics-observability.md).
-- [Network settings](NETWORK_SETTINGS.md) recover unconfirmed saves and lost
-  save acknowledgements through bounded durable-save receipts.
-- [Android packaging](RELEASE.md#unreleased-packaging-changes) uses
-  `base build * 1000 + ABI suffix` version codes for F-Droid updates.
 
 ## Architecture
 
@@ -83,7 +113,7 @@ bounded Rust timeline on demand through JNI/Binder, with an old-engine fallback.
 
 ```mermaid
 flowchart LR
-    UI["Flutter UI<br>no WebView"] -->|"versioned control API"| Engine["Unprivileged Rust Engine"]
+    UI["Flutter UI<br>native widgets"] -->|"versioned control API"| Engine["Unprivileged Rust Engine"]
     Engine --> Core["MASQUE / CONNECT-IP<br>DNS / Proxy / State"]
     Engine -->|"narrow privileged IPC"| Agent["Platform Agent"]
     Agent --> System["TUN · Routes · DNS<br>Firewall · System Proxy"]
@@ -92,7 +122,8 @@ flowchart LR
     Oracle["Go oracle snapshot"] -. "fixtures and interoperability" .-> Core
 ```
 
-Desktop UI and engine remain unprivileged. The desktop agent accepts only versioned, authenticated operations for TUN, routes, DNS, firewall state, and system proxy state. Android hosts the Rust `cdylib` inside the dedicated `:vpn` process.
+The UI uses native Flutter widgets; an isolated native WebView is used only for
+the official Proton human-verification page. Desktop UI and engine remain unprivileged. The desktop agent accepts only versioned, authenticated operations for TUN, routes, DNS, firewall state, and system proxy state. Android hosts the Rust `cdylib` inside the dedicated `:vpn` process.
 
 ## Milestone 1 — repository and contracts
 

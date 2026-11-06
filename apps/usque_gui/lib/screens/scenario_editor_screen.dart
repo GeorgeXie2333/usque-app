@@ -9,7 +9,8 @@ import '../models/scenarios.dart';
 import '../state/app_controller.dart';
 import '../state/scenario_gate_leases.dart';
 import '../widgets/common.dart';
-import '../widgets/profiles_status.dart' show scenarioErrorKey;
+import '../widgets/profiles_status.dart'
+    show profilesSelectedAccountLabel, scenarioErrorKey;
 import '../widgets/save_changes_bar.dart';
 import '../widgets/scenario_endpoint_editor.dart';
 import '../widgets/tv_text_input.dart';
@@ -17,7 +18,7 @@ import '../widgets/unsaved_changes_guard.dart';
 import 'chain_proxy_screen.dart';
 import 'profiles_hub_screen.dart'
     show previewAndUseScenario, scenarioExitNames, scenarioValueLabel;
-import 'profiles_screen.dart' show AccountsScreen, AddAccountButton;
+import 'profiles_screen.dart' show ScenarioAccountPicker;
 
 class ScenarioEditorScreen extends StatefulWidget {
   const ScenarioEditorScreen({
@@ -117,41 +118,16 @@ class _ScenarioEditorScreenState extends State<ScenarioEditorScreen> {
   Future<void> _chooseAccount() async {
     final choice = await Navigator.of(context).push<_ScenarioAccountChoice>(
       MaterialPageRoute(
-        builder: (context) => AnimatedBuilder(
-          animation: app,
-          builder: (context, _) => SubPage(
-            title: app.strings.get('scenario_accounts'),
-            backLabel: app.strings.get('back'),
-            contentWidth: 880,
-            actions: [AddAccountButton(controller: app)],
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                LinkRow(
-                  key: const ValueKey('scenario-follow-account'),
-                  icon: LucideIcons.user,
-                  title: app.strings.get('scenario_follow_account'),
-                  value: _binding == null
-                      ? app.strings.get('scenario_selected')
-                      : null,
-                  onTap: () => Navigator.of(
-                    context,
-                  ).pop(const _ScenarioAccountChoice(null)),
-                ),
-                const SizedBox(height: 16),
-                AccountsScreen(
-                  controller: app,
-                  selectedProfileId: _binding,
-                  onSelect: (id) =>
-                      Navigator.of(context).pop(_ScenarioAccountChoice(id)),
-                ),
-              ],
-            ),
-          ),
+        builder: (context) => ScenarioAccountPicker(
+          controller: app,
+          boundAccountId: _binding,
+          onSelected: (id) =>
+              Navigator.of(context).pop(_ScenarioAccountChoice(id)),
         ),
       ),
     );
-    if (!mounted || choice == null) return;
+    // Picking the current option changes nothing.
+    if (!mounted || choice == null || choice.id == _binding) return;
     setState(() {
       _binding = choice.id;
       _draft = _settings().toProfile(_accountBase);
@@ -299,11 +275,15 @@ class _ScenarioEditorScreenState extends State<ScenarioEditorScreen> {
       strings: s,
       dirty: _dirty,
       saving: _saving,
+      discardTitle: s.get('scenario_discard_title'),
+      discardBody: s.get('scenario_discard_body'),
       child: Column(
         children: [
           Expanded(
             child: PageFrame(
               title: _savedScene?.name ?? s.get('scenario_create'),
+              // The scope of the whole template, not of any one field.
+              subtitle: s.get('scenario_global_hint'),
               contentWidth: 880,
               header: Align(
                 alignment: AlignmentDirectional.centerStart,
@@ -339,20 +319,33 @@ class _ScenarioEditorScreenState extends State<ScenarioEditorScreen> {
                       key: const ValueKey('scenario-account-management'),
                       icon: LucideIcons.user,
                       title: s.get('scenario_binding'),
+                      // Following names the account it would use now.
                       value: _binding == null
-                          ? s.get('scenario_follow_account')
-                          : bound?.name ?? s.get('scenario_reference_missing'),
+                          ? s
+                                .get('scenario_follow_account_named')
+                                .replaceAll(
+                                  '{account}',
+                                  profilesSelectedAccountLabel(app),
+                                )
+                          : bound == null
+                          ? s.get('scenario_reference_missing')
+                          : s.accountName(bound),
                       onTap: _saving ? null : _chooseAccount,
                     ),
-                    const SizedBox(height: 12),
-                    HintText(s.get('scenario_global_hint')),
-                    const SizedBox(height: 28),
-                    SwitchListTile.adaptive(
-                      key: const ValueKey('scenario-chain-toggle'),
-                      contentPadding: EdgeInsets.zero,
-                      title: Text(s.chain('enable')),
-                      value: _draft.chainEnabled,
-                      onChanged: _saving ? null : _toggleChain,
+                    const SizedBox(height: 20),
+                    // The switch shares the link rows' icon and text columns.
+                    RowTileTheme(
+                      child: Padding(
+                        padding: RowInsets.tile,
+                        child: SwitchListTile.adaptive(
+                          key: const ValueKey('scenario-chain-toggle'),
+                          contentPadding: EdgeInsets.zero,
+                          secondary: const Icon(LucideIcons.link),
+                          title: Text(s.chain('enable')),
+                          value: _draft.chainEnabled,
+                          onChanged: _saving ? null : _toggleChain,
+                        ),
+                      ),
                     ),
                     if (_draft.chainEnabled) ...[
                       LinkRow(
@@ -369,8 +362,13 @@ class _ScenarioEditorScreenState extends State<ScenarioEditorScreen> {
                         ),
                         onTap: _saving ? null : _chooseChain,
                       ),
-                      const SizedBox(height: 8),
-                      HintText(s.get('scenario_library_hint')),
+                      Padding(
+                        padding: const EdgeInsetsDirectional.only(
+                          start: RowInsets.horizontal + RowInsets.textIndent,
+                          top: 4,
+                        ),
+                        child: HintText(s.get('scenario_library_hint')),
+                      ),
                     ],
                     const SizedBox(height: 28),
                     ScenarioEndpointEditor(
@@ -422,6 +420,7 @@ class _ScenarioEditorScreenState extends State<ScenarioEditorScreen> {
               error: _error,
               onSave: () => _save(),
               saveLabel: s.get('scenario_save'),
+              savingLabel: s.get('scenario_saving'),
               statusLabel: _dirty && !_saving && _error == null
                   ? s.get('scenario_unsaved')
                   : null,

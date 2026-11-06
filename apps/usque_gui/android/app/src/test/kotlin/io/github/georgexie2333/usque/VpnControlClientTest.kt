@@ -1,6 +1,8 @@
 package io.github.georgexie2333.usque
 
 import android.content.ServiceConnection
+import android.os.Bundle
+import android.os.IBinder
 import io.flutter.plugin.common.MethodChannel
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
@@ -21,6 +23,637 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
 class VpnControlClientTest {
+    @Test
+    fun oldWarpQueryCannotReleaseANewerGenerationJob() {
+        val endpoint = RecordingEndpoint()
+        client.attachEndpointForTest(endpoint)
+        val oldQuery = RecordingResult()
+        client.requestVpnGate("""{"command":"warp_wireguard","warp_wireguard":{"action":"get"}}""", oldQuery)
+        val oldId = endpoint.messages.last().requestId
+        val generate = RecordingResult()
+        client.requestVpnGate("""{"command":"warp_wireguard","warp_wireguard":{"action":"generate"}}""", generate)
+        val jobId = "10000000-0000-4000-8000-000000000003"
+        client.deliverVpnGateReply(
+            endpoint.messages.last().requestId,
+            """{"job":{"id":"$jobId","state":"running"},"error":null}""",
+            null,
+        )
+        assertEquals(1, generate.completionCount)
+        client.deliverVpnGateReply(oldId, """{"job":null,"error":null}""", null)
+        assertEquals(1, oldQuery.completionCount)
+        assertTrue(client.creatingBindingForTest())
+        assertTrue(client.warpGenerationPending)
+        scheduler.advanceBy(1_000)
+        client.deliverVpnGateReply(
+            endpoint.messages.last().requestId,
+            """{"job":{"id":"$jobId","state":"completed"},"error":null}""",
+            null,
+        )
+        assertFalse(client.creatingBindingForTest())
+        assertEquals(0, scheduler.pendingTimeoutCount())
+    }
+
+    @Test
+    fun historicProtonJobQueryCannotRetireTheCurrentVerificationJob() {
+        val endpoint = RecordingEndpoint()
+        client.attachEndpointForTest(endpoint)
+        client.requestProtonVpn("""{"action":"login"}""", byteArrayOf(1), RecordingResult())
+        val jobId = "10000000-0000-4000-8000-000000000004"
+        client.deliverProtonReply(
+            endpoint.messages.last().requestId,
+            """{"job":{"id":"$jobId","state":"waiting_verification"},"profiles":[],"error":null}""".toByteArray(),
+        )
+        val historic = "10000000-0000-4000-8000-000000000005"
+        client.requestProtonVpn("""{"action":"get","job_id":"$historic"}""", ByteArray(0), RecordingResult())
+        client.deliverProtonReply(
+            endpoint.messages.last().requestId,
+            """{"job":{"id":"$historic","state":"completed"},"profiles":[],"error":null}""".toByteArray(),
+        )
+        assertTrue(client.creatingBindingForTest())
+        scheduler.advanceBy(1_000)
+        client.deliverProtonReply(
+            endpoint.messages.last().requestId,
+            """{"job":{"id":"$jobId","state":"cancelled"},"profiles":[],"error":null}""".toByteArray(),
+        )
+        assertFalse(client.creatingBindingForTest())
+        assertEquals(0, scheduler.pendingTimeoutCount())
+    }
+
+    @Test
+    fun oldServiceRepliesAndEventsAreRejectedBeforeDecodingAfterReplacement() {
+        val connections = mutableListOf<ServiceConnection>()
+        val receivers = mutableListOf<(Int, Int, Bundle) -> Boolean>()
+        val endpoint = RecordingEndpoint()
+        val live =
+            VpnControlClient(scheduler, { connection, _ ->
+                connections += connection
+                true
+            }, {}, { _, receiver ->
+                receivers += receiver
+                endpoint
+            })
+
+        fun binder(): IBinder =
+            java.lang.reflect.Proxy.newProxyInstance(
+                IBinder::class.java.classLoader,
+                arrayOf(IBinder::class.java),
+            ) { _, _, _ -> null } as IBinder
+        live.setUiVisible(true)
+        live.setEventsWanted(true)
+        val firstBinder = binder()
+        connections.single().onServiceConnected(null, firstBinder)
+        val oldReceiver = receivers.last()
+        // A second binding to the same service must share its reply Messenger.
+        val owner = RecordingResult()
+        live.beginControlOperation(owner)
+        connections.last().onServiceConnected(null, firstBinder)
+        assertSame(oldReceiver, receivers.last())
+        connections.last().onServiceConnected(null, binder())
+        val currentReceiver = receivers.last()
+        assertFalse(oldReceiver === currentReceiver)
+        val marker = mapOf("phase" to "connected", "instance_id" to "replacement")
+        live.deliverEvent(marker)
+        val result = RecordingResult()
+        live.requestSnapshot(result)
+        val requestId = endpoint.messages.last().requestId
+        val empty = Bundle()
+        assertTrue(oldReceiver(UsqueVpnService.MSG_EVENT, 0, empty))
+        assertTrue(oldReceiver(UsqueVpnService.MSG_SNAPSHOT, requestId, empty))
+        assertSame(marker, live.lastSnapshot)
+        assertEquals(0, result.completionCount)
+        assertEquals(1, live.pendingSnapshotCountForTest())
+        assertFalse(currentReceiver(-1, 0, empty))
+        live.deliverSnapshotReply(requestId, null, null, marker)
+        assertEquals(1, result.completionCount)
+        live.destroy()
+    }
+
+    @Test
+    fun nullCreatingBindingKeepsTheObserverAndItsReplyEpochUsable() {
+        val connections = mutableListOf<ServiceConnection>()
+        val receivers = mutableListOf<(Int, Int, Bundle) -> Boolean>()
+        val endpoint = RecordingEndpoint()
+        val live =
+            VpnControlClient(scheduler, { connection, _ ->
+                connections += connection
+                true
+            }, {}, { _, receiver ->
+                receivers += receiver
+                endpoint
+            })
+        live.setUiVisible(true)
+        val binder =
+            java.lang.reflect.Proxy.newProxyInstance(
+                IBinder::class.java.classLoader,
+                arrayOf(IBinder::class.java),
+            ) { _, _, _ -> null } as IBinder
+        connections.single().onServiceConnected(null, binder)
+        val receiver = receivers.single()
+        val owner = RecordingResult()
+        live.beginControlOperation(owner)
+        connections.last().onNullBinding(null)
+        assertTrue(live.hasEndpoint)
+        assertFalse(receiver(-1, 0, Bundle()))
+        assertEquals(1, owner.completionCount)
+        live.destroy()
+    }
+
+    @Test
+    fun aTimedOutGenerationAckDoesNotDiscardPossibleNativeWorkOrReplayGenerate() {
+        val endpoint = RecordingEndpoint()
+        client.attachEndpointForTest(endpoint)
+        val result = RecordingResult()
+        client.requestVpnGate("""{"command":"warp_wireguard","warp_wireguard":{"action":"generate"}}""", result)
+        scheduler.advanceBy(50_000L)
+        assertEquals("VPN_GATE_UNAVAILABLE", result.errorCode)
+        assertTrue(client.creatingBindingForTest())
+        assertEquals(2, endpoint.messages.size)
+        val poll = endpoint.messages.last()
+        assertEquals(
+            "get",
+            JSONObject(
+                poll.extras?.get("vpn_gate_request") as String,
+            ).getJSONObject("warp_wireguard").getString("action"),
+        )
+        client.deliverVpnGateReply(poll.requestId, """{"job":null,"error":null}""", null)
+        assertFalse(client.creatingBindingForTest())
+        assertEquals(1, result.completionCount)
+        assertEquals(0, scheduler.pendingTimeoutCount())
+    }
+
+    @Test
+    fun protonVerificationOwnsItsServiceAfterTheInitialRpcWhileTheUiIsHidden() {
+        val endpoint = RecordingEndpoint()
+        client.attachEndpointForTest(endpoint)
+        val result = RecordingResult()
+        client.requestProtonVpn("""{"action":"login"}""", byteArrayOf(1, 2), result)
+        val id = "10000000-0000-4000-8000-000000000002"
+        val metadata =
+            """{"job":{"id":"$id","state":"waiting_verification"},"profiles":[],"error":null}"""
+                .toByteArray()
+        client.deliverProtonReply(endpoint.messages.single().requestId, metadata)
+        assertTrue(metadata.all { it == 0.toByte() })
+        assertEquals(1, result.completionCount)
+        client.setUiVisible(false)
+        assertTrue(client.creatingBindingForTest())
+        scheduler.advanceBy(1_000L)
+        val poll = endpoint.messages.last()
+        assertEquals("get", JSONObject(poll.extras?.get("proton_command") as String).getString("action"))
+        client.deliverProtonReply(
+            poll.requestId,
+            """{"job":{"id":"$id","state":"cancelled"},"profiles":[],"error":null}""".toByteArray(),
+        )
+        assertFalse(client.creatingBindingForTest())
+        assertEquals(0, scheduler.pendingTimeoutCount())
+    }
+
+    @Test
+    fun actualBinderDeathRetiresTheOldJobWithoutRestartOrLateCallbackRevival() {
+        val connections = mutableListOf<ServiceConnection>()
+        val flags = mutableListOf<Boolean>()
+        val endpoint = RecordingEndpoint()
+        val live =
+            VpnControlClient(
+                scheduler,
+                { connection, creating ->
+                    connections += connection
+                    flags += creating
+                    true
+                },
+                {},
+                { _, _ -> endpoint },
+            )
+        val result = RecordingResult()
+        live.requestVpnGate("""{"command":"warp_wireguard","warp_wireguard":{"action":"generate"}}""", result)
+        val binder =
+            java.lang.reflect.Proxy.newProxyInstance(
+                android.os.IBinder::class.java.classLoader,
+                arrayOf(android.os.IBinder::class.java),
+            ) { _, _, _ -> null } as android.os.IBinder
+        val connection = connections.single()
+        connection.onServiceConnected(null, binder)
+        live.deliverVpnGateReply(
+            endpoint.messages.single().requestId,
+            """{"job":{"id":"job","state":"running"}}""",
+            null,
+        )
+        assertTrue(live.creatingBindingForTest())
+        connection.onServiceDisconnected(null)
+        assertFalse(live.creatingBindingForTest())
+        scheduler.advanceBy(60_000L)
+        connection.onServiceConnected(null, binder)
+        assertEquals(listOf(true), flags)
+        assertFalse(live.hasEndpoint)
+        assertEquals(1, endpoint.messages.size)
+        live.destroy()
+    }
+
+    @Test
+    fun absentPassiveStatusAndSettingsNeverRequestServiceCreation() {
+        val flags = mutableListOf<Boolean>()
+        var unbound = 0
+        val passive =
+            VpnControlClient(
+                scheduler,
+                { _, creating ->
+                    flags += creating
+                    false
+                },
+                { unbound++ },
+                { _, _ -> error("Absent service cannot connect") },
+            )
+        passive.setUiVisible(true)
+        passive.setEventsWanted(true)
+        passive.requestSnapshot(RecordingResult())
+        passive.probeSnapshot { assertFalse(it.controlReachable) }
+        val settings = RecordingResult()
+        passive.requestNetworkSettings(null, settings)
+        val scenes = RecordingResult()
+        passive.requestScenarios("""{"action":"list"}""", scenes)
+        assertEquals("CONTROL_SERVICE_INACTIVE", settings.errorCode)
+        assertEquals("CONTROL_SERVICE_INACTIVE", scenes.errorCode)
+        assertTrue(flags.isNotEmpty())
+        assertTrue(flags.none { it })
+        assertEquals(flags.size, unbound)
+        passive.setUiVisible(false)
+        assertFalse(passive.isBound)
+    }
+
+    @Test
+    fun acceptedPassiveBindingWithoutACallbackAllowsPersistedSettingsFallback() {
+        val flags = mutableListOf<Boolean>()
+        val passive =
+            VpnControlClient(
+                scheduler,
+                { _, creating ->
+                    flags += creating
+                    true
+                },
+                {},
+                { _, _ -> error("No live service") },
+            )
+        val settings = RecordingResult()
+        val scenes = RecordingResult()
+        passive.requestNetworkSettings(null, settings)
+        passive.requestScenarios("""{"action":"list"}""", scenes)
+        assertEquals(0, settings.completionCount)
+        assertEquals(0, scenes.completionCount)
+        scheduler.advanceBy(10_000)
+        for (result in listOf(settings, scenes)) {
+            assertEquals("CONTROL_SERVICE_INACTIVE", result.errorCode)
+            assertEquals(1, result.completionCount)
+        }
+        assertTrue(flags.none { it })
+        assertFalse(passive.isBound)
+        assertEquals(0, scheduler.pendingTimeoutCount())
+    }
+
+    @Test
+    fun passiveDeadlineWithoutAServiceLetsLaterPassiveReadsFallBackImmediately() {
+        val flags = mutableListOf<Boolean>()
+        val passive =
+            VpnControlClient(
+                scheduler,
+                { _, creating ->
+                    flags += creating
+                    true
+                },
+                {},
+                { _, _ -> error("No live service") },
+            )
+        passive.setUiVisible(true)
+        val first = RecordingResult()
+        passive.requestNetworkSettings(null, first)
+        scheduler.advanceBy(5_000)
+        val waiting = RecordingResult()
+        passive.requestScenarios("""{"action":"list"}""", waiting)
+        assertEquals(0, waiting.completionCount)
+        scheduler.advanceBy(5_000)
+        // The first deadline also settles passive reads still waiting for it.
+        for (result in listOf(first, waiting)) {
+            assertEquals("CONTROL_SERVICE_INACTIVE", result.errorCode)
+            assertEquals(1, result.completionCount)
+        }
+        val settings = RecordingResult()
+        val scenes = RecordingResult()
+        passive.requestNetworkSettings(null, settings)
+        passive.requestScenarios("""{"action":"list"}""", scenes)
+        for (result in listOf(settings, scenes)) {
+            assertEquals("CONTROL_SERVICE_INACTIVE", result.errorCode)
+            assertEquals(1, result.completionCount)
+        }
+        assertEquals(0, scheduler.pendingTimeoutCount())
+        assertTrue(flags.none { it })
+        assertTrue(passive.isBound)
+        // A creating bind can still deliver a service, so reads wait for it.
+        val save = RecordingResult()
+        passive.requestScenarios("""{"action":"save"}""", save)
+        assertTrue(passive.creatingBindingForTest())
+        val during = RecordingResult()
+        passive.requestNetworkSettings(null, during)
+        scheduler.advanceBy(9_999)
+        assertEquals(0, save.completionCount)
+        assertEquals(0, during.completionCount)
+        passive.destroy()
+        assertEquals("NETWORK_SETTINGS_UNCONFIRMED", save.errorCode)
+        assertEquals("NETWORK_SETTINGS_UNCONFIRMED", during.errorCode)
+    }
+
+    @Test
+    fun aDeliveredEndpointOrHiddenUiRetiresKnownServiceInactivity() {
+        val connections = mutableListOf<ServiceConnection>()
+        val endpoint = RecordingEndpoint()
+        val passive =
+            VpnControlClient(
+                scheduler,
+                { connection, creating ->
+                    assertFalse(creating)
+                    connections += connection
+                    true
+                },
+                {},
+                { _, _ -> endpoint },
+            )
+
+        fun binder(): IBinder =
+            java.lang.reflect.Proxy.newProxyInstance(
+                IBinder::class.java.classLoader,
+                arrayOf(IBinder::class.java),
+            ) { _, _, _ -> null } as IBinder
+
+        fun proveInactive() {
+            val read = RecordingResult()
+            passive.requestNetworkSettings(null, read)
+            assertEquals(0, read.completionCount)
+            scheduler.advanceBy(10_000)
+            assertEquals("CONTROL_SERVICE_INACTIVE", read.errorCode)
+        }
+        passive.setUiVisible(true)
+        proveInactive()
+        // A service started elsewhere reaches the retained observation.
+        connections.last().onServiceConnected(null, binder())
+        val live = RecordingResult()
+        passive.requestScenarios("""{"action":"list"}""", live)
+        assertEquals(UsqueVpnService.MSG_SCENARIOS, endpoint.messages.last().what)
+        assertEquals(0, live.completionCount)
+        // After that service is lost, only a fresh deadline proves inactivity.
+        connections.last().onServiceDisconnected(null)
+        proveInactive()
+        assertEquals("NETWORK_SETTINGS_UNCONFIRMED", live.errorCode)
+        // A stopped UI cannot observe a service that starts in the background,
+        // so neither a deadline nor earlier knowledge carries across it.
+        passive.setUiVisible(false)
+        proveInactive()
+        val hidden = RecordingResult()
+        passive.requestNetworkSettings(null, hidden)
+        assertEquals(0, hidden.completionCount)
+        passive.setUiVisible(true)
+        assertEquals(0, hidden.completionCount)
+        scheduler.advanceBy(10_000)
+        assertEquals("CONTROL_SERVICE_INACTIVE", hidden.errorCode)
+        val immediate = RecordingResult()
+        passive.requestNetworkSettings(null, immediate)
+        assertEquals("CONTROL_SERVICE_INACTIVE", immediate.errorCode)
+        assertEquals(0, scheduler.pendingTimeoutCount())
+        passive.destroy()
+    }
+
+    @Test
+    fun absentControlProcessLetsPassiveReadsFallBackWithoutADeadline() {
+        val connections = mutableListOf<ServiceConnection>()
+        val flags = mutableListOf<Boolean>()
+        val endpoint = RecordingEndpoint()
+        var absent = true
+        var checks = 0
+        val passive =
+            VpnControlClient(
+                scheduler,
+                { connection, creating ->
+                    connections += connection
+                    flags += creating
+                    true
+                },
+                {},
+                { _, _ -> endpoint },
+                controlServiceProcessAbsent = {
+                    checks++
+                    absent
+                },
+            )
+        passive.setUiVisible(true)
+        val settings = RecordingResult()
+        val scenes = RecordingResult()
+        passive.requestNetworkSettings(null, settings)
+        passive.requestScenarios("""{"action":"list"}""", scenes)
+        for (result in listOf(settings, scenes)) {
+            assertEquals("CONTROL_SERVICE_INACTIVE", result.errorCode)
+            assertEquals(1, result.completionCount)
+        }
+        assertEquals(0, scheduler.pendingTimeoutCount())
+        assertTrue(flags.none { it })
+        // The observation stays bound for a service that starts later.
+        assertTrue(passive.isBound)
+        // Writes never use saved configuration, and a creating bind can still
+        // deliver a service, so passive reads wait without consulting the process.
+        val save = RecordingResult()
+        passive.requestScenarios("""{"action":"save"}""", save)
+        assertTrue(passive.creatingBindingForTest())
+        val checked = checks
+        val during = RecordingResult()
+        passive.requestNetworkSettings(null, during)
+        assertEquals(checked, checks)
+        assertEquals(0, save.completionCount)
+        assertEquals(0, during.completionCount)
+        passive.destroy()
+        // A present process keeps the ordinary deadline until the endpoint arrives.
+        absent = false
+        val retry =
+            VpnControlClient(
+                scheduler,
+                { connection, _ ->
+                    connections += connection
+                    true
+                },
+                {},
+                { _, _ -> endpoint },
+                controlServiceProcessAbsent = { absent },
+            )
+        retry.setUiVisible(true)
+        val waiting = RecordingResult()
+        retry.requestNetworkSettings(null, waiting)
+        assertEquals(0, waiting.completionCount)
+        connections.last().onServiceConnected(
+            null,
+            java.lang.reflect.Proxy.newProxyInstance(
+                IBinder::class.java.classLoader,
+                arrayOf(IBinder::class.java),
+            ) { _, _, _ -> null } as IBinder,
+        )
+        assertEquals(UsqueVpnService.MSG_GET_SETTINGS, endpoint.messages.last().what)
+        assertEquals(0, waiting.completionCount)
+        retry.destroy()
+    }
+
+    @Test
+    fun anUnavailableProcessListKeepsTheBindDeadline() {
+        val passive =
+            VpnControlClient(
+                scheduler,
+                { _, _ -> true },
+                {},
+                { _, _ -> error("No live service") },
+                controlServiceProcessAbsent = { throw SecurityException("Process list unavailable") },
+            )
+        passive.setUiVisible(true)
+        val settings = RecordingResult()
+        passive.requestNetworkSettings(null, settings)
+        assertEquals(0, settings.completionCount)
+        scheduler.advanceBy(10_000)
+        assertEquals("CONTROL_SERVICE_INACTIVE", settings.errorCode)
+        passive.destroy()
+    }
+
+    @Test
+    fun sentSettingsReadsAndUnsentWritesNeverAllowPersistedFallbackOnTimeout() {
+        val endpoint = RecordingEndpoint()
+        client.attachEndpointForTest(endpoint)
+        val settings = RecordingResult()
+        val scenes = RecordingResult()
+        client.requestNetworkSettings(null, settings)
+        client.requestScenarios("""{"action":"list"}""", scenes)
+        scheduler.advanceBy(10_000)
+        for (result in listOf(settings, scenes)) {
+            assertEquals("NETWORK_SETTINGS_UNCONFIRMED", result.errorCode)
+            assertEquals(1, result.completionCount)
+        }
+        val unsent = VpnControlClient(scheduler, { _, _ -> true }, {}, { _, _ -> null })
+        val save = RecordingResult()
+        unsent.requestScenarios("""{"action":"save"}""", save)
+        scheduler.advanceBy(10_000)
+        assertEquals("NETWORK_SETTINGS_UNCONFIRMED", save.errorCode)
+        assertEquals(1, save.completionCount)
+        unsent.destroy()
+    }
+
+    @Test
+    fun sentReconfigureRetainsCreatingBindingWhileHiddenUntilItsReply() {
+        val result = RecordingResult()
+        client.requestReconfigure("{}", result)
+        assertTrue(client.creatingBindingForTest())
+        val endpoint = RecordingEndpoint()
+        client.attachEndpointForTest(endpoint)
+        val request = endpoint.messages.single()
+        assertEquals(UsqueVpnService.MSG_RECONFIGURE, request.what)
+        client.setUiVisible(false)
+        assertTrue(client.creatingBindingForTest())
+        client.deliverSnapshotReply(request.requestId, null, null, mapOf("phase" to "connected"))
+        assertEquals(1, result.completionCount)
+        assertFalse(client.creatingBindingForTest())
+        assertFalse(client.isBound)
+    }
+
+    @Test
+    fun theFirstSettingsReplyCannotReleaseAnotherOutstandingCommand() {
+        val endpoint = RecordingEndpoint()
+        client.attachEndpointForTest(endpoint)
+        val first = RecordingResult()
+        val second = RecordingResult()
+        client.requestNetworkSettings("{}", first)
+        client.requestNetworkSettings("{}", second)
+        val requests = endpoint.messages.toList()
+        client.deliverSettingsReply(requests[0].requestId, """{"source_epoch":"owner","sequence":1}""")
+        assertTrue(client.creatingBindingForTest())
+        client.deliverSettingsReply(requests[1].requestId, """{"source_epoch":"owner","sequence":2}""")
+        assertFalse(client.creatingBindingForTest())
+        assertEquals(1, first.completionCount)
+        assertEquals(1, second.completionCount)
+    }
+
+    @Test
+    fun timedOutUnsentRetryReleasesCreationAndIsNeverReplayed() {
+        val result = RecordingResult()
+        client.requestRetry(result)
+        scheduler.advanceBy(VpnControlClient.SNAPSHOT_TIMEOUT_MILLIS - 1)
+        assertTrue(client.creatingBindingForTest())
+        scheduler.advanceBy(1)
+        assertEquals("ENGINE_IPC_TIMEOUT", result.errorCode)
+        assertFalse(client.creatingBindingForTest())
+        val late = RecordingEndpoint()
+        client.attachEndpointForTest(late)
+        assertTrue(late.messages.isEmpty())
+        assertEquals(1, result.completionCount)
+    }
+
+    @Test
+    fun coldClearAllWaitsForBindingButItsAcknowledgedLocalWipeDoesNotRetainService() {
+        val result = RecordingResult()
+        var acknowledged: MethodChannel.Result? = null
+        client.clearAllAcknowledgedListener = VpnControlClient.ClearAllAcknowledgedListener { acknowledged = it }
+        assertTrue(client.requestClearAllData(result))
+        assertTrue(client.creatingBindingForTest())
+        assertEquals(0, result.completionCount)
+        val endpoint = RecordingEndpoint()
+        client.attachEndpointForTest(endpoint)
+        val request = endpoint.messages.single()
+        assertEquals(UsqueVpnService.MSG_CLEAR_ALL_DATA, request.what)
+        client.deliverSnapshotReply(request.requestId, null, null, mapOf("phase" to "disconnected"))
+        assertFalse(client.creatingBindingForTest())
+        assertTrue(client.claimInFlightClearAll(requireNotNull(acknowledged)))
+        client.destroy()
+        assertEquals(0, result.completionCount)
+        assertTrue(client.takeClaimedClearAll(requireNotNull(acknowledged)))
+        requireNotNull(acknowledged).success(null)
+        assertEquals(1, result.completionCount)
+    }
+
+    @Test
+    fun explicitOwnerSurvivesPassiveReadsAndReleasesIdempotently() {
+        val acquired = RecordingResult()
+        client.beginControlOperation(acquired)
+        val endpoint = RecordingEndpoint()
+        client.attachEndpointForTest(endpoint)
+        val token = (acquired.successValue as Map<*, *>)["owner_token"] as String
+        assertTrue(client.creatingBindingForTest())
+        val settings = RecordingResult()
+        client.requestNetworkSettings(null, settings)
+        client.deliverSettingsReply(
+            endpoint.messages.single().requestId,
+            """{"source_epoch":"live-owner","sequence":1}""",
+        )
+        assertTrue(client.creatingBindingForTest())
+        client.endControlOperation(token)
+        assertFalse(client.creatingBindingForTest())
+        assertEquals(0, client.controlOwnerCountForTest())
+        val releases = binder.unbindCount
+        client.endControlOperation(token)
+        assertEquals(releases, binder.unbindCount)
+    }
+
+    @Test
+    fun runningGenerationJobOutlivesItsRpcAndReleasesAfterTerminalReadback() {
+        val endpoint = RecordingEndpoint()
+        client.attachEndpointForTest(endpoint)
+        val result = RecordingResult()
+        client.requestVpnGate("""{"command":"warp_wireguard","warp_wireguard":{"action":"generate"}}""", result)
+        val id = "10000000-0000-4000-8000-000000000001"
+        client.deliverVpnGateReply(
+            endpoint.messages.single().requestId,
+            """{"job":{"id":"$id","state":"running"},"error":null}""",
+            null,
+        )
+        assertEquals(1, result.completionCount)
+        assertTrue(client.creatingBindingForTest())
+        client.setUiVisible(false)
+        scheduler.advanceBy(1_000L)
+        assertEquals(2, endpoint.messages.size)
+        val poll = endpoint.messages.last()
+        val command = JSONObject(poll.extras?.get("vpn_gate_request") as String)
+        assertEquals("get", command.getJSONObject("warp_wireguard").getString("action"))
+        client.deliverVpnGateReply(poll.requestId, """{"job":{"id":"$id","state":"completed"},"error":null}""", null)
+        assertFalse(client.creatingBindingForTest())
+        assertEquals(0, scheduler.pendingTimeoutCount())
+    }
+
     @Test
     fun cancelledSessionWaitsForDelayedServiceCleanupReply() {
         val endpoint = RecordingEndpoint()
@@ -530,9 +1163,9 @@ class VpnControlClientTest {
     }
 
     @Test
-    fun bindingDiedRebindsControlService() {
+    fun visibleBindingDiedRebindsWithoutCreatingTheService() {
         assertFalse(client.isBound)
-        client.bind()
+        client.setUiVisible(true)
         assertTrue(client.isBound)
         assertEquals(1, binder.bindCount)
 
@@ -541,6 +1174,7 @@ class VpnControlClientTest {
         assertEquals(1, binder.unbindCount)
         assertEquals(2, binder.bindCount)
         assertTrue(client.isBound)
+        assertTrue(binder.creatingFlags.none { it })
     }
 
     @Test
@@ -877,9 +1511,8 @@ class VpnControlClientTest {
     }
 
     @Test
-    fun backgroundSuspendsEventsAndResumeRenewsTheExistingBinding() {
+    fun backgroundReleasesIdleObservationAndResumeBindsWithoutCreating() {
         val endpoint = RecordingEndpoint()
-        client.bind()
         client.attachEndpointForTest(endpoint)
         client.setEventsWanted(true)
         assertTrue(endpoint.messages.isEmpty())
@@ -891,8 +1524,7 @@ class VpnControlClientTest {
 
         client.setUiVisible(false)
         assertFalse(client.eventStreamReachable)
-        assertTrue(client.isBound)
-        assertTrue(client.hasEndpoint)
+        assertFalse(client.isBound)
         assertEquals(0, scheduler.pendingTimeoutCount())
         // Already queued events must not replace the last visible state.
         client.deliverEvent(mapOf("phase" to "preparing"))
@@ -912,8 +1544,9 @@ class VpnControlClientTest {
             ),
             endpoint.messages.map { it.what },
         )
-        assertEquals(1, binder.bindCount)
-        assertEquals(0, binder.unbindCount)
+        assertEquals(2, binder.bindCount)
+        assertEquals(1, binder.unbindCount)
+        assertTrue(binder.creatingFlags.none { it })
         assertFalse(client.eventStreamReachable)
         client.deliverEvent(mapOf("phase" to "connected", "transport" to "h2"))
         assertEquals("h2", events.last()["transport"])
@@ -1044,12 +1677,14 @@ class VpnControlClientTest {
         assertEquals("ENGINE_IPC_UNAVAILABLE", disconnect.errorCode)
         assertFalse(client.hasEndpoint)
         assertTrue(client.isBound)
+        assertFalse(client.creatingBindingForTest())
 
         scheduler.advanceBy(VpnControlClient.EVENT_REFRESH_INTERVAL_MILLIS - 1)
         client.deliverEvent(mapOf("phase" to "connected"))
         scheduler.advanceBy(1)
-        assertEquals(1, binder.unbindCount)
-        assertEquals(2, binder.bindCount)
+        assertEquals(2, binder.unbindCount)
+        assertEquals(3, binder.bindCount)
+        assertEquals(listOf(false, true, false), binder.creatingFlags)
         val replacement = RecordingEndpoint()
         client.attachEndpointForTest(replacement)
         assertEquals(UsqueVpnService.MSG_REGISTER_EVENTS, replacement.messages.single().what)
@@ -1118,7 +1753,13 @@ class VpnControlClientTest {
         var bindCount = 0
         var unbindCount = 0
 
-        fun bind(connection: ServiceConnection): Boolean {
+        val creatingFlags = mutableListOf<Boolean>()
+
+        fun bind(
+            connection: ServiceConnection,
+            creating: Boolean,
+        ): Boolean {
+            creatingFlags += creating
             bindCount += 1
             return true
         }

@@ -84,6 +84,34 @@ inline CancelStage ActionCancelStage(std::wstring_view action, CancelStage curre
   return current;  // The boundary remains closed until the transaction ends.
 }
 
+enum class StepContext { install, upgrade, uninstall };
+
+// The working-page step for an MSI action. An empty key keeps the current
+// step, so unlisted actions never replace a meaningful one. Removal steps only
+// appear when an older version or the product itself is being removed; a fresh
+// installation still runs those standard actions without effect.
+inline std::string_view SetupStepKey(std::wstring_view action, StepContext context) {
+  if (action == L"Rollback") return "rolling_back";
+  const bool removing = context != StepContext::install;
+  if (removing && action == L"StopServices") return "uninstall_closing_apps";
+  if (removing && (action == L"EmergencyRemoveKillSwitch" || action == L"RecoverAgentState"))
+    return "uninstall_restoring_network";
+  if (context == StepContext::uninstall) {
+    if (action == L"PurgeUserData") return "uninstall_deleting_data";
+    if (action == L"RemoveFiles") return "uninstall_removing_files";
+    if (action == L"FinalizeAgentUninstall") return "uninstall_registration";
+    return {};
+  }
+  if (action == L"InstallValidate" || action == L"InstallInitialize") return "planning";
+  if (action == L"InstallFiles" || action == L"MoveFiles" || action == L"DuplicateFiles" ||
+      (removing && (action == L"RemoveFiles" || action == L"RemoveDuplicateFiles"))) return "step_files";
+  if (action == L"InstallServices" || action == L"StartServices" || action == L"ValidateAgentStartup" ||
+      (removing && action == L"DeleteServices")) return "step_services";
+  if (removing && action == L"RemoveExistingProducts") return "step_replacing";
+  if (action == L"PublishFeatures" || action == L"PublishProduct" || action == L"RegisterProduct") return "step_finishing";
+  return {};
+}
+
 inline std::string DiagnosticToken(std::wstring_view value) {
   if (value.empty() || value.size() > 64) return "unknown";
   std::string result;
@@ -166,6 +194,40 @@ constexpr std::string_view FolderProblemKey(FolderProblem problem) {
     default: return "";
   }
 }
+
+// Presentation weights, in permille of the whole operation. Burn reports
+// caching and MSI execution through separate callbacks, Burn's own overall
+// value only advances once per completed action, and MSI restarts its count
+// for nested sessions (the afterInstallExecute major upgrade removes the old
+// product inside the new transaction). Each source fills a fixed range and the
+// presented value never moves backward.
+constexpr unsigned kBarCacheEnd = 150;
+constexpr unsigned kBarExecuteEnd = 950;
+constexpr unsigned kBarComplete = 1000;
+
+enum class BarMode { waiting, advancing, halted };
+
+struct SetupProgress {
+  BarMode mode = BarMode::waiting;
+  unsigned value = 0;
+
+  // Engine percentages are 0-100 and may move backward within a source.
+  void Cache(unsigned percent) { Advance(Map(0, kBarCacheEnd, percent)); }
+  void Execute(unsigned percent) { Advance(Map(kBarCacheEnd, kBarExecuteEnd, percent)); }
+  void Complete() { Advance(kBarComplete); }
+  // Rollback is presented as stopped at its last value, never as reversal.
+  void Halt() { mode = BarMode::halted; }
+
+ private:
+  static constexpr unsigned Map(unsigned start, unsigned end, unsigned percent) {
+    return start + (end - start) * (percent > 100 ? 100 : percent) / 100;
+  }
+  void Advance(unsigned next) {
+    if (mode == BarMode::halted) return;
+    mode = BarMode::advancing;
+    if (next > value) value = next;
+  }
+};
 
 struct FinishState {
   bool desktop = false;

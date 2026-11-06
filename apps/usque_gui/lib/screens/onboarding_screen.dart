@@ -17,6 +17,7 @@ import '../widgets/controller_selector.dart';
 import '../widgets/external_link.dart';
 import '../widgets/linux_service_section.dart';
 import '../widgets/setup_handoff.dart';
+import '../widgets/stacking_action_bar.dart';
 import '../widgets/tv_text_input.dart';
 import '../widgets/usque_logo.dart';
 import '../widgets/zero_trust_enrollment_editor.dart';
@@ -367,7 +368,6 @@ class _OnboardingScreenState extends State<OnboardingScreen>
       // The wide footer ends on the brand pane's baseline.
       wide ? 48 : 24,
     );
-    final theme = Theme.of(context);
     Widget column(Widget child) => Align(
       alignment: Alignment.topCenter,
       child: ConstrainedBox(
@@ -375,79 +375,81 @@ class _OnboardingScreenState extends State<OnboardingScreen>
         child: child,
       ),
     );
+    // The wide brand pane carries the attribution beside the non-affiliation
+    // notice. Narrow steps end with it rather than reserving footer space.
+    final Widget? attribution = wide
+        ? null
+        : _TrademarkAttribution(strings: strings);
     final footer = Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        _buildActions(context),
-        const SizedBox(height: 24),
-        Text(
-          strings.get('trademark_attribution'),
-          style: theme.textTheme.bodySmall?.copyWith(
-            color: theme.colorScheme.onSurfaceVariant,
-            height: 1.5,
-          ),
+        // Acceptance stays beside the action it unlocks, so a short screen
+        // or large text can never scroll it out of reach.
+        _OnboardingAnimatedSize(
+          child: _step == 2
+              ? Padding(
+                  padding: const EdgeInsets.only(bottom: UsqueSpace.s),
+                  child: _StepTransition(
+                    step: _step,
+                    forward: _forward,
+                    child: _TermsConsent(
+                      label: strings.get('terms_accept'),
+                      accepted: widget.controller.onboardingTermsAccepted,
+                      enabled: !_savingTerms,
+                      onChanged: (value) => unawaited(_setTermsAccepted(value)),
+                    ),
+                  ),
+                )
+              : const SizedBox(width: double.infinity),
         ),
+        _buildActions(context),
+        if (!layout.pinned && attribution != null) ...<Widget>[
+          const SizedBox(height: UsqueSpace.l),
+          attribution,
+        ],
       ],
     );
-    final content = Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: <Widget>[
-        _ExitFade(
-          animation: _exit,
-          interval: SetupHandoffTiming.form,
-          lift: 12,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: <Widget>[
-              if (!wide) ...<Widget>[
-                Row(
-                  children: <Widget>[
-                    const UsqueLogo(size: 40),
-                    const SizedBox(width: 12),
-                    Text('Usque', style: theme.textTheme.titleLarge),
-                  ],
-                ),
-                const SizedBox(height: 32),
-              ],
-              _StepIndicator(
-                step: _step,
-                total: _stepCount,
-                next: switch (_step) {
-                  0 => strings.get('permissions_title'),
-                  1 => strings.get('terms_title'),
-                  2 => strings.get('configure_identity'),
-                  _ => null,
-                },
-                strings: strings,
-              ),
-              const SizedBox(height: 30),
-              _OnboardingAnimatedSize(
-                child: _StepTransition(
-                  step: _step,
-                  forward: _forward,
-                  child: _buildStep(context, wide: wide),
-                ),
-              ),
-              const SizedBox(height: 20),
-              BannerSlot(
-                spacing: 0,
-                child: widget.controller.lastError == null
-                    ? null
-                    : WarningBanner(
-                        title: strings.get('setup_failed'),
-                        message: widget.controller.lastError!,
-                        danger: true,
-                        onDismiss: widget.controller.clearError,
-                      ),
-              ),
-              if (!layout.pinned) ...<Widget>[
-                const SizedBox(height: 28),
-                footer,
-              ],
-            ],
+    final content = _ExitFade(
+      animation: _exit,
+      interval: SetupHandoffTiming.form,
+      lift: 12,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          _StepIndicator(
+            step: _step,
+            total: _stepCount,
+            next: switch (_step) {
+              0 => strings.get('permissions_title'),
+              1 => strings.get('terms_title'),
+              2 => strings.get('configure_identity'),
+              _ => null,
+            },
+            strings: strings,
           ),
-        ),
-      ],
+          const SizedBox(height: 30),
+          _OnboardingAnimatedSize(
+            child: _StepTransition(
+              step: _step,
+              forward: _forward,
+              child: _buildStep(context, wide: wide),
+            ),
+          ),
+          const SizedBox(height: 20),
+          BannerSlot(
+            spacing: 0,
+            child: widget.controller.lastError == null
+                ? null
+                : WarningBanner(
+                    title: strings.get('setup_failed'),
+                    message: widget.controller.lastError!,
+                    danger: true,
+                    onDismiss: widget.controller.clearError,
+                  ),
+          ),
+          if (!layout.pinned) ...<Widget>[const SizedBox(height: 28), footer],
+        ],
+      ),
     );
     if (!layout.pinned) {
       return SingleChildScrollView(padding: padding, child: column(content));
@@ -455,6 +457,13 @@ class _OnboardingScreenState extends State<OnboardingScreen>
     return _PinnedFooterLayout(
       padding: padding,
       body: column(content),
+      note: attribution == null
+          ? null
+          : _ExitFade(
+              animation: _exit,
+              interval: SetupHandoffTiming.form,
+              child: column(attribution),
+            ),
       footer: _ExitFade(
         animation: _exit,
         interval: SetupHandoffTiming.form,
@@ -465,15 +474,12 @@ class _OnboardingScreenState extends State<OnboardingScreen>
 
   Widget _buildStep(BuildContext context, {required bool wide}) {
     return switch (_step) {
-      // The wide layout's brand pane already carries the non-affiliation
-      // notice on every step; narrow layouts show it here instead.
-      0 => _IntroStep(strings: strings, showNotice: !wide),
+      // The wide layout's brand pane already carries the mark and the
+      // non-affiliation notice on every step; narrow layouts show them here.
+      0 => _IntroStep(strings: strings, compact: !wide),
       1 => _PermissionsStep(strings: strings, controller: widget.controller),
       2 => _TermsStep(
         strings: strings,
-        accepted: widget.controller.onboardingTermsAccepted,
-        enabled: !_savingTerms,
-        onChanged: (value) => unawaited(_setTermsAccepted(value)),
         externalLinkLauncher: widget.externalLinkLauncher,
       ),
       _ => _IdentityStep(
@@ -543,15 +549,11 @@ class _OnboardingScreenState extends State<OnboardingScreen>
         : _step == 1 && _needsPermissions
         ? 'onboarding_grant_continue'
         : 'continue';
-    return OverflowBar(
-      // The primary action keeps the end edge on every step, including the
-      // first one, which has nothing to go back to.
-      alignment: _step > 0
-          ? MainAxisAlignment.spaceBetween
-          : MainAxisAlignment.end,
-      overflowAlignment: OverflowBarAlignment.end,
-      spacing: 12,
-      overflowSpacing: 12,
+    // The primary action keeps the end edge on every step, including the
+    // first one, which has nothing to go back to. Labels too long for one
+    // row stack at full width with the primary action on top.
+    return StackingActionBar(
+      leading: _step > 0,
       children: <Widget>[
         if (_step > 0)
           OutlinedButton.icon(
@@ -639,18 +641,24 @@ class _ExitFade extends StatelessWidget {
 }
 
 /// Scrolls the step above actions that stay at the bottom edge, so the
-/// primary action never moves between steps. A hairline marks the edge only
-/// while the step continues below it.
+/// primary action never moves between steps. Only while the step continues
+/// below the edge does it fade out there, above a hairline.
 class _PinnedFooterLayout extends StatefulWidget {
   const _PinnedFooterLayout({
     required this.padding,
     required this.body,
     required this.footer,
+    this.note,
   });
 
   final EdgeInsets padding;
   final Widget body;
   final Widget footer;
+
+  /// Fine print that ends the scrolling step: it rests just above the footer
+  /// while the step is short and follows the step once it is not, so it
+  /// never takes room from the step itself.
+  final Widget? note;
 
   @override
   State<_PinnedFooterLayout> createState() => _PinnedFooterLayoutState();
@@ -675,14 +683,63 @@ class _PinnedFooterLayoutState extends State<_PinnedFooterLayout> {
   @override
   Widget build(BuildContext context) {
     final padding = widget.padding;
+    final scrollPadding = padding.copyWith(bottom: UsqueSpace.l);
+    final note = widget.note;
     return Column(
       children: <Widget>[
         Expanded(
           child: NotificationListener<Notification>(
             onNotification: _onScroll,
-            child: SingleChildScrollView(
-              padding: padding.copyWith(bottom: UsqueSpace.l),
-              child: widget.body,
+            // Content that continues below fades out over the bottom inset
+            // instead of being cut off at the footer's edge.
+            child: ShaderMask(
+              blendMode: BlendMode.dstIn,
+              shaderCallback: (bounds) => LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: <Color>[
+                  Colors.black,
+                  Colors.black,
+                  if (_continues) Colors.transparent else Colors.black,
+                ],
+                stops: <double>[
+                  0,
+                  bounds.height <= UsqueSpace.l
+                      ? 0
+                      : 1 - UsqueSpace.l / bounds.height,
+                  1,
+                ],
+              ).createShader(bounds),
+              child: LayoutBuilder(
+                builder: (context, viewport) => SingleChildScrollView(
+                  padding: scrollPadding,
+                  child: note == null
+                      ? widget.body
+                      : ConstrainedBox(
+                          // A short step leaves the note on the footer's
+                          // edge; a long one scrolls it after the step.
+                          constraints: BoxConstraints(
+                            minHeight: math.max(
+                              0,
+                              viewport.maxHeight - scrollPadding.vertical,
+                            ),
+                          ),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: <Widget>[
+                              widget.body,
+                              Padding(
+                                padding: const EdgeInsets.only(
+                                  top: UsqueSpace.l,
+                                ),
+                                child: note,
+                              ),
+                            ],
+                          ),
+                        ),
+                ),
+              ),
             ),
           ),
         ),
@@ -762,8 +819,8 @@ class _StepTransition extends StatelessWidget {
 
 /// Left half of the setup window: the mark, a ring that closes as setup
 /// advances, and the one disclaimer every user should read before they
-/// connect. On completion the pane folds into the shell's rail and its mark
-/// lands on the rail's.
+/// connect, with the trademark attribution under it. On completion the pane
+/// folds into the shell's rail and its mark lands on the rail's.
 class _BrandPane extends StatelessWidget {
   const _BrandPane({
     required this.strings,
@@ -787,6 +844,7 @@ class _BrandPane extends StatelessWidget {
 
   static const double _inset = 48;
   static const double _logoSize = 72;
+  static const double _ringSize = 460;
 
   @override
   Widget build(BuildContext context) {
@@ -798,98 +856,118 @@ class _BrandPane extends StatelessWidget {
     // Only the extended rail has a mark for this one to land on.
     final bool landsOnRail = railWidth >= target.right;
 
-    final Widget surface = Stack(
-      fit: StackFit.expand,
-      children: <Widget>[
-        DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: dark
-                  ? const <Color>[Color(0xFF1C120A), Color(0xFF121214)]
-                  : const <Color>[Color(0xFFFFF3E8), Color(0xFFF7F5F0)],
+    final Widget surface = LayoutBuilder(
+      builder: (context, constraints) {
+        // A short pane draws a smaller ring, which keeps it clear of the
+        // notices at the bottom; from about 885 pixels up it is full size.
+        final double ring = (constraints.maxHeight * 0.52 / _ringSize).clamp(
+          0.6,
+          1.0,
+        );
+        return Stack(
+          fit: StackFit.expand,
+          children: <Widget>[
+            DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: dark
+                      ? const <Color>[Color(0xFF1C120A), Color(0xFF121214)]
+                      : const <Color>[Color(0xFFFFF3E8), Color(0xFFF7F5F0)],
+                ),
+              ),
             ),
-          ),
-        ),
-        Positioned(
-          right: -170,
-          top: 90,
-          width: 460,
-          height: 460,
-          child: _ExitFade(
-            animation: exit,
-            interval: SetupHandoffTiming.motif,
-            child: RepaintBoundary(
-              child: TweenAnimationBuilder<double>(
-                tween: Tween<double>(end: progress),
-                duration: UsqueMotion.of(context, UsqueMotion.gentle),
-                curve: UsqueMotion.emphasized,
-                builder: (context, reached, _) => AnimatedBuilder(
-                  animation: exit,
-                  builder: (context, _) => CustomPaint(
-                    painter: _BrandMotifPainter(
-                      progress: lerpDouble(
-                        reached,
-                        1,
-                        SetupHandoffTiming.ringClose.transform(exit.value),
-                      )!,
-                      accent: tokens.brand,
-                      track: tokens.hairlineStrong,
+            Positioned(
+              right: -170 * ring,
+              top: 90 * ring,
+              width: _ringSize * ring,
+              height: _ringSize * ring,
+              child: _ExitFade(
+                animation: exit,
+                interval: SetupHandoffTiming.motif,
+                child: RepaintBoundary(
+                  child: TweenAnimationBuilder<double>(
+                    tween: Tween<double>(end: progress),
+                    duration: UsqueMotion.of(context, UsqueMotion.gentle),
+                    curve: UsqueMotion.emphasized,
+                    builder: (context, reached, _) => AnimatedBuilder(
+                      animation: exit,
+                      builder: (context, _) => CustomPaint(
+                        painter: _BrandMotifPainter(
+                          progress: lerpDouble(
+                            reached,
+                            1,
+                            SetupHandoffTiming.ringClose.transform(exit.value),
+                          )!,
+                          accent: tokens.brand,
+                          track: tokens.hairlineStrong,
+                        ),
+                      ),
                     ),
                   ),
                 ),
               ),
             ),
-          ),
-        ),
-        LayoutBuilder(
-          builder: (context, constraints) => SingleChildScrollView(
-            child: ConstrainedBox(
-              constraints: BoxConstraints(minHeight: constraints.maxHeight),
-              child: IntrinsicHeight(
-                child: Padding(
-                  padding: const EdgeInsets.all(_inset),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      // The mark is drawn above the pane, so it can outlast it.
-                      const SizedBox(height: _logoSize),
-                      const Spacer(),
-                      _ExitFade(
-                        animation: exit,
-                        interval: SetupHandoffTiming.motif,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: <Widget>[
-                            Text(
-                              'Usque',
-                              style: theme.textTheme.displayMedium?.copyWith(
-                                color: theme.colorScheme.onSurface,
-                              ),
-                            ),
-                            const SizedBox(height: 14),
-                            ConstrainedBox(
-                              constraints: const BoxConstraints(maxWidth: 320),
-                              child: Text(
-                                strings.get('unofficial'),
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  color: theme.colorScheme.onSurfaceVariant,
-                                  height: 1.5,
+            SingleChildScrollView(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                child: IntrinsicHeight(
+                  child: Padding(
+                    padding: const EdgeInsets.all(_inset),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        // The mark is drawn above the pane, so it can outlast it.
+                        const SizedBox(height: _logoSize),
+                        const Spacer(),
+                        _ExitFade(
+                          animation: exit,
+                          interval: SetupHandoffTiming.motif,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: <Widget>[
+                              Text(
+                                'Usque',
+                                style: theme.textTheme.displayMedium?.copyWith(
+                                  color: theme.colorScheme.onSurface,
                                 ),
                               ),
-                            ),
-                          ],
+                              const SizedBox(height: 14),
+                              ConstrainedBox(
+                                constraints: const BoxConstraints(
+                                  maxWidth: 320,
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: <Widget>[
+                                    Text(
+                                      strings.get('unofficial'),
+                                      style: theme.textTheme.bodySmall
+                                          ?.copyWith(
+                                            color: theme
+                                                .colorScheme
+                                                .onSurfaceVariant,
+                                            height: 1.5,
+                                          ),
+                                    ),
+                                    const SizedBox(height: UsqueSpace.s),
+                                    _TrademarkAttribution(strings: strings),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
-        ),
-      ],
+          ],
+        );
+      },
     );
 
     return AnimatedBuilder(
@@ -1115,11 +1193,20 @@ class _StepIndicator extends StatelessWidget {
 }
 
 class _StepHeading extends StatelessWidget {
-  const _StepHeading({required this.icon, required this.title, this.body});
+  const _StepHeading({
+    required this.icon,
+    required this.title,
+    this.body,
+    this.brand = false,
+  });
 
   final IconData icon;
   final String title;
   final String? body;
+
+  /// Shows the Usque mark in place of the step's tile, for a welcome that
+  /// has no brand pane beside it.
+  final bool brand;
 
   @override
   Widget build(BuildContext context) {
@@ -1127,20 +1214,23 @@ class _StepHeading extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        // The tinted tile Home and Settings use for a lit feature.
-        ExcludeSemantics(
-          child: Container(
-            width: 44,
-            height: 44,
-            decoration: BoxDecoration(
-              color: theme.colorScheme.primary.withValues(
-                alpha: UsqueTokens.of(context).tint,
+        if (brand)
+          const UsqueLogo(size: 48)
+        else
+          // The tinted tile Home and Settings use for a lit feature.
+          ExcludeSemantics(
+            child: Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: theme.colorScheme.primary.withValues(
+                  alpha: UsqueTokens.of(context).tint,
+                ),
+                borderRadius: BorderRadius.circular(UsqueRadii.control),
               ),
-              borderRadius: BorderRadius.circular(UsqueRadii.control),
+              child: Icon(icon, color: theme.colorScheme.primary, size: 22),
             ),
-            child: Icon(icon, color: theme.colorScheme.primary, size: 22),
           ),
-        ),
         const SizedBox(height: 20),
         Text(title, style: theme.textTheme.headlineMedium),
         if (body case final body?) ...<Widget>[
@@ -1163,10 +1253,13 @@ const IconData _termsIcon = LucideIcons.fileText;
 const IconData _identityIcon = LucideIcons.keyRound;
 
 class _IntroStep extends StatelessWidget {
-  const _IntroStep({required this.strings, required this.showNotice});
+  const _IntroStep({required this.strings, required this.compact});
 
   final AppStrings strings;
-  final bool showNotice;
+
+  /// No brand pane accompanies the step, so it carries the mark and the
+  /// non-affiliation notice itself.
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
@@ -1177,8 +1270,9 @@ class _IntroStep extends StatelessWidget {
       children: <Widget>[
         _StepHeading(
           icon: LucideIcons.sparkles,
+          brand: compact,
           title: strings.get('welcome_title'),
-          body: strings.get(showNotice ? 'unofficial' : 'welcome_body'),
+          body: strings.get(compact ? 'unofficial' : 'welcome_body'),
         ),
         const SizedBox(height: 22),
         // An outline of what follows, in the order the steps run.
@@ -1231,6 +1325,7 @@ class _PermissionsStep extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
     final notification = controller.onboardingPermissions?.notification;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1250,29 +1345,59 @@ class _PermissionsStep extends StatelessWidget {
           const SizedBox(height: UsqueSpace.m),
         ],
         if (controller.requiresOnboardingPermissions) ...[
-          Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: RowInsets.horizontal,
-            ),
-            child: InlineStatus(
-              label: strings.get(switch (notification) {
-                OnboardingNotificationPermission.granted =>
-                  'onboarding_notifications_granted',
-                OnboardingNotificationPermission.notGranted =>
-                  'onboarding_notifications_denied',
-                _ => 'onboarding_notifications_optional',
-              }),
-              // Declining is a supported choice, not a warning.
-              tone: notification == OnboardingNotificationPermission.granted
-                  ? StatusTone.success
-                  : StatusTone.neutral,
-              icon: switch (notification) {
-                OnboardingNotificationPermission.granted => null,
-                OnboardingNotificationPermission.notGranted =>
-                  LucideIcons.bellOff,
-                _ => LucideIcons.bell,
-              },
-            ),
+          // Android setup asks only for notifications; VPN authorization waits
+          // for the first connection. The row follows the other steps' lists.
+          ContentList(
+            children: <Widget>[
+              Padding(
+                padding: RowInsets.row,
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    ExcludeSemantics(
+                      child: Icon(
+                        LucideIcons.bell,
+                        size: 20,
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          Text(
+                            strings.get('onboarding_notifications_title'),
+                            style: theme.textTheme.titleMedium,
+                          ),
+                          const SizedBox(height: 6),
+                          InlineStatus(
+                            label: strings.get(switch (notification) {
+                              OnboardingNotificationPermission.granted =>
+                                'onboarding_notifications_granted',
+                              OnboardingNotificationPermission.notGranted =>
+                                'onboarding_notifications_denied',
+                              _ => 'onboarding_notifications_optional',
+                            }),
+                            // Declining is a supported choice, not a warning.
+                            tone:
+                                notification ==
+                                    OnboardingNotificationPermission.granted
+                                ? StatusTone.success
+                                : StatusTone.neutral,
+                            icon:
+                                notification ==
+                                    OnboardingNotificationPermission.notGranted
+                                ? LucideIcons.bellOff
+                                : null,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
         ] else
           WarningBanner(
@@ -1284,19 +1409,12 @@ class _PermissionsStep extends StatelessWidget {
   }
 }
 
+/// The documents behind the terms step's acceptance, which the footer holds
+/// as [_TermsConsent].
 class _TermsStep extends StatelessWidget {
-  const _TermsStep({
-    required this.strings,
-    required this.accepted,
-    required this.enabled,
-    required this.onChanged,
-    this.externalLinkLauncher,
-  });
+  const _TermsStep({required this.strings, this.externalLinkLauncher});
 
   final AppStrings strings;
-  final bool accepted;
-  final bool enabled;
-  final ValueChanged<bool> onChanged;
   final Future<bool> Function(Uri)? externalLinkLauncher;
 
   @override
@@ -1323,6 +1441,7 @@ class _TermsStep extends StatelessWidget {
                   LucideIcons.building2,
                 ][index],
                 title: strings.get(labelKey),
+                external: true,
                 onTap: () => openExternalLink(
                   context,
                   strings,
@@ -1332,21 +1451,59 @@ class _TermsStep extends StatelessWidget {
               ),
           ],
         ),
-        const SizedBox(height: 16),
-        // The box and its label share the link rows' icon and text columns.
-        ListTileTheme.merge(
-          horizontalTitleGap: 0,
-          child: CheckboxListTile(
-            contentPadding: const EdgeInsetsDirectional.only(
-              end: RowInsets.horizontal,
-            ),
-            controlAffinity: ListTileControlAffinity.leading,
-            value: accepted,
-            onChanged: enabled ? (value) => onChanged(value ?? false) : null,
-            title: Text(strings.get('terms_accept')),
-          ),
-        ),
       ],
+    );
+  }
+}
+
+/// Acceptance of the terms, held in the footer directly above the action it
+/// unlocks.
+class _TermsConsent extends StatelessWidget {
+  const _TermsConsent({
+    required this.label,
+    required this.accepted,
+    required this.enabled,
+    required this.onChanged,
+  });
+
+  final String label;
+  final bool accepted;
+  final bool enabled;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    // The box and its label share the link rows' icon and text columns.
+    return ListTileTheme.merge(
+      horizontalTitleGap: 0,
+      child: CheckboxListTile(
+        contentPadding: const EdgeInsetsDirectional.only(
+          end: RowInsets.horizontal,
+        ),
+        controlAffinity: ListTileControlAffinity.leading,
+        value: accepted,
+        onChanged: enabled ? (value) => onChanged(value ?? false) : null,
+        title: Text(label),
+      ),
+    );
+  }
+}
+
+/// The localized trademark notice that every setup step carries.
+class _TrademarkAttribution extends StatelessWidget {
+  const _TrademarkAttribution({required this.strings});
+
+  final AppStrings strings;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    return Text(
+      strings.get('trademark_attribution'),
+      style: theme.textTheme.bodySmall?.copyWith(
+        color: theme.colorScheme.onSurfaceVariant,
+        height: 1.5,
+      ),
     );
   }
 }
@@ -1416,11 +1573,23 @@ class _IdentityStep extends StatelessWidget {
           const SizedBox(height: 18),
         ],
         if (phase != OnboardingPhase.ready) ...[
-          IdentityProvisioningMethodSelector(
-            strings: strings,
-            value: method,
-            enabled: enabled,
-            onChanged: onMethodChanged,
+          // The radios take the other steps' icon column, so each option's
+          // title starts where their row titles do.
+          ListTileTheme.merge(
+            horizontalTitleGap: 0,
+            contentPadding: const EdgeInsetsDirectional.only(
+              end: RowInsets.horizontal,
+            ),
+            titleTextStyle: Theme.of(context).textTheme.titleMedium,
+            child: IconTheme.merge(
+              data: const IconThemeData(size: 20),
+              child: IdentityProvisioningMethodSelector(
+                strings: strings,
+                value: method,
+                enabled: enabled,
+                onChanged: onMethodChanged,
+              ),
+            ),
           ),
           _OnboardingAnimatedSize(
             child: switch (method) {

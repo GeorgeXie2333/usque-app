@@ -15,7 +15,10 @@ mod l10n;
 #[cfg(windows)]
 mod windows;
 
+pub mod paint;
 pub mod state;
+#[path = "tokens_generated.rs"]
+pub mod tokens;
 
 /// MSI `ERROR_INSTALL_USEREXIT`. Settings should keep the app listed.
 pub const ERROR_INSTALL_USEREXIT: i32 = 1602;
@@ -63,6 +66,8 @@ pub struct Cli {
     pub wait_for_pid: Option<u32>,
     pub preview_locale: Option<String>,
     pub preview_theme: Option<state::PreviewTheme>,
+    /// Screen position of the setup window that handed off to this helper.
+    pub window_origin: Option<(i32, i32)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -88,6 +93,7 @@ impl Cli {
         let mut preview = None;
         let mut preview_locale = None;
         let mut preview_theme = None;
+        let mut window_origin = None;
 
         for argument in arguments {
             let argument = argument.as_ref();
@@ -119,6 +125,12 @@ impl Cli {
                 value if let Some(theme) = value.strip_prefix("--preview-theme=") => {
                     preview_theme = Some(
                         state::PreviewTheme::parse(theme)
+                            .ok_or_else(|| UninstallError::UnknownArgument(value.to_owned()))?,
+                    );
+                }
+                value if let Some(origin) = value.strip_prefix("--window-origin=") => {
+                    window_origin = Some(
+                        parse_window_origin(origin)
                             .ok_or_else(|| UninstallError::UnknownArgument(value.to_owned()))?,
                     );
                 }
@@ -178,6 +190,10 @@ impl Cli {
         if preview.is_none() && (preview_locale.is_some() || preview_theme.is_some()) {
             return Err(UninstallError::ConflictingArguments);
         }
+        // Only a visible window can open at the setup window's position.
+        if window_origin.is_some() && (dry_run || quiet || quiet_copy_mode.is_some()) {
+            return Err(UninstallError::ConflictingArguments);
+        }
         if quiet_copy_mode.is_some()
             && (dry_run
                 || quiet
@@ -203,8 +219,21 @@ impl Cli {
             wait_for_pid,
             preview_locale,
             preview_theme,
+            window_origin,
         })
     }
+}
+
+/// Parses `X,Y` screen coordinates. Values are bounded; the window is later
+/// clamped into the work area of the monitor nearest to that point.
+fn parse_window_origin(value: &str) -> Option<(i32, i32)> {
+    let (x, y) = value.split_once(',')?;
+    let coordinate = |text: &str| {
+        text.parse::<i32>()
+            .ok()
+            .filter(|value| value.unsigned_abs() <= 100_000)
+    };
+    Some((coordinate(x)?, coordinate(y)?))
 }
 
 impl UninstallRequest {
@@ -305,13 +334,16 @@ where
             println!("{}", request.command_line());
             Ok(0)
         }
-        Mode::Interactive => run_interactive(cli.product_code, cli.wait_for_pid),
+        Mode::Interactive => run_interactive(cli.product_code, cli.wait_for_pid, cli.window_origin),
         Mode::Quiet => run_quiet(cli.product_code, cli.remove_user_data, cli.wait_for_pid),
         Mode::StageQuiet(pid) => prepare_quiet_copy(pid, false),
         Mode::VerifyQuiet(pid) => prepare_quiet_copy(pid, true),
-        Mode::Preview(scenario) => {
-            run_preview(scenario, cli.preview_locale.as_deref(), cli.preview_theme)
-        }
+        Mode::Preview(scenario) => run_preview(
+            scenario,
+            cli.preview_locale.as_deref(),
+            cli.preview_theme,
+            cli.window_origin,
+        ),
     }
 }
 
@@ -319,14 +351,15 @@ fn run_preview(
     scenario: state::Preview,
     locale: Option<&str>,
     theme: Option<state::PreviewTheme>,
+    origin: Option<(i32, i32)>,
 ) -> Result<i32, UninstallError> {
     #[cfg(windows)]
     {
-        windows::run_preview(scenario, locale, theme)
+        windows::run_preview(scenario, locale, theme, origin)
     }
     #[cfg(not(windows))]
     {
-        let _ = (scenario, locale, theme);
+        let _ = (scenario, locale, theme, origin);
         Err(UninstallError::WindowsOnly)
     }
 }
@@ -347,14 +380,15 @@ pub fn emit_error(error: &UninstallError, show_dialog: bool) {
 fn run_interactive(
     product_code: Option<String>,
     wait_for_pid: Option<u32>,
+    origin: Option<(i32, i32)>,
 ) -> Result<i32, UninstallError> {
     #[cfg(windows)]
     {
-        windows::run_interactive(product_code, wait_for_pid)
+        windows::run_interactive(product_code, wait_for_pid, origin)
     }
     #[cfg(not(windows))]
     {
-        let _ = (product_code, wait_for_pid);
+        let _ = (product_code, wait_for_pid, origin);
         Err(UninstallError::WindowsOnly)
     }
 }
@@ -422,6 +456,27 @@ fn is_guid_body(value: &str) -> bool {
 mod tests {
     use super::*;
     use std::path::Path;
+
+    #[test]
+    fn setup_hand_off_origin_is_bounded_and_only_for_visible_windows() {
+        let cli = Cli::parse(["--wait-for-pid=7", "--window-origin=-1920,40"]).unwrap();
+        assert_eq!(cli.mode, Mode::Interactive);
+        assert_eq!(cli.window_origin, Some((-1920, 40)));
+        let preview = Cli::parse(["--preview=confirm", "--window-origin=10,20"]).unwrap();
+        assert_eq!(preview.window_origin, Some((10, 20)));
+        for value in ["1", "1,", ",2", "a,b", "1,2,3", "100001,0", "0,-100001"] {
+            assert!(
+                Cli::parse([format!("--window-origin={value}")]).is_err(),
+                "{value} must be rejected"
+            );
+        }
+        for mode in ["--quiet", "--dry-run", "--stage-quiet=4"] {
+            assert!(matches!(
+                Cli::parse([mode, "--window-origin=0,0"]),
+                Err(UninstallError::ConflictingArguments)
+            ));
+        }
+    }
 
     #[test]
     fn dry_run_command_preserves_user_data_by_default() {

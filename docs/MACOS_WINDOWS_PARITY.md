@@ -48,6 +48,61 @@ hardware. None of the isolated results establishes physical-egress safety.
 | Extension update and uninstall | Application transaction leaves extensions/user data separate; manual app removal preserves user data | Extension approval/restart orchestration and managed uninstall remain pending |
 | Signed production distribution | Development packages are explicitly ad-hoc and not notarized | Developer ID, notarization, Gatekeeper distribution and full two-architecture acceptance pending |
 
+## Upstream development synchronization (2026-11-07)
+
+The macOS `dev` branch integrates upstream `dev` at
+`c9460ae083f416f5258e4c33c946f743b13c0aed` (v0.3.4 / 0.3.4+30).
+The earlier local reliability changes are preserved in `20944f6c` before the
+merge. This is a source update for PR #147, not a merge into `main` or a new
+installer release.
+
+- Profiles uses the upstream selected-scene card, account picker and simplified
+  account rows. Switching to Custom retains preview/confirmation and durable
+  operation receipts. On macOS, Reset waits for proxy recovery and completed
+  disconnect cleanup before changing the durable selection.
+- Onboarding, shared action bars, navigation, contextual account labels and
+  locale terminology follow the current upstream UI. Native macOS menus,
+  shortcuts, unsaved-edit guards and capability checks remain in place.
+- The Settings page selector also observes the new Android recents preference,
+  including its initial read, pending write and error state. A shell-hosted
+  regression checks that the switch follows confirmed native results.
+- Upstream Android control/recents changes and Windows engine/setup fixes are
+  included without changing the macOS runtime's existing capability gates.
+- The workspace, Flutter manifest and macOS runtime lock entry use v0.3.4.
+  The Traditional Chinese README follows the new README structure. Existing
+  macOS download links still identify historical v0.3.3 development packages
+  that predate the current UI and Proton browser removal.
+
+The macOS scene recovery regression now also rejects Reset while an encrypted
+proxy recovery journal is corrupt, verifies that the previous durable selection
+is retained, and confirms successful reset only after recovery can complete.
+The native Settings/keyboard draft regression follows the upstream editor's
+scene-specific discard title and body while retaining its keep-editing,
+confirmed-discard and no-save assertions.
+Validation remains background-only with synthetic credentials and local test
+channels. No actual application, login, permission dialog or host network
+configuration is exercised.
+
+Final validation of the synchronized source (Apple Silicon macOS, pinned
+Flutter 3.44.7 and repository toolchains):
+
+| Check | Result |
+| --- | --- |
+| `flutter pub get --enforce-lockfile` | Passed with the upstream lockfile |
+| `flutter test --no-pub --exclude-tags golden --concurrency=4` | 1,645 passed, 10 skipped, no failures |
+| `flutter test --no-pub test/scenarios_test.dart --concurrency=2` | 86 passed, no failures |
+| `cargo test --workspace --all-targets --locked --offline` (`CARGO_BUILD_JOBS=2`) | 2,095 passed, 3 ignored, no failures |
+| `python -m unittest discover -s tool -p 'test_*.py' -v` | 372 cases, 24 skipped, no failures/errors |
+| `pwsh -NoProfile -File tool/check_source.ps1` | Passed: strict workspace Clippy, Rust/Dart formatting, Flutter analysis, Kotlin ktlint, Ruff, PowerShell and protobuf |
+| Native desktop, network and maintenance contracts | 8 desktop groups, network contracts and 13 maintenance groups passed |
+| `flutter build macos --debug --no-pub` | Apple Silicon Debug build passed; existing Xcode CoreSimulator version warnings remain |
+| Tracked-source repository policy and whitespace checks | Passed |
+
+Windows/Linux bitmap baselines and native builds, Android device/build
+acceptance, Intel/macOS 13 execution, actual network/permission/multi-display
+workflows and distribution signing/notarization remain `not_run` in this sync.
+No existing capability gate or production-release prerequisite is relaxed.
+
 ## Reliability follow-up (2026-11-05)
 
 This follow-up starts from `ffc5865c8ca90ab8c694f0ce992d3b0183673fb3`.

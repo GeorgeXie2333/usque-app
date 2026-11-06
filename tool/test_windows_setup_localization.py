@@ -25,7 +25,7 @@ class SetupLocalizationTests(unittest.TestCase):
             ROOT / "packaging/windows/bootstrapper/state.h",
             ROOT / "crates/usque-uninstall/src/state.rs",
             ROOT / "crates/usque-uninstall/src/windows.rs",
-            ROOT / "crates/usque-uninstall/src/windows/ui.rs",
+            *sorted((ROOT / "crates/usque-uninstall/src/windows/ui").glob("*.rs")),
         ]
         for path in sources:
             text = path.read_text(encoding="utf-8")

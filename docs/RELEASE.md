@@ -5,13 +5,17 @@ record that the current checkout has been published. The authoritative
 executable contracts are [release.yml](../.github/workflows/release.yml) and
 [release_contract.py](../tool/release_contract.py).
 
-The checked-in application metadata and workflow target `v0.3.3` /
-`0.3.3+29`. Consult GitHub Releases for the currently published Latest.
+The checked-in application metadata and workflow target `v0.3.4` /
+`0.3.4+30`. Consult GitHub Releases for the currently published Latest.
+[v0.3.3](https://github.com/GeorgeXie2333/usque-app/releases/tag/v0.3.3) was
+published as the stable Latest on 2026-10-26 (UTC) from
+`1d44597ddb6dee7fca6700c0442e0d3856eea31b` with 34 public assets.
 [v0.3.2](https://github.com/GeorgeXie2333/usque-app/releases/tag/v0.3.2) was
 published on 2026-10-17 from `02685ee399debf93731751f59b33cdfaef49dcdf`.
-The workflow accepts only `v0.3.3`. Its tag must match the current main tip
-and a completed successful main push CI run for that exact SHA; release/dev
-checks cannot substitute. Only the maintainer creates the tag.
+See [Preparing v0.3.4](#preparing-v034). The published `v0.3.3` tag must not
+be moved or reused. A stable tag must
+match the current main tip and a completed successful main push CI run for that
+exact SHA; release/dev checks cannot substitute. Only the maintainer creates the tag.
 Signing and publish jobs run in GitHub Environments that need approval. If a
 required file, signing input, or CI result is missing, the workflow fails. A
 local bundle, MSI, or APK cannot replace a failed Actions build.
@@ -26,7 +30,28 @@ published tag; a subsequent release needs a separately reviewed version and
 workflow update and the existing approval gates. Static and compile-only
 checks are not evidence of a successful real-machine upgrade.
 
+## Preparing v0.3.4
+
+The candidate uses twelve Cargo packages at `0.3.4`, Flutter `0.3.4+30`, and
+21 catalogs. Android universal/ARMv7/ARM64/x86_64 version codes are
+30000/30001/30002/30004. The MSI ProductVersion is `0.3.499`, Agent PE version
+is `0.3.499.0`, and Windows bundle and Linux package versions are `0.3.4`.
+See the [readiness record](RELEASE_V0.3.4_READINESS.md); preparation is not
+evidence of a published release or successful final-candidate validation.
+
+The candidate uses configuration schema 27 for [connection scenes](SCENARIOS.md),
+Agent protocol 3, Windows/Linux recovery journals 6/1 and recovery export 2.
+Require exact-candidate CI, Build and CodeQL and main push CI and CodeQL. The
+reviewed Windows engine inputs are reused only after the pinned producer,
+artifact and provenance checks described in [engine reuse](FLUTTER_WINDOWS_TIMER.md).
+Retain both engine restore receipts, PDBs and Flutter symbol archives. Keep the
+signing and publish approvals separate and verify all staged assets before
+publishing. Protected laboratory checks remain optional and `not_run` when absent.
+
 ## Preparing v0.3.3
+
+This section records the preparation of the published v0.3.3 release. It does
+not authorize reusing its tag for later changes.
 
 Synchronize all 12 Cargo packages, Flutter `0.3.3+29` and 21 catalogs. The
 Android base is 29: universal/ARMv7/ARM64/x86_64 are 29000/29001/29002/29004.
@@ -121,7 +146,7 @@ SBOM generation remains enabled.
 ## Preparing v0.3.2
 
 This section records preparation of the published v0.3.2 release. It does not
-authorize reusing its tag for the unreleased packaging changes above.
+authorize reusing its tag for the later packaging changes above.
 
 The [v0.3.2 readiness review](RELEASE_V0.3.2_READINESS.md) separates baseline
 checks from final-candidate evidence. Synchronize all 12 first-party Cargo
@@ -192,10 +217,13 @@ Which signatures count as official, how fingerprints are published, and what hap
 
 ## Before signing starts
 
-- For `v0.3.3`, complete the preparation above first. The accepted tag
-  must match `release.yml` and the exact main tip.
-- That commit must already have a successful release-branch `ci.yml` push run,
-  including `CI / gate`, CodeQL and Build. Main/PR gates are not applicable.
+- Complete the preparation for the next version first. The accepted tag must
+  match `release.yml`; a stable tag must point to the exact main tip, and a Beta
+  tag to the exact `release/<tag>` tip.
+- A stable commit must already have a successful `main` `ci.yml` push run,
+  including `CI / gate`, plus CodeQL; a release-branch or dev run cannot
+  substitute. A Beta commit instead needs its `release/<tag>` push CI, CodeQL
+  and Build, and PR/main gates are not applicable.
 - `release-signing` and `release-publish` both require approval.
 - Android Developer Console must show `io.github.georgexie2333.usque` and the certificate fingerprint in `ANDROID_SIGNER_SHA256` as **Registered**.
 - Signing material stays in environment secrets. Do not put it in repository variables, files, artifacts, logs, or caches.
@@ -421,9 +449,10 @@ MSI build = SemVer patch * 100 + beta ordinal
 stable ordinal = 99
 ```
 
-Stable `v0.3.2` maps to MSI ProductVersion `0.3.299` and Agent PE file version
-`0.3.299.0`; `v0.3.2-beta.3` maps to `0.3.203`. Prior v0.3.1 maps to
-`0.3.199` / `0.3.199.0`, so the new stable package advances the build component.
+Stable `v0.3.3` maps to MSI ProductVersion `0.3.399` and Agent PE file version
+`0.3.399.0`; `v0.3.3-beta.2` mapped to `0.3.302`. Prior v0.3.2 maps to
+`0.3.299` / `0.3.299.0`, and a v0.3.4 package would map to `0.3.499`, so each
+patch release advances the build component.
 The real SemVer stays in
 ProductName and the filenames, and packaging
 rejects an unversioned or mismatched Agent. Equal-version major upgrades are

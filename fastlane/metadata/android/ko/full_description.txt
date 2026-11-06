@@ -32,6 +32,6 @@ Usque는 Android / Android TV용 Cloudflare® WARP® 서비스와 호환되는 �
 
 Usque는 독립 프로젝트로 Cloudflare, Inc.와 제휴 관계가 없으며 후원이나 추천을 받지 않습니다. Cloudflare와 WARP는 미국 및 기타 관할 지역에서 Cloudflare, Inc.의 상표 또는 등록 상표입니다. 개인용 WARP 서비스 사용에는 Cloudflare의 약관과 개인정보 처리방침이 적용됩니다.
 
-연결에는 무료 개인용 WARP 계정 등록(선택적으로 WARP License Key)이 필요합니다. 새 WARP Secret 가져오기는 지원하지 않습니다. 공식 패키지는 GitHub Releases에서만 배포합니다.
+연결에는 무료 개인용 WARP 계정 등록(선택적으로 WARP 라이선스 키)이 필요합니다. 새 WARP Secret 가져오기는 지원하지 않습니다. 공식 패키지는 GitHub Releases에서만 배포합니다.
 
 Usque 자체 소스는 MIT 라이선스이며, 서드파티 구성 요소는 각자의 라이선스를 유지합니다(OpenVPN 3 Core MPL-2.0, Mbed TLS Apache-2.0, BoringTun BSD-3-Clause).

@@ -381,6 +381,179 @@ fn restore_preserves_new_global_values_and_refuses_new_managed_edits() {
     assert!(!can_restore(&config));
 }
 
+fn preview_token_of(result: &ScenarioCommandResult) -> String {
+    result.response["preview"]["preview_token"]
+        .as_str()
+        .unwrap()
+        .into()
+}
+
+#[test]
+fn reset_returns_to_custom_with_default_scene_settings_and_keeps_device_settings() {
+    let mut config = AppConfig::default();
+    let account = config.active_profile_id;
+    let ctx = context(&config);
+    let settings = ScenarioSettings {
+        transport: crate::TransportPolicy::Http2,
+        ip_policy: crate::IpPolicy::Ipv4Only,
+        ..Default::default()
+    };
+    let scenario = save(&mut config, settings, None);
+    activate(&mut config, &scenario, &ctx);
+    config.network.auto_connect = true;
+    config.network.mtu = 1300;
+    let ctx = context(&config);
+    let preview = command(&mut config, ScenarioCommand::PreviewReset, &ctx).unwrap();
+    let values = &preview.response["preview"];
+    assert_eq!(values["reset"], true);
+    assert_eq!(values["restore"], false);
+    assert!(values["scenario_id"].is_null());
+    assert_eq!(values["account_changed"], false);
+    assert!(
+        values["changed_fields"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("transport"))
+    );
+    // A preview never commits.
+    assert!(config.scenario_selection.is_some());
+    assert_eq!(config.network.transport, crate::TransportPolicy::Http2);
+    let operation = Uuid::new_v4();
+    let result = command(
+        &mut config,
+        ScenarioCommand::Reset {
+            preview_token: preview_token_of(&preview),
+            operation_id: operation,
+        },
+        &ctx,
+    )
+    .unwrap();
+    assert!(result.changed);
+    assert!(result.target.is_some());
+    assert!(config.scenario_selection.is_none());
+    assert_eq!(config.active_profile_id, account);
+    let defaults = ScenarioSettings::default();
+    assert!(current_settings(&config).equivalent(&defaults));
+    assert!(config.network.auto_connect);
+    assert_eq!(config.network.mtu, 1300);
+    let record = config.last_scenario_switch.as_ref().unwrap();
+    assert_eq!(record.operation_id, operation);
+    assert!(record.target.selection.is_none());
+    assert!(record.source.selection.is_some());
+    assert!(!record.recovery_retired);
+    let listed = catalogue(&config, &context(&config));
+    assert!(listed["selection"].is_null());
+    assert_eq!(listed["state"]["modified"], false);
+    // Custom can be undone like any other switch.
+    assert!(can_restore(&config));
+    let ctx = context(&config);
+    let restore = command(&mut config, ScenarioCommand::PreviewRestore, &ctx).unwrap();
+    command(
+        &mut config,
+        ScenarioCommand::Restore {
+            preview_token: preview_token_of(&restore),
+            operation_id: Uuid::new_v4(),
+        },
+        &ctx,
+    )
+    .unwrap();
+    assert_eq!(
+        config.scenario_selection.as_ref().unwrap().scenario_id,
+        scenario.id
+    );
+    assert_eq!(config.network.transport, crate::TransportPolicy::Http2);
+    assert!(config.network.auto_connect);
+}
+
+#[test]
+fn reset_and_restore_tokens_cannot_authorize_each_other() {
+    // Starting from defaults, the undo target equals the reset target. The
+    // token still binds the previewed switch kind.
+    let mut config = AppConfig::default();
+    let ctx = context(&config);
+    let settings = ScenarioSettings {
+        transport: crate::TransportPolicy::Http2,
+        ..Default::default()
+    };
+    let scenario = save(&mut config, settings, None);
+    activate(&mut config, &scenario, &ctx);
+    let ctx = context(&config);
+    let restore = command(&mut config, ScenarioCommand::PreviewRestore, &ctx).unwrap();
+    let reset = command(&mut config, ScenarioCommand::PreviewReset, &ctx).unwrap();
+    assert_eq!(
+        restore.response["preview"]["target_settings"],
+        reset.response["preview"]["target_settings"]
+    );
+    assert_ne!(preview_token_of(&restore), preview_token_of(&reset));
+    let before = config.clone();
+    for request in [
+        ScenarioCommand::Reset {
+            preview_token: preview_token_of(&restore),
+            operation_id: Uuid::new_v4(),
+        },
+        ScenarioCommand::Restore {
+            preview_token: preview_token_of(&reset),
+            operation_id: Uuid::new_v4(),
+        },
+    ] {
+        assert_eq!(
+            command(&mut config, request, &ctx).unwrap_err(),
+            ScenarioError::PreviewStale
+        );
+        assert_eq!(config, before);
+    }
+    // A reused operation is refused like any other switch.
+    let operation = config.last_scenario_switch.as_ref().unwrap().operation_id;
+    assert_eq!(
+        command(
+            &mut config,
+            ScenarioCommand::Reset {
+                preview_token: preview_token_of(&reset),
+                operation_id: operation,
+            },
+            &ctx,
+        )
+        .unwrap_err(),
+        ScenarioError::OperationReused
+    );
+}
+
+#[test]
+fn reset_keeps_zero_trust_account_addresses() {
+    let mut config = AppConfig::default();
+    let id = config.active_profile_id.unwrap();
+    config.identity_bindings.insert(
+        id,
+        crate::identity::IdentityProvider::ZeroTrust {
+            organization: "test".into(),
+        },
+    );
+    let registered = crate::ManagedEndpointIps {
+        ipv4: "162.159.197.2".parse().unwrap(),
+        ipv6: "2606:4700:102::2".parse().unwrap(),
+    };
+    config
+        .set_managed_endpoint_ips(id, registered.clone())
+        .unwrap();
+    let ctx = context(&config);
+    let preview = command(&mut config, ScenarioCommand::PreviewReset, &ctx).unwrap();
+    command(
+        &mut config,
+        ScenarioCommand::Reset {
+            preview_token: preview_token_of(&preview),
+            operation_id: Uuid::new_v4(),
+        },
+        &ctx,
+    )
+    .unwrap();
+    let current = config.active_profile().unwrap();
+    assert_eq!(current.endpoint.ipv4, registered.ipv4);
+    assert_eq!(current.endpoint.ipv6, registered.ipv6);
+    let account = config.account(id).unwrap();
+    assert_eq!(account.managed_endpoint_ips, Some(registered));
+    assert!(account.zero_trust_endpoint_override.is_none());
+}
+
 #[test]
 fn edited_template_does_not_change_selected_snapshot_and_deleting_does_not_change_network() {
     let mut config = AppConfig::default();
@@ -704,7 +877,7 @@ fn oversized_current_configuration_keeps_catalogue_and_deletion_available() {
 
 #[test]
 fn all_command_envelopes_reject_owner_observations_and_secret_fields() {
-    for action in ["list", "preview_restore"] {
+    for action in ["list", "preview_restore", "preview_reset"] {
         for field in [
             "applied_profile",
             "source_epoch",
@@ -731,6 +904,29 @@ fn all_command_envelopes_reject_owner_observations_and_secret_fields() {
         ScenarioCommand::parse(r#"{"action":"preview_restore"}"#).unwrap(),
         ScenarioCommand::PreviewRestore
     ));
+    assert!(matches!(
+        ScenarioCommand::parse(r#"{"action":"preview_reset"}"#).unwrap(),
+        ScenarioCommand::PreviewReset
+    ));
+    let reset = ScenarioCommand::parse(
+        &json!({"action":"reset","preview_token":"0".repeat(64),"operation_id":Uuid::new_v4()})
+            .to_string(),
+    )
+    .unwrap();
+    assert!(matches!(reset, ScenarioCommand::Reset { .. }));
+    assert!(reset.is_mutation());
+    assert!(!ScenarioCommand::PreviewReset.is_mutation());
+    // A reset names no scene and carries no target of its own.
+    for field in ["id", "expected_revision", "settings", "target"] {
+        let mut request = json!({
+            "action":"reset","preview_token":"0".repeat(64),"operation_id":Uuid::new_v4()
+        });
+        request[field] = json!(Uuid::new_v4());
+        assert_eq!(
+            ScenarioCommand::parse(&request.to_string()).unwrap_err(),
+            ScenarioError::InvalidRequest
+        );
+    }
 }
 
 #[test]

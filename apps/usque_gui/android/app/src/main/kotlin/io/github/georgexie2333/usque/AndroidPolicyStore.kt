@@ -24,6 +24,11 @@ internal object AndroidPolicyStore {
     fun startup(context: Context): AtomicPolicyStore =
         open(context, "startup", UsqueVpnService.RECOVERY_PREFERENCES) { it in startupKeys }
 
+    fun ui(context: Context): AtomicPolicyStore {
+        val device = context.applicationContext.createDeviceProtectedStorageContext()
+        return AtomicPolicyStore(File(device.filesDir, "policy-v2/ui.json"))
+    }
+
     fun perApp(context: Context): AtomicPolicyStore =
         open(context, "per-app", PerAppProxyStore.PREFERENCES) {
             it == PerAppProxyStore.KEY_ENABLED || it == PerAppProxyStore.KEY_PACKAGES
@@ -31,7 +36,7 @@ internal object AndroidPolicyStore {
 
     fun clear(context: Context) {
         // Persist empty tombstones; deleting new files could re-import legacy data.
-        for (store in listOf(recovery(context), startup(context), perApp(context))) {
+        for (store in listOf(recovery(context), startup(context), perApp(context), ui(context))) {
             check(store.edit().clear().commit()) { "Policy cleanup failed" }
         }
     }

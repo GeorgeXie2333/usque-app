@@ -918,6 +918,8 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
       key: widget.guard,
       strings: strings,
       dirty: !_accepted && (_dirty || widget.otherPending),
+      discardTitle: _sceneDraft ? strings.get('scenario_discard_title') : null,
+      discardBody: _sceneDraft ? strings.get('scenario_discard_body') : null,
       saving: _saving,
       child: widget.pageBuilder(
         enabled: _draft.enabled,
@@ -927,7 +929,7 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
                   setState(() => _setDraft(_draft.copyWith(enabled: value))),
         warning: !_supported
             ? WarningBanner(
-                title: widget.source.label,
+                title: strings.chainSourceLabel(widget.source),
                 message: strings.chain('unsupported'),
               )
             : null,
@@ -941,7 +943,7 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
                 dirty: _sceneDraft || _dirty || _modeConflict,
                 saving: _saving,
                 onRefresh: !_sceneDraft && _app.networkSettings.canRefresh
-                    ? _app.networkSettings.refresh
+                    ? () => _app.networkSettings.refresh(requireRuntime: true)
                     : null,
                 refreshing: _app.networkSettings.refreshing,
                 error: _error,
@@ -1559,7 +1561,9 @@ class _ImportDialogState extends State<_ImportDialog> {
             ? 'import'
             : 'preview',
         'source': widget.source.wire,
-        'name': !save && name.isEmpty ? widget.source.label : name,
+        'name': !save && name.isEmpty
+            ? s.chainSourceLabel(widget.source)
+            : name,
         if (widget.credentialsFor case final stored?) ...{
           'profile_id': stored.id,
           'revision': stored.editRevision,
@@ -1590,7 +1594,7 @@ class _ImportDialogState extends State<_ImportDialog> {
             _name.text =
                 widget.defaultName ??
                 result.preview?.host ??
-                widget.source.label;
+                s.chainSourceLabel(widget.source);
           }
         });
       }
@@ -1666,7 +1670,9 @@ class _ImportDialogState extends State<_ImportDialog> {
       canPop: !_busy,
       child: UsqueDialog(
         icon: importing ? LucideIcons.fileUp : LucideIcons.keyRound,
-        title: importing ? widget.source.label : s.chain('credentials'),
+        title: importing
+            ? s.chainSourceLabel(widget.source)
+            : s.chain('credentials'),
         subtitle: widget.credentialsFor?.name,
         content: SingleChildScrollView(
           child: Column(
@@ -1812,7 +1818,10 @@ class _ImportDialogState extends State<_ImportDialog> {
                                   label: Text(
                                     s
                                         .chain('switch_source')
-                                        .replaceAll('{source}', source.label),
+                                        .replaceAll(
+                                          '{source}',
+                                          s.chainSourceLabel(source),
+                                        ),
                                   ),
                                 ),
                               ),

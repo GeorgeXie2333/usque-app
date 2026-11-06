@@ -5,6 +5,8 @@ pub enum Preview {
     #[default]
     Confirm,
     Progress,
+    /// Replays [`PREVIEW_UNINSTALL`] through the real presentation model.
+    Replay,
     Success,
     Reboot,
     Cancelled,
@@ -39,6 +41,7 @@ impl Preview {
         Some(match value {
             "confirm" => Self::Confirm,
             "progress" => Self::Progress,
+            "replay" => Self::Replay,
             "success" => Self::Success,
             "reboot" => Self::Reboot,
             "cancelled" => Self::Cancelled,
@@ -197,7 +200,44 @@ pub fn error_hint_key(code: u32) -> &'static str {
     }
 }
 
-/// Tracks MSI's own progress units. A generation phase is not execution proof.
+/// End of MSI script generation, in permille of the presented operation.
+pub const GENERATION_END: u16 = 100;
+/// End of MSI script execution; Burn registration cleanup uses the rest.
+pub const EXECUTION_END: u16 = 900;
+/// The range of the presented bar.
+pub const BAR_COMPLETE: u16 = 1000;
+
+/// What the progress bar presents. Raw MSI totals never reach the control.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Bar {
+    /// No MSI progress has arrived yet (verification, elevation, costing).
+    Waiting,
+    /// Permille of the whole uninstall. It never decreases within an attempt.
+    Advancing(u16),
+    /// Rollback is undoing changes. The last forward value stays frozen.
+    Halted(u16),
+}
+
+/// Numeric MSI progress counters for exported details. They contain no
+/// record text, product data or paths.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ProgressStats {
+    pub generation_resets: u16,
+    pub execution_resets: u16,
+    pub rollback_resets: u16,
+    pub additions: u16,
+    /// MSI's own count moved backward and the bar held its value instead.
+    pub held_reversals: u16,
+}
+
+/// Tracks MSI's own progress units and maps them onto one forward-only bar.
+///
+/// MSI restarts its count for every progress session (script generation,
+/// each script execution, rollback) and may enlarge a session's total while
+/// it runs. Presenting those raw fractions directly moved the bar back and
+/// forth. Each forward session instead fills the remaining part of a fixed
+/// phase range, and the presented value only ever increases. A generation
+/// phase is not execution proof.
 #[derive(Clone, Debug, Default)]
 pub struct Progress {
     total: i64,
@@ -206,19 +246,49 @@ pub struct Progress {
     action_ticks: i64,
     initialized: bool,
     pub generating: bool,
+    executing: bool,
+    segment: (u16, u16),
+    shown: u16,
+    pub stats: ProgressStats,
 }
 
 impl Progress {
     pub fn record(&mut self, fields: [i32; 4]) {
         let [kind, value, flag, script] = fields;
+        let before = self.session_permille();
+        let mut restarted = false;
         match kind {
             0 if value >= 0 && matches!(flag, 0 | 1) && matches!(script, 0 | 1) => {
+                // Only a repeated execution session would have restarted the
+                // old bar; generation is followed by execution by design.
+                restarted = self.executing && !self.backward && before > 0;
                 self.total = i64::from(value);
                 self.backward = flag == 1;
                 self.current = if self.backward { self.total } else { 0 };
                 self.generating = script == 1;
                 self.action_ticks = 0;
                 self.initialized = true;
+                let stats = &mut self.stats;
+                if self.backward {
+                    stats.rollback_resets = stats.rollback_resets.saturating_add(1);
+                } else {
+                    let counter = if self.generating {
+                        &mut stats.generation_resets
+                    } else {
+                        &mut stats.execution_resets
+                    };
+                    *counter = counter.saturating_add(1);
+                    // Generation after execution has begun (or any later
+                    // session) shares the execution range; it never restarts
+                    // the bar.
+                    let (start, end) = if self.generating && !self.executing {
+                        (0, GENERATION_END)
+                    } else {
+                        (GENERATION_END, EXECUTION_END)
+                    };
+                    self.executing |= !self.generating;
+                    self.segment = (self.shown.max(start), end.max(self.shown));
+                }
             }
             1 if self.initialized && value >= 0 => {
                 self.action_ticks = if flag == 1 { i64::from(value) } else { 0 };
@@ -226,13 +296,24 @@ impl Progress {
             2 if self.initialized && value >= 0 => self.advance(i64::from(value)),
             3 if self.initialized && value >= 0 => {
                 self.total = self.total.saturating_add(i64::from(value));
+                self.stats.additions = self.stats.additions.saturating_add(1);
             }
             _ => {}
         }
+        let reversed = if kind == 0 {
+            restarted
+        } else {
+            self.session_permille() < before
+        };
+        if reversed && !self.backward {
+            self.stats.held_reversals = self.stats.held_reversals.saturating_add(1);
+        }
+        self.present();
     }
 
     pub fn action_data(&mut self) {
         self.advance(self.action_ticks);
+        self.present();
     }
 
     pub fn new_action(&mut self) {
@@ -248,14 +329,112 @@ impl Progress {
         .clamp(0, self.total.max(0));
     }
 
-    pub fn percent(&self) -> Option<u16> {
-        if !self.initialized || self.generating || self.total == 0 {
-            None
+    fn session_permille(&self) -> i64 {
+        if self.total > 0 {
+            self.current.saturating_mul(i64::from(BAR_COMPLETE)) / self.total
         } else {
-            Some((self.current.saturating_mul(100) / self.total).clamp(0, 100) as u16)
+            0
         }
     }
+
+    fn present(&mut self) {
+        // Rollback freezes the bar; it is presented as stopped, not reversed.
+        if !self.initialized || self.backward {
+            return;
+        }
+        let (start, end) = self.segment;
+        let span = i64::from(end.saturating_sub(start));
+        let position = i64::from(start) + span * self.session_permille() / i64::from(BAR_COMPLETE);
+        self.shown = self
+            .shown
+            .max(position.clamp(0, i64::from(EXECUTION_END)) as u16);
+    }
+
+    /// Whether any MSI progress session has started.
+    pub fn started(&self) -> bool {
+        self.initialized
+    }
+
+    /// The forward-only presented value, in permille.
+    pub fn shown(&self) -> u16 {
+        self.shown
+    }
 }
+
+/// One message of the inert preview's simulated uninstall.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PreviewStep {
+    Record([i32; 4]),
+    Action(&'static str),
+    /// `PurgeUserData`, only when deletion was selected.
+    Purge,
+    ActionData,
+    CancelAllowed(bool),
+    Registration,
+    Finish,
+}
+
+/// `(timer tick, step)` pairs at the preview's 100 ms timer. The sequence is
+/// shaped like an MSI uninstall and includes the record patterns that used to
+/// move the bar backward: a progress addition during execution and a second
+/// execution session. Only the inert preview and unit tests replay it.
+pub const PREVIEW_UNINSTALL: &[(u32, PreviewStep)] = {
+    use PreviewStep::*;
+    const STEP: PreviewStep = Record([2, 4, 0, 0]);
+    const LATE: PreviewStep = Record([2, 12, 0, 0]);
+    &[
+        (5, CancelAllowed(true)),
+        (5, Action("InstallValidate")),
+        (6, Record([0, 40, 0, 1])),
+        (7, STEP),
+        (8, STEP),
+        (9, STEP),
+        (10, STEP),
+        (11, STEP),
+        (12, STEP),
+        (13, STEP),
+        (14, STEP),
+        (15, STEP),
+        (16, STEP),
+        (18, Record([0, 300, 0, 0])),
+        (19, Action("StopServices")),
+        (19, Record([1, 10, 1, 0])),
+        (20, ActionData),
+        (21, ActionData),
+        (22, ActionData),
+        (23, ActionData),
+        (24, ActionData),
+        (25, Action("EmergencyRemoveKillSwitch")),
+        (25, Record([2, 20, 0, 0])),
+        (27, Action("RecoverAgentState")),
+        (30, Record([2, 10, 0, 0])),
+        (33, Record([2, 10, 0, 0])),
+        (34, Record([3, 120, 0, 0])),
+        (35, Purge),
+        (36, Action("RemoveFiles")),
+        (36, Record([1, 15, 1, 0])),
+        (37, ActionData),
+        (38, ActionData),
+        (39, ActionData),
+        (40, ActionData),
+        (41, ActionData),
+        (42, ActionData),
+        (43, ActionData),
+        (44, ActionData),
+        (45, ActionData),
+        (46, ActionData),
+        (47, Record([0, 60, 0, 0])),
+        (48, LATE),
+        (49, LATE),
+        (50, CancelAllowed(false)),
+        (50, LATE),
+        (51, LATE),
+        (52, LATE),
+        (53, Action("FinalizeAgentUninstall")),
+        (55, Registration),
+        (66, Finish),
+    ]
+};
 
 #[derive(Clone, Debug, Default)]
 pub struct Lifecycle {
@@ -308,6 +487,34 @@ impl Lifecycle {
     pub fn common_data(&mut self, kind: i32, value: i32) {
         if kind == 2 {
             self.msi_allows_cancel = value == 1;
+        }
+    }
+
+    /// The presented progress for the running page.
+    pub fn bar(&self) -> Bar {
+        let shown = self.progress.shown();
+        if self.rollback_started {
+            Bar::Halted(shown)
+        } else if self.stage == Stage::Registration {
+            // MSI has committed; Burn's cleanup reports no measurable units.
+            Bar::Advancing(shown.max(EXECUTION_END))
+        } else if self.progress.started() {
+            Bar::Advancing(shown)
+        } else {
+            Bar::Waiting
+        }
+    }
+
+    /// Applies one step of the inert preview's simulated uninstall.
+    pub fn apply_preview_step(&mut self, step: PreviewStep, remove_user_data: bool) {
+        match step {
+            PreviewStep::Record(fields) => self.progress_record(fields),
+            PreviewStep::Action(name) => self.action(name),
+            PreviewStep::Purge if remove_user_data => self.action("PurgeUserData"),
+            PreviewStep::ActionData => self.progress.action_data(),
+            PreviewStep::CancelAllowed(allowed) => self.common_data(2, i32::from(allowed)),
+            PreviewStep::Registration => self.stage = Stage::Registration,
+            PreviewStep::Purge | PreviewStep::Finish => {}
         }
     }
 
@@ -471,7 +678,7 @@ mod tests {
         let mut state = Lifecycle::default();
         state.progress_record([0, 100, 0, 0]);
         state.progress_record([2, 100, 0, 0]);
-        assert_eq!(state.progress.percent(), Some(100));
+        assert_eq!(state.bar(), Bar::Advancing(EXECUTION_END));
         assert_eq!(state.finish(1603), Outcome::MsiFailed);
         assert_eq!(state.finish(0), Outcome::Success);
         assert_eq!(state.finish(3010), Outcome::RebootRequired);
@@ -506,24 +713,141 @@ mod tests {
     }
 
     #[test]
-    fn progress_handles_script_generation_additions_and_reverse_execution() {
+    fn progress_maps_generation_additions_and_rollback_without_moving_back() {
         let mut progress = Progress::default();
         progress.record([2, 50, 0, 0]);
-        assert_eq!(progress.percent(), None);
+        assert!(!progress.started());
+        assert_eq!(progress.shown(), 0);
         progress.record([0, 100, 0, 1]);
         progress.record([2, 50, 0, 0]);
-        assert_eq!(progress.percent(), None);
+        assert_eq!(progress.shown(), GENERATION_END / 2);
+        // Execution restarts MSI's count; the bar continues from generation.
         progress.record([0, 100, 0, 0]);
+        assert_eq!(progress.shown(), GENERATION_END);
         progress.record([1, 10, 1, 0]);
         progress.action_data();
-        assert_eq!(progress.percent(), Some(10));
+        assert_eq!(progress.shown(), 180);
+        // A larger total halves MSI's fraction. The bar holds instead.
         progress.record([3, 100, 0, 0]);
-        assert_eq!(progress.percent(), Some(5));
+        assert_eq!(progress.shown(), 180);
+        progress.record([2, 5, 0, 0]);
+        assert_eq!(progress.shown(), 180);
+        progress.record([2, 35, 0, 0]);
+        assert_eq!(progress.shown(), 300);
+        // Rollback counts down from its own total; the bar stays frozen.
         progress.record([0, 100, 1, 0]);
         progress.record([2, 25, 0, 0]);
-        assert_eq!(progress.percent(), Some(75));
         progress.record([2, -1, 0, 0]);
-        assert_eq!(progress.percent(), Some(75));
+        assert_eq!(progress.shown(), 300);
+        assert_eq!(
+            progress.stats,
+            ProgressStats {
+                generation_resets: 1,
+                execution_resets: 1,
+                rollback_resets: 1,
+                additions: 1,
+                held_reversals: 1,
+            }
+        );
+    }
+
+    #[test]
+    fn bar_waits_for_msi_then_never_returns_to_an_indeterminate_state() {
+        let mut state = Lifecycle::default();
+        assert_eq!(state.bar(), Bar::Waiting);
+        state.action("InstallValidate");
+        assert_eq!(state.bar(), Bar::Waiting);
+        state.progress_record([0, 0, 0, 1]);
+        assert_eq!(state.bar(), Bar::Advancing(0));
+        state.progress_record([0, 0, 0, 0]);
+        assert_eq!(state.bar(), Bar::Advancing(GENERATION_END));
+        state.stage = Stage::Registration;
+        assert_eq!(state.bar(), Bar::Advancing(EXECUTION_END));
+        // A registration-only retry starts from committed MSI work.
+        let retry = Lifecycle {
+            stage: Stage::Registration,
+            ..Lifecycle::default()
+        };
+        assert_eq!(retry.bar(), Bar::Advancing(EXECUTION_END));
+    }
+
+    #[test]
+    fn rollback_halts_the_bar_at_its_last_forward_value() {
+        let mut state = Lifecycle::default();
+        state.progress_record([0, 200, 0, 0]);
+        state.progress_record([2, 100, 0, 0]);
+        let Bar::Advancing(value) = state.bar() else {
+            panic!("execution must be determinate");
+        };
+        state.action("Rollback");
+        assert_eq!(state.bar(), Bar::Halted(value));
+        state.progress_record([0, 100, 1, 0]);
+        state.progress_record([2, 90, 0, 0]);
+        state.progress.action_data();
+        assert_eq!(state.bar(), Bar::Halted(value));
+    }
+
+    #[test]
+    fn preview_uninstall_replays_former_reversals_as_a_forward_only_bar() {
+        for remove_user_data in [false, true] {
+            let mut state = Lifecycle::default();
+            let mut previous = 0;
+            let mut started = false;
+            let mut finished = false;
+            let last_tick = PREVIEW_UNINSTALL.last().unwrap().0;
+            for tick in 1..=last_tick {
+                for (_, step) in PREVIEW_UNINSTALL.iter().filter(|(at, _)| *at == tick) {
+                    state.apply_preview_step(*step, remove_user_data);
+                    finished |= *step == PreviewStep::Finish;
+                }
+                match state.bar() {
+                    Bar::Waiting => assert!(!started, "tick {tick} returned to waiting"),
+                    Bar::Advancing(value) => {
+                        started = true;
+                        assert!(value >= previous, "tick {tick}: {value} < {previous}");
+                        assert!(value <= BAR_COMPLETE);
+                        previous = value;
+                    }
+                    Bar::Halted(_) => panic!("the preview never rolls back"),
+                }
+            }
+            assert!(finished);
+            assert_eq!(state.stage, Stage::Registration);
+            assert_eq!(state.bar(), Bar::Advancing(EXECUTION_END));
+            assert_eq!(state.purge_started, remove_user_data);
+            // The addition and the second execution session both moved the
+            // former raw bar backward; both are now held.
+            assert_eq!(state.progress.stats.held_reversals, 2);
+            assert_eq!(state.progress.stats.execution_resets, 2);
+        }
+    }
+
+    #[test]
+    fn arbitrary_forward_records_never_move_the_bar_backward() {
+        // Deterministic LCG; no randomness or dependency in the test build.
+        let mut seed = 0x2545_f491_u32;
+        let mut next = |bound: u32| {
+            seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            (seed >> 8) % bound
+        };
+        for _ in 0..200 {
+            let mut state = Lifecycle::default();
+            let mut previous = 0;
+            for _ in 0..400 {
+                let kind = next(5) as i32;
+                if kind == 4 {
+                    state.progress.action_data();
+                } else {
+                    let value = next(400) as i32 - 20;
+                    let flag = if kind == 1 { next(2) as i32 } else { 0 };
+                    state.progress_record([kind, value, flag, next(2) as i32]);
+                }
+                if let Bar::Advancing(value) = state.bar() {
+                    assert!(value >= previous && value <= EXECUTION_END);
+                    previous = value;
+                }
+            }
+        }
     }
 
     #[test]

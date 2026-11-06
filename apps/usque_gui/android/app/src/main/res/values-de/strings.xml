@@ -26,7 +26,7 @@
     <string name="tile_open_app">Usque öffnen</string>
     <string name="tile_profile_required">Öffne Usque und stelle einmal eine Verbindung her, bevor du den Kurzbefehl verwendest.</string>
     <string name="tile_identity_required">Öffne Usque und richte das aktuelle WARP-Konto ein.</string>
-    <string name="tile_vpn_permission_required">Öffnen Sie Usque, um die Android-VPN-Berechtigung zu erteilen.</string>
+    <string name="tile_vpn_permission_required">Öffne Usque, um die Android-VPN-Berechtigung zu erteilen.</string>
     <string name="tile_proxy_only">Nur ein lokaler Proxy ist aktiv. Öffne Proxy in Usque und aktiviere VPN.</string>
     <string name="shortcut_connect">Verbinden</string>
     <string name="shortcut_disconnect">Trennen</string>

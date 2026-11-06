@@ -51,12 +51,14 @@ class AboutScreen extends StatelessWidget {
                     LucideIcons.building2,
                   ][index],
                   title: strings.get(labelKey),
+                  external: true,
                   onTap: () => open(url),
                 ),
               LinkRow(
                 key: const ValueKey('about-source-code'),
                 icon: LucideIcons.code2,
                 title: strings.get('source_code'),
+                external: true,
                 onTap: () => open(kSourceCodeUrl),
               ),
               LinkRow(

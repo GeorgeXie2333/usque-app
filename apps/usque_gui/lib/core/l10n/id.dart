@@ -26,7 +26,7 @@ const Map<String, String> kIdCatalog = <String, String>{
   'app_loading': "Memuat Usque",
   'app_name': 'Usque',
   'diag_fail_L4_SESSION_UNAVAILABLE': 'Sesi L4 tidak tersedia',
-  'diag_fail_L4_PROTOCOL_ERROR': 'Galat protokol L4',
+  'diag_fail_L4_PROTOCOL_ERROR': 'Kesalahan protokol L4',
   'diag_fail_L4_CONNECT_REJECTED': 'L4 CONNECT ditolak',
   'diag_fail_L4_CONNECT_TIMEOUT': 'L4 CONNECT kehabisan waktu',
   'diag_fail_L4_RESOURCE_EXHAUSTED': 'Anggaran sumber daya L4 habis',
@@ -36,8 +36,8 @@ const Map<String, String> kIdCatalog = <String, String>{
   'window_restore': 'Pulihkan ukuran jendela',
   'window_close': 'Tutup',
   'tray_open': 'Buka Usque',
-  'tray_connect_profile': 'Hubungkan akun aktif',
-  'tray_disconnect_profile': 'Putuskan akun aktif',
+  'tray_connect_profile': 'Sambungkan akun saat ini',
+  'tray_disconnect_profile': 'Putuskan akun saat ini',
   'tray_disconnect_exit': 'Putuskan dan keluar',
   'notice_connection_interrupted':
       'Koneksi terputus. Usque sedang mencoba memulihkannya.',
@@ -48,15 +48,15 @@ const Map<String, String> kIdCatalog = <String, String>{
       'Kill Switch memblokir lalu lintas jaringan hingga koneksi pulih atau Anda memutuskan koneksi.',
   'connection_status': 'Status koneksi',
   'home': 'Beranda',
-  'profiles': 'Akun',
-  'profiles_subtitle': 'Beralih dan kelola akun WARP.',
+  'profiles': 'Profil',
+  'profiles_subtitle': 'Simpan skenario dan kelola akun.',
   'proxy': 'Proksi',
   'proxy_subtitle': 'Atur alamat pendengar dan autentikasi proksi bersama.',
   'settings': 'Pengaturan',
   'settings_subtitle': 'Pengaturan koneksi, proksi, dan aplikasi.',
   'diagnostics': 'Diagnostik',
   'nav_home': 'Beranda',
-  'nav_profiles': 'Akun',
+  'nav_profiles': 'Profil',
   'nav_proxy': 'Proksi',
   'nav_settings': 'Setelan',
   'status_stream_degraded': 'Pembaruan status tertunda',
@@ -75,7 +75,7 @@ const Map<String, String> kIdCatalog = <String, String>{
   'error': 'Kesalahan koneksi',
   'active_profile': 'Akun saat ini',
   'protocol': 'Protokol',
-  'address_family': 'Keluarga alamat',
+  'address_family': 'Versi IP',
   'duration': 'Durasi',
   'download': 'Unduh',
   'upload': 'Unggah',
@@ -140,10 +140,10 @@ const Map<String, String> kIdCatalog = <String, String>{
   "zero_trust_reauth_endpoints":
       "Masuk kembali memulihkan alamat endpoint terdaftar dan menghapus alamat khusus Anda.",
   'experimental': 'Eksperimental',
-  'show_license': 'Tampilkan License Key',
-  'hide_license': 'Sembunyikan License Key',
-  'license_copied': 'License Key disalin',
-  'warp_secret_saved': 'WARP Secret disimpan',
+  'show_license': 'Tampilkan kunci lisensi',
+  'hide_license': 'Sembunyikan kunci lisensi',
+  'license_copied': 'Kunci lisensi disalin',
+  'warp_secret_saved': 'Informasi masuk WARP disimpan ke',
   'create': 'Buat',
   'cancel': 'Batal',
   'active': 'Aktif',
@@ -154,7 +154,7 @@ const Map<String, String> kIdCatalog = <String, String>{
   'delete': 'Hapus',
   'delete_profile': 'Hapus akun?',
   'delete_profile_body':
-      "Hapus akun ini dan informasi masuk WARP-nya dari perangkat ini? Jika License Key terikat, Usque juga mencoba melepaskannya.",
+      "Hapus akun ini dan informasi masuk WARP-nya dari perangkat ini? Jika kunci lisensi terikat, Usque juga mencoba melepaskannya.",
   'delete_zero_trust_profile_body':
       'Akun dan informasi masuk dihapus dari perangkat ini. Minta administrator menghapus juga catatan perangkat di dasbor Zero Trust organisasi.',
   'license_not_applicable': 'Akun organisasi · Eksperimental',
@@ -259,10 +259,10 @@ const Map<String, String> kIdCatalog = <String, String>{
   'identity': 'Akun WARP',
   'identity_and_license': 'Akun dan lisensi',
   'license_cleanup_pending': 'Pendaftaran perangkat WARP lama belum dihapus.',
-  'copy_license': 'Salin License Key',
-  'change_license': 'Ubah License Key',
+  'copy_license': 'Salin kunci lisensi',
+  'change_license': 'Ubah kunci lisensi',
   'unbind_license': 'Kembali ke WARP Free',
-  'export_warp_secret': 'Ekspor WARP Secret',
+  'export_warp_secret': 'Ekspor informasi masuk WARP',
   'close': 'Tutup',
   'advanced': 'Pengaturan jaringan lanjutan',
   'advanced_subtitle': 'Endpoint, DNS, MTU, dan perutean.',
@@ -288,11 +288,11 @@ const Map<String, String> kIdCatalog = <String, String>{
   'mtu': 'MTU',
   'dns_ipv4': 'DNS IPv4',
   'dns_ipv6': 'DNS IPv6',
-  'ip_policy': 'Versi IP endpoint',
-  'prefer_ipv4': 'Utamakan endpoint IPv4',
-  'prefer_ipv6': 'Utamakan endpoint IPv6',
-  'ipv4_only': 'Hanya endpoint IPv4',
-  'ipv6_only': 'Hanya endpoint IPv6',
+  'ip_policy': 'Preferensi IP endpoint',
+  'prefer_ipv4': 'Utamakan IPv4',
+  'prefer_ipv6': 'Utamakan IPv6',
+  'ipv4_only': 'Hanya IPv4',
+  'ipv6_only': 'Hanya IPv6',
   'kill_switch': 'Kill Switch',
   'on': 'Nyala',
   'off': 'Mati',
@@ -312,9 +312,9 @@ const Map<String, String> kIdCatalog = <String, String>{
       'Jalankan Usque setelah perangkat dimulai ulang. Untuk menyambung otomatis, aktifkan juga “Sambungkan akun saat ini secara otomatis saat mulai”.',
   'add_quick_settings_tile_help':
       'Tambahkan ubin Usque di Android 13 atau yang lebih baru. Pada versi lama, tambahkan secara manual dari Setelan Cepat.',
-  'always_on_vpn': 'Buka pengaturan VPN selalu aktif',
+  'always_on_vpn': 'Buka pengaturan “VPN selalu aktif”',
   'always_on_vpn_help':
-      'Aktifkan VPN selalu aktif dan Blokir koneksi tanpa VPN untuk perlindungan kebocoran setelah aplikasi dihentikan.',
+      'Aktifkan “VPN selalu aktif” dan “Memblokir koneksi tanpa VPN” untuk perlindungan kebocoran setelah aplikasi dihentikan.',
   'per_app_proxy': 'Proksi per aplikasi',
   'per_app_proxy_off': 'Semua aplikasi menggunakan VPN',
   'per_app_proxy_on': 'Memproksi {count} aplikasi',
@@ -322,7 +322,7 @@ const Map<String, String> kIdCatalog = <String, String>{
   'per_app_proxy_help':
       'Hanya aplikasi yang dicentang yang menggunakan VPN. Aplikasi yang baru diinstal harus dicentang agar dapat menggunakannya.',
   'per_app_proxy_lockdown_help':
-      'Jika VPN selalu aktif dan Blokir koneksi tanpa VPN aktif, aplikasi yang tidak Anda pilih diblokir, bukan dikirim ke luar terowongan.',
+      'Jika “VPN selalu aktif” dan “Memblokir koneksi tanpa VPN” aktif, aplikasi yang tidak Anda pilih akan diblokir, bukan dikirim ke luar terowongan.',
   'per_app_proxy_tunnel_hint':
       'Berlaku saat VPN aktif. Proksi SOCKS5 dan HTTP tidak memfilter per aplikasi.',
   'per_app_search': 'Cari aplikasi',
@@ -334,11 +334,11 @@ const Map<String, String> kIdCatalog = <String, String>{
   'per_app_loading': 'Memuat aplikasi terinstal…',
   'per_app_empty': 'Tidak ada aplikasi yang cocok dengan filter ini.',
   'allow_lan': 'Izinkan jaringan lokal',
-  'bypass_cidrs': 'CIDR bypass tambahan',
+  'bypass_cidrs': 'CIDR langsung tambahan',
   'bypass_hint': 'Satu CIDR per baris',
   'reset_defaults': 'Setel ulang default jaringan',
   'reset_defaults_body':
-      'Pulihkan endpoint, SNI, DNS, MTU, listener, transport, dan preferensi endpoint?',
+      'Pulihkan endpoint, SNI, DNS, MTU, pendengar, transport, dan preferensi endpoint?',
   'reset': 'Setel ulang',
   'save': 'Simpan',
   'saved': 'Disimpan',
@@ -351,7 +351,7 @@ const Map<String, String> kIdCatalog = <String, String>{
       'Periksa masalah koneksi, ekspor log, dan kelola data lokal.',
   'engine_status': 'Informasi koneksi',
   'version': 'Versi',
-  'app_version': 'Usque 0.3.3',
+  'app_version': 'Usque 0.3.4',
   'logs': 'Log lokal',
   'export_diagnostics': 'Ekspor bundel diagnostik',
   'diagnostics_saved': 'Bundel diagnostik disimpan ke',
@@ -393,17 +393,18 @@ const Map<String, String> kIdCatalog = <String, String>{
   'profile_required': 'Pertahankan setidaknya satu akun.',
   'socks_capabilities': 'TCP dan UDP',
   'http_capabilities': 'CONNECT dan penerusan biasa',
-  'geo_direct': 'Pengaturan bypass',
-  'bypass_custom': 'Target bypass khusus',
+  'geo_direct': 'Pengaturan koneksi langsung',
+  'bypass_custom': 'Target langsung khusus',
   'bypass_countries': 'Negara / wilayah',
   'bypass_targets_hint':
       'Satu CIDR, IP, atau domain per baris. Mencakup semua subdomain. Aplikasi dengan DNS terenkripsi sendiri hanya dicocokkan melalui IP.',
-  'bypass_unsupported': 'Mesin ini tidak mendukung target bypass khusus.',
+  'bypass_unsupported':
+      'Versi Usque ini tidak mendukung target langsung khusus. Periksa pembaruan di Pengaturan.',
   'bypass_limit': 'Maksimal 256 aturan alamat dan 256 domain.',
   'bypass_line_error': 'Baris {line}: {reason}',
   'bypass_summary': '{countries} wilayah · {targets} target khusus',
   'geo_direct_help':
-      'Lalu lintas yang cocok dengan negara atau wilayah ini melewati VPN/TUN Usque serta proksi lokal HTTP dan SOCKS5. Penyedia DNS jaringan saat ini mungkin melihat domain yang diminta. Aplikasi dengan DNS terenkripsi dicocokkan berdasarkan IP saja.',
+      'Lalu lintas yang cocok dengan negara atau wilayah ini tersambung langsung, tanpa melalui VPN/TUN Usque serta proksi lokal HTTP dan SOCKS5. Penyedia DNS jaringan saat ini mungkin melihat domain yang diminta. Aplikasi dengan DNS terenkripsi dicocokkan berdasarkan IP saja.',
   'geo_update_all': 'Perbarui data geo',
   'geo_last_updated': 'Pembaruan berhasil terakhir: {current}',
   'geo_never_updated': 'Belum diperbarui',
@@ -425,13 +426,13 @@ const Map<String, String> kIdCatalog = <String, String>{
   'diag_refresh_timeline': 'Segarkan linimasa',
   'diag_operation_failed': 'Operasi diagnostik gagal',
   'diag_event_stream_degraded': 'Aliran peristiwa diagnostik terputus',
-  'diag_event_stream_degraded_body': 'Memulihkan kemajuan diagnosis…',
+  'diag_event_stream_degraded_body': 'Memulihkan kemajuan diagnostik…',
   'diag_export_included': 'Termasuk:',
   'diag_export_included_body':
       'Kode kesalahan, langkah koneksi, waktu, statistik lalu lintas, dan status fitur',
   'diag_export_excluded': 'Tidak termasuk:',
   'diag_export_excluded_body':
-      'Kunci, token, nama profil, alamat lengkap, SSID, daftar aplikasi, dan jalur pengguna',
+      'Kunci, token, nama akun, alamat lengkap, SSID, daftar aplikasi, dan jalur pengguna',
   'diag_export_local_only':
       'Arsip hanya ditulis ke lokasi yang Anda pilih dan tidak pernah diunggah otomatis.',
   'diag_run_title': 'Jalankan diagnostik jaringan',
@@ -453,7 +454,7 @@ const Map<String, String> kIdCatalog = <String, String>{
   'diag_summary_failed': 'Gagal {count}',
   'diag_summary_skipped': 'Dilewati {count}',
   'diag_check_results': 'Hasil pemeriksaan',
-  'diag_check_results_empty': 'Mulai diagnosis untuk memeriksa koneksi Anda.',
+  'diag_check_results_empty': 'Mulai diagnostik untuk memeriksa koneksi Anda.',
   'diag_timeline': 'Linimasa koneksi',
   'diag_timeline_subtitle': 'Perubahan status koneksi terbaru.',
   'diag_logs_subtitle': 'Ekspor bundel diagnostik tanpa informasi sensitif.',
@@ -466,7 +467,7 @@ const Map<String, String> kIdCatalog = <String, String>{
   'diag_timeline_empty':
       'Perubahan status koneksi penting akan muncul di sini setelah percobaan koneksi.',
   'diag_timeline_truncated':
-      'Menampilkan 100 catatan terbaru. Paket diagnostik memuat semua catatan yang masih disimpan di perangkat ini.',
+      'Menampilkan 100 catatan terbaru. Bundel diagnostik memuat semua catatan yang masih disimpan di perangkat ini.',
   'diag_metric_reconnects': 'Sambung ulang',
   'diag_metric_fallbacks': 'Peralihan ke jalur cadangan',
   'diag_metric_network_changes': 'Perubahan jaringan',
@@ -475,7 +476,7 @@ const Map<String, String> kIdCatalog = <String, String>{
   'diag_stage': 'Tahap',
   'diag_family': 'Versi IP',
   'diag_retryable': 'Dapat dicoba lagi',
-  'diag_fallback_allowed': 'Jalur cadangan',
+  'diag_fallback_allowed': 'Cadangan diizinkan',
   'diag_copy_support': 'Salin info dukungan',
   'diag_support_copied': 'Info dukungan disalin.',
   'diag_yes': 'Ya',
@@ -520,7 +521,7 @@ const Map<String, String> kIdCatalog = <String, String>{
   'diag_check_transport_h2_tcp': 'TCP HTTP/2',
   'diag_check_transport_h2_tls': 'TLS HTTP/2',
   'diag_check_transport_h2_connect': 'CONNECT-IP HTTP/2',
-  'diag_check_transport_endpoint_pin': 'Pin titik akhir',
+  'diag_check_transport_endpoint_pin': 'Pin endpoint',
   'diag_check_transport_fallback_policy': 'Kebijakan jalur cadangan',
   'diag_check_tunnel_address_assignment': 'Penetapan alamat terowongan',
   'diag_check_tunnel_routes': 'Rute terowongan',
@@ -543,7 +544,7 @@ const Map<String, String> kIdCatalog = <String, String>{
   'diag_fail_PHYSICAL_NETWORK_CHANGED': 'Jaringan fisik berubah',
   'diag_fail_H3_UDP_UNREACHABLE': 'UDP HTTP/3 tidak dapat dijangkau',
   'diag_fail_H3_HANDSHAKE_TIMEOUT': 'Waktu handshake HTTP/3 habis',
-  'diag_fail_H3_PROTOCOL_ERROR': 'Galat protokol HTTP/3',
+  'diag_fail_H3_PROTOCOL_ERROR': 'Kesalahan protokol HTTP/3',
   'diag_fail_H3_DATAGRAM_UNAVAILABLE': 'Datagram HTTP/3 tidak tersedia',
   'diag_fail_H3_CONNECTION_CLOSED': 'Koneksi HTTP/3 ditutup',
   'diag_fail_PMTU_REVALIDATION_EXHAUSTED':
@@ -554,8 +555,8 @@ const Map<String, String> kIdCatalog = <String, String>{
   'diag_fail_H2_CONNECT_REJECTED': 'CONNECT HTTP/2 ditolak',
   'diag_fail_H2_GOAWAY': 'HTTP/2 menerima GOAWAY',
   'diag_fail_ALL_TRANSPORTS_FAILED': 'HTTP/3 dan HTTP/2 keduanya gagal',
-  'diag_fail_ENDPOINT_PIN_MISMATCH': 'Pin titik akhir tidak cocok',
-  'diag_fail_IDENTITY_INVALID': 'Identitas tidak valid',
+  'diag_fail_ENDPOINT_PIN_MISMATCH': 'Pin endpoint tidak cocok',
+  'diag_fail_IDENTITY_INVALID': 'Akun WARP tidak valid',
   'diag_fail_AUTHENTICATION_FAILED': 'Autentikasi gagal',
   'diag_fail_CONFIGURATION_INVALID': 'Konfigurasi tidak valid',
   'diag_fail_CONNECT_IP_REJECTED': 'CONNECT-IP ditolak',
@@ -583,11 +584,11 @@ const Map<String, String> kIdCatalog = <String, String>{
   'diag_fail_DIAGNOSTIC_TIMEOUT': 'Pemeriksaan diagnostik melewati batas waktu',
   'diag_fail_DIAGNOSTIC_CANCELLED': 'Diagnostik dibatalkan',
   'diag_fail_DIAGNOSTIC_DEPENDENCY_FAILED': 'Ketergantungan diagnostik gagal',
-  'diag_fail_INTERNAL': 'Galat internal',
+  'diag_fail_INTERNAL': 'Kesalahan internal',
   'diag_fix_try_http2':
       'Di Pengaturan → Pengaturan jaringan lanjutan, pilih HTTP/2, terapkan perubahan, lalu sambungkan lagi.',
   'diag_fix_check_physical_network':
-      'Pastikan Wi-Fi atau jaringan seluler berfungsi, lalu sambungkan lagi.',
+      'Pastikan Wi-Fi atau data seluler berfungsi tanpa Usque, lalu coba sambungkan lagi.',
   'diag_fix_refresh_or_replace_identity':
       'Di Akun, pilih Siapkan akun WARP untuk akun ini. Masuk lagi atau buat akun WARP baru, lalu sambungkan kembali.',
   'diag_fix_replace_identity':
@@ -595,7 +596,7 @@ const Map<String, String> kIdCatalog = <String, String>{
   'diag_fix_review_configuration':
       'Di Pengaturan → Pengaturan jaringan lanjutan, perbaiki isian yang ditandai lalu terapkan perubahan.',
   'diag_fix_restore_platform_state':
-      'Tutup Usque sepenuhnya lalu buka kembali. Jika masih gagal, buka Diagnostik dan ekspor paket diagnostik untuk meminta bantuan.',
+      'Tutup Usque sepenuhnya lalu buka kembali, kemudian coba lagi. Jika masih gagal, buka Diagnostik dan ekspor bundel diagnostik untuk meminta bantuan.',
   'diag_fix_resolve_dependency':
       'Tangani pemeriksaan yang gagal dalam daftar terlebih dahulu, lalu jalankan diagnostik lagi.',
   'diag_fix_run_deep_diagnostics':
@@ -603,7 +604,7 @@ const Map<String, String> kIdCatalog = <String, String>{
   'diag_fix_run_release_leak_gate':
       'Ekspor bundel diagnostik dan kirim ke dukungan. Informasi sensitif dihapus.',
   'diag_fix_inspect_platform_state':
-      'Di Diagnostik, lihat kegagalan pada Perlindungan sistem. Jika berlanjut, ekspor paket diagnostik untuk meminta bantuan.',
+      'Buka Diagnostik dan tinjau pemeriksaan Perlindungan sistem. Jika masih gagal, ekspor bundel diagnostik untuk meminta bantuan.',
   'diag_fix_generate_tunnel_traffic':
       'Buka halaman web melalui Usque, lalu ulangi pemeriksaan ini.',
   'diag_fix_export_diagnostics':
@@ -611,9 +612,9 @@ const Map<String, String> kIdCatalog = <String, String>{
   'diag_fix_retry': 'Coba lagi sebentar lagi.',
   'diag_fix_none': 'Tidak ada tindakan yang diperlukan.',
   'diag_fix_default':
-      'Coba lagi. Jika masalah berlanjut, buka Diagnostik dan ekspor paket untuk meminta bantuan.',
+      'Coba lagi. Jika masalah berlanjut, buka Diagnostik dan ekspor bundel diagnostik untuk meminta bantuan.',
   'diag_event_attempt_started': 'Percobaan koneksi dimulai',
-  'diag_event_endpoint_resolved': 'Alamat titik akhir berhasil di-resolve',
+  'diag_event_endpoint_resolved': 'Alamat endpoint berhasil diresolusi',
   'diag_event_socket_connected': 'Soket terhubung',
   'diag_event_tls_ready': 'TLS siap',
   'diag_event_quic_ready': 'QUIC siap',
@@ -635,7 +636,7 @@ const Map<String, String> kIdCatalog = <String, String>{
   'diag_event_disconnected': 'Terputus',
   'diag_event_failed': 'Koneksi gagal',
   'operation_failed':
-      'Operasi tidak dapat diselesaikan. Coba lagi; jika masalah berlanjut, ekspor paket diagnostik untuk mendapatkan bantuan.',
+      'Operasi tidak dapat diselesaikan. Coba lagi; jika masih gagal, buka Diagnostik dan ekspor bundel diagnostik untuk meminta bantuan.',
   'operation_timeout':
       'Operasi kehabisan waktu. Periksa jaringan lalu coba lagi.',
   'accounts_reset':
@@ -654,16 +655,16 @@ const Map<String, String> kIdCatalog = <String, String>{
   "routing_action": "Tindakan",
   "routing_target": "Domain, IP, atau CIDR",
   "routing_priority":
-      "Aturan lebih spesifik didahulukan. Aturan khusus mengesampingkan Ads dan negara; penolakan IP tetap berlaku.",
+      "Aturan yang lebih spesifik didahulukan. Aturan khusus mengesampingkan pemblokiran iklan dan aturan negara; aturan Blokir IP tetap berlaku.",
   "routing_conflict":
       "Tindakan berbeda untuk tujuan yang sama. Ubah aturan ini.",
   "routing_overlap":
       "Aturan lebih spesifik mengesampingkan aturan yang lebih luas.",
   "routing_duplicate": "Aturan duplikat digabungkan saat disimpan.",
-  "routing_ads": "iklan dan pelacakan",
-  "routing_ads_ready": "Data Ads tersedia.",
+  "routing_ads": "Pemblokiran iklan dan pelacak",
+  "routing_ads_ready": "Aturan pemblokiran iklan siap.",
   "routing_ads_unavailable":
-      "Data Ads tidak tersedia. Koneksi dan aturan khusus tetap tersedia.",
+      "Aturan pemblokiran iklan tidak tersedia. Koneksi dan aturan khusus tetap tersedia.",
   "routing_pending":
       "Aturan yang diunduh diterapkan setelah tersambung kembali.",
   'routing_current': "Koneksi saat ini",

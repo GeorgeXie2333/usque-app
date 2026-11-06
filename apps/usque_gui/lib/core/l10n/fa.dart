@@ -9,7 +9,7 @@ const Map<String, String> kFaCatalog = <String, String>{
   'warp_dns_invalid_mode': 'نوع DNS پشتیبانی نمی‌شود',
   'warp_dns_invalid_name': 'نام سرور را وارد کنید',
   'warp_dns_invalid_path': 'مسیر معتبر وارد کنید',
-  'warp_dns_invalid_bootstrap': '۱ تا ۸ آدرس IP وارد کنید',
+  'warp_dns_invalid_bootstrap': '۱ تا ۸ نشانی IP وارد کنید',
 
   'disable_quic': "غیرفعال کردن QUIC",
   'disable_quic_managed': 'به‌طور خودکار توسط اتصال فعلی مدیریت می‌شود',
@@ -37,8 +37,8 @@ const Map<String, String> kFaCatalog = <String, String>{
   'window_restore': 'بازگرداندن اندازهٔ پنجره',
   'window_close': 'بستن',
   'tray_open': 'باز کردن Usque',
-  'tray_connect_profile': 'اتصال حساب فعال',
-  'tray_disconnect_profile': 'قطع اتصال حساب فعال',
+  'tray_connect_profile': 'اتصال حساب فعلی',
+  'tray_disconnect_profile': 'قطع اتصال حساب فعلی',
   'tray_disconnect_exit': 'قطع اتصال و خروج',
   'notice_connection_interrupted':
       'اتصال قطع شد. Usque در حال تلاش برای بازیابی آن است.',
@@ -49,15 +49,15 @@ const Map<String, String> kFaCatalog = <String, String>{
       'Kill Switch تا زمان بازیابی اتصال یا قطع اتصال توسط شما، ترافیک شبکه را مسدود می‌کند.',
   'connection_status': 'وضعیت اتصال',
   'home': 'خانه',
-  'profiles': 'حساب‌ها',
-  'profiles_subtitle': 'حساب‌های WARP را عوض و مدیریت کنید.',
+  'profiles': 'نمایه‌ها',
+  'profiles_subtitle': 'سناریوها را ذخیره و حساب‌ها را مدیریت کنید.',
   'proxy': 'پروکسی',
   'proxy_subtitle': 'نشانی‌های شنود و احراز هویت مشترک پروکسی را تنظیم کنید.',
   'settings': 'تنظیمات',
   'settings_subtitle': 'تنظیمات اتصال، پروکسی و برنامه.',
   'diagnostics': 'عیب‌یابی',
   'nav_home': 'خانه',
-  'nav_profiles': 'حساب‌ها',
+  'nav_profiles': 'نمایه‌ها',
   'nav_proxy': 'پروکسی',
   'nav_settings': 'تنظیمات',
   'status_stream_degraded': 'به‌روزرسانی وضعیت با تأخیر انجام می‌شود',
@@ -76,7 +76,7 @@ const Map<String, String> kFaCatalog = <String, String>{
   'error': 'خطای اتصال',
   'active_profile': 'حساب فعلی',
   'protocol': 'پروتکل',
-  'address_family': 'خانوادهٔ آدرس',
+  'address_family': 'نسخهٔ IP',
   'duration': 'مدت',
   'download': 'دانلود',
   'upload': 'آپلود',
@@ -140,10 +140,10 @@ const Map<String, String> kFaCatalog = <String, String>{
   "zero_trust_reauth_endpoints":
       "ورود دوباره نشانی‌های ثبت‌شدهٔ نقاط پایانی را بازیابی و نشانی‌های سفارشی را حذف می‌کند.",
   'experimental': 'آزمایشی',
-  'show_license': 'نمایش License Key',
-  'hide_license': 'پنهان کردن License Key',
-  'license_copied': 'License Key کپی شد',
-  'warp_secret_saved': 'WARP Secret ذخیره شد',
+  'show_license': 'نمایش کلید مجوز',
+  'hide_license': 'پنهان کردن کلید مجوز',
+  'license_copied': 'کلید مجوز کپی شد',
+  'warp_secret_saved': 'اطلاعات ورود WARP در این مسیر ذخیره شد:',
   'create': 'ایجاد',
   'cancel': 'لغو',
   'active': 'فعال',
@@ -154,7 +154,7 @@ const Map<String, String> kFaCatalog = <String, String>{
   'delete': 'حذف',
   'delete_profile': 'حساب حذف شود؟',
   'delete_profile_body':
-      "این حساب و اطلاعات ورود WARP آن از این دستگاه حذف شود؟ اگر License Key پیوند داده شده باشد، Usque تلاش می‌کند پیوند آن را نیز لغو کند.",
+      "این حساب و اطلاعات ورود WARP آن از این دستگاه حذف شود؟ اگر کلید مجوز پیوند داده شده باشد، Usque تلاش می‌کند پیوند آن را نیز لغو کند.",
   'delete_zero_trust_profile_body':
       'این حساب و اطلاعات ورود آن از این دستگاه حذف می‌شود. برای لغو ثبت دستگاه در Zero Trust سازمان، با مدیر سازمان تماس بگیرید.',
   'license_not_applicable': 'حساب سازمانی · آزمایشی',
@@ -177,7 +177,7 @@ const Map<String, String> kFaCatalog = <String, String>{
   'listen_ipv6': 'شنود IPv6',
   'port': 'پورت',
   'proxy_dns_mode': 'حل DNS پروکسی',
-  'proxy_dns_subtitle': 'نحوهٔ حل نام دامنه در پراکسی‌های SOCKS5 و HTTP.',
+  'proxy_dns_subtitle': 'نحوهٔ حل نام دامنه در پروکسی‌های SOCKS5 و HTTP.',
   'proxy_dns_remote': 'از راه دور از طریق تونل',
   'proxy_dns_configured': 'سرورهای DNS سفارشی',
   'proxy_dns_system': 'DNS سیستم',
@@ -187,14 +187,14 @@ const Map<String, String> kFaCatalog = <String, String>{
   'auto_connect': 'اتصال خودکار حساب جاری هنگام شروع',
   'lan_warning': 'پروکسی در شبکهٔ محلی در دسترس است',
   'lan_warning_body':
-      'نام کاربری یا رمز عبوری تنظیم نشده است. هر دستگاهی که به این نشانی دسترسی داشته باشد می‌تواند از پراکسی استفاده کند.',
+      'نام کاربری یا گذرواژه‌ای تنظیم نشده است. هر دستگاهی که به این نشانی دسترسی داشته باشد می‌تواند از پروکسی استفاده کند.',
   'lan_warning_body_authenticated':
       'دستگاه‌های دیگر در شبکهٔ محلی می‌توانند با نام کاربری و گذرواژه‌ای که تنظیم کرده‌اید از این پروکسی استفاده کنند.',
   'proxy_auth': 'نام کاربری و گذرواژهٔ پروکسی',
   'proxy_auth_help':
       'برای استفاده از پروکسی‌های SOCKS5 و HTTP نام کاربری و گذرواژه لازم باشد. گذرواژه به‌صورت امن روی این دستگاه ذخیره می‌شود.',
   'proxy_username': 'نام کاربری',
-  'proxy_password': 'رمز عبور',
+  'proxy_password': 'گذرواژه',
   'proxy_password_hint':
       'برای تنظیم یا تغییر نام کاربری و گذرواژه، گذرواژه را وارد کنید.',
   'proxy_auth_apply': 'ذخیرهٔ نام کاربری و گذرواژه',
@@ -203,7 +203,7 @@ const Map<String, String> kFaCatalog = <String, String>{
   'proxy_auth_saved': 'نام کاربری و گذرواژهٔ پروکسی ذخیره شد.',
   'proxy_auth_cleared': 'محافظت پروکسی با گذرواژه برداشته شد.',
   'proxy_password_set':
-      'رمز عبور تنظیم شده است. برای جایگزینی، رمز جدیدی وارد کنید.',
+      'گذرواژه تنظیم شده است. برای جایگزینی، گذرواژهٔ جدیدی وارد کنید.',
   'proxy_auth_clear': 'برداشتن محافظت با گذرواژه',
   'general': 'عمومی',
   'start_on_boot': 'اجرای Usque هنگام ورود شما',
@@ -252,17 +252,17 @@ const Map<String, String> kFaCatalog = <String, String>{
   'update_install_android': 'نصب به‌روزرسانی',
   'update_confirm_title': 'این به‌روزرسانی نصب شود؟',
   'update_confirm_body':
-      'هنگام نصب، اتصال‌های VPN و پراکسی موقتاً قطع می‌شوند.',
+      'هنگام نصب، اتصال‌های VPN و پروکسی موقتاً قطع می‌شوند.',
   'update_package_unavailable':
       'نصب‌کننده‌ای برای این دستگاه موجود نیست. آن را از صفحهٔ انتشار دریافت کنید.',
   'notice': 'انجام شد',
   'identity': 'حساب WARP',
   'identity_and_license': 'حساب و مجوز',
   'license_cleanup_pending': 'ثبت قدیمی دستگاه WARP هنوز حذف نشده است.',
-  'copy_license': 'کپی License Key',
-  'change_license': 'تغییر License Key',
+  'copy_license': 'کپی کلید مجوز',
+  'change_license': 'تغییر کلید مجوز',
   'unbind_license': 'بازگشت به WARP رایگان',
-  'export_warp_secret': 'صادر کردن WARP Secret',
+  'export_warp_secret': 'صادر کردن اطلاعات ورود WARP',
   'close': 'بستن',
   'advanced': 'تنظیمات پیشرفتهٔ شبکه',
   'advanced_subtitle': 'نقاط پایانی، DNS، MTU و مسیریابی.',
@@ -288,11 +288,11 @@ const Map<String, String> kFaCatalog = <String, String>{
   'mtu': 'MTU',
   'dns_ipv4': 'DNS IPv4',
   'dns_ipv6': 'DNS IPv6',
-  'ip_policy': 'نسخهٔ IP نقطهٔ پایانی',
-  'prefer_ipv4': 'ترجیح نقطهٔ پایانی IPv4',
-  'prefer_ipv6': 'ترجیح نقطهٔ پایانی IPv6',
-  'ipv4_only': 'فقط نقطهٔ پایانی IPv4',
-  'ipv6_only': 'فقط نقطهٔ پایانی IPv6',
+  'ip_policy': 'ترجیح IP نقطهٔ پایانی',
+  'prefer_ipv4': 'ترجیح IPv4',
+  'prefer_ipv6': 'ترجیح IPv6',
+  'ipv4_only': 'فقط IPv4',
+  'ipv6_only': 'فقط IPv6',
   'kill_switch': 'Kill Switch',
   'on': 'روشن',
   'off': 'خاموش',
@@ -311,9 +311,9 @@ const Map<String, String> kFaCatalog = <String, String>{
       'Usque را پس از راه‌اندازی مجدد دستگاه اجرا می‌کند. برای اتصال خودکار، «اتصال خودکار حساب جاری هنگام شروع» را نیز روشن کنید.',
   'add_quick_settings_tile_help':
       'کاشی Usque را در Android 13 یا جدیدتر اضافه کنید. در نسخه‌های قدیمی‌تر آن را دستی از تنظیمات سریع اضافه کنید.',
-  'always_on_vpn': 'باز کردن تنظیمات VPN همیشه روشن',
+  'always_on_vpn': 'باز کردن تنظیمات «VPN همیشه روشن»',
   'always_on_vpn_help':
-      'برای جلوگیری از نشت پس از بسته شدن برنامه، VPN همیشه روشن و مسدودسازی اتصالات بدون VPN را فعال کنید.',
+      'برای جلوگیری از نشت پس از بسته شدن برنامه، «VPN همیشه روشن» و «اتصالات مسدود‌شده بدون VPN» را فعال کنید.',
   'per_app_proxy': 'پروکسی به‌ازای برنامه',
   'per_app_proxy_off': 'همهٔ برنامه‌ها از VPN استفاده می‌کنند',
   'per_app_proxy_on': 'تعداد برنامه‌های عبوری از پروکسی: {count}',
@@ -321,9 +321,9 @@ const Map<String, String> kFaCatalog = <String, String>{
   'per_app_proxy_help':
       'فقط برنامه‌های علامت‌خورده از VPN استفاده می‌کنند. برنامه‌های تازه‌نصب تا علامت نخورند از آن استفاده نمی‌کنند.',
   'per_app_proxy_lockdown_help':
-      'اگر VPN همیشه روشن و مسدودسازی اتصالات بدون VPN فعال باشد، برنامه‌هایی که انتخاب نکنید مسدود می‌شوند، نه اینکه بیرون از تونل ارسال شوند.',
+      'اگر «VPN همیشه روشن» و «اتصالات مسدود‌شده بدون VPN» فعال باشند، برنامه‌هایی که انتخاب نکنید مسدود می‌شوند، نه اینکه بیرون از تونل ارسال شوند.',
   'per_app_proxy_tunnel_hint':
-      'با روشن بودن VPN اعمال می‌شود. پراکسی‌های SOCKS5 و HTTP بر اساس برنامه فیلتر نمی‌کنند.',
+      'با روشن بودن VPN اعمال می‌شود. پروکسی‌های SOCKS5 و HTTP بر اساس برنامه فیلتر نمی‌کنند.',
   'per_app_search': 'جستجوی برنامه‌ها',
   'per_app_show_system': 'نمایش برنامه‌های سیستم',
   'per_app_select_visible': 'انتخاب موارد نمایان',
@@ -333,7 +333,7 @@ const Map<String, String> kFaCatalog = <String, String>{
   'per_app_loading': 'در حال بارگذاری برنامه‌های نصب‌شده…',
   'per_app_empty': 'هیچ برنامه‌ای با این فیلتر مطابقت ندارد.',
   'allow_lan': 'اجازه به شبکهٔ محلی',
-  'bypass_cidrs': 'CIDRهای عبور اضافی',
+  'bypass_cidrs': 'CIDRهای مستقیم اضافی',
   'bypass_hint': 'در هر خط یک CIDR',
   'reset_defaults': 'بازنشانی پیش‌فرض‌های شبکه',
   'reset_defaults_body':
@@ -350,7 +350,7 @@ const Map<String, String> kFaCatalog = <String, String>{
       'مشکلات اتصال را بررسی کنید، گزارش‌ها را خروجی بگیرید و داده‌های محلی را مدیریت کنید.',
   'engine_status': 'اطلاعات اتصال',
   'version': 'نسخه',
-  'app_version': 'Usque 0.3.3',
+  'app_version': 'Usque 0.3.4',
   'logs': 'گزارش‌های محلی',
   'export_diagnostics': 'صادر کردن بستهٔ عیب‌یابی',
   'diagnostics_saved': 'بستهٔ عیب‌یابی در این مسیر ذخیره شد:',
@@ -393,16 +393,17 @@ const Map<String, String> kFaCatalog = <String, String>{
   'socks_capabilities': 'TCP و UDP',
   'http_capabilities': 'CONNECT و هدایت معمولی',
   'geo_direct': 'تنظیمات عبور مستقیم',
-  'bypass_custom': 'مقصدهای سفارشی',
+  'bypass_custom': 'مقصدهای مستقیم سفارشی',
   'bypass_countries': 'کشورها / مناطق',
   'bypass_targets_hint':
       'در هر خط یک CIDR، IP یا دامنه. همه زیردامنه‌ها را شامل می‌شود. برنامه‌های دارای DNS رمزگذاری‌شده مستقل فقط با IP تطبیق می‌یابند.',
-  'bypass_unsupported': 'این موتور از مقصدهای سفارشی پشتیبانی نمی‌کند.',
-  'bypass_limit': 'حداکثر ۲۵۶ قانون آدرس و ۲۵۶ دامنه.',
+  'bypass_unsupported':
+      'این نسخه از Usque از مقصدهای مستقیم سفارشی پشتیبانی نمی‌کند. در تنظیمات به‌روزرسانی‌ها را بررسی کنید.',
+  'bypass_limit': 'حداکثر ۲۵۶ قاعدهٔ نشانی و ۲۵۶ دامنه.',
   'bypass_line_error': 'خط {line}: {reason}',
   'bypass_summary': '{countries} منطقه · {targets} مقصد سفارشی',
   'geo_direct_help':
-      'ترافیک مطابق این کشورها یا مناطق از VPN/TUN یوسک و پروکسی‌های محلی HTTP و SOCKS5 عبور نمی‌کند. ارائه‌دهندهٔ DNS شبکهٔ فعلی ممکن است نام دامنه‌های درخواستی را ببیند. برنامه‌هایی که از DNS رمزگذاری‌شده استفاده می‌کنند فقط بر اساس نشانی IP مسیریابی می‌شوند.',
+      'ترافیک مطابق این کشورها یا مناطق از VPN/TUN در Usque و پروکسی‌های محلی HTTP و SOCKS5 عبور نمی‌کند. ارائه‌دهندهٔ DNS شبکهٔ فعلی ممکن است نام دامنه‌های درخواستی را ببیند. برنامه‌هایی که از DNS رمزگذاری‌شده استفاده می‌کنند فقط بر اساس نشانی IP مسیریابی می‌شوند.',
   'geo_update_all': 'به‌روزرسانی داده‌های جغرافیایی',
   'geo_last_updated': 'آخرین به‌روزرسانی موفق: {current}',
   'geo_never_updated': 'هنوز به‌روزرسانی نشده',
@@ -419,7 +420,7 @@ const Map<String, String> kFaCatalog = <String, String>{
   'geo_update_complete':
       'داده‌های جغرافیایی: {updated} به‌روز شد، {current} از قبل به‌روز بود.',
   'geo_update_failed':
-      'برخی قوانین به‌روز نشدند ({current}). اتصال شبکه را بررسی کنید و دوباره تلاش کنید.',
+      'برخی قواعد به‌روز نشدند ({current}). اتصال شبکه را بررسی کنید و دوباره تلاش کنید.',
   'diagnostics_page_subtitle':
       'مشکلات اتصال را بررسی کنید. نتایج فقط روی این دستگاه می‌ماند.',
   'diag_refresh_timeline': 'بازخوانی خط زمانی',
@@ -431,7 +432,7 @@ const Map<String, String> kFaCatalog = <String, String>{
       'کدهای خطا، مراحل اتصال، زمان‌ها، آمار ترافیک و وضعیت قابلیت‌ها.',
   'diag_export_excluded': 'مستثنی:',
   'diag_export_excluded_body':
-      'کلیدها، توکن‌ها، نام پروفایل‌ها، نشانی‌های کامل، SSIDها، فهرست برنامه‌ها و مسیرهای کاربر',
+      'کلیدها، توکن‌ها، نام حساب‌ها، نشانی‌های کامل، SSIDها، فهرست برنامه‌ها و مسیرهای کاربر',
   'diag_export_local_only':
       'بایگانی فقط در مکانی که انتخاب می‌کنید نوشته می‌شود و هرگز به‌طور خودکار بارگذاری نمی‌شود.',
   'diag_run_title': 'اجرای تشخیص شبکه',
@@ -466,7 +467,7 @@ const Map<String, String> kFaCatalog = <String, String>{
   'diag_timeline_empty':
       'گذارهای مهم اتصال پس از تلاش برای اتصال اینجا ظاهر می‌شوند.',
   'diag_timeline_truncated':
-      '۱۰۰ رکورد آخر نمایش داده می‌شود. فایل خروجی شامل همهٔ رکوردهایی است که هنوز روی دستگاه ذخیره شده‌اند.',
+      '۱۰۰ رکورد آخر نمایش داده می‌شود. بستهٔ عیب‌یابی شامل همهٔ رکوردهایی است که هنوز روی این دستگاه ذخیره شده‌اند.',
   'diag_metric_reconnects': 'اتصال‌های مجدد',
   'diag_metric_fallbacks': 'تغییر مسیرهای جایگزین انتقال',
   'diag_metric_network_changes': 'تغییرهای شبکه',
@@ -535,8 +536,8 @@ const Map<String, String> kFaCatalog = <String, String>{
   'diag_fail_ENGINE_UNAVAILABLE': 'سرویس اتصال در دسترس نیست',
   'diag_fail_AGENT_UNREACHABLE':
       'ارتباط با سرویس شبکهٔ سیستمی Usque برقرار نشد',
-  'diag_fail_VPN_SERVICE_UNAVAILABLE': 'خدمت VPN در دسترس نیست',
-  'diag_fail_PROXY_PORT_IN_USE': 'درگاه پروکسی در حال استفاده است',
+  'diag_fail_VPN_SERVICE_UNAVAILABLE': 'سرویس VPN در دسترس نیست',
+  'diag_fail_PROXY_PORT_IN_USE': 'پورت پروکسی در حال استفاده است',
   'diag_fail_PHYSICAL_IPV4_UNAVAILABLE': 'IPv4 فیزیکی در دسترس نیست',
   'diag_fail_PHYSICAL_IPV6_UNAVAILABLE': 'IPv6 فیزیکی در دسترس نیست',
   'diag_fail_PHYSICAL_DNS_UNAVAILABLE': 'DNS فیزیکی در دسترس نیست',
@@ -555,7 +556,7 @@ const Map<String, String> kFaCatalog = <String, String>{
   'diag_fail_H2_GOAWAY': 'HTTP/2 پیام GOAWAY دریافت کرد',
   'diag_fail_ALL_TRANSPORTS_FAILED': 'HTTP/3 و HTTP/2 هر دو ناموفق بودند',
   'diag_fail_ENDPOINT_PIN_MISMATCH': 'پین نقطه پایانی مطابقت ندارد',
-  'diag_fail_IDENTITY_INVALID': 'هویت نامعتبر است',
+  'diag_fail_IDENTITY_INVALID': 'حساب WARP نامعتبر است',
   'diag_fail_AUTHENTICATION_FAILED': 'احراز هویت ناموفق بود',
   'diag_fail_CONFIGURATION_INVALID': 'پیکربندی نامعتبر است',
   'diag_fail_CONNECT_IP_REJECTED': 'CONNECT-IP رد شد',
@@ -586,7 +587,7 @@ const Map<String, String> kFaCatalog = <String, String>{
   'diag_fix_try_http2':
       'در تنظیمات، بخش تنظیمات پیشرفتهٔ شبکه را باز کنید، HTTP/2 را انتخاب و تغییرات را اعمال کنید، سپس دوباره متصل شوید.',
   'diag_fix_check_physical_network':
-      'مطمئن شوید Wi-Fi یا اینترنت همراه کار می‌کند، سپس دوباره متصل شوید.',
+      'مطمئن شوید Wi-Fi یا اینترنت همراه بدون Usque کار می‌کند، سپس دوباره متصل شوید.',
   'diag_fix_refresh_or_replace_identity':
       'در حساب‌ها، «راه‌اندازی حساب WARP» را باز کنید. دوباره وارد شوید یا حساب جدیدی بسازید، سپس متصل شوید.',
   'diag_fix_replace_identity':
@@ -594,7 +595,7 @@ const Map<String, String> kFaCatalog = <String, String>{
   'diag_fix_review_configuration':
       'در تنظیمات، بخش تنظیمات پیشرفتهٔ شبکه را باز کنید، کادرهای مشخص‌شده را اصلاح و تغییرات را اعمال کنید.',
   'diag_fix_restore_platform_state':
-      'Usque را کاملاً ببندید، دوباره باز کنید و تلاش کنید. اگر مشکل ادامه داشت، از بخش عیب‌یابی گزارش‌ها را خروجی بگیرید و برای پشتیبانی بفرستید.',
+      'Usque را کاملاً ببندید، دوباره باز کنید و تلاش کنید. اگر مشکل ادامه داشت، عیب‌یابی را باز کنید و بستهٔ عیب‌یابی را برای پشتیبانی صادر کنید.',
   'diag_fix_resolve_dependency':
       'ابتدا مشکلات بررسی‌های ناموفق را برطرف کنید، سپس عیب‌یابی را دوباره اجرا کنید.',
   'diag_fix_run_deep_diagnostics':
@@ -602,7 +603,7 @@ const Map<String, String> kFaCatalog = <String, String>{
   'diag_fix_run_release_leak_gate':
       'بستهٔ عیب‌یابی را صادر کنید و برای پشتیبانی بفرستید. اطلاعات حساس حذف می‌شود.',
   'diag_fix_inspect_platform_state':
-      'در عیب‌یابی، بخش حفاظت سامانه را باز کنید و بررسی‌های ناموفق را ببینید. اگر مشکل ادامه داشت، گزارش‌ها را خروجی بگیرید.',
+      'عیب‌یابی را باز کنید و بررسی‌های بخش حفاظت سامانه را ببینید. اگر همچنان ناموفق بودند، بستهٔ عیب‌یابی را برای پشتیبانی صادر کنید.',
   'diag_fix_generate_tunnel_traffic':
       'یک صفحهٔ وب را از طریق اتصال Usque باز کنید، سپس بررسی را دوباره اجرا کنید.',
   'diag_fix_export_diagnostics':
@@ -610,7 +611,7 @@ const Map<String, String> kFaCatalog = <String, String>{
   'diag_fix_retry': 'کمی بعد دوباره تلاش کنید.',
   'diag_fix_none': 'اقدامی لازم نیست.',
   'diag_fix_default':
-      'دوباره تلاش کنید. اگر مشکل ادامه داشت، از بخش عیب‌یابی گزارش‌ها را خروجی بگیرید و برای پشتیبانی بفرستید.',
+      'دوباره تلاش کنید. اگر مشکل ادامه داشت، عیب‌یابی را باز کنید و بستهٔ عیب‌یابی را برای پشتیبانی صادر کنید.',
   'diag_event_attempt_started': 'تلاش اتصال آغاز شد',
   'diag_event_endpoint_resolved': 'نشانی نقطهٔ پایانی یافت شد',
   'diag_event_socket_connected': 'سوکت متصل شد',
@@ -634,7 +635,7 @@ const Map<String, String> kFaCatalog = <String, String>{
   'diag_event_disconnected': 'قطع شد',
   'diag_event_failed': 'اتصال ناموفق بود',
   'operation_failed':
-      'عملیات انجام نشد. دوباره تلاش کنید؛ اگر مشکل ادامه داشت، بستهٔ عیب‌یابی را برای دریافت کمک صادر کنید.',
+      'عملیات انجام نشد. دوباره تلاش کنید؛ اگر مشکل ادامه داشت، عیب‌یابی را باز کنید و بستهٔ عیب‌یابی را برای پشتیبانی صادر کنید.',
   'operation_timeout':
       'زمان عملیات به پایان رسید. شبکه را بررسی کنید و دوباره تلاش کنید.',
   'accounts_reset':
@@ -650,18 +651,18 @@ const Map<String, String> kFaCatalog = <String, String>{
   "routing_rules": "قواعد مسیریابی سفارشی",
   "routing_add": "افزودن قاعده",
   "routing_batch": "چسباندن قواعد",
-  "routing_action": "عملکرد",
+  "routing_action": "اقدام",
   "routing_target": "دامنه، IP یا CIDR",
   "routing_priority":
-      "قاعده دقیق‌تر اولویت دارد. قواعد سفارشی بر Ads و کشورها مقدم‌اند؛ مسدودسازی IP همچنان اعمال می‌شود.",
+      "قاعدهٔ دقیق‌تر اولویت دارد. قواعد سفارشی بر مسدودسازی تبلیغات و قواعد کشورها مقدم‌اند؛ قواعد مسدود کردن IP همچنان اعمال می‌شوند.",
   "routing_conflict":
-      "برای یک مقصد عملکردهای متفاوت تعیین شده است. قواعد را اصلاح کنید.",
+      "برای یک مقصد اقدام‌های متفاوتی تعیین شده است. این قواعد را اصلاح کنید.",
   "routing_overlap": "قاعده دقیق‌تر جایگزین قاعده گسترده‌تر می‌شود.",
   "routing_duplicate": "قواعد تکراری هنگام ذخیره ادغام می‌شوند.",
-  "routing_ads": "تبلیغات و ردیابی",
-  "routing_ads_ready": "داده‌های Ads آماده است.",
+  "routing_ads": "مسدودسازی تبلیغات و ردیاب‌ها",
+  "routing_ads_ready": "قواعد مسدودسازی تبلیغات آماده‌اند.",
   "routing_ads_unavailable":
-      "داده‌های Ads در دسترس نیست. اتصال‌ها و قواعد سفارشی همچنان فعال‌اند.",
+      "قواعد مسدودسازی تبلیغات در دسترس نیستند. اتصال‌ها و قواعد سفارشی همچنان در دسترس‌اند.",
   "routing_pending": "قواعد دانلودشده پس از اتصال مجدد اعمال می‌شوند.",
   'routing_current': "اتصال فعلی",
 };

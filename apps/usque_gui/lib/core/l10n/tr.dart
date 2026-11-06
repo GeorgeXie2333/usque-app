@@ -36,22 +36,21 @@ const Map<String, String> kTrCatalog = <String, String>{
   'window_maximize': 'Ekranı kapla',
   'window_restore': 'Pencere boyutunu geri yükle',
   'window_close': 'Kapat',
-  'tray_open': 'Usque’yu aç',
-  'tray_connect_profile': 'Etkin hesabı bağla',
-  'tray_disconnect_profile': 'Etkin hesabın bağlantısını kes',
+  'tray_open': 'Usque’yi aç',
+  'tray_connect_profile': 'Geçerli hesabı bağla',
+  'tray_disconnect_profile': 'Geçerli hesabın bağlantısını kes',
   'tray_disconnect_exit': 'Bağlantıyı kes ve çık',
   'notice_connection_interrupted':
       'Bağlantı kesildi. Usque bağlantıyı geri yüklemeye çalışıyor.',
   'notice_connection_failed':
-      'Usque bağlantıyı sürdüremedi. Ayrıntılar için Usque’yu açın.',
+      'Usque bağlantıyı sürdüremedi. Ayrıntılar için Usque’yi açın.',
   'notice_connection_restored': 'Bağlantı geri yüklendi.',
   'notice_kill_switch_blocking':
       'Bağlantı geri yüklenene veya bağlantıyı kesene kadar Kill Switch ağ trafiğini engelliyor.',
   'connection_status': 'Bağlantı durumu',
   'home': 'Ana sayfa',
-  'profiles': 'Hesaplar',
-  'profiles_subtitle':
-      'WARP hesapları arasında geçiş yapın ve bunları yönetin.',
+  'profiles': 'Profiller',
+  'profiles_subtitle': 'Senaryoları kaydedin ve hesapları yönetin.',
   'proxy': 'Proxy',
   'proxy_subtitle':
       'Paylaşılan proxy dinleme adreslerini ve kimlik doğrulamasını yapılandırın.',
@@ -59,7 +58,7 @@ const Map<String, String> kTrCatalog = <String, String>{
   'settings_subtitle': 'Bağlantı, proxy ve uygulama ayarları.',
   'diagnostics': 'Tanılama',
   'nav_home': 'Ana sayfa',
-  'nav_profiles': 'Hesaplar',
+  'nav_profiles': 'Profiller',
   'nav_proxy': 'Proxy',
   'nav_settings': 'Ayarlar',
   'status_stream_degraded': 'Durum güncellemeleri gecikiyor',
@@ -78,7 +77,7 @@ const Map<String, String> kTrCatalog = <String, String>{
   'error': 'Bağlantı hatası',
   'active_profile': 'Geçerli hesap',
   'protocol': 'Protokol',
-  'address_family': 'Adres ailesi',
+  'address_family': 'IP sürümü',
   'duration': 'Süre',
   'download': 'İndirme',
   'upload': 'Yükleme',
@@ -139,14 +138,14 @@ const Map<String, String> kTrCatalog = <String, String>{
   "zero_trust_endpoint_risk_locked":
       "Bu adresleri düzenlemeden önce riskleri onaylayın.",
   "zero_trust_endpoint_unsupported":
-      "Zero Trust uç noktalarını düzenlemek için Usque'yi güncelleyin.",
+      "Zero Trust uç noktalarını düzenlemek için Usque’yi güncelleyin.",
   "zero_trust_reauth_endpoints":
       "Tekrar giriş yapmak kayıtlı uç nokta adreslerini geri yükler ve özel adreslerinizi kaldırır.",
   'experimental': 'Deneysel',
-  'show_license': 'License Key’i göster',
-  'hide_license': 'License Key’i gizle',
-  'license_copied': 'License Key kopyalandı',
-  'warp_secret_saved': 'WARP Secret kaydedildi',
+  'show_license': 'Lisans anahtarını göster',
+  'hide_license': 'Lisans anahtarını gizle',
+  'license_copied': 'Lisans anahtarı kopyalandı',
+  'warp_secret_saved': 'WARP oturum açma bilgileri şuraya kaydedildi',
   'create': 'Oluştur',
   'cancel': 'İptal',
   'active': 'Etkin',
@@ -157,7 +156,7 @@ const Map<String, String> kTrCatalog = <String, String>{
   'delete': 'Sil',
   'delete_profile': 'Hesap kaldırılsın mı?',
   'delete_profile_body':
-      "Bu hesap ve WARP oturum açma bilgileri bu cihazdan kaldırılsın mı? License Key bağlıysa Usque bu bağlantıyı da kaldırmayı dener.",
+      "Bu hesap ve WARP oturum açma bilgileri bu cihazdan kaldırılsın mı? Lisans anahtarı bağlıysa Usque anahtarın bağlantısını da kaldırmayı dener.",
   'delete_zero_trust_profile_body':
       'Bu hesap ve oturum açma bilgileri bu cihazdan silinir. Cihazın kuruluşun Zero Trust kaydını kaldırmak için yöneticinize başvurun.',
   'license_not_applicable': 'Kuruluş hesabı · Deneysel',
@@ -263,10 +262,10 @@ const Map<String, String> kTrCatalog = <String, String>{
   'identity': 'WARP hesabı',
   'identity_and_license': 'Hesap ve lisans',
   'license_cleanup_pending': 'Eski WARP cihaz kaydı henüz kaldırılmadı.',
-  'copy_license': 'License Key’i kopyala',
-  'change_license': 'License Key’i değiştir',
+  'copy_license': 'Lisans anahtarını kopyala',
+  'change_license': 'Lisans anahtarını değiştir',
   'unbind_license': 'Ücretsiz WARP’a dön',
-  'export_warp_secret': 'WARP Secret’ı dışa aktar',
+  'export_warp_secret': 'WARP oturum açma bilgilerini dışa aktar',
   'close': 'Kapat',
   'advanced': 'Gelişmiş ağ ayarları',
   'advanced_subtitle': 'Uç noktalar, DNS, MTU ve yönlendirme.',
@@ -292,11 +291,11 @@ const Map<String, String> kTrCatalog = <String, String>{
   'mtu': 'MTU',
   'dns_ipv4': 'DNS IPv4',
   'dns_ipv6': 'DNS IPv6',
-  'ip_policy': 'Uç nokta IP sürümü',
-  'prefer_ipv4': 'IPv4 uç noktasını tercih et',
-  'prefer_ipv6': 'IPv6 uç noktasını tercih et',
-  'ipv4_only': 'Yalnızca IPv4 uç noktası',
-  'ipv6_only': 'Yalnızca IPv6 uç noktası',
+  'ip_policy': 'Uç nokta IP tercihi',
+  'prefer_ipv4': 'IPv4’ü tercih et',
+  'prefer_ipv6': 'IPv6’yı tercih et',
+  'ipv4_only': 'Yalnızca IPv4',
+  'ipv6_only': 'Yalnızca IPv6',
   'kill_switch': 'Kill Switch',
   'on': 'Açık',
   'off': 'Kapalı',
@@ -316,9 +315,9 @@ const Map<String, String> kTrCatalog = <String, String>{
       'Cihaz yeniden başladıktan sonra Usque’yi başlatır. Otomatik bağlanmak için “Başlangıçta geçerli hesaba otomatik bağlan” seçeneğini de açın.',
   'add_quick_settings_tile_help':
       'Android 13 veya sonraki sürümlerde Usque kutucuğunu ekleyin. Daha eski sürümlerde Hızlı Ayarlar’dan elle ekleyin.',
-  'always_on_vpn': 'Her zaman açık VPN ayarlarını aç',
+  'always_on_vpn': '“Her zaman açık VPN” ayarlarını aç',
   'always_on_vpn_help':
-      'Uygulama sonlandırıldıktan sonra sızıntı koruması için Her zaman açık VPN ve VPN olmadan bağlantıları engelle seçeneklerini etkinleştirin.',
+      'Uygulama sonlandırıldıktan sonra sızıntı koruması için “Her zaman açık VPN” ve “VPN\'si olmayan bağlantıları engelle” seçeneklerini etkinleştirin.',
   'per_app_proxy': 'Uygulama başına proxy',
   'per_app_proxy_off': 'Tüm uygulamalar VPN kullanır',
   'per_app_proxy_on': '{count} uygulama proxy’leniyor',
@@ -326,7 +325,7 @@ const Map<String, String> kTrCatalog = <String, String>{
   'per_app_proxy_help':
       'Yalnızca işaretli uygulamalar VPN kullanır. Yeni yüklenen uygulamaların VPN kullanabilmesi için işaretlenmesi gerekir.',
   'per_app_proxy_lockdown_help':
-      'Her zaman açık VPN ve VPN olmadan bağlantıları engelle açıksa, seçmediğiniz uygulamalar tünelin dışına gönderilmez; engellenir.',
+      '“Her zaman açık VPN” ve “VPN\'si olmayan bağlantıları engelle” açıksa, seçmediğiniz uygulamalar tünelin dışına gönderilmez; engellenir.',
   'per_app_proxy_tunnel_hint':
       'VPN açıkken geçerlidir. SOCKS5 ve HTTP proxy’leri uygulamaya göre filtreleme yapmaz.',
   'per_app_search': 'Uygulama ara',
@@ -355,7 +354,7 @@ const Map<String, String> kTrCatalog = <String, String>{
       'Bağlantı sorunlarını kontrol edin, günlükleri dışa aktarın ve yerel verileri yönetin.',
   'engine_status': 'Bağlantı bilgileri',
   'version': 'Sürüm',
-  'app_version': 'Usque 0.3.3',
+  'app_version': 'Usque 0.3.4',
   'logs': 'Yerel günlükler',
   'export_diagnostics': 'Tanılama paketini dışa aktar',
   'diagnostics_saved': 'Tanılama paketi şuraya kaydedildi',
@@ -402,12 +401,13 @@ const Map<String, String> kTrCatalog = <String, String>{
   'bypass_countries': 'Ülkeler / bölgeler',
   'bypass_targets_hint':
       'Her satıra bir CIDR, IP veya alan adı girin. Tüm alt alan adları dahildir. Kendi şifreli DNS hizmetini kullanan uygulamalar yalnızca IP ile eşleşir.',
-  'bypass_unsupported': 'Bu motor özel atlama hedeflerini desteklemiyor.',
+  'bypass_unsupported':
+      'Usque’nin bu sürümü özel atlama hedeflerini desteklemiyor. Ayarlar’dan güncellemeleri denetleyin.',
   'bypass_limit': 'En fazla 256 adres kuralı ve 256 alan adı.',
   'bypass_line_error': 'Satır {line}: {reason}',
   'bypass_summary': '{countries} bölge · {targets} özel hedef',
   'geo_direct_help':
-      'Bu ülke veya bölgelerle eşleşen trafik Usque VPN/TUN ile yerel HTTP ve SOCKS5 vekil sunucularını kullanmaz. Mevcut ağın DNS sağlayıcısı sorgulanan alan adlarını görebilir. Şifreli DNS kullanan uygulamalar için yalnızca IP adresine göre yönlendirme yapılır.',
+      'Bu ülke veya bölgelerle eşleşen trafik Usque VPN/TUN ile yerel HTTP ve SOCKS5 proxy’lerini kullanmaz. Mevcut ağın DNS sağlayıcısı sorgulanan alan adlarını görebilir. Şifreli DNS kullanan uygulamalar için yalnızca IP adresine göre yönlendirme yapılır.',
   'geo_update_all': 'Coğrafi verileri güncelle',
   'geo_last_updated': 'Son başarılı güncelleme: {current}',
   'geo_never_updated': 'Henüz güncellenmedi',
@@ -436,7 +436,7 @@ const Map<String, String> kTrCatalog = <String, String>{
       'Hata kodları, bağlantı adımları, süreler, trafik istatistikleri ve özellik durumları.',
   'diag_export_excluded': 'Hariç:',
   'diag_export_excluded_body':
-      'Anahtarlar, belirteçler, profil adları, tam adresler, SSID’ler, uygulama listeleri ve kullanıcı yolları',
+      'Anahtarlar, belirteçler, hesap adları, tam adresler, SSID’ler, uygulama listeleri ve kullanıcı yolları',
   'diag_export_local_only':
       'Arşiv yalnızca seçtiğiniz konuma yazılır ve hiçbir zaman otomatik yüklenmez.',
   'diag_run_title': 'Ağ tanılamasını çalıştır',
@@ -473,7 +473,7 @@ const Map<String, String> kTrCatalog = <String, String>{
   'diag_timeline_empty':
       'Bir bağlantı denemesinden sonra önemli durum geçişleri burada görünür.',
   'diag_timeline_truncated':
-      'Son 100 kayıt gösteriliyor. Dışa aktarılan dosya, cihazda hâlâ saklanan tüm kayıtları içerir.',
+      'Son 100 kayıt gösteriliyor. Tanılama paketi, bu cihazda hâlâ saklanan tüm kayıtları içerir.',
   'diag_metric_reconnects': 'Yeniden bağlantılar',
   'diag_metric_fallbacks': 'Yedek yola geçişler',
   'diag_metric_network_changes': 'Ağ değişiklikleri',
@@ -562,7 +562,7 @@ const Map<String, String> kTrCatalog = <String, String>{
   'diag_fail_H2_GOAWAY': 'HTTP/2 GOAWAY aldı',
   'diag_fail_ALL_TRANSPORTS_FAILED': 'HTTP/3 ve HTTP/2 ikisi de başarısız',
   'diag_fail_ENDPOINT_PIN_MISMATCH': 'Uç nokta sabitlemesi eşleşmiyor',
-  'diag_fail_IDENTITY_INVALID': 'Kimlik geçersiz',
+  'diag_fail_IDENTITY_INVALID': 'WARP hesabı geçersiz',
   'diag_fail_AUTHENTICATION_FAILED': 'Kimlik doğrulama başarısız',
   'diag_fail_CONFIGURATION_INVALID': 'Yapılandırma geçersiz',
   'diag_fail_CONNECT_IP_REJECTED': 'CONNECT-IP reddedildi',
@@ -594,7 +594,7 @@ const Map<String, String> kTrCatalog = <String, String>{
   'diag_fix_try_http2':
       'Ayarlar → Gelişmiş ağ ayarları bölümünde HTTP/2’yi seçip değişiklikleri uygulayın, ardından yeniden bağlanın.',
   'diag_fix_check_physical_network':
-      'Wi-Fi veya mobil verinin çalıştığını kontrol edip yeniden bağlanın.',
+      'Wi-Fi veya mobil verinin Usque olmadan çalıştığını kontrol edip yeniden bağlanın.',
   'diag_fix_refresh_or_replace_identity':
       'Hesaplar → WARP hesabını ayarla bölümünü açın. Yeniden oturum açın veya yeni bir hesap oluşturun, ardından bağlanın.',
   'diag_fix_replace_identity':
@@ -602,7 +602,7 @@ const Map<String, String> kTrCatalog = <String, String>{
   'diag_fix_review_configuration':
       'Ayarlar → Gelişmiş ağ ayarları bölümünde işaretlenen alanları düzeltip değişiklikleri uygulayın.',
   'diag_fix_restore_platform_state':
-      'Usque’yi tamamen kapatıp yeniden açın ve tekrar deneyin. Sorun sürerse Tanılama’dan günlükleri dışa aktarıp destek ekibiyle paylaşın.',
+      'Usque’yi tamamen kapatıp yeniden açın ve tekrar deneyin. Sorun sürerse Tanılama’yı açıp destek için bir tanılama paketi dışa aktarın.',
   'diag_fix_resolve_dependency':
       'Önce başarısız denetimlerdeki sorunları giderin, ardından tanılamayı yeniden çalıştırın.',
   'diag_fix_run_deep_diagnostics':
@@ -610,7 +610,7 @@ const Map<String, String> kTrCatalog = <String, String>{
   'diag_fix_run_release_leak_gate':
       'Tanılama paketini dışa aktarıp desteğe gönderin. Hassas bilgiler kaldırılır.',
   'diag_fix_inspect_platform_state':
-      'Tanılama → Sistem koruması bölümündeki başarısız denetimleri inceleyin. Sorun sürerse günlükleri dışa aktarın.',
+      'Tanılama’yı açıp Sistem koruması denetimlerini inceleyin. Sorun sürerse destek için bir tanılama paketi dışa aktarın.',
   'diag_fix_generate_tunnel_traffic':
       'Usque bağlantısı üzerinden bir web sayfası açıp denetimi yeniden çalıştırın.',
   'diag_fix_export_diagnostics':
@@ -618,7 +618,7 @@ const Map<String, String> kTrCatalog = <String, String>{
   'diag_fix_retry': 'Kısa süre sonra yeniden deneyin.',
   'diag_fix_none': 'İşlem gerekmez.',
   'diag_fix_default':
-      'Yeniden deneyin. Sorun sürerse Tanılama’dan günlükleri dışa aktarıp destek ekibiyle paylaşın.',
+      'Yeniden deneyin. Sorun sürerse Tanılama’yı açıp destek için bir tanılama paketi dışa aktarın.',
   'diag_event_attempt_started': 'Bağlantı denemesi başladı',
   'diag_event_endpoint_resolved': 'Uç nokta adresi çözümlendi',
   'diag_event_socket_connected': 'Soket bağlantısı kuruldu',
@@ -642,7 +642,7 @@ const Map<String, String> kTrCatalog = <String, String>{
   'diag_event_disconnected': 'Bağlantı kesildi',
   'diag_event_failed': 'Bağlantı başarısız oldu',
   'operation_failed':
-      'İşlem tamamlanamadı. Yeniden deneyin; sorun sürerse destek için Tanılama bölümünden bir tanılama paketi dışa aktarın.',
+      'İşlem tamamlanamadı. Yeniden deneyin; sorun sürerse Tanılama’yı açıp destek için bir tanılama paketi dışa aktarın.',
   'operation_timeout':
       'İşlem zaman aşımına uğradı. Ağınızı kontrol edip yeniden deneyin.',
   'accounts_reset':
@@ -661,15 +661,15 @@ const Map<String, String> kTrCatalog = <String, String>{
   "routing_action": "İşlem",
   "routing_target": "Alan adı, IP veya CIDR",
   "routing_priority":
-      "Daha özel kurallar önceliklidir. Özel kurallar Ads ve ülkeleri geçersiz kılar; IP engeli uygulanmaya devam eder.",
+      "Daha özel kurallar önceliklidir. Özel kurallar reklam engelleme ve ülke kurallarını geçersiz kılar; IP engelleme kuralları uygulanmaya devam eder.",
   "routing_conflict":
       "Aynı hedef için farklı işlemler var. Bu kuralları düzenleyin.",
   "routing_overlap": "Daha özel kural, daha geniş kuralın önüne geçer.",
   "routing_duplicate": "Yinelenen kurallar kaydedilirken birleştirilir.",
-  "routing_ads": "reklam ve izleme",
-  "routing_ads_ready": "Ads verileri hazır.",
+  "routing_ads": "Reklam ve izleyici engelleme",
+  "routing_ads_ready": "Reklam engelleme kuralları hazır.",
   "routing_ads_unavailable":
-      "Ads verileri kullanılamıyor. Bağlantılar ve özel kurallar çalışmaya devam eder.",
+      "Reklam engelleme kuralları kullanılamıyor. Bağlantılar ve özel kurallar çalışmaya devam eder.",
   "routing_pending": "İndirilen kurallar yeniden bağlanınca uygulanır.",
   'routing_current': "Geçerli bağlantı",
 };

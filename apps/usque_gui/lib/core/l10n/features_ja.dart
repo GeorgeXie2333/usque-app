@@ -70,7 +70,7 @@ const Map<String, String> kNetworkQualityJa = <String, String>{
   'diag_check_quality_packet_loss': 'パケットロス',
   'diag_check_quality_queue_pressure': 'キュー負荷',
   'diag_check_quality_pmtu': 'パス MTU',
-  'diag_check_transport_migration_capability': '同一ファミリーの移行',
+  'diag_check_transport_migration_capability': '同じ IP バージョン内での移行',
   'diag_check_dns_direct_encrypted_configuration': '直接 DNS の設定',
   'diag_check_dns_direct_encrypted_runtime_state': '直接 DNS の実行状態',
   'diag_check_dns_direct_encrypted_reachability': '暗号化 DNS の到達性',
@@ -257,7 +257,7 @@ const Map<String, String> kWindowsRecoveryJa = <String, String>{
       'Windows は 3 回の自動試行後も、前回の VPN ネットワーク状態を復元できませんでした。'
       '準備ができたら再試行するか、ローカル診断を確認してください。',
   'WINDOWS_RECOVERY_BLOCKED':
-      '以前の VPN 設定を安全に復元できると確認できず、自動修復を停止しました。「設定」で更新を確認し、解決しない場合は「診断」で診断パッケージを出力してください。',
+      '以前の VPN 設定を安全に復元できると確認できず、Usque は自動修復を停止しました。「設定」で更新を確認し、解決しない場合は「診断」で診断バンドルをエクスポートしてください。',
   'WINDOWS_RECOVERY_TIMEOUT':
       'Windows のネットワーク復旧に想定以上の時間がかかっています。新しい VPN '
       '接続は開始されていません。復旧が完了してから再試行してください。',
@@ -336,7 +336,7 @@ const Map<String, String> kChainJa = <String, String>{
   "scope_bypass": "設定済みの直接接続ルールとアプリ別ルールは引き続き適用されます。",
   "scope_interrupted": "接続が中断されました。端末が通常のネットワーク接続に戻る場合があります。",
   "scope_android_settings":
-      "サービス停止後もブロックを続けるには、システム設定で「常時接続 VPN」と「VPN なしの接続をブロック」を有効にしてください。",
+      "サービス停止後もブロックを続けるには、システム設定で「常時接続 VPN」と「VPN 以外の接続のブロック」を有効にしてください。",
 
   "batch_title": "設定を一括インポート",
   "batch_counts": "有効：{ready} · 要入力：{pending} · 失敗：{failed} · 保存済み：{saved}",
@@ -356,12 +356,12 @@ const Map<String, String> kChainJa = <String, String>{
   'too_many_endpoints': 'remote エンドポイントは 16 個までです。',
   'conflicting_authentication': 'CLIENT_CERT がインライン証明書または認証方式と矛盾しています。',
   'serialized_size_limit': '暗号化された記録が保存サイズの上限を超えます。',
-  'multi_endpoint_unavailable': '複数エンドポイントの設定を使うにはエンジンを更新してください。',
-  'candidates': '起動時の候補エンドポイント',
+  'multi_endpoint_unavailable': 'この設定には複数のサーバーが含まれています。使用するには Usque を更新してください。',
+  'candidates': '試行するサーバー',
   'random_order': '接続のたびに新しいランダム順で候補を試します。',
   'file_order': '設定ファイルの順に候補を試します。',
-  'attempting': '試行中のエンドポイント',
-  'actual_endpoint': '接続したエンドポイント',
+  'attempting': '試行中のサーバー',
+  'actual_endpoint': '接続したサーバー',
   'attempt_failures': '失敗した試行',
   'failure_transport': 'トランスポート切断',
   'failure_authentication': '認証',
@@ -375,7 +375,7 @@ const Map<String, String> kChainJa = <String, String>{
   'dns_unavailable_title': 'この出口に使える DNS がありません',
   'dns_unavailable':
       'この出口から到達できる DNS サーバーがありません。IP アドレスを使うか、到達できる DNS がある別の出口を選んでください。',
-  'authentication_failed': '認証に失敗しました。資格情報を更新してから、もう一度接続してください。',
+  'authentication_failed': '認証に失敗しました。認証情報を更新してから、もう一度接続してください。',
   'profile_limit': '設定ライブラリはいっぱいです（最大 128 件）。',
   'metadata_limit': '設定ライブラリのメタデータが容量の上限に達しました。',
   'title': 'チェーンプロキシ',
@@ -435,7 +435,7 @@ const Map<String, String> kChainJa = <String, String>{
   'allowed': '許可する宛先',
   'dns': 'DNS',
   'addresses': 'トンネルアドレス',
-  'address_family': 'アドレスファミリー',
+  'address_family': 'IP バージョン',
   'transport': 'トランスポート',
   'endpoint': 'サーバー',
   'restricted': 'プロキシ経路では AllowedIPs の範囲外の宛先を拒否します。',
@@ -470,5 +470,5 @@ const Map<String, String> kChainJa = <String, String>{
   "verified": "検証済み",
   "not_verified": "未検証",
   "unavailable": "利用不可",
-  "udp_association": "アソシエーションは受理済み、エンドツーエンドの転送は未確認",
+  "udp_association": "UDP 中継は受理済み、エンドツーエンドの転送は未確認",
 };

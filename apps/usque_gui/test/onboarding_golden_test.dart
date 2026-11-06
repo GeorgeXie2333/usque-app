@@ -154,6 +154,28 @@ void main() {
       TargetPlatform.android,
     );
   }
+  // A phone's height once its status and navigation bars are removed, with
+  // the enlarged default text some Android devices ship: acceptance stays
+  // on screen above the actions.
+  _scene(
+    'terms',
+    'compact_en_large',
+    const Size(360, 708),
+    false,
+    1.15,
+    LocalePreference.english,
+    TargetPlatform.android,
+  );
+  // A grant label too long to share the row with Back stacks both actions.
+  _scene(
+    'permissions_request',
+    'compact_en_large',
+    const Size(360, 708),
+    false,
+    1.15,
+    LocalePreference.english,
+    TargetPlatform.android,
+  );
   for (final scene in ['ready', 'interrupted', 'unavailable', 'reconciling']) {
     _scene(
       scene,
@@ -200,14 +222,20 @@ void _scene(
     addTearDown(tester.view.resetDevicePixelRatio);
     addTearDown(tester.view.resetPhysicalSize);
     debugDefaultTargetPlatformOverride = platform;
-    final engine = scene == 'permissions_denied'
-        ? _DeniedPermissionsEngine()
-        : FakeEngineClient();
+    final engine = switch (scene) {
+      'permissions_denied' => _DeniedPermissionsEngine(),
+      'permissions_request' =>
+        FakeEngineClient()
+          ..permissionState = const OnboardingPermissionState(
+            notification: OnboardingNotificationPermission.notRequested,
+          ),
+      _ => FakeEngineClient(),
+    };
     final app = AppController(engine)
       ..localePreference = locale
       ..onboardingStep = switch (scene) {
         'intro' => 0,
-        'permissions' || 'permissions_denied' => 1,
+        'permissions' || 'permissions_denied' || 'permissions_request' => 1,
         'terms' => 2,
         _ => 3,
       }

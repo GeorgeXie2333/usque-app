@@ -6,16 +6,29 @@ use super::{
 };
 use crate::{
     UninstallError, UninstallRequest, l10n,
-    state::{Lifecycle, Outcome, Preview, PreviewTheme, RestartFlow, Stage, error_hint_key},
+    paint::{
+        BarColors, BarLook, BarMotion, ButtonKind, ButtonLook, Canvas, Mark, MarkColors,
+        NOTICE_GAP, NOTICE_ICON, NOTICE_PADDING, NOTICE_TOP, NOTICE_TRAILING, NoticeColors, Rect,
+        Rgb, button_look, render_bar, render_mark, render_notice,
+    },
+    state::{
+        BAR_COMPLETE, Bar, Lifecycle, Outcome, PREVIEW_UNINSTALL, Preview, PreviewStep,
+        PreviewTheme, RestartFlow, Stage, error_hint_key,
+    },
+    tokens::{
+        self, FOCUS_RING, PROGRESS_HEIGHT, RADIUS_CHECKBOX, RADIUS_CHIP, RADIUS_CONTROL,
+        STROKE_STRONG,
+    },
 };
 use std::{
     cell::{Cell, RefCell},
     mem::size_of,
     ptr,
     sync::mpsc::TryRecvError,
+    time::Instant,
 };
 use windows_sys::Win32::{
-    Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, RECT, WPARAM},
+    Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM},
     Graphics::{
         Dwm::{DWMWA_USE_IMMERSIVE_DARK_MODE, DwmSetWindowAttribute},
         Gdi::*,
@@ -36,6 +49,11 @@ use windows_sys::Win32::{
     },
 };
 
+mod draw;
+mod layout;
+use draw::*;
+use layout::*;
+
 const CLASS: &str = "Usque.UninstallWizard";
 const TITLE: i32 = 101;
 const BODY: i32 = 102;
@@ -52,7 +70,11 @@ const BADGE: i32 = 112;
 const SAVE: i32 = 113;
 const VIEWPORT: i32 = 114;
 const WARNING_ACCENT: i32 = 115;
+/// Decorative result mark above the title of a finished page.
+const GLYPH: i32 = 116;
 const TIMER: usize = 1;
+/// Repaints only the custom-drawn progress bar while it animates.
+const ANIMATION: usize = 2;
 const WM_RESTART_ABORTED: u32 = WM_APP + 36;
 const PAINT_PROPERTY: &str = "Usque.UninstallPaint";
 const THEME_REQUEST_PROPERTY: &str = "Usque.UninstallThemeRequest";
@@ -62,19 +84,17 @@ const STATIC_TYPE_MASK: u32 = 0x1f;
 const STATIC_RIGHT: u32 = 2;
 const STATIC_OWNER_DRAW: u32 = 13;
 const fn brand_accent(dark: bool) -> u32 {
-    if dark { 0x005ca4ff } else { 0x000c50c2 }
+    tokens::theme(dark).primary
 }
 
+#[cfg(test)]
 const fn brand_on_accent(dark: bool) -> u32 {
-    if dark { 0x00001844 } else { 0x00ffffff }
+    tokens::theme(dark).on_primary
 }
 
+#[cfg(test)]
 const fn brand_pressed(dark: bool) -> u32 {
-    let color = brand_accent(dark);
-    let red = ((color & 0xff) * 9 + 5) / 10;
-    let green = (((color >> 8) & 0xff) * 9 + 5) / 10;
-    let blue = (((color >> 16) & 0xff) * 9 + 5) / 10;
-    red | (green << 8) | (blue << 16)
+    tokens::theme(dark).primary_pressed
 }
 
 #[derive(Clone, Copy, Default)]
@@ -90,6 +110,20 @@ struct PaintStyle {
     native_high_contrast: bool,
     accent_button: u32,
     rtl: bool,
+    /// The custom-drawn progress frame.
+    bar: BarLook,
+    /// The critical notice reports possible data loss rather than a choice.
+    warning_danger: bool,
+    critical: bool,
+    notice_fill: u32,
+    notice_brush: HBRUSH,
+    field: u32,
+    field_brush: HBRUSH,
+    /// The rounded frame around DETAIL, in viewport coordinates.
+    detail_frame: RECT,
+    /// The confirmation will also delete data; its action uses the danger tone.
+    destructive: bool,
+    mark: Option<Mark>,
 }
 
 struct NativeThemeRequest(HWND);
@@ -122,20 +156,40 @@ enum Page {
     Finished,
 }
 
+/// The progress-control state last sent to Windows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BarView {
+    Hidden,
+    Visible(Bar),
+}
+
 struct Palette {
     background: u32,
     foreground: u32,
     muted: u32,
     brush: HBRUSH,
+    field: u32,
+    field_brush: HBRUSH,
+    caution_fill: u32,
+    caution_brush: HBRUSH,
+    danger_fill: u32,
+    danger_brush: HBRUSH,
     dark: bool,
     high_contrast: bool,
     native_high_contrast: bool,
 }
 impl Drop for Palette {
     fn drop(&mut self) {
-        // SAFETY: this palette uniquely owns its solid background brush.
+        // SAFETY: this palette uniquely owns its solid brushes.
         unsafe {
-            DeleteObject(self.brush);
+            for brush in [
+                self.brush,
+                self.field_brush,
+                self.caution_brush,
+                self.danger_brush,
+            ] {
+                DeleteObject(brush);
+            }
         }
     }
 }
@@ -182,6 +236,15 @@ struct State {
     exit_code: i32,
     controls: Vec<HWND>,
     detail_accessible_name: &'static str,
+    /// `None` forces the next render to resend the complete control state.
+    applied_bar: Option<BarView>,
+    /// Windows' client-area animation setting; off means no eased or moving bar.
+    motion: bool,
+    bar_motion: BarMotion,
+    bar_look: BarLook,
+    frame_at: Option<Instant>,
+    animating: bool,
+    detail_frame: RECT,
     paint: Box<Cell<PaintStyle>>,
 }
 
@@ -217,6 +280,13 @@ impl State {
             exit_code: crate::ERROR_INSTALL_USEREXIT,
             controls: Vec::new(),
             detail_accessible_name: "",
+            applied_bar: None,
+            motion: true,
+            bar_motion: BarMotion::default(),
+            bar_look: BarLook::default(),
+            frame_at: None,
+            animating: false,
+            detail_frame: RECT::default(),
             paint: Box::new(Cell::new(PaintStyle::default())),
         }
     }
@@ -241,11 +311,8 @@ impl State {
         } else if self.prompt.is_some() {
             "uninstall_failed"
         } else if self.page == Page::Running {
-            if self.lifecycle.stage == Stage::Registration {
-                "uninstall_registration"
-            } else {
-                "uninstall_progress_note"
-            }
+            // The stage line already names registration cleanup.
+            "uninstall_progress_note"
         } else {
             "uninstall_body"
         }
@@ -255,11 +322,8 @@ impl State {
         if self.prompt.as_ref().is_some_and(|p| p.files_in_use) {
             Some("close_apps_save_work")
         } else if self.page == Page::Confirm {
-            Some(if self.remove_data {
-                "uninstall_delete_warning"
-            } else {
-                "retained_data"
-            })
+            // An unchecked deletion choice already says nothing is deleted.
+            self.remove_data.then_some("uninstall_delete_warning")
         } else if let Some(result) = &self.result {
             if result.outcome == Outcome::DataMayBeDeleted {
                 Some("uninstall_partial_data")
@@ -316,6 +380,12 @@ impl State {
     fn apply_preview(&mut self, scenario: Preview) {
         match scenario {
             Preview::Confirm => {}
+            Preview::Replay => {
+                self.page = Page::Running;
+                self.lifecycle = Lifecycle::default();
+                self.lifecycle.common_data(2, 1);
+                self.preview_ticks = 1;
+            }
             Preview::Progress | Preview::Rollback | Preview::FilesInUse => {
                 self.page = Page::Running;
                 self.lifecycle.progress_record([0, 100, 0, 0]);
@@ -387,6 +457,7 @@ impl State {
         self.scroll = 0;
         self.page = Page::Running;
         self.lifecycle = Lifecycle::default();
+        self.bar_motion = BarMotion::default();
         if self.preview.is_some() {
             self.preview_ticks = 1;
             self.lifecycle.common_data(2, 1);
@@ -561,15 +632,20 @@ impl State {
             // This timer exists only in the explicitly inert preview. The real
             // installer obtains every progress value from MSI records.
             self.preview_ticks += 1;
+            let mut finished = false;
             if self.pending_registration.is_none() {
-                self.lifecycle.progress_record([0, 30, 0, 0]);
-                self.lifecycle
-                    .progress_record([2, self.preview_ticks as i32, 0, 0]);
-                if self.preview_ticks == 10 {
-                    self.lifecycle.action("RecoverAgentState");
+                for (_, step) in PREVIEW_UNINSTALL
+                    .iter()
+                    .filter(|(tick, _)| *tick == self.preview_ticks)
+                {
+                    self.lifecycle.apply_preview_step(*step, self.remove_data);
+                    finished |= *step == PreviewStep::Finish;
                 }
+            } else {
+                // A registration-only retry has no MSI work to replay.
+                finished = self.preview_ticks >= 12;
             }
-            if self.preview_ticks >= 30 {
+            if finished {
                 self.preview_ticks = 0;
                 let result = if let Some(previous) = self.pending_registration.take() {
                     msi::registration_result(previous, 0)
@@ -595,6 +671,19 @@ impl State {
             env!("CARGO_PKG_VERSION"),
             self.text(self.lifecycle.stage.key())
         );
+        if self.lifecycle.progress.started() {
+            // Counts only. Lets a saved report show whether MSI's own progress
+            // restarted or shrank while the bar held its value.
+            let stats = self.lifecycle.progress.stats;
+            text.push_str(&format!(
+                "\r\nMSI progress: generation={} execution={} rollback={} additions={} held={}",
+                stats.generation_resets,
+                stats.execution_resets,
+                stats.rollback_resets,
+                stats.additions,
+                stats.held_reversals
+            ));
+        }
         if let Some(result) = &self.result {
             text.push_str(&format!(
                 "\r\n{}\r\n{}: {}",
@@ -655,6 +744,7 @@ pub fn run(
     preview: Option<Preview>,
     requested_locale: Option<&str>,
     preview_theme: Option<PreviewTheme>,
+    origin: Option<(i32, i32)>,
 ) -> Result<i32, UninstallError> {
     let _accessibility_apartment = super::accessibility::Apartment::enter();
     let class = wide(CLASS);
@@ -662,6 +752,7 @@ pub fn run(
     let instance = unsafe { GetModuleHandleW(ptr::null()) };
     let locale = l10n::setup_locale(requested_locale.unwrap_or(&ui_locale_name()));
     let mut state = State::new(product, preview, preview_theme, locale);
+    state.motion = client_area_animation();
     if let Some(scenario) = preview {
         state.apply_preview(scenario);
     }
@@ -730,9 +821,10 @@ pub fn run(
         }
         set_fonts(hwnd, &state);
         apply_layout_direction(hwnd, &state);
-        center(hwnd, state.dpi);
+        place(hwnd, state.dpi, origin);
         apply_title_theme(hwnd, state.palette.dark);
         apply_progress_theme(hwnd, &state.palette);
+        state.applied_bar = None;
         render(hwnd, &mut state);
     }
     // SAFETY: window and button handles belong to this UI thread.
@@ -803,6 +895,8 @@ extern "system" fn window_proc(
         if let Some(style) = paint_style(hwnd) {
             if item.CtlID == WARNING_ACCENT as u32 {
                 draw_warning_accent(item, style);
+            } else if item.CtlID == GLYPH as u32 {
+                draw_mark(item, style);
             } else {
                 draw_button(item, style);
             }
@@ -825,27 +919,16 @@ extern "system" fn window_proc(
         WM_CTLCOLORSTATIC | WM_CTLCOLOREDIT | WM_CTLCOLORBTN
     ) && let Some(style) = paint_style(hwnd)
     {
-        // SAFETY: the supplied child DC is live. The independent paint Cell
-        // remains readable even during synchronous child-window layout messages.
-        unsafe {
-            SetTextColor(
-                wparam as HDC,
-                if GetDlgCtrlID(lparam as HWND) == DESCRIPTION {
-                    style.muted
-                } else {
-                    style.foreground
-                },
-            );
-            SetBkColor(wparam as HDC, style.background);
-            SetBkMode(wparam as HDC, TRANSPARENT as i32);
-        }
-        return style.brush as LRESULT;
+        // The independent paint Cell remains readable even during synchronous
+        // child-window layout messages.
+        return child_colors(wparam as HDC, lparam as HWND, &style);
     }
     if message == WM_DESTROY {
         // SAFETY: destruction can be reentrant while a button handler borrows
         // state. End the pump without taking a second mutable state borrow.
         unsafe {
             KillTimer(hwnd, TIMER);
+            KillTimer(hwnd, ANIMATION);
             PostQuitMessage(0);
         }
         return 0;
@@ -911,6 +994,10 @@ extern "system" fn window_proc(
                     render(hwnd, &mut state);
                     return 0;
                 }
+                WM_TIMER if wparam == ANIMATION => {
+                    update_bar_look(hwnd, &mut state);
+                    return 0;
+                }
                 WM_TIMER => {
                     state.tick();
                     render(hwnd, &mut state);
@@ -954,10 +1041,12 @@ extern "system" fn window_proc(
                     return 0;
                 }
                 WM_SETTINGCHANGE | WM_SYSCOLORCHANGE | WM_THEMECHANGED => {
+                    state.motion = client_area_animation();
                     state.palette = palette(state.preview.is_some(), state.preview_theme);
                     refresh_paint_style(&state);
                     apply_title_theme(hwnd, state.palette.dark);
                     apply_progress_theme(hwnd, &state.palette);
+                    state.applied_bar = None;
                     // SAFETY: request repaint of this window and its children.
                     unsafe {
                         RedrawWindow(
@@ -992,21 +1081,7 @@ extern "system" fn window_proc(
                     return 0;
                 }
                 WM_CTLCOLORSTATIC | WM_CTLCOLOREDIT | WM_CTLCOLORBTN => {
-                    let dc = wparam as HDC;
-                    // SAFETY: Windows supplies this live DC for child painting.
-                    unsafe {
-                        SetTextColor(
-                            dc,
-                            if lparam as HWND == control(hwnd, DESCRIPTION) {
-                                state.palette.muted
-                            } else {
-                                state.palette.foreground
-                            },
-                        );
-                        SetBkColor(dc, state.palette.background);
-                        SetBkMode(dc, TRANSPARENT as i32);
-                    }
-                    return state.palette.brush as LRESULT;
+                    return child_colors(wparam as HDC, lparam as HWND, &state.paint.get());
                 }
                 WM_ERASEBKGND => {
                     let mut rect = RECT::default();
@@ -1081,7 +1156,13 @@ fn create_controls(
         (WARNING, "STATIC", 0),
         // An empty native owner-drawn static is decoration only. WARNING keeps
         // its native text, print handling, and accessible name independently.
-        (WARNING_ACCENT, "STATIC", STATIC_OWNER_DRAW),
+        // Drawn below WARNING's text, so it clips against that sibling.
+        (
+            WARNING_ACCENT,
+            "STATIC",
+            STATIC_OWNER_DRAW | WS_CLIPSIBLINGS,
+        ),
+        (GLYPH, "STATIC", STATIC_OWNER_DRAW),
         (STATUS, "STATIC", 0),
         (BADGE, "STATIC", 0),
         (
@@ -1129,6 +1210,18 @@ fn create_controls(
             return Err(last_error("create uninstall control"));
         }
         state.controls.push(child);
+        if id == DETAIL {
+            // SAFETY: the stable paint Cell lives longer than this edit. The
+            // subclass only repaints its frame on focus changes.
+            unsafe {
+                SetWindowSubclass(
+                    child,
+                    Some(field_proc),
+                    4,
+                    ptr::from_ref(state.paint.as_ref()) as usize,
+                );
+            }
+        }
         if id == CHECK {
             // SAFETY: the stable paint Cell lives longer than this checkbox.
             unsafe {
@@ -1342,8 +1435,31 @@ fn render(hwnd: HWND, state: &mut State) {
         );
         ShowWindow(
             control(hwnd, STATUS),
-            if running { SW_SHOW } else { SW_HIDE },
+            if running && state.prompt.is_none() {
+                SW_SHOW
+            } else {
+                SW_HIDE
+            },
         );
+        // An empty warning row would still take layout space.
+        ShowWindow(
+            control(hwnd, WARNING),
+            if state.warning_key().is_some() {
+                SW_SHOW
+            } else {
+                SW_HIDE
+            },
+        );
+        let glyph = control(hwnd, GLYPH);
+        ShowWindow(
+            glyph,
+            if state.result.is_some() {
+                SW_SHOW
+            } else {
+                SW_HIDE
+            },
+        );
+        InvalidateRect(glyph, ptr::null(), 0);
         ShowWindow(
             control(hwnd, PROGRESS),
             if running && state.prompt.is_none() {
@@ -1402,33 +1518,14 @@ fn render(hwnd: HWND, state: &mut State) {
                 SW_HIDE
             },
         );
-        let bar = control(hwnd, PROGRESS);
-        let percent = if state.lifecycle.stage == Stage::Registration {
-            None
-        } else {
-            state.lifecycle.progress.percent()
-        };
-        let style = GetWindowLongW(bar, GWL_STYLE) as u32;
-        SetWindowLongW(
-            bar,
-            GWL_STYLE,
-            if percent.is_some() {
-                style & !PBS_MARQUEE
-            } else {
-                style | PBS_MARQUEE
-            } as i32,
-        );
-        SendMessageW(
-            bar,
-            PBM_SETMARQUEE,
-            usize::from(running && state.prompt.is_none() && percent.is_none()),
-            35,
-        );
-        SendMessageW(bar, PBM_SETRANGE32, 0, 100);
-        if let Some(percent) = percent {
-            SendMessageW(bar, PBM_SETPOS, percent as usize, 0);
-        }
     }
+    let view = if running && state.prompt.is_none() {
+        BarView::Visible(state.lifecycle.bar())
+    } else {
+        BarView::Hidden
+    };
+    apply_bar(hwnd, state, view);
+    update_bar_look(hwnd, state);
     layout(hwnd, state);
     ensure_focus(hwnd, previous_focus, state);
 }
@@ -1472,233 +1569,6 @@ fn ensure_focus(hwnd: HWND, previous: HWND, state: &State) {
             }
         }
         SetFocus(hwnd);
-    }
-}
-
-#[derive(Debug)]
-struct FooterButton {
-    id: i32,
-    x: i32,
-    y: i32,
-    width: i32,
-    height: i32,
-}
-
-/// Keep actions inside the work area and reserve their measured text height.
-/// The primary button stays in the last position when restart confirmation
-/// swaps button meanings, preserving the distinct-click safety boundary.
-fn footer_positions(
-    (width, height): (i32, i32),
-    margin: i32,
-    gap: i32,
-    padding: i32,
-    stacked: bool,
-    captions: [(i32, bool, i32); 3],
-) -> (i32, Vec<FooterButton>) {
-    let action_height = captions[1].2.max(captions[2].2);
-    let row_height = captions[0].2.max(action_height);
-    let visible_count = captions.iter().filter(|(_, visible, _)| *visible).count() as i32;
-    let footer_height = if stacked {
-        captions
-            .iter()
-            .filter(|(_, visible, _)| *visible)
-            .map(|(id, _, h)| if *id == DETAILS { *h } else { action_height })
-            .sum::<i32>()
-            + gap * (visible_count - 1).max(0)
-            + padding * 2
-    } else {
-        row_height + padding * 2
-    };
-    let button_width = if stacked {
-        width - margin * 2
-    } else {
-        (width - margin * 2 - gap * 2) / 3
-    }
-    .max(1);
-    let mut y = height - footer_height + padding;
-    let buttons = captions
-        .into_iter()
-        .enumerate()
-        .filter_map(|(index, (id, visible, h))| {
-            if !visible {
-                return None;
-            }
-            let h = if id == DETAILS { h } else { action_height };
-            let button = FooterButton {
-                id,
-                x: if stacked {
-                    margin
-                } else {
-                    margin + index as i32 * (button_width + gap)
-                },
-                y: if stacked {
-                    y
-                } else {
-                    height - padding - row_height + (row_height - h) / 2
-                },
-                width: button_width,
-                height: h,
-            };
-            if stacked {
-                y += h + gap;
-            }
-            Some(button)
-        })
-        .collect();
-    (footer_height, buttons)
-}
-
-fn layout(hwnd: HWND, state: &mut State) {
-    let mut rect = RECT::default();
-    // SAFETY: hwnd is a live window and rect is writable.
-    unsafe {
-        GetClientRect(hwnd, &mut rect);
-    }
-    let scale = |value: i32| ((i64::from(value) * i64::from(state.dpi)) / 96) as i32;
-    let width = rect.right.max(1);
-    let height = rect.bottom.max(1);
-    let margin = scale(32).min(width / 8);
-    let body_width = (width - 2 * margin).max(40);
-    let stacked = body_width < scale(520);
-    let button_width = if stacked {
-        body_width
-    } else {
-        (body_width - scale(20)) / 3
-    };
-    let captions = [DETAILS, SECONDARY, PRIMARY].map(|id| {
-        let child = control(hwnd, id);
-        // SAFETY: these are the live native footer controls.
-        let visible = unsafe { GetWindowLongW(child, GWL_STYLE) } as u32 & WS_VISIBLE != 0;
-        let minimum = scale(if id == DETAILS { 36 } else { 48 });
-        (
-            id,
-            visible,
-            (measure(
-                hwnd,
-                child,
-                state.fonts.body,
-                (button_width - scale(20)).max(1),
-            ) + scale(12))
-            .max(minimum),
-        )
-    });
-    let (footer, footer_buttons) = footer_positions(
-        (width, height),
-        margin,
-        scale(10),
-        scale(20),
-        stacked,
-        captions,
-    );
-    let viewport = (height - footer).max(1);
-    let mut y = scale(24);
-    let mut items = Vec::new();
-    for id in [
-        BADGE,
-        TITLE,
-        BODY,
-        CHECK,
-        DESCRIPTION,
-        WARNING,
-        STATUS,
-        PROGRESS,
-        DETAIL,
-        SAVE,
-    ] {
-        // SAFETY: a child handle exists for each ID.
-        let child = control(hwnd, id);
-        // SAFETY: visibility query does not mutate the native control.
-        if unsafe { GetWindowLongW(child, GWL_STYLE) } as u32 & WS_VISIBLE == 0 {
-            continue;
-        }
-        let h = match id {
-            PROGRESS => scale(8),
-            DETAIL => scale(112),
-            SAVE => scale(36),
-            CHECK => measure(
-                hwnd,
-                child,
-                state.fonts.body,
-                (body_width - scale(34)).max(30),
-            )
-            .max(scale(44)),
-            WARNING if state.critical_warning() => {
-                measure(
-                    hwnd,
-                    child,
-                    state.fonts.body,
-                    (body_width - scale(24)).max(1),
-                ) + scale(16)
-            }
-            _ => measure(
-                hwnd,
-                child,
-                if id == TITLE {
-                    state.fonts.title
-                } else if id == DESCRIPTION {
-                    state.fonts.secondary
-                } else {
-                    state.fonts.body
-                },
-                body_width,
-            )
-            .max(scale(18)),
-        };
-        let child_width = if id == SAVE {
-            (text_width(hwnd, child, state.fonts.body) + scale(24)).min(body_width)
-        } else if id == WARNING && state.critical_warning() {
-            (body_width - scale(24)).max(1)
-        } else {
-            body_width
-        };
-        if id == WARNING && state.critical_warning() {
-            // Both controls use parent coordinates, so Windows mirrors their
-            // geometry together for RTL. Text itself remains a native STATIC.
-            items.push((
-                child,
-                margin + scale(16),
-                y + scale(8),
-                (h - scale(16)).max(1),
-                child_width,
-            ));
-            items.push((control(hwnd, WARNING_ACCENT), margin, y, h, scale(3).max(1)));
-        } else {
-            items.push((child, margin, y, h, child_width));
-        }
-        y += h + scale(match id {
-            TITLE | BODY => 20,
-            CHECK => 8,
-            _ => 12,
-        });
-    }
-    state.max_scroll = (y - viewport).max(0);
-    state.scroll = state.scroll.clamp(0, state.max_scroll);
-    // SAFETY: native scrollbar state and child dimensions are bounded integers.
-    unsafe {
-        let info = SCROLLINFO {
-            cbSize: size_of::<SCROLLINFO>() as u32,
-            fMask: SIF_RANGE | SIF_PAGE | SIF_POS,
-            nMin: 0,
-            nMax: y.max(1) - 1,
-            nPage: viewport as u32,
-            nPos: state.scroll,
-            nTrackPos: 0,
-        };
-        SetScrollInfo(hwnd, SB_VERT, &info, 1);
-        MoveWindow(GetDlgItem(hwnd, VIEWPORT), 0, 0, width, viewport, 1);
-        for (child, left, top, h, child_width) in items {
-            MoveWindow(child, left, top - state.scroll, child_width, h, 1);
-        }
-        for button in footer_buttons {
-            MoveWindow(
-                control(hwnd, button.id),
-                button.x,
-                button.y,
-                button.width,
-                button.height,
-                1,
-            );
-        }
     }
 }
 
@@ -1787,32 +1657,6 @@ fn reveal_focus(hwnd: HWND, child: HWND, state: &mut State) {
     layout(hwnd, state);
 }
 
-unsafe extern "system" fn viewport_proc(
-    hwnd: HWND,
-    message: u32,
-    wparam: WPARAM,
-    lparam: LPARAM,
-    _id: usize,
-    _data: usize,
-) -> LRESULT {
-    if matches!(
-        message,
-        WM_COMMAND
-            | WM_DRAWITEM
-            | WM_CTLCOLORSTATIC
-            | WM_CTLCOLOREDIT
-            | WM_CTLCOLORBTN
-            | WM_ERASEBKGND
-            | WM_MOUSEWHEEL
-    ) {
-        // SAFETY: the viewport is a child of the wizard for its full lifetime.
-        unsafe { SendMessageW(GetParent(hwnd), message, wparam, lparam) }
-    } else {
-        // SAFETY: pass unhandled native-container messages to the subclass chain.
-        unsafe { DefSubclassProc(hwnd, message, wparam, lparam) }
-    }
-}
-
 fn set_text(parent: HWND, id: i32, text: &str) {
     // SAFETY: child is owned by this parent. Only changed accessible text is
     // announced, preventing a screen reader from repeating every timer tick.
@@ -1838,57 +1682,6 @@ fn window_text(hwnd: HWND) -> String {
         let copied = GetWindowTextW(hwnd, text.as_mut_ptr(), text.len() as i32);
         String::from_utf16_lossy(&text[..copied.max(0) as usize])
     }
-}
-
-fn measure(hwnd: HWND, child: HWND, font: HFONT, width: i32) -> i32 {
-    let text = wide(&window_text(child));
-    let mut rect = RECT {
-        left: 0,
-        top: 0,
-        right: width,
-        bottom: 0,
-    };
-    // SAFETY: select only a live font, then restore the borrowed DC before release.
-    unsafe {
-        let dc = GetDC(hwnd);
-        let old = SelectObject(dc, font);
-        let reading = if GetWindowLongW(child, GWL_EXSTYLE) as u32 & WS_EX_RTLREADING != 0 {
-            DT_RTLREADING
-        } else {
-            0
-        };
-        DrawTextW(
-            dc,
-            text.as_ptr(),
-            -1,
-            &mut rect,
-            DT_CALCRECT | DT_WORDBREAK | DT_NOPREFIX | reading,
-        );
-        SelectObject(dc, old);
-        ReleaseDC(hwnd, dc);
-    }
-    rect.bottom.max(1)
-}
-
-fn text_width(hwnd: HWND, child: HWND, font: HFONT) -> i32 {
-    let text = wide(&window_text(child));
-    let mut rect = RECT::default();
-    // SAFETY: measure a single line with the live font, restoring the borrowed
-    // DC before release. The caller bounds the result to the available width.
-    unsafe {
-        let dc = GetDC(hwnd);
-        let old = SelectObject(dc, font);
-        DrawTextW(
-            dc,
-            text.as_ptr(),
-            -1,
-            &mut rect,
-            DT_CALCRECT | DT_SINGLELINE | DT_NOPREFIX,
-        );
-        SelectObject(dc, old);
-        ReleaseDC(hwnd, dc);
-    }
-    rect.right.max(1)
 }
 
 fn fonts(dpi: u32) -> Fonts {
@@ -1984,18 +1777,33 @@ fn palette(preview: bool, preview_theme: Option<PreviewTheme>) -> Palette {
                 GetSysColor(COLOR_WINDOWTEXT),
             )
         }
-    } else if dark {
-        (0x00100e0e, 0x00e9e8e8, 0x009fa5a7)
     } else {
-        (0x00f1f4f5, 0x00181b1c, 0x0061686b)
+        let tokens = tokens::theme(dark);
+        (tokens.canvas, tokens.ink, tokens.muted)
     };
-    // SAFETY: creates an owned brush for the chosen COLORREF.
-    let brush = unsafe { CreateSolidBrush(background) };
+    let tones = tokens::theme(dark);
+    let any_contrast = high_contrast || preview_theme == Some(PreviewTheme::HighContrast);
+    // High contrast keeps fields and notices on the window color.
+    let (field, caution_fill, danger_fill) = if any_contrast {
+        (background, background, background)
+    } else {
+        (tones.field, tones.caution_fill, tones.danger_fill)
+    };
+    // SAFETY: creates owned brushes for the chosen COLORREFs.
+    let [brush, field_brush, caution_brush, danger_brush] =
+        [background, field, caution_fill, danger_fill]
+            .map(|color| unsafe { CreateSolidBrush(color) });
     Palette {
         background,
         foreground,
         muted,
         brush,
+        field,
+        field_brush,
+        caution_fill,
+        caution_brush,
+        danger_fill,
+        danger_brush,
         dark,
         high_contrast: high_contrast || preview_theme == Some(PreviewTheme::HighContrast),
         native_high_contrast: high_contrast,
@@ -2012,163 +1820,6 @@ fn apply_title_theme(hwnd: HWND, dark: bool) {
             ptr::from_ref(&value).cast(),
             size_of::<i32>() as u32,
         );
-    }
-}
-
-fn apply_progress_theme(hwnd: HWND, palette: &Palette) {
-    let bar = control(hwnd, PROGRESS);
-    let empty = [0u16];
-    let native_theme = wide(if palette.dark {
-        "DarkMode_Explorer"
-    } else {
-        "Explorer"
-    });
-    // SetWindowTheme sends WM_THEMECHANGED synchronously. This guard is
-    // independent of State and is removed even if this scope unwinds. If the
-    // property cannot be installed, leave the main window's system theme alone.
-    let theme_request = NativeThemeRequest::begin(hwnd);
-    // SAFETY: selecting the main window and edit/scrollbar themes affects only
-    // appearance. High contrast retains its system theme and all native input
-    // semantics stay unchanged. Rejected theme requests restore OS defaults.
-    unsafe {
-        for window in [hwnd, control(hwnd, DETAIL)] {
-            if window == hwnd && theme_request.is_none() {
-                continue;
-            }
-            if SetWindowTheme(
-                window,
-                if palette.high_contrast {
-                    ptr::null()
-                } else {
-                    native_theme.as_ptr()
-                },
-                ptr::null(),
-            ) < 0
-            {
-                SetWindowTheme(window, ptr::null(), ptr::null());
-            }
-        }
-    }
-    // SAFETY: only the native progress control's colors/theme are changed.
-    // Visual styles otherwise ignore PBM_SETBARCOLOR/PBM_SETBKCOLOR. The
-    // native control continues to own its range, position and marquee timer.
-    unsafe {
-        if palette.native_high_contrast {
-            SetWindowTheme(bar, ptr::null(), ptr::null());
-            SendMessageW(bar, PBM_SETBARCOLOR, 0, CLR_DEFAULT as isize);
-            SendMessageW(bar, PBM_SETBKCOLOR, 0, CLR_DEFAULT as isize);
-        } else {
-            SetWindowTheme(bar, empty.as_ptr(), empty.as_ptr());
-            let fill = if palette.high_contrast {
-                GetSysColor(COLOR_HIGHLIGHT)
-            } else {
-                brand_accent(palette.dark)
-            };
-            let track = if palette.high_contrast {
-                palette.background
-            } else if palette.dark {
-                0x00262424
-            } else {
-                0x00e9eced
-            };
-            SendMessageW(bar, PBM_SETBARCOLOR, 0, fill as isize);
-            SendMessageW(bar, PBM_SETBKCOLOR, 0, track as isize);
-        }
-        InvalidateRect(bar, ptr::null(), 1);
-    }
-}
-
-unsafe extern "system" fn progress_proc(
-    hwnd: HWND,
-    message: u32,
-    wparam: WPARAM,
-    lparam: LPARAM,
-    _id: usize,
-    data: usize,
-) -> LRESULT {
-    // SAFETY: every message first reaches the original native progress
-    // implementation. The stable paint Cell outlives this child window.
-    let result = unsafe { DefSubclassProc(hwnd, message, wparam, lparam) };
-    // SAFETY: create_controls supplied this Cell, owned until window teardown.
-    let style = unsafe { (*(data as *const Cell<PaintStyle>)).get() };
-    if message == WM_PAINT && !style.high_contrast {
-        // SAFETY: paint only a subtle frame after the native control has drawn
-        // its real position or marquee; no progress value is synthesized.
-        unsafe {
-            let dc = GetDC(hwnd);
-            let mut rect = RECT::default();
-            GetClientRect(hwnd, &mut rect);
-            let border = CreateSolidBrush(if style.dark { 0x00434141 } else { 0x00d0d4d6 });
-            for _ in 0..(style.dpi / 96).max(1) {
-                FrameRect(dc, &rect, border);
-                InflateRect(&mut rect, -1, -1);
-            }
-            DeleteObject(border);
-            ReleaseDC(hwnd, dc);
-        }
-    }
-    result
-}
-
-fn center(hwnd: HWND, dpi: u32) {
-    let work = work_area(hwnd);
-    let (width, height) = window_size(hwnd, dpi);
-    // SAFETY: window geometry is limited to the current monitor's work area.
-    unsafe {
-        let width = width.min((work.right - work.left).max(1));
-        let height = height.min((work.bottom - work.top).max(1));
-        SetWindowPos(
-            hwnd,
-            ptr::null_mut(),
-            work.left + (work.right - work.left - width) / 2,
-            work.top + (work.bottom - work.top - height) / 2,
-            width,
-            height,
-            SWP_NOZORDER | SWP_NOACTIVATE,
-        );
-    }
-}
-
-fn window_size(hwnd: HWND, dpi: u32) -> (i32, i32) {
-    let mut rect = RECT {
-        right: 680 * dpi as i32 / 96,
-        bottom: 480 * dpi as i32 / 96,
-        ..Default::default()
-    };
-    // SAFETY: calculate the native frame around a 680 by 480 logical client
-    // area. Callers then clamp it to the monitor work area; content can scroll.
-    unsafe {
-        AdjustWindowRectExForDpi(
-            &mut rect,
-            GetWindowLongW(hwnd, GWL_STYLE) as u32,
-            0,
-            GetWindowLongW(hwnd, GWL_EXSTYLE) as u32,
-            dpi,
-        );
-    }
-    (rect.right - rect.left, rect.bottom - rect.top)
-}
-
-fn work_area(hwnd: HWND) -> RECT {
-    let mut monitor = MONITORINFO {
-        cbSize: size_of::<MONITORINFO>() as u32,
-        ..Default::default()
-    };
-    // SAFETY: nearest-monitor query and output structure are valid.
-    unsafe {
-        if GetMonitorInfoW(
-            MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST),
-            &mut monitor,
-        ) != 0
-        {
-            return monitor.rcWork;
-        }
-    }
-    RECT {
-        left: 0,
-        top: 0,
-        right: 680,
-        bottom: 480,
     }
 }
 
@@ -2217,6 +1868,10 @@ fn close_window(hwnd: HWND) {
 }
 
 fn refresh_paint_style(state: &State) {
+    let warning_danger = state
+        .result
+        .as_ref()
+        .is_some_and(|result| result.outcome == Outcome::DataMayBeDeleted);
     state.paint.set(PaintStyle {
         dpi: state.dpi,
         background: state.palette.background,
@@ -2233,6 +1888,31 @@ fn refresh_paint_style(state: &State) {
             PRIMARY as u32
         },
         rtl: matches!(state.locale, "ar-SA" | "fa-IR"),
+        bar: state.bar_look,
+        warning_danger,
+        critical: state.critical_warning(),
+        notice_fill: if warning_danger {
+            state.palette.danger_fill
+        } else {
+            state.palette.caution_fill
+        },
+        notice_brush: if warning_danger {
+            state.palette.danger_brush
+        } else {
+            state.palette.caution_brush
+        },
+        field: state.palette.field,
+        field_brush: state.palette.field_brush,
+        detail_frame: state.detail_frame,
+        destructive: state.page == Page::Confirm && state.remove_data,
+        mark: state.result.as_ref().map(|result| match result.outcome {
+            Outcome::Success => Mark::Success,
+            Outcome::RebootRequired | Outcome::PermissionDenied | Outcome::RegistrationFailed => {
+                Mark::Caution
+            }
+            Outcome::Cancelled => Mark::Neutral,
+            Outcome::MsiFailed | Outcome::NetworkFailed | Outcome::DataMayBeDeleted => Mark::Danger,
+        }),
     });
 }
 
@@ -2249,252 +1929,6 @@ fn paint_style(hwnd: HWND) -> Option<PaintStyle> {
     }
 }
 
-fn draw_button(item: &DRAWITEMSTRUCT, style: PaintStyle) {
-    let enabled = item.itemState & ODS_DISABLED == 0;
-    let accent = item.CtlID == style.accent_button && enabled;
-    let auxiliary = matches!(item.CtlID as i32, DETAILS | SAVE);
-    let scale = |value: i32| value * style.dpi as i32 / 96;
-    let reading = if style.rtl { DT_RTLREADING } else { 0 };
-    // SAFETY: owner-draw supplies this DC and rectangle for the callback. All
-    // temporary selected objects are restored before their handles are deleted.
-    unsafe {
-        let mut fill = if style.high_contrast {
-            GetSysColor(if accent {
-                COLOR_HIGHLIGHT
-            } else {
-                COLOR_BTNFACE
-            })
-        } else if accent {
-            brand_accent(style.dark)
-        } else if auxiliary {
-            style.background
-        } else if style.dark {
-            0x00262424
-        } else {
-            0x00e9eced
-        };
-        if item.itemState & ODS_SELECTED != 0 && !style.high_contrast {
-            fill = if accent {
-                brand_pressed(style.dark)
-            } else if style.dark {
-                0x00343436
-            } else {
-                0x00dddfdf
-            };
-        }
-        let ink = if style.high_contrast {
-            GetSysColor(if !enabled {
-                COLOR_GRAYTEXT
-            } else if accent {
-                COLOR_HIGHLIGHTTEXT
-            } else {
-                COLOR_BTNTEXT
-            })
-        } else if !enabled {
-            if style.dark { 0x00797777 } else { 0x006f7476 }
-        } else if accent {
-            brand_on_accent(style.dark)
-        } else {
-            style.foreground
-        };
-        let brush = CreateSolidBrush(fill);
-        let pen = CreatePen(
-            PS_SOLID,
-            scale(1).max(1),
-            if style.high_contrast {
-                GetSysColor(COLOR_WINDOWTEXT)
-            } else if auxiliary {
-                fill
-            } else if style.dark {
-                0x00434141
-            } else {
-                0x00d0d4d6
-            },
-        );
-        FillRect(item.hDC, &item.rcItem, style.brush);
-        let old_brush = SelectObject(item.hDC, brush);
-        let old_pen = SelectObject(item.hDC, pen);
-        RoundRect(
-            item.hDC,
-            item.rcItem.left,
-            item.rcItem.top,
-            item.rcItem.right,
-            item.rcItem.bottom,
-            scale(8),
-            scale(8),
-        );
-        SelectObject(item.hDC, old_brush);
-        SelectObject(item.hDC, old_pen);
-        DeleteObject(brush);
-        DeleteObject(pen);
-        let old_font = SelectObject(item.hDC, style.font);
-        SetBkMode(item.hDC, TRANSPARENT as i32);
-        SetTextColor(item.hDC, ink);
-        let mut bounds = item.rcItem;
-        InflateRect(&mut bounds, -scale(10), -scale(4));
-        let caption = wide(&window_text(item.hwndItem));
-        let mut measured = RECT {
-            right: bounds.right - bounds.left,
-            ..Default::default()
-        };
-        DrawTextW(
-            item.hDC,
-            caption.as_ptr(),
-            -1,
-            &mut measured,
-            DT_CALCRECT | DT_WORDBREAK | DT_CENTER | DT_NOPREFIX | reading,
-        );
-        bounds.top += ((bounds.bottom - bounds.top - measured.bottom) / 2).max(0);
-        DrawTextW(
-            item.hDC,
-            caption.as_ptr(),
-            -1,
-            &mut bounds,
-            DT_WORDBREAK | DT_CENTER | DT_NOPREFIX | reading,
-        );
-        if item.itemState & ODS_FOCUS != 0 && item.itemState & ODS_NOFOCUSRECT == 0 {
-            let mut focus = item.rcItem;
-            InflateRect(&mut focus, -scale(4), -scale(4));
-            DrawFocusRect(item.hDC, &focus);
-        }
-        SelectObject(item.hDC, old_font);
-    }
-}
-
-fn draw_warning_accent(item: &DRAWITEMSTRUCT, style: PaintStyle) {
-    // SAFETY: the empty owner-drawn STATIC supplies its live DC and bounds for
-    // paint/print requests. The temporary brush is never selected into a DC.
-    unsafe {
-        let accent = CreateSolidBrush(if style.high_contrast {
-            style.foreground
-        } else {
-            brand_accent(style.dark)
-        });
-        FillRect(item.hDC, &item.rcItem, accent);
-        DeleteObject(accent);
-    }
-}
-
-unsafe extern "system" fn checkbox_proc(
-    hwnd: HWND,
-    message: u32,
-    wparam: WPARAM,
-    lparam: LPARAM,
-    _id: usize,
-    data: usize,
-) -> LRESULT {
-    // SAFETY: create_controls passes a stable boxed Cell, retained until after
-    // this checkbox is destroyed. Copying it does not borrow the UI state.
-    let style = unsafe { (*(data as *const Cell<PaintStyle>)).get() };
-    if message == WM_PAINT && !style.native_high_contrast {
-        let scale = |value: i32| value * style.dpi as i32 / 96;
-        let reading = if style.rtl { DT_RTLREADING } else { 0 };
-        let mut paint = PAINTSTRUCT::default();
-        // SAFETY: this is the checkbox's WM_PAINT, with a matched Begin/EndPaint.
-        // Only pixels are replaced; BS_AUTOCHECKBOX input and UIA stay native.
-        unsafe {
-            let dc = BeginPaint(hwnd, &mut paint);
-            let mut rect = RECT::default();
-            GetClientRect(hwnd, &mut rect);
-            FillRect(dc, &rect, style.brush);
-            let checked = SendMessageW(hwnd, BM_GETCHECK, 0, 0) as u32 == BST_CHECKED;
-            let box_size = scale(20);
-            let left = scale(2);
-            let top = (rect.bottom - box_size) / 2;
-            let ink = style.foreground;
-            let checked_fill = if style.high_contrast {
-                GetSysColor(COLOR_HIGHLIGHT)
-            } else {
-                brand_accent(style.dark)
-            };
-            let brush = CreateSolidBrush(if checked {
-                checked_fill
-            } else {
-                style.background
-            });
-            let pen = CreatePen(
-                PS_SOLID,
-                scale(1).max(1),
-                if checked { checked_fill } else { ink },
-            );
-            let old_brush = SelectObject(dc, brush);
-            let old_pen = SelectObject(dc, pen);
-            RoundRect(
-                dc,
-                left,
-                top,
-                left + box_size,
-                top + box_size,
-                scale(4),
-                scale(4),
-            );
-            SelectObject(dc, old_brush);
-            SelectObject(dc, old_pen);
-            DeleteObject(brush);
-            DeleteObject(pen);
-            if checked {
-                let pen = CreatePen(
-                    PS_SOLID,
-                    scale(2).max(1),
-                    if style.high_contrast {
-                        GetSysColor(COLOR_HIGHLIGHTTEXT)
-                    } else {
-                        brand_on_accent(style.dark)
-                    },
-                );
-                let previous = SelectObject(dc, pen);
-                MoveToEx(dc, left + box_size / 5, top + box_size / 2, ptr::null_mut());
-                LineTo(dc, left + box_size * 2 / 5, top + box_size * 3 / 4);
-                LineTo(dc, left + box_size * 4 / 5, top + box_size / 4);
-                SelectObject(dc, previous);
-                DeleteObject(pen);
-            }
-            let old_font = SelectObject(dc, style.font);
-            SetBkMode(dc, TRANSPARENT as i32);
-            SetTextColor(dc, ink);
-            let mut text = rect;
-            text.left = left + box_size + scale(12);
-            let caption = wide(&window_text(hwnd));
-            let mut measured = RECT {
-                right: text.right - text.left,
-                ..Default::default()
-            };
-            DrawTextW(
-                dc,
-                caption.as_ptr(),
-                -1,
-                &mut measured,
-                DT_CALCRECT | DT_WORDBREAK | DT_NOPREFIX | reading,
-            );
-            text.top += ((text.bottom - text.top - measured.bottom) / 2).max(0);
-            DrawTextW(
-                dc,
-                caption.as_ptr(),
-                -1,
-                &mut text,
-                DT_WORDBREAK | DT_NOPREFIX | reading,
-            );
-            if GetFocus() == hwnd
-                && SendMessageW(hwnd, WM_QUERYUISTATE, 0, 0) & UISF_HIDEFOCUS as isize == 0
-            {
-                let focus = RECT {
-                    left: scale(1),
-                    top: (top.min(text.top) - scale(4)).max(scale(1)),
-                    right: (text.left + measured.right + scale(6)).min(rect.right - scale(1)),
-                    bottom: ((top + box_size).max(text.top + measured.bottom) + scale(4))
-                        .min(rect.bottom - scale(1)),
-                };
-                DrawFocusRect(dc, &focus);
-            }
-            SelectObject(dc, old_font);
-            EndPaint(hwnd, &paint);
-        }
-        return 0;
-    }
-    // SAFETY: all non-paint messages retain the native checkbox implementation.
-    unsafe { DefSubclassProc(hwnd, message, wparam, lparam) }
-}
-
 fn preview_shortcut(hwnd: HWND, key: u16, state: &mut State) {
     if state.preview.is_none() {
         return;
@@ -2504,6 +1938,7 @@ fn preview_shortcut(hwnd: HWND, key: u16, state: &mut State) {
             let scenes = [
                 Preview::Confirm,
                 Preview::Progress,
+                Preview::Replay,
                 Preview::FilesInUse,
                 Preview::Rollback,
                 Preview::Success,
@@ -2557,6 +1992,7 @@ fn preview_shortcut(hwnd: HWND, key: u16, state: &mut State) {
             refresh_paint_style(state);
             apply_title_theme(hwnd, state.palette.dark);
             apply_progress_theme(hwnd, &state.palette);
+            state.applied_bar = None;
         }
         _ => {}
     }
@@ -2780,7 +2216,8 @@ mod tests {
                 assert!(state.result.is_none());
                 assert!(state.page == Page::Running);
                 assert_eq!(state.lifecycle.stage, Stage::Registration);
-                assert_eq!(state.body_key(), "uninstall_registration");
+                assert_eq!(state.body_key(), "uninstall_progress_note");
+                assert_eq!(state.lifecycle.stage.key(), "uninstall_registration");
                 assert!(!state.lifecycle.can_cancel());
                 assert_context(state.pending_registration.as_ref().unwrap(), &original);
                 assert!(state.operation.is_none(), "preview never starts a worker");
@@ -2837,7 +2274,8 @@ mod tests {
             assert!(!failed.outcome.can_return_to_confirmation());
             assert_context(failed, &original);
             state.primary(ptr::null_mut());
-            assert_eq!(state.body_key(), "uninstall_registration");
+            assert_eq!(state.body_key(), "uninstall_progress_note");
+            assert_eq!(state.lifecycle.stage.key(), "uninstall_registration");
             assert!(!state.lifecycle.can_cancel());
             assert_context(state.pending_registration.as_ref().unwrap(), &original);
             for _ in 0..30 {

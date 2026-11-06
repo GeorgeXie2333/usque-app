@@ -1,0 +1,109 @@
+{
+  "schema": 1,
+  "description": "Windows engine source-build recipe. A recipe alone is not evidence of an integrated application fix.",
+  "flutter_version": "3.44.7",
+  "framework_commit": "84fc5cbb223bc12f83d65b647ff8a56caf779ffd",
+  "engine_commit": "69c8c61792f04cc809dfef0c910414fb9afc06cd",
+  "engine_repository": "https://github.com/flutter/flutter.git",
+  "depot_tools_repository": "https://chromium.googlesource.com/chromium/tools/depot_tools.git",
+  "depot_tools_commit": "8defb316a8fccb3645e5bcf3ed078b757106c857",
+  "windows_sdk_version": "10.0.26100.0",
+  "patches": [
+    {
+      "kind": "timer",
+      "path": "tool/fixtures/flutter_windows_timer/candidate.patch",
+      "sha256": "61c674cf02e6526d94f3247c752996d46942f78a349559ae909a64dbbc05c6fa"
+    },
+    {
+      "kind": "tests",
+      "path": "tool/fixtures/flutter_windows_engine/timer-unittests.patch",
+      "sha256": "6d018452fb3b5a7b46d6d7712ec1756a7a7dad5cca79e31e12357e3143ddd082"
+    },
+    {
+      "kind": "build_tools",
+      "path": "tool/fixtures/flutter_windows_engine/windows-build-tools.patch",
+      "sha256": "1c47bfc57ff3c9daa10487fb9dbe1fc7bb71182e9521b6a0bae7e3f36a41e02d"
+    }
+  ],
+  "patched_source_lf_sha256": {
+    "engine/src/flutter/shell/platform/windows/task_runner_window.cc": "1efd12bebc865dfefc9ff9167eaaad9918d7429b9554fafd15b78c7a4cf8f307",
+    "engine/src/flutter/shell/platform/windows/task_runner_window.h": "4bf49450133fb891e3fb93025ac22ab077d9f9bb7ff5baf648d620e656342d4b",
+    "engine/src/flutter/shell/platform/windows/task_runner_unittests.cc": "9d2bb1c3aaf1fae39b12d874c0b3570034703a61b9e4731a64a739acb23251b3",
+    "engine/src/build/toolchain/win/setup_toolchain.py": "8d8a18304252c4d47a6476d5f8161ec9330843b1bf27ba1a5d000f443f4f9d9d",
+    "engine/src/flutter/tools/dia_dll.py": "8cee8a6fbff1b169b9221155a8ebd5743497ae4e2ca9da0271d4d85da68a1203",
+    "engine/src/flutter/shell/platform/windows/flutter_windows_engine_unittests.cc": "a71328cf547ce831829315d8530aa80ae600983c056b4247c7670d71a6988009"
+  },
+  "gclient_custom_vars": {
+    "download_android_deps": false,
+    "download_jdk": false,
+    "download_emsdk": false,
+    "download_fuchsia_deps": false,
+    "download_fuchsia_sdk": false,
+    "use_rbe": false,
+    "setup_githooks": false
+  },
+  "release_gn_args": [
+    "--runtime-mode",
+    "release",
+    "--no-lto",
+    "--no-goma"
+  ],
+  "release_ninja_targets": [
+    "windows",
+    "gen_snapshot",
+    "flutter/build/archives:windows_flutter",
+    "flutter/lib/snapshot:kernel_platform_files",
+    "flutter/sky/packages:packages",
+    "flutter/tools/font_subset:font_subset",
+    "flutter/impeller/compiler:impellerc",
+    "flutter/impeller/tessellator:tessellator_shared"
+  ],
+  "test_gn_args": [
+    "--target-dir",
+    "host_debug_test",
+    "--runtime-mode",
+    "debug",
+    "--no-lto",
+    "--no-goma",
+    "--enable-unittests"
+  ],
+  "test_ninja_targets": [
+    "flutter:unittests"
+  ],
+  "engine_test_args": [
+    "--variant",
+    "host_debug_test",
+    "--type",
+    "engine"
+  ],
+  "architectures": {
+    "x64": "host_release",
+    "arm64": "host_release_arm64"
+  },
+  "limits": {
+    "max_parallel_jobs": 4,
+    "default_parallel_jobs": 2
+  },
+  "integration_contract": [
+    "The source, dependency and patched-file identities must match before compiling.",
+    "The Windows local-engine and local-engine-host arguments both select the target architecture output.",
+    "Application staging must match the verified engine DLL hash and PE architecture.",
+    "A release may reuse an attested trusted source build; untrusted compiled-output caches are rejected.",
+    "Full engine tests and native ARM64 application execution are reported separately from cross compilation."
+  ],
+  "required_release_files": [
+    "flutter_windows.dll",
+    "flutter_windows.dll.lib",
+    "flutter_windows.h",
+    "cpp_client_wrapper/include/flutter/flutter_engine.h",
+    "icudtl.dat",
+    "gen_snapshot.exe",
+    "font-subset.exe",
+    "gen/const_finder.dart.snapshot",
+    "gen/dart-pkg/sky_engine/pubspec.yaml",
+    "flutter_patched_sdk/platform_strong.dill",
+    "flutter_patched_sdk/vm_outline_strong.dill",
+    "impellerc.exe",
+    "libtessellator.dll"
+  ]
+}

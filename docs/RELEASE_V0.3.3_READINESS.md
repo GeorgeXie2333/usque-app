@@ -21,3 +21,11 @@ experimental chain exit; account setup uses the current network. The detailed
 connection and privacy boundaries remain in [Proton VPN](PROTON_VPN.md) and
 [chain proxy](CHAIN_PROXY.md). Preserve schema 26, Agent protocol 3,
 Windows/Linux recovery journals 6/1 and recovery export 2.
+
+## Publication note
+
+Added 2026-11-05: v0.3.3 was published as the stable Latest on 2026-10-26
+(UTC) from `1d44597ddb6dee7fca6700c0442e0d3856eea31b`, with 34 public assets.
+This note records the outcome only. The text above remains the original
+preparation record and does not become final-candidate evidence. Later
+development changes are planned for v0.3.4 and need their own readiness record.

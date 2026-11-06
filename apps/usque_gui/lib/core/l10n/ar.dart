@@ -36,8 +36,8 @@ const Map<String, String> kArCatalog = <String, String>{
   'window_restore': 'استعادة الحجم',
   'window_close': 'إغلاق',
   'tray_open': 'فتح Usque',
-  'tray_connect_profile': 'توصيل الحساب النشط',
-  'tray_disconnect_profile': 'قطع الحساب النشط',
+  'tray_connect_profile': 'توصيل الحساب الحالي',
+  'tray_disconnect_profile': 'قطع اتصال الحساب الحالي',
   'tray_disconnect_exit': 'قطع الاتصال والخروج',
   'notice_connection_interrupted': 'انقطع الاتصال. يحاول Usque استعادته.',
   'notice_connection_failed':
@@ -47,15 +47,15 @@ const Map<String, String> kArCatalog = <String, String>{
       'يحظر Kill Switch حركة مرور الشبكة حتى تتم استعادة الاتصال أو تقطع الاتصال.',
   'connection_status': 'حالة الاتصال',
   'home': 'الرئيسية',
-  'profiles': 'الحسابات',
-  'profiles_subtitle': 'بدّل حسابات WARP وأدرها.',
+  'profiles': 'ملفات التعريف',
+  'profiles_subtitle': 'احفظ المشاهد وأدِر الحسابات.',
   'proxy': 'الوكيل',
   'proxy_subtitle': 'اضبط عناوين الاستماع والمصادقة المشتركة للوكيل.',
   'settings': 'الإعدادات',
   'settings_subtitle': 'إعدادات الاتصال والوكيل والتطبيق.',
   'diagnostics': 'التشخيص',
   'nav_home': 'رئيسية',
-  'nav_profiles': 'حسابات',
+  'nav_profiles': 'ملفات التعريف',
   'nav_proxy': 'وكيل',
   'nav_settings': 'إعدادات',
   'status_stream_degraded': 'تحديثات الحالة متأخرة',
@@ -74,7 +74,7 @@ const Map<String, String> kArCatalog = <String, String>{
   'error': 'خطأ في الاتصال',
   'active_profile': 'الحساب الحالي',
   'protocol': 'البروتوكول',
-  'address_family': 'عائلة العناوين',
+  'address_family': 'إصدار IP',
   'duration': 'المدة',
   'download': 'التنزيل',
   'upload': 'الرفع',
@@ -137,10 +137,10 @@ const Map<String, String> kArCatalog = <String, String>{
   "zero_trust_reauth_endpoints":
       "تؤدي إعادة تسجيل الدخول إلى استعادة عناوين نقاط النهاية المسجلة وإزالة العناوين المخصصة.",
   'experimental': 'تجريبي',
-  'show_license': 'إظهار License Key',
-  'hide_license': 'إخفاء License Key',
-  'license_copied': 'تم نسخ License Key',
-  'warp_secret_saved': 'تم حفظ WARP Secret',
+  'show_license': 'إظهار مفتاح الترخيص',
+  'hide_license': 'إخفاء مفتاح الترخيص',
+  'license_copied': 'تم نسخ مفتاح الترخيص',
+  'warp_secret_saved': 'تم حفظ معلومات دخول WARP في',
   'create': 'إنشاء',
   'cancel': 'إلغاء',
   'active': 'نشط',
@@ -151,7 +151,7 @@ const Map<String, String> kArCatalog = <String, String>{
   'delete': 'حذف',
   'delete_profile': 'إزالة الحساب؟',
   'delete_profile_body':
-      "هل تريد إزالة هذا الحساب وبيانات تسجيل الدخول إلى WARP الخاصة به من هذا الجهاز؟ إذا كان License Key مربوطًا، فسيحاول Usque أيضًا إلغاء ربطه.",
+      "هل تريد إزالة هذا الحساب ومعلومات دخول WARP الخاصة به من هذا الجهاز؟ إذا كان مفتاح الترخيص مربوطًا، فسيحاول Usque أيضًا إلغاء ربطه.",
   'delete_zero_trust_profile_body':
       'سيُحذف هذا الحساب ومعلومات دخوله من هذا الجهاز. لإلغاء تسجيل الجهاز في Zero Trust لدى المؤسسة، تواصل مع المسؤول.',
   'license_not_applicable': 'حساب مؤسسة · تجريبي',
@@ -253,10 +253,10 @@ const Map<String, String> kArCatalog = <String, String>{
   'identity': 'حساب WARP',
   'identity_and_license': 'الحساب والترخيص',
   'license_cleanup_pending': 'لم تتم إزالة تسجيل جهاز WARP القديم بعد.',
-  'copy_license': 'نسخ License Key',
-  'change_license': 'تغيير License Key',
+  'copy_license': 'نسخ مفتاح الترخيص',
+  'change_license': 'تغيير مفتاح الترخيص',
   'unbind_license': 'العودة إلى WARP المجاني',
-  'export_warp_secret': 'تصدير WARP Secret',
+  'export_warp_secret': 'تصدير معلومات دخول WARP',
   'close': 'إغلاق',
   'advanced': 'إعدادات الشبكة المتقدمة',
   'advanced_subtitle': 'نقاط النهاية، وDNS، وMTU، والتوجيه.',
@@ -282,11 +282,11 @@ const Map<String, String> kArCatalog = <String, String>{
   'mtu': 'MTU',
   'dns_ipv4': 'DNS IPv4',
   'dns_ipv6': 'DNS IPv6',
-  'ip_policy': 'إصدار IP لنقطة النهاية',
-  'prefer_ipv4': 'تفضيل نقطة نهاية IPv4',
-  'prefer_ipv6': 'تفضيل نقطة نهاية IPv6',
-  'ipv4_only': 'نقطة نهاية IPv4 فقط',
-  'ipv6_only': 'نقطة نهاية IPv6 فقط',
+  'ip_policy': 'تفضيل IP لنقطة النهاية',
+  'prefer_ipv4': 'تفضيل IPv4',
+  'prefer_ipv6': 'تفضيل IPv6',
+  'ipv4_only': 'IPv4 فقط',
+  'ipv6_only': 'IPv6 فقط',
   'kill_switch': 'Kill Switch',
   'on': 'تشغيل',
   'off': 'إيقاف',
@@ -295,8 +295,8 @@ const Map<String, String> kArCatalog = <String, String>{
   'ks_inactive': 'غير نشط',
   'ks_error': 'خطأ',
   'ks_engaging': 'جارٍ التفعيل',
-  'always_on': 'VPN دائم التشغيل',
-  'lockdown': 'الحظر دون VPN',
+  'always_on': 'شبكة VPN قيد التشغيل دائمًا',
+  'lockdown': 'حظر بدون VPN',
   'not_used_proxy': 'غير مستخدم في وضع الوكيل',
   'kill_switch_help': 'يحظر البيانات أثناء الاتصال أو إعادته أو عند حدوث خلل.',
   'kill_switch_help_android':
@@ -305,9 +305,9 @@ const Map<String, String> kArCatalog = <String, String>{
       'يشغّل Usque بعد إعادة تشغيل الجهاز. للاتصال تلقائيًا، فعّل أيضًا «الاتصال بالحساب الحالي تلقائيًا عند البدء».',
   'add_quick_settings_tile_help':
       'أضف بلاطة Usque على Android 13 أو أحدث. في الإصدارات الأقدم، أضفها يدويًا من الإعدادات السريعة.',
-  'always_on_vpn': 'فتح إعدادات VPN دائم التشغيل',
+  'always_on_vpn': 'فتح إعدادات «شبكة VPN قيد التشغيل دائمًا»',
   'always_on_vpn_help':
-      'فعّل VPN دائم التشغيل وحظر الاتصالات دون VPN للحماية من التسريب بعد إنهاء التطبيق.',
+      'فعّل «شبكة VPN قيد التشغيل دائمًا» و«حظر أي اتصالات بدون شبكة VPN» للحماية من التسريب بعد إنهاء التطبيق.',
   'per_app_proxy': 'وكيل لكل تطبيق',
   'per_app_proxy_off': 'جميع التطبيقات تستخدم VPN',
   'per_app_proxy_on': 'عدد التطبيقات عبر الوكيل: {count}',
@@ -315,7 +315,7 @@ const Map<String, String> kArCatalog = <String, String>{
   'per_app_proxy_help':
       'التطبيقات المحدَّدة فقط تستخدم VPN. يجب تحديد التطبيقات المثبتة حديثًا قبل أن تستخدمه.',
   'per_app_proxy_lockdown_help':
-      'إذا كان VPN دائم التشغيل وحظر الاتصالات دون VPN مفعَّلين، تُحظر التطبيقات التي لا تحددها، ولا تُرسل خارج النفق.',
+      'إذا كان «شبكة VPN قيد التشغيل دائمًا» و«حظر أي اتصالات بدون شبكة VPN» مفعَّلين، تُحظر التطبيقات التي لا تحددها، ولا تُرسل خارج النفق.',
   'per_app_proxy_tunnel_hint':
       'يسري عند تشغيل VPN. لا يصفّي وكيلا SOCKS5 وHTTP حسب التطبيق.',
   'per_app_search': 'البحث في التطبيقات',
@@ -344,7 +344,7 @@ const Map<String, String> kArCatalog = <String, String>{
       'تحقق من مشكلات الاتصال وصدّر السجلات وأدِر البيانات المحلية.',
   'engine_status': 'معلومات الاتصال',
   'version': 'الإصدار',
-  'app_version': 'Usque 0.3.3',
+  'app_version': 'Usque 0.3.4',
   'logs': 'السجلات المحلية',
   'export_diagnostics': 'تصدير حزمة التشخيص',
   'diagnostics_saved': 'تم حفظ حزمة التشخيص في',
@@ -391,7 +391,8 @@ const Map<String, String> kArCatalog = <String, String>{
   'bypass_countries': 'البلدان / المناطق',
   'bypass_targets_hint':
       'CIDR أو IP أو نطاق واحد في كل سطر. يشمل جميع النطاقات الفرعية. التطبيقات التي تستخدم DNS مشفراً خاصاً بها تطابق IP فقط.',
-  'bypass_unsupported': 'هذا المحرك لا يدعم وجهات التجاوز المخصصة.',
+  'bypass_unsupported':
+      'لا يدعم هذا الإصدار من Usque وجهات التجاوز المخصصة. تحقق من وجود تحديثات في الإعدادات.',
   'bypass_limit': 'بحد أقصى 256 قاعدة عناوين و256 نطاقاً.',
   'bypass_line_error': 'السطر {line}: {reason}',
   'bypass_summary': '{countries} مناطق · {targets} وجهات مخصصة',
@@ -424,7 +425,7 @@ const Map<String, String> kArCatalog = <String, String>{
       'رموز الأخطاء وخطوات الاتصال والمدد وإحصاءات الحركة وحالة الميزات.',
   'diag_export_excluded': 'مستبعد:',
   'diag_export_excluded_body':
-      'المفاتيح والرموز المميزة وأسماء الملفات التعريفية والعناوين الكاملة ومعرّفات SSID وقوائم التطبيقات ومسارات المستخدم',
+      'المفاتيح والرموز المميزة وأسماء الحسابات والعناوين الكاملة ومعرّفات SSID وقوائم التطبيقات ومسارات المستخدم',
   'diag_export_local_only':
       'يُكتب الأرشيف فقط في الموقع الذي تختاره ولا يُرفع تلقائيًا أبدًا.',
   'diag_run_title': 'تشغيل تشخيص الشبكة',
@@ -456,7 +457,7 @@ const Map<String, String> kArCatalog = <String, String>{
   'diag_session_cancelled': 'أُلغي',
   'diag_timeline_empty': 'ستظهر انتقالات الاتصال المهمة هنا بعد محاولة اتصال.',
   'diag_timeline_truncated':
-      'تظهر أحدث 100 سجل. يتضمن ملف التصدير جميع السجلات التي لا تزال محفوظة على الجهاز.',
+      'تظهر أحدث 100 سجل. تتضمن حزمة التشخيص جميع السجلات التي لا تزال محفوظة على هذا الجهاز.',
   'diag_metric_reconnects': 'إعادات الاتصال',
   'diag_metric_fallbacks': 'التحويلات الاحتياطية للنقل',
   'diag_metric_network_changes': 'تغيرات الشبكة',
@@ -545,7 +546,7 @@ const Map<String, String> kArCatalog = <String, String>{
   'diag_fail_H2_GOAWAY': 'تلقى HTTP/2 إشارة GOAWAY',
   'diag_fail_ALL_TRANSPORTS_FAILED': 'فشل HTTP/3 وHTTP/2 معًا',
   'diag_fail_ENDPOINT_PIN_MISMATCH': 'تثبيت نقطة النهاية غير متطابق',
-  'diag_fail_IDENTITY_INVALID': 'الهوية غير صالحة',
+  'diag_fail_IDENTITY_INVALID': 'حساب WARP غير صالح',
   'diag_fail_AUTHENTICATION_FAILED': 'فشل المصادقة',
   'diag_fail_CONFIGURATION_INVALID': 'التكوين غير صالح',
   'diag_fail_CONNECT_IP_REJECTED': 'رُفض CONNECT-IP',
@@ -575,7 +576,7 @@ const Map<String, String> kArCatalog = <String, String>{
   'diag_fix_try_http2':
       'من الإعدادات، افتح إعدادات الشبكة المتقدمة واختر HTTP/2 وطبّق التغييرات، ثم أعد الاتصال.',
   'diag_fix_check_physical_network':
-      'تأكد من عمل Wi-Fi أو بيانات الهاتف، ثم أعد الاتصال.',
+      'تأكد من أن Wi-Fi أو بيانات الهاتف تعمل بدون Usque، ثم أعد الاتصال.',
   'diag_fix_refresh_or_replace_identity':
       'افتح الحسابات ثم «إعداد حساب WARP». سجّل الدخول مجددًا أو أنشئ حسابًا جديدًا، ثم اتصل.',
   'diag_fix_replace_identity':
@@ -583,7 +584,7 @@ const Map<String, String> kArCatalog = <String, String>{
   'diag_fix_review_configuration':
       'من الإعدادات، افتح إعدادات الشبكة المتقدمة وصحّح الحقول المحددة ثم طبّق التغييرات.',
   'diag_fix_restore_platform_state':
-      'أغلق Usque تمامًا وافتحه مجددًا ثم أعد المحاولة. إذا استمرت المشكلة، فصدّر السجلات من التشخيص لمشاركتها مع الدعم.',
+      'أغلق Usque تمامًا وافتحه مجددًا ثم أعد المحاولة. إذا استمرت المشكلة، فافتح التشخيص وصدّر حزمة تشخيص لمشاركتها مع الدعم.',
   'diag_fix_resolve_dependency':
       'عالج مشكلات الفحوص الفاشلة أولًا، ثم شغّل التشخيص مجددًا.',
   'diag_fix_run_deep_diagnostics':
@@ -591,7 +592,7 @@ const Map<String, String> kArCatalog = <String, String>{
   'diag_fix_run_release_leak_gate':
       'صدّر حزمة تشخيص وأرسلها إلى الدعم. تُزال المعلومات الحساسة.',
   'diag_fix_inspect_platform_state':
-      'راجع الفحوص الفاشلة في قسم حماية النظام ضمن التشخيص. إذا استمرت المشكلة، فصدّر السجلات.',
+      'افتح التشخيص وراجع فحوص حماية النظام. إذا ظلت فاشلة، فصدّر حزمة تشخيص لمشاركتها مع الدعم.',
   'diag_fix_generate_tunnel_traffic':
       'افتح صفحة ويب عبر اتصال Usque ثم أعد الفحص.',
   'diag_fix_export_diagnostics':
@@ -599,7 +600,7 @@ const Map<String, String> kArCatalog = <String, String>{
   'diag_fix_retry': 'حاول مجددًا بعد قليل.',
   'diag_fix_none': 'لا يلزم أي إجراء.',
   'diag_fix_default':
-      'حاول مجددًا. إذا استمرت المشكلة، فصدّر السجلات من التشخيص لمشاركتها مع الدعم.',
+      'حاول مجددًا. إذا استمرت المشكلة، فافتح التشخيص وصدّر حزمة تشخيص لمشاركتها مع الدعم.',
   'diag_event_attempt_started': 'بدأت محاولة الاتصال',
   'diag_event_endpoint_resolved': 'حُلّ عنوان نقطة النهاية',
   'diag_event_socket_connected': 'تم توصيل المقبس',
@@ -623,7 +624,7 @@ const Map<String, String> kArCatalog = <String, String>{
   'diag_event_disconnected': 'غير متصل',
   'diag_event_failed': 'فشل الاتصال',
   'operation_failed':
-      'تعذر إكمال العملية. حاول مجددًا؛ وإذا استمرت المشكلة، صدّر حزمة تشخيص للحصول على المساعدة.',
+      'تعذر إكمال العملية. حاول مجددًا؛ وإذا استمرت المشكلة، فافتح التشخيص وصدّر حزمة تشخيص لمشاركتها مع الدعم.',
   'operation_timeout': 'انتهت مهلة العملية. تحقق من الشبكة وحاول مجددًا.',
   'accounts_reset':
       'تعذر قراءة إعدادات الحساب المحفوظة فتمت إعادة ضبطها. حُفظت نسخة احتياطية على هذا الجهاز. أعد إعداد الحساب.',
@@ -640,14 +641,14 @@ const Map<String, String> kArCatalog = <String, String>{
   "routing_action": "الإجراء",
   "routing_target": "نطاق أو IP أو CIDR",
   "routing_priority":
-      "للأكثر تحديدًا الأولوية. تتقدم القواعد المخصصة على Ads والدول؛ يبقى حظر IP ساريًا.",
+      "للقواعد الأكثر تحديدًا الأولوية. تتقدم القواعد المخصصة على حظر الإعلانات وقواعد البلدان؛ وتبقى قواعد حظر IP سارية.",
   "routing_conflict": "إجراءات مختلفة للهدف نفسه. عدّل هذه القواعد.",
   "routing_overlap": "تتقدم القاعدة الأكثر تحديدًا على القاعدة الأوسع.",
   "routing_duplicate": "تُدمج القواعد المكررة عند الحفظ.",
-  "routing_ads": "الإعلانات والتتبع",
-  "routing_ads_ready": "بيانات Ads جاهزة.",
+  "routing_ads": "حظر الإعلانات والتتبع",
+  "routing_ads_ready": "قواعد حظر الإعلانات جاهزة.",
   "routing_ads_unavailable":
-      "بيانات Ads غير متاحة. تظل الاتصالات والقواعد المخصصة متاحة.",
+      "قواعد حظر الإعلانات غير متاحة. تظل الاتصالات والقواعد المخصصة متاحة.",
   "routing_pending": "تُطبق القواعد المنزلة بعد إعادة الاتصال.",
   'routing_current': "الاتصال الحالي",
 };

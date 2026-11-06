@@ -101,24 +101,26 @@ pub(crate) fn read_installed_product_code() -> Result<String, UninstallError> {
 pub(crate) fn run_interactive(
     product_code: Option<String>,
     wait_for_pid: Option<u32>,
+    origin: Option<(i32, i32)>,
 ) -> Result<i32, UninstallError> {
     if let Some(parent_pid) = wait_for_pid {
         wait_for_process(parent_pid)?;
     }
-    if let Some(code) = relaunch_from_temp_if_needed(product_code.as_deref())? {
+    if let Some(code) = relaunch_from_temp_if_needed(product_code.as_deref(), origin)? {
         return Ok(code);
     }
     let product_code = crate::resolve_product_code(product_code, read_installed_product_code)?;
-    ui::run(Some(product_code), None, None, None)
+    ui::run(Some(product_code), None, None, None, origin)
 }
 
 pub(crate) fn run_preview(
     scenario: crate::state::Preview,
     locale: Option<&str>,
     theme: Option<crate::state::PreviewTheme>,
+    origin: Option<(i32, i32)>,
 ) -> Result<i32, UninstallError> {
     // Deliberately bypass every installed-product and staging operation.
-    ui::run(None, Some(scenario), locale, theme)
+    ui::run(None, Some(scenario), locale, theme, origin)
 }
 
 pub(crate) fn run_quiet(
@@ -329,7 +331,10 @@ fn read_registry_string(
     Ok(Some(text))
 }
 
-fn relaunch_from_temp_if_needed(product_code: Option<&str>) -> Result<Option<i32>, UninstallError> {
+fn relaunch_from_temp_if_needed(
+    product_code: Option<&str>,
+    origin: Option<(i32, i32)>,
+) -> Result<Option<i32>, UninstallError> {
     let current = std::env::current_exe().map_err(|error| {
         UninstallError::Detail(format!("failed to locate this helper: {error}"))
     })?;
@@ -360,6 +365,9 @@ fn relaunch_from_temp_if_needed(product_code: Option<&str>) -> Result<Option<i32
     let mut command = Command::new(&destination);
     if let Some(product_code) = product_code {
         command.arg("--product-code").arg(product_code);
+    }
+    if let Some((x, y)) = origin {
+        command.arg(format!("--window-origin={x},{y}"));
     }
     command
         .arg("--wait-for-pid")

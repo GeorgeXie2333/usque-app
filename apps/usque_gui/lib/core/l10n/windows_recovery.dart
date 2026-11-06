@@ -36,7 +36,7 @@ const Map<String, String> kWindowsRecoveryEn = <String, String>{
   'WINDOWS_RECOVERY_EXHAUSTED':
       'Windows could not restore the previous VPN network state after three automatic attempts. Retry when ready, or inspect local diagnostics.',
   'WINDOWS_RECOVERY_BLOCKED':
-      'Usque stopped automatic repair because it could not confirm the previous VPN settings were safe to restore. Open Settings and check for updates, then open Diagnostics and export a diagnostic package if the problem persists.',
+      'Usque stopped automatic repair because it could not confirm the previous VPN settings were safe to restore. Open Settings and check for updates, then open Diagnostics and export a diagnostic bundle if the problem persists.',
   'WINDOWS_RECOVERY_TIMEOUT':
       'Windows network recovery is taking longer than expected. No new VPN connection was started. Wait for recovery to finish before retrying.',
   'WINDOWS_RECOVERY_CONFLICT':

@@ -753,7 +753,7 @@ class _VpnGateChainEditorState extends State<VpnGateChainEditor>
       final bottomBar = VpnGateSelectionBar(
         strings: strings,
         onRefresh: !_sceneDraft && _controller.networkSettings.canRefresh
-            ? _controller.networkSettings.refresh
+            ? () => _controller.networkSettings.refresh(requireRuntime: true)
             : null,
         refreshing: _controller.networkSettings.refreshing,
         statusLabel: statusLabel,

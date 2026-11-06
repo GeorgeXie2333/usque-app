@@ -79,7 +79,7 @@ const Map<String, String> kNetworkQualityPt = <String, String>{
   'diag_check_quality_packet_loss': 'Perda de pacotes',
   'diag_check_quality_queue_pressure': 'Pressão da fila',
   'diag_check_quality_pmtu': 'MTU do caminho',
-  'diag_check_transport_migration_capability': 'Migração da mesma família',
+  'diag_check_transport_migration_capability': 'Migração na mesma versão de IP',
   'diag_check_dns_direct_encrypted_configuration': 'Configuração de DNS direto',
   'diag_check_dns_direct_encrypted_runtime_state':
       'Estado de execução do DNS direto',
@@ -232,7 +232,7 @@ const Map<String, String> kNetworkQualityPt = <String, String>{
   'nq_phase_unknown': 'Não pronto',
   'nq_phase_unsupported': 'Não suportado',
   'nq_reason_family_unavailable':
-      'A nova rede não pode usar a mesma versão IP. É necessário reconectar.',
+      'A nova rede não pode usar a mesma versão de IP. É necessário reconectar.',
   'nq_reason_socket_protect_failed':
       'O Usque não pôde usar a nova rede com segurança. Se a conexão não voltar, reconecte manualmente.',
   'nq_reason_generation_changed_during_setup':
@@ -264,7 +264,7 @@ const Map<String, String> kNetworkQualityPt = <String, String>{
   'nq_dns_system_privacy':
       'O provedor DNS da rede atual pode ver os domínios consultados pelo tráfego direto.',
   'nq_dns_scope':
-      'Usado para regras de desvio por país e domínios personalizados. O DNS do tráfego VPN não muda.',
+      'Usado para regras de conexão direta por país e por domínios personalizados. O DNS do tráfego VPN não muda.',
   'nq_dns_no_capability':
       'Atualize o Usque para usar DNS criptografado nas conexões diretas. Suas configurações são mantidas. Você pode escolher DNS da rede atual se aceitar o impacto na privacidade.',
   'nq_dns_invalid_name':
@@ -297,7 +297,7 @@ const Map<String, String> kWindowsRecoveryPt = <String, String>{
       'após três tentativas automáticas. Tente novamente quando estiver '
       'pronto ou inspecione os diagnósticos locais.',
   'WINDOWS_RECOVERY_BLOCKED':
-      'O reparo automático parou porque não foi possível confirmar uma restauração segura das configurações VPN anteriores. Procure atualizações em Configurações; se persistir, exporte um pacote em Diagnósticos.',
+      'O Usque interrompeu o reparo automático porque não conseguiu confirmar que era seguro restaurar as configurações VPN anteriores. Abra Configurações e procure atualizações; se o problema persistir, abra Diagnósticos e exporte um pacote de diagnóstico.',
   'WINDOWS_RECOVERY_TIMEOUT':
       'A recuperação de rede do Windows está demorando mais do que o '
       'esperado. Nenhuma nova conexão VPN foi iniciada. Aguarde o término '
@@ -388,7 +388,7 @@ const Map<String, String> kChainPt = <String, String>{
 
   "add_proxy": "Adicionar proxy",
   "proxy_hint":
-      "Ligação via WARP. HTTP transporta TCP; SOCKS5 também pode transportar UDP com H3/H2.",
+      "Conexão via WARP. HTTP transporta TCP; SOCKS5 também pode transportar UDP com H3/H2.",
   "dns_inherit":
       "Deixe vazio para usar o DNS da rede. As consultas usam esta saída.",
   "scope_proxy_only":
@@ -398,7 +398,7 @@ const Map<String, String> kChainPt = <String, String>{
   "scope_interrupted":
       "A conexão foi interrompida. O dispositivo pode voltar à conexão de rede habitual.",
   "scope_android_settings":
-      "Para manter o bloqueio após o serviço parar, ative VPN sempre ativa e Bloquear conexões sem VPN nas configurações do sistema.",
+      "Para manter o bloqueio após o serviço parar, ative “VPN sempre ativa” e “Bloquear conexões sem VPN” nas configurações do sistema.",
 
   "batch_title": "Importar configurações",
   "batch_counts":
@@ -420,25 +420,24 @@ const Map<String, String> kChainPt = <String, String>{
   'too_many_endpoints': 'Use no máximo 16 endpoints remote.',
   'conflicting_authentication':
       'CLIENT_CERT entra em conflito com o certificado embutido ou com o modo de autenticação.',
-  'serialized_size_limit':
-      'O registro criptografado excederia o limite de armazenamento.',
+  'serialized_size_limit': 'A configuração é grande demais para ser salva.',
   'multi_endpoint_unavailable':
-      'Atualize o mecanismo para usar configurações com vários endpoints.',
-  'candidates': 'Endpoints de início',
+      'Esta configuração lista vários servidores. Atualize o Usque para usá-la.',
+  'candidates': 'Servidores a tentar',
   'random_order':
-      'Tenta os endpoints em uma nova ordem aleatória a cada conexão.',
-  'file_order': 'Tenta os endpoints na ordem do arquivo.',
-  'attempting': 'Tentando endpoint',
-  'actual_endpoint': 'Endpoint conectado',
+      'Cada conexão tenta estes servidores em uma nova ordem aleatória.',
+  'file_order': 'Cada conexão tenta estes servidores na ordem listada.',
+  'attempting': 'Tentando servidor',
+  'actual_endpoint': 'Servidor conectado',
   'attempt_failures': 'Tentativas com falha',
-  'failure_transport': 'transporte encerrado',
-  'failure_authentication': 'autenticação',
-  'failure_certificate': 'certificado',
-  'failure_configuration': 'configuração',
-  'failure_address_changed': 'endereço alterado',
-  'failure_protocol': 'protocolo',
-  'failure_cleanup': 'limpeza',
-  'failure_reason': 'Falha: {reason}.',
+  'failure_transport': 'a conexão caiu',
+  'failure_authentication': 'a autenticação falhou',
+  'failure_certificate': 'o certificado foi rejeitado',
+  'failure_configuration': 'a configuração é inválida',
+  'failure_address_changed': 'o endereço do servidor mudou',
+  'failure_protocol': 'um erro de protocolo',
+  'failure_cleanup': 'a limpeza falhou',
+  'failure_reason': 'Motivo: {reason}.',
   'dns_fallback': 'DNS do túnel (o OpenVPN pode negociar o DNS)',
   'dns_unavailable_title': 'Sem DNS por esta saída',
   'dns_unavailable':
@@ -503,11 +502,11 @@ const Map<String, String> kChainPt = <String, String>{
   'unsupported':
       'Esta versão do Usque não pode usar esta origem de saída. Procure atualizações em Configurações.',
   'scope':
-      'As regras diretas explícitas continuam valendo. O restante do tráfego usa a saída escolhida.',
+      'Suas regras de conexão direta continuam valendo. O restante do tráfego usa a saída escolhida.',
   'allowed': 'Destinos permitidos',
   'dns': 'DNS',
   'addresses': 'Endereços do túnel',
-  'address_family': 'Família de endereços',
+  'address_family': 'Versão de IP',
   'transport': 'Transporte',
   'endpoint': 'Servidor',
   'restricted':
@@ -555,5 +554,5 @@ const Map<String, String> kChainPt = <String, String>{
   "not_verified": "Não verificado",
   "unavailable": "Indisponível",
   "udp_association":
-      "Associação aceita; encaminhamento de ponta a ponta não verificado",
+      "Retransmissão UDP aceita; encaminhamento de ponta a ponta não verificado",
 };

@@ -5,11 +5,11 @@ Download packages from this repository's
 
 ## Version scope
 
-This development-branch guide prepares v0.3.3 / 0.3.3+29, including Linux
-desktop packages and optional Proton VPN. For an installed release, use its
-release notes and guide at the matching Git tag; consult GitHub Releases for
-published versions. Back up data before upgrading and review compatibility
-below before considering a downgrade.
+The v0.3.4 candidate adds local connection scenes and retains Linux desktop
+packages and optional Proton VPN. For an installed release, use its release
+notes and guide at the matching Git tag; consult GitHub Releases for published
+versions. Back up data
+before upgrading and review compatibility below before considering a downgrade.
 
 The Windows upgrade recovery fix was introduced in v0.2.5; the multilingual EXE
 installer arrived in v0.2.6. The original v0.2.4 MSI does not have those fixes.
@@ -17,20 +17,23 @@ See [Upgrade](#upgrade) if that version cannot uninstall.
 
 ### Configuration compatibility when upgrading
 
-v0.3.1 uses configuration schema 24; v0.3.0 uses 23 and v0.2.9 uses 21.
-Current source uses schema 27: schema 25 adds the shared MASQUE TLS fingerprint,
-schema 26 adds optional IPv6 endpoint presets, and schema 27 adds local
-[connection scenes](SCENARIOS.md) without changing existing network settings.
-Scene templates and snapshots use one format with required endpoints. Obsolete
-development scene formats are not migrated. Clients supporting schema 26 cannot
-read schema 27. Migrated and new
-configurations use the Chrome 155 fingerprint unless you had explicitly chosen
-another one; the original handshake is now labeled unsafe. Older configurations
-start without an IPv6 preset. Other settings migrate as before.
+v0.3.2 and v0.3.3 use configuration schema 26; v0.3.1 uses 24, v0.3.0 uses 23
+and v0.2.9 uses 21. Version v0.3.4 uses schema 27: schema
+25 adds the shared MASQUE TLS fingerprint, schema 26 adds optional IPv6 endpoint
+presets, and schema 27 adds local [connection scenes](SCENARIOS.md) without
+changing existing network settings. Scene templates and snapshots use one
+format with required endpoints. Obsolete development scene formats are not
+migrated. Clients supporting schema 26, including v0.3.3, cannot read schema 27.
+Migrated and new configurations use the Chrome 155 fingerprint unless you had
+explicitly chosen another one; the original handshake is now labeled unsafe.
+Older configurations start without an IPv6 preset. Other settings migrate as
+before.
 
-The newer app saves the migrated configuration on first launch, and v0.3.1 or
-older cannot read it. The same applies to the Windows recovery journal (version
-6). Windows rejects installer downgrades, and there is no reverse migration.
+The newer app saves the migrated configuration on first launch. v0.3.1 or older
+cannot read a schema-26 configuration, and v0.3.3 or older cannot read schema 27.
+v0.3.1 or older also cannot read the Windows recovery journal version 6 used
+since v0.3.2. Windows rejects installer downgrades, and there is no reverse
+migration.
 
 If you may need to go back to an older version, back up the old installation
 and user data, including the platform-protected credentials, before upgrading,
@@ -46,21 +49,21 @@ official fix.
 | --- | --- | --- |
 | Windows x64 | Windows 10 2004, build 19041 or later; x86-64-v2 CPU | x64-v2 EXE |
 | Windows ARM64 | Windows 10 2004, build 19041 or later, native ARM64 | ARM64 EXE |
-| Linux (v0.3.3) | Ubuntu 22.04+, Debian 12+, supported Fedora; systemd | amd64/arm64 AppImage, deb or rpm; see [Linux desktop](LINUX_DESKTOP.md) |
+| Linux (v0.3.4) | Ubuntu 22.04+, Debian 12+, supported Fedora; systemd | amd64/arm64 AppImage, deb or rpm; see [Linux desktop](LINUX_DESKTOP.md) |
 | Android / Android TV | Android 8.0, API 26 or later | APK matching the device's CPU architecture |
 | Android / Android TV, architecture unknown | Android 8.0, API 26 or later | Larger universal APK containing all three architectures |
 
-### Package names (v0.3.3 candidate)
+### Package names (v0.3.4)
 
-- `usque-v0.3.3-windows-x64-v2.exe`
-- `usque-v0.3.3-windows-arm64.exe`
-- `usque-v0.3.3-android-arm64-v8a.apk`
-- `usque-v0.3.3-android-x86_64.apk`
-- `usque-v0.3.3-android-armeabi-v7a.apk`
-- `usque-v0.3.3-android-universal.apk`
+- `usque-v0.3.4-windows-x64-v2.exe`
+- `usque-v0.3.4-windows-arm64.exe`
+- `usque-v0.3.4-android-arm64-v8a.apk`
+- `usque-v0.3.4-android-x86_64.apk`
+- `usque-v0.3.4-android-armeabi-v7a.apk`
+- `usque-v0.3.4-android-universal.apk`
 
-The release also includes `usque-v0.3.3-windows-x64-v2.msi` and
-`usque-v0.3.3-windows-arm64.msi` for Usque's in-app update flow. Use the EXE for
+The release also includes `usque-v0.3.4-windows-x64-v2.msi` and
+`usque-v0.3.4-windows-arm64.msi` for Usque's in-app update flow. Use the EXE for
 manual Windows installation. Linux AppImage/deb/rpm packages for amd64/arm64
 use the same version; the six filenames are listed in [Linux desktop](LINUX_DESKTOP.md#choose-and-verify-a-package).
 
@@ -71,7 +74,7 @@ validation packages and files from other sites are not official releases.
 ## Verify before installing
 
 Download the package and `SHA256SUMS` from the same release. The examples below
-use the v0.3.3 candidate names; substitute the exact filename and published tag you
+use the v0.3.4 names; substitute the exact filename and published tag you
 downloaded. These commands inspect files without installing or running them.
 
 ### Check the file SHA-256
@@ -79,7 +82,7 @@ downloaded. These commands inspect files without installing or running them.
 In PowerShell, open the folder containing the download and run:
 
 ```powershell
-$package = '.\usque-v0.3.3-windows-x64-v2.exe'
+$package = '.\usque-v0.3.4-windows-x64-v2.exe'
 Get-FileHash -LiteralPath $package -Algorithm SHA256
 ```
 
@@ -133,7 +136,7 @@ directory:
 
 ```powershell
 $apksignerPath = 'C:\path\to\Android\Sdk\build-tools\<version>\apksigner.bat'
-& $apksignerPath verify --verbose --print-certs '.\usque-v0.3.3-android-arm64-v8a.apk'
+& $apksignerPath verify --verbose --print-certs '.\usque-v0.3.4-android-arm64-v8a.apk'
 if ($LASTEXITCODE -ne 0) { throw 'APK signature verification failed.' }
 ```
 
@@ -147,7 +150,7 @@ as described above. You can then copy that verified file to the Android device.
 If you have GitHub CLI, verify the attestation for the same downloaded file:
 
 ```powershell
-gh attestation verify $package --repo GeorgeXie2333/usque-app --source-ref refs/tags/v0.3.3 --signer-workflow GeorgeXie2333/usque-app/.github/workflows/release.yml
+gh attestation verify $package --repo GeorgeXie2333/usque-app --source-ref refs/tags/v0.3.4 --signer-workflow GeorgeXie2333/usque-app/.github/workflows/release.yml
 if ($LASTEXITCODE -ne 0) { throw 'Build provenance verification failed.' }
 ```
 
@@ -169,7 +172,8 @@ does not match the release.
    installation folder** to choose another location, or **Language** to change
    the installer's language. Usque's app language is configured separately.
 3. Choose **Install** and approve Windows' administrator request. Progress and
-   the result stay in the same installer window.
+   the result stay in the same installer window, which names the current step,
+   such as updating program files or setting up the background service.
 4. On **Installation complete**, optionally select **Create a desktop shortcut**
    (off by default). **Open Usque after setup** is selected by default. Under
    **More options**, **Start Usque when I sign in to Windows** reads your existing
@@ -248,20 +252,21 @@ The implementation and recovery ordering are documented in
    choose Usque's uninstall action.
 2. Leave **Also delete my local data** unchecked to keep your accounts, profiles,
    settings, logs, caches and saved credentials for a later reinstall. Selecting
-   it changes the final button to **Uninstall and delete data** and permanently
-   deletes only the current Windows user's Usque data.
+   it shows a warning and changes the final button to **Uninstall and delete
+   data**, which permanently deletes only the current Windows user's Usque data.
 3. Choose **Uninstall** and keep the window open until it shows the result.
    Windows may ask for administrator approval separately for removal and
    installer-record cleanup. The window reports each stage; when a stage cannot
    be cancelled, wait for it to finish.
 
-You can also reopen the installer EXE and choose **Uninstall** to use the same
-window. If the program was removed but its installer records could not be
+You can also reopen the installer EXE and choose **Uninstall**; the same
+uninstall window opens where the installer window was. If the program was removed but its installer records could not be
 cleaned up, **Retry** repeats only that cleanup. Other failures return to the
 confirmation page after checking the installed state; deleting personal data
 is never automatically retried. A deletion that already started may have
 removed some data even when uninstall later fails. **View details** shows the
-stage and error code, and **Save details** writes only that limited report.
+stage, error code and counts of the installer's progress sessions, and **Save
+details** writes only that limited report.
 
 Uninstall disconnects Usque, restores its route, DNS, proxy and firewall state,
 and removes its virtual adapter, service and program files. The shared Wintun
@@ -346,8 +351,8 @@ under **Connection & protection**.
 
 This setting is shared across accounts and takes effect when the VPN is on.
 When off, every app uses the VPN. When on, only checked apps use it; newly
-installed apps must be selected. **Select all** checks the apps currently shown
-and does not disable the filter. Usque itself is not listed.
+installed apps must be selected. **Select visible** checks the apps currently
+shown and does not disable the filter. Usque itself is not listed.
 
 With **Block connections without VPN** enabled, unchecked apps are blocked
 instead of using the network directly.

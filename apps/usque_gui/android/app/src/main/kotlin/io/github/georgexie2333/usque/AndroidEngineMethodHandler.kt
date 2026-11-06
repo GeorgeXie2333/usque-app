@@ -128,6 +128,10 @@ internal class AndroidEngineMethodHandler(
 
         fun setStartOnBoot(enabled: Boolean)
 
+        fun setHideFromRecents(enabled: Boolean)
+
+        fun restoreRecentsVisibility()
+
         fun requestAddQuickSettingsTile(result: MethodChannel.Result)
 
         fun openAlwaysOnVpnSettings()
@@ -192,6 +196,10 @@ internal class AndroidEngineMethodHandler(
 
         fun capabilities(): String? = null
 
+        fun readPersistedNetworkSettings(configPath: String): String? = null
+
+        fun readPersistedScenarios(configPath: String): String? = null
+
         fun isReady(): Boolean
 
         fun applyProfileCommand(
@@ -227,6 +235,15 @@ internal class AndroidEngineMethodHandler(
         override fun isLinked(): Boolean = NativeEngine.isLinked()
 
         override fun capabilities(): String? = NativeEngine.capabilities()
+
+        override fun readPersistedNetworkSettings(configPath: String): String? =
+            NativeEngine.networkSettings(configPath, """{"command":"get"}""")
+
+        override fun readPersistedScenarios(configPath: String): String? =
+            NativeEngine.scenarioCommand(
+                configPath,
+                """{"request":{"action":"list"},"phase":"unknown","available":false,"session_id":"","vpn_authorized":false}""",
+            )
 
         override fun isReady(): Boolean = NativeEngine.isReady()
 
@@ -403,7 +420,28 @@ internal class AndroidEngineMethodHandler(
             }
 
             "scenarioCommand" -> {
-                controlClient.requestScenarios(flutterValueToJson(call.arguments), result)
+                val request = flutterValueToJson(call.arguments)
+                val passive = runCatching { ScenarioFields.action(request) == "list" }.getOrDefault(false)
+                controlClient.requestScenarios(
+                    request,
+                    if (passive) persistedReadFallback(result, scenario = true) else result,
+                )
+            }
+
+            "beginControlOperation" -> {
+                controlClient.beginControlOperation(result)
+            }
+
+            "endControlOperation" -> {
+                val token = call.argument<String>("owner_token")
+                if (token == null ||
+                    runCatching { UUID.fromString(token).toString() == token }.getOrDefault(false).not()
+                ) {
+                    result.error("INVALID_ARGUMENT", "The control owner token is invalid.", null)
+                } else {
+                    controlClient.endControlOperation(token)
+                    result.success(null)
+                }
             }
 
             "saveNetworkSettings", "getNetworkSettingsState" -> {
@@ -413,7 +451,16 @@ internal class AndroidEngineMethodHandler(
                     } else {
                         null
                     }
-                controlClient.requestNetworkSettings(request, result)
+                controlClient.requestNetworkSettings(
+                    request,
+                    if (request ==
+                        null
+                    ) {
+                        persistedReadFallback(result, scenario = false)
+                    } else {
+                        result
+                    },
+                )
             }
 
             "getCapabilities" -> {
@@ -613,7 +660,25 @@ internal class AndroidEngineMethodHandler(
             }
 
             "platformPreferences" -> {
-                result.success(activityCommands.platformPreferences())
+                try {
+                    result.success(activityCommands.platformPreferences())
+                } catch (_: Exception) {
+                    result.error("RECENTS_SETTINGS_FAILED", "UI preferences could not be confirmed.", null)
+                }
+            }
+
+            "setHideFromRecents" -> {
+                val enabled = (call.arguments as? Map<*, *>)?.get("enabled") as? Boolean
+                if (enabled == null) {
+                    result.error("INVALID_ARGUMENT", "The recent tasks setting is malformed.", null)
+                } else {
+                    try {
+                        activityCommands.setHideFromRecents(enabled)
+                        result.success(null)
+                    } catch (_: Exception) {
+                        result.error("RECENTS_SETTINGS_FAILED", "The recent tasks setting could not be saved.", null)
+                    }
+                }
             }
 
             "setStartOnBoot" -> {
@@ -847,7 +912,12 @@ internal class AndroidEngineMethodHandler(
                 mainScheduler.post {
                     if (!controlClient.takeClaimedClearAll(result)) return@post
                     controlClient.resetAfterClear()
-                    result.success(null)
+                    try {
+                        activityCommands.restoreRecentsVisibility()
+                        result.success(null)
+                    } catch (_: Exception) {
+                        result.error("CLEAR_ALL_FAILED", "The recent tasks setting could not be reset.", null)
+                    }
                 }
             } catch (error: Exception) {
                 mainScheduler.post {
@@ -1686,6 +1756,60 @@ internal class AndroidEngineMethodHandler(
         }
         @Suppress("UNCHECKED_CAST")
         return raw as Map<String, Any?>
+    }
+
+    private fun persistedReadFallback(
+        result: MethodChannel.Result,
+        scenario: Boolean,
+    ): MethodChannel.Result {
+        val generation = dataGeneration.get()
+        return object : MethodChannel.Result {
+            override fun success(value: Any?) = result.success(value)
+
+            override fun notImplemented() = result.notImplemented()
+
+            override fun error(
+                code: String,
+                message: String?,
+                details: Any?,
+            ) {
+                if (code != "CONTROL_SERVICE_INACTIVE") {
+                    result.error(code, message, details)
+                    return
+                }
+                identityExecutor.execute {
+                    val read =
+                        runCatching {
+                            check(generation == dataGeneration.get() && !controlClient.isClosed)
+                            if (scenario) {
+                                ScenarioFields.persistedOnly(
+                                    requireNotNull(engineBridge.readPersistedScenarios(profileConfigPath)),
+                                )
+                            } else {
+                                NetworkSettingsFields.persistedOnly(
+                                    requireNotNull(engineBridge.readPersistedNetworkSettings(profileConfigPath)),
+                                )
+                            }
+                        }
+                    mainScheduler.post {
+                        if (generation != dataGeneration.get() || controlClient.isClosed) {
+                            result.error("ENGINE_REQUEST_CANCELLED", "The configuration read was retired.", null)
+                        } else {
+                            read.fold(
+                                onSuccess = result::success,
+                                onFailure = {
+                                    result.error(
+                                        if (scenario) "SCENARIO_UNCONFIRMED" else "NETWORK_SETTINGS_UNCONFIRMED",
+                                        "Saved configuration could not be read.",
+                                        null,
+                                    )
+                                },
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 
     private fun clearAllData(

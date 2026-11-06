@@ -76,26 +76,45 @@ void main() {
     }
   });
 
-  testWidgets('the only account cannot be deleted and actions name renames', (
-    tester,
-  ) async {
-    final app = await _accounts(tester, second: false);
-    final delete = find.byKey(
-      ValueKey('profile-delete-${UsqueProfile.defaultProfileId}'),
-    );
-    expect(tester.widget<IconButton>(delete).onPressed, isNull);
-    expect(find.byTooltip(app.strings.get('profile_required')), findsOneWidget);
-    expect(find.byTooltip('Rename account'), findsOneWidget);
-    expect(find.byTooltip('Edit'), findsNothing);
-    // Touch screens show no tooltips, so the actions carry visible labels.
-    expect(
-      find.descendant(
-        of: find.byTooltip('Rename account'),
-        matching: find.text('Rename'),
-      ),
-      findsOneWidget,
-    );
-  });
+  testWidgets(
+    'wide account rows keep one inline action and label the rest in a menu',
+    (tester) async {
+      final app = await _accounts(tester, second: false);
+      // The only account is selected, so nothing is inline and delete is
+      // never an icon-only control.
+      expect(find.text('Set active'), findsNothing);
+      expect(find.text('Rename'), findsNothing);
+      expect(find.byIcon(LucideIcons.trash2), findsNothing);
+      await tester.tap(
+        find.byKey(ValueKey('profile-menu-${UsqueProfile.defaultProfileId}')),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text(app.strings.get('edit_profile')), findsOneWidget);
+      final delete = tester.widget<PopupMenuItem<String>>(
+        find.byKey(
+          ValueKey('profile-menu-delete-${UsqueProfile.defaultProfileId}'),
+        ),
+      );
+      expect(delete.enabled, isFalse);
+      expect(find.text(app.strings.get('profile_required')), findsOneWidget);
+      // Delete comes last, after a divider.
+      expect(find.byType(PopupMenuDivider), findsOneWidget);
+      expect(
+        tester.getTopLeft(find.byType(PopupMenuDivider)).dy,
+        lessThan(
+          tester
+              .getTopLeft(
+                find.byKey(
+                  ValueKey(
+                    'profile-menu-delete-${UsqueProfile.defaultProfileId}',
+                  ),
+                ),
+              )
+              .dy,
+        ),
+      );
+    },
+  );
 
   testWidgets(
     'narrow account rows keep the switch visible and label the rest in a menu',

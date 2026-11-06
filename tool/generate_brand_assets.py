@@ -1,7 +1,8 @@
 """Generate deterministic platform assets from the user-supplied Usque icon.
 
 This intentionally uses Pillow rather than an image model: alpha edges, exact
-dimensions, and repeatability matter for application packaging.
+dimensions, and repeatability matter for application packaging. README banners
+and screenshots are rendered from the app instead: tool/dev.sh readme-assets.
 """
 
 from __future__ import annotations
@@ -205,58 +206,6 @@ def save_flutter_ui_icon(source: Image.Image, dark: Image.Image) -> None:
     resize(dark, 256).save(destination.with_name("usque-ui-icon-dark.png"), optimize=True)
 
 
-def save_readme_banner(source: Image.Image) -> None:
-    width, height = 1600, 500
-    banner = Image.new("RGB", (width, height), "white")
-    draw = ImageDraw.Draw(banner)
-    draw.ellipse((-220, -330, 640, 530), fill="#FFF3E8")
-    draw.ellipse((1320, 250, 1770, 700), fill="#FFF8F2")
-    icon = resize(source, 330)
-    banner.paste(icon, (120, 85), icon)
-    title_font = ImageFont.truetype(
-        r"C:\Windows\Fonts\segoeuib.ttf",
-        112,
-    )
-    subtitle_font = ImageFont.truetype(
-        r"C:\Windows\Fonts\segoeui.ttf",
-        34,
-    )
-    detail_font = ImageFont.truetype(
-        r"C:\Windows\Fonts\segoeui.ttf",
-        28,
-    )
-    draw.text((520, 115), "Usque", fill=ORANGE, font=title_font)
-    draw.text(
-        (528, 265),
-        "Unofficial client compatible with Cloudflare® WARP® services",
-        fill=INK,
-        font=subtitle_font,
-    )
-    draw.text(
-        (530, 333),
-        "Native Flutter interface · Rust networking core",
-        fill="#66615E",
-        font=detail_font,
-    )
-    attribution_font = ImageFont.truetype(r"C:\Windows\Fonts\segoeui.ttf", 17)
-    draw.text(
-        (530, 400),
-        "Cloudflare and WARP are trademarks and/or registered trademarks of",
-        fill="#66615E",
-        font=attribution_font,
-    )
-    draw.text(
-        (530, 428),
-        "Cloudflare, Inc. in the United States and other jurisdictions.",
-        fill="#66615E",
-        font=attribution_font,
-    )
-    banner.save(
-        ROOT / "assets" / "branding" / "usque-readme-banner.png",
-        optimize=True,
-    )
-
-
 def main() -> None:
     source = Image.open(SOURCE).convert("RGBA")
     if source.size[0] != source.size[1]:
@@ -271,7 +220,6 @@ def main() -> None:
     save_windows(source)
     save_distribution_icons(source)
     save_flutter_ui_icon(source, dark_logo(source, mask))
-    save_readme_banner(source)
 
 
 if __name__ == "__main__":

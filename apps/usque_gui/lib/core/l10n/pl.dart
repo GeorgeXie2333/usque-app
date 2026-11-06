@@ -36,20 +36,20 @@ const Map<String, String> kPlCatalog = <String, String>{
   'window_restore': 'Przywróć rozmiar okna',
   'window_close': 'Zamknij',
   'tray_open': 'Otwórz Usque',
-  'tray_connect_profile': 'Połącz aktywne konto',
-  'tray_disconnect_profile': 'Rozłącz aktywne konto',
+  'tray_connect_profile': 'Połącz bieżące konto',
+  'tray_disconnect_profile': 'Rozłącz bieżące konto',
   'tray_disconnect_exit': 'Rozłącz i zakończ',
   'notice_connection_interrupted':
       'Połączenie zostało przerwane. Usque próbuje je przywrócić.',
   'notice_connection_failed':
-      'Usque nie mógł utrzymać połączenia. Otwórz Usque, aby zobaczyć szczegóły.',
+      'Usque nie mogło utrzymać połączenia. Otwórz Usque, aby zobaczyć szczegóły.',
   'notice_connection_restored': 'Połączenie zostało przywrócone.',
   'notice_kill_switch_blocking':
       'Kill Switch blokuje ruch sieciowy do czasu przywrócenia połączenia lub rozłączenia.',
   'connection_status': 'Stan połączenia',
   'home': 'Główna',
-  'profiles': 'Konta',
-  'profiles_subtitle': 'Przełączanie i zarządzanie kontami WARP.',
+  'profiles': 'Profile',
+  'profiles_subtitle': 'Zapisuj scenariusze i zarządzaj kontami.',
   'proxy': 'Proxy',
   'proxy_subtitle':
       'Skonfiguruj wspólne adresy nasłuchiwania i uwierzytelnianie proxy.',
@@ -57,7 +57,7 @@ const Map<String, String> kPlCatalog = <String, String>{
   'settings_subtitle': 'Ustawienia połączenia, proxy i aplikacji.',
   'diagnostics': 'Diagnostyka',
   'nav_home': 'Główna',
-  'nav_profiles': 'Konta',
+  'nav_profiles': 'Profile',
   'nav_proxy': 'Proxy',
   'nav_settings': 'Opcje',
   'status_stream_degraded': 'Aktualizacje stanu są opóźnione',
@@ -76,7 +76,7 @@ const Map<String, String> kPlCatalog = <String, String>{
   'error': 'Błąd połączenia',
   'active_profile': 'Bieżące konto',
   'protocol': 'Protokół',
-  'address_family': 'Rodzina adresów',
+  'address_family': 'Wersja IP',
   'duration': 'Czas',
   'download': 'Pobieranie',
   'upload': 'Wysyłanie',
@@ -144,21 +144,21 @@ const Map<String, String> kPlCatalog = <String, String>{
   "zero_trust_reauth_endpoints":
       "Ponowne logowanie przywraca zarejestrowane adresy i usuwa adresy niestandardowe.",
   'experimental': 'Eksperymentalne',
-  'show_license': 'Pokaż License Key',
-  'hide_license': 'Ukryj License Key',
-  'license_copied': 'Skopiowano License Key',
-  'warp_secret_saved': 'Zapisano WARP Secret',
+  'show_license': 'Pokaż klucz licencyjny',
+  'hide_license': 'Ukryj klucz licencyjny',
+  'license_copied': 'Skopiowano klucz licencyjny',
+  'warp_secret_saved': 'Dane logowania WARP zapisano w',
   'create': 'Utwórz',
   'cancel': 'Anuluj',
   'active': 'Aktywny',
-  'set_active': 'Ustaw aktywny',
+  'set_active': 'Ustaw jako aktywne',
   'switch_account_reconnect_body':
       'Bieżące połączenie zostanie nawiązane ponownie z tym kontem.',
   'edit': 'Edytuj',
   'delete': 'Usuń',
   'delete_profile': 'Usunąć konto?',
   'delete_profile_body':
-      "Usunąć to konto i jego dane logowania WARP z tego urządzenia? Jeśli powiązano License Key, Usque spróbuje go też odłączyć.",
+      "Usunąć to konto i jego dane logowania WARP z tego urządzenia? Jeśli powiązano klucz licencyjny, Usque spróbuje go też odłączyć.",
   'delete_zero_trust_profile_body':
       'Usuwa konto i dane logowania z tego urządzenia. Poproś administratora o usunięcie również wpisu urządzenia z panelu Zero Trust organizacji.',
   'license_not_applicable': 'Konto organizacji · Eksperymentalne',
@@ -264,10 +264,10 @@ const Map<String, String> kPlCatalog = <String, String>{
   'identity_and_license': 'Konto i licencja',
   'license_cleanup_pending':
       'Stara rejestracja urządzenia WARP nie została jeszcze usunięta.',
-  'copy_license': 'Kopiuj License Key',
-  'change_license': 'Zmień License Key',
+  'copy_license': 'Kopiuj klucz licencyjny',
+  'change_license': 'Zmień klucz licencyjny',
   'unbind_license': 'Wróć do WARP Free',
-  'export_warp_secret': 'Eksportuj WARP Secret',
+  'export_warp_secret': 'Eksportuj dane logowania WARP',
   'close': 'Zamknij',
   'advanced': 'Zaawansowane ustawienia sieci',
   'advanced_subtitle': 'Punkty końcowe, DNS, MTU i trasowanie.',
@@ -293,11 +293,11 @@ const Map<String, String> kPlCatalog = <String, String>{
   'mtu': 'MTU',
   'dns_ipv4': 'DNS IPv4',
   'dns_ipv6': 'DNS IPv6',
-  'ip_policy': 'Wersja IP punktu końcowego',
-  'prefer_ipv4': 'Preferuj punkt końcowy IPv4',
-  'prefer_ipv6': 'Preferuj punkt końcowy IPv6',
-  'ipv4_only': 'Tylko punkt końcowy IPv4',
-  'ipv6_only': 'Tylko punkt końcowy IPv6',
+  'ip_policy': 'Preferencja IP punktu końcowego',
+  'prefer_ipv4': 'Preferuj IPv4',
+  'prefer_ipv6': 'Preferuj IPv6',
+  'ipv4_only': 'Tylko IPv4',
+  'ipv6_only': 'Tylko IPv6',
   'kill_switch': 'Kill Switch',
   'on': 'Wł.',
   'off': 'Wył.',
@@ -306,7 +306,7 @@ const Map<String, String> kPlCatalog = <String, String>{
   'ks_inactive': 'Nieaktywny',
   'ks_error': 'Błąd',
   'ks_engaging': 'Włączanie',
-  'always_on': 'Zawsze włączony VPN',
+  'always_on': 'Stały VPN',
   'lockdown': 'Blokuj bez VPN',
   'not_used_proxy': 'Nieużywane w trybie proxy',
   'kill_switch_help':
@@ -317,9 +317,9 @@ const Map<String, String> kPlCatalog = <String, String>{
       'Uruchamiaj Usque po ponownym uruchomieniu urządzenia. Aby łączyć się automatycznie, włącz też „Łącz automatycznie bieżące konto przy uruchomieniu”.',
   'add_quick_settings_tile_help':
       'Dodaj kafelek Usque w systemie Android 13 lub nowszym. W starszych wersjach dodaj go ręcznie w Szybkich ustawieniach.',
-  'always_on_vpn': 'Otwórz ustawienia Zawsze włączony VPN',
+  'always_on_vpn': 'Otwórz ustawienia „Stały VPN”',
   'always_on_vpn_help':
-      'Włącz Zawsze włączony VPN i Blokuj połączenia bez VPN, aby chronić przed wyciekami po wymuszonym zamknięciu aplikacji.',
+      'Włącz „Stały VPN” i „Blokuj połączenia bez VPN”, aby chronić przed wyciekami po wymuszonym zamknięciu aplikacji.',
   'per_app_proxy': 'Proxy według aplikacji',
   'per_app_proxy_off': 'Wszystkie aplikacje korzystają z VPN',
   'per_app_proxy_on': 'Proxy dla {count} aplikacji',
@@ -327,7 +327,7 @@ const Map<String, String> kPlCatalog = <String, String>{
   'per_app_proxy_help':
       'Tylko zaznaczone aplikacje korzystają z VPN. Nowo zainstalowane aplikacje trzeba zaznaczyć, zanim zaczną z niego korzystać.',
   'per_app_proxy_lockdown_help':
-      'Jeśli włączone są Zawsze włączony VPN i Blokuj połączenia bez VPN, niewybrane aplikacje są blokowane, a nie wysyłane poza tunel.',
+      'Jeśli włączone są opcje „Stały VPN” i „Blokuj połączenia bez VPN”, niewybrane aplikacje są blokowane, a nie wysyłane poza tunel.',
   'per_app_proxy_tunnel_hint':
       'Działa, gdy VPN jest włączony. Proxy SOCKS5 i HTTP nie filtrują ruchu według aplikacji.',
   'per_app_search': 'Szukaj aplikacji',
@@ -356,7 +356,7 @@ const Map<String, String> kPlCatalog = <String, String>{
       'Sprawdzaj problemy z połączeniem, eksportuj dzienniki i zarządzaj danymi lokalnymi.',
   'engine_status': 'Informacje o połączeniu',
   'version': 'Wersja',
-  'app_version': 'Usque 0.3.3',
+  'app_version': 'Usque 0.3.4',
   'logs': 'Dzienniki lokalne',
   'export_diagnostics': 'Eksportuj pakiet diagnostyczny',
   'diagnostics_saved': 'Pakiet diagnostyczny zapisano w',
@@ -404,7 +404,8 @@ const Map<String, String> kPlCatalog = <String, String>{
   'bypass_countries': 'Kraje / regiony',
   'bypass_targets_hint':
       'Jeden CIDR, IP lub domena w wierszu. Obejmuje wszystkie subdomeny. Aplikacje z własnym szyfrowanym DNS są rozpoznawane tylko po IP.',
-  'bypass_unsupported': 'Ten silnik nie obsługuje własnych celów omijania.',
+  'bypass_unsupported':
+      'Ta wersja Usque nie obsługuje własnych celów omijania. Sprawdź aktualizacje w Ustawieniach.',
   'bypass_limit': 'Maksymalnie 256 reguł adresów i 256 domen.',
   'bypass_line_error': 'Wiersz {line}: {reason}',
   'bypass_summary': 'Regiony: {countries} · Własne cele: {targets}',
@@ -437,7 +438,7 @@ const Map<String, String> kPlCatalog = <String, String>{
       'Kody błędów, etapy połączenia, czasy, statystyki ruchu i stan funkcji',
   'diag_export_excluded': 'Nie zawiera:',
   'diag_export_excluded_body':
-      'Klucze, tokeny, nazwy profili, pełne adresy, SSID, listy aplikacji i ścieżki użytkownika',
+      'Klucze, tokeny, nazwy kont, pełne adresy, SSID, listy aplikacji i ścieżki użytkownika',
   'diag_export_local_only':
       'Archiwum jest zapisywane tylko w wybranym miejscu i nigdy nie jest wysyłane automatycznie.',
   'diag_run_title': 'Uruchom diagnostykę sieci',
@@ -563,7 +564,7 @@ const Map<String, String> kPlCatalog = <String, String>{
   'diag_fail_ALL_TRANSPORTS_FAILED':
       'HTTP/3 i HTTP/2 zakończyły się niepowodzeniem',
   'diag_fail_ENDPOINT_PIN_MISMATCH': 'Niezgodność pinu punktu końcowego',
-  'diag_fail_IDENTITY_INVALID': 'Tożsamość nieprawidłowa',
+  'diag_fail_IDENTITY_INVALID': 'Konto WARP nieprawidłowe',
   'diag_fail_AUTHENTICATION_FAILED': 'Uwierzytelnianie nie powiodło się',
   'diag_fail_CONFIGURATION_INVALID': 'Konfiguracja nieprawidłowa',
   'diag_fail_CONNECT_IP_REJECTED': 'CONNECT-IP odrzucony',
@@ -600,15 +601,15 @@ const Map<String, String> kPlCatalog = <String, String>{
   'diag_fix_try_http2':
       'W Ustawienia → Zaawansowane ustawienia sieci wybierz HTTP/2, zastosuj zmianę i spróbuj połączyć się ponownie.',
   'diag_fix_check_physical_network':
-      'Sprawdź, czy Wi-Fi lub sieć komórkowa działa, i ponów połączenie.',
+      'Sprawdź, czy Wi-Fi lub sieć komórkowa działa bez Usque, i ponów połączenie.',
   'diag_fix_refresh_or_replace_identity':
-      'W Konta wybierz Skonfiguruj konto WARP dla tego konta. Zaloguj się ponownie lub utwórz konto WARP, a potem połącz się.',
+      'Otwórz Konta i wybierz „Skonfiguruj konto WARP” dla tego konta. Zaloguj się ponownie lub utwórz nowe konto WARP, a potem połącz się ponownie.',
   'diag_fix_replace_identity':
-      'W Konta → Skonfiguruj konto WARP zaloguj się ponownie lub zaimportuj prawidłowe dane logowania WARP.',
+      'Otwórz Konta i użyj „Skonfiguruj konto WARP”, aby zalogować się ponownie lub zaimportować prawidłowe dane logowania WARP.',
   'diag_fix_review_configuration':
       'W Ustawienia → Zaawansowane ustawienia sieci popraw zaznaczone pola i zastosuj zmiany.',
   'diag_fix_restore_platform_state':
-      'Całkowicie zamknij Usque i otwórz ponownie. Jeśli problem pozostanie, wyeksportuj pakiet w Diagnostyce, aby uzyskać pomoc.',
+      'Całkowicie zamknij Usque, otwórz ponownie i spróbuj jeszcze raz. Jeśli problem pozostanie, otwórz Diagnostykę i wyeksportuj pakiet diagnostyczny, aby uzyskać pomoc.',
   'diag_fix_resolve_dependency':
       'Najpierw rozwiąż problemy z nieudanymi kontrolami na liście, a następnie uruchom diagnostykę ponownie.',
   'diag_fix_run_deep_diagnostics':
@@ -616,7 +617,7 @@ const Map<String, String> kPlCatalog = <String, String>{
   'diag_fix_run_release_leak_gate':
       'Wyeksportuj pakiet diagnostyczny i wyślij go do pomocy technicznej. Wrażliwe dane są usuwane.',
   'diag_fix_inspect_platform_state':
-      'W Diagnostyce sprawdź błędy w Ochronie systemu. Jeśli nie znikną, wyeksportuj pakiet diagnostyczny, aby uzyskać pomoc.',
+      'Otwórz Diagnostykę i sprawdź kontrole w sekcji Ochrona systemu. Jeśli nadal się nie powiodą, wyeksportuj pakiet diagnostyczny, aby uzyskać pomoc.',
   'diag_fix_generate_tunnel_traffic':
       'Otwórz stronę przez Usque i powtórz kontrolę.',
   'diag_fix_export_diagnostics':
@@ -624,7 +625,7 @@ const Map<String, String> kPlCatalog = <String, String>{
   'diag_fix_retry': 'Spróbuj ponownie za chwilę.',
   'diag_fix_none': 'Nie jest wymagane żadne działanie.',
   'diag_fix_default':
-      'Spróbuj ponownie. Jeśli problem pozostanie, otwórz Diagnostykę i wyeksportuj pakiet, aby uzyskać pomoc.',
+      'Spróbuj ponownie. Jeśli problem pozostanie, otwórz Diagnostykę i wyeksportuj pakiet diagnostyczny, aby uzyskać pomoc.',
   'diag_event_attempt_started': 'Rozpoczęto próbę połączenia',
   'diag_event_endpoint_resolved': 'Rozwiązano adres punktu końcowego',
   'diag_event_socket_connected': 'Gniazdo połączone',
@@ -650,10 +651,10 @@ const Map<String, String> kPlCatalog = <String, String>{
   'diag_event_disconnected': 'Rozłączono',
   'diag_event_failed': 'Połączenie nie powiodło się',
   'operation_failed':
-      'Nie udało się ukończyć operacji. Spróbuj ponownie; jeśli problem nadal występuje, wyeksportuj pakiet diagnostyczny dla pomocy technicznej.',
+      'Nie udało się ukończyć operacji. Spróbuj ponownie; jeśli problem nadal występuje, otwórz Diagnostykę i wyeksportuj pakiet diagnostyczny dla pomocy technicznej.',
   'operation_timeout': 'Upłynął limit czasu. Sprawdź sieć i spróbuj ponownie.',
   'accounts_reset':
-      'Nieczytelne ustawienia kont zostały zresetowane. Kopia zapasowa pozostała na urządzeniu. Skonfiguruj konto ponownie w sekcji kont.',
+      'Nie udało się odczytać zapisanych ustawień kont, więc zostały zresetowane. Kopia zapasowa pozostała na urządzeniu. Skonfiguruj konto ponownie w sekcji Konta.',
   'input_too_long_bytes':
       'Tekst jest za długi. Użyj najwyżej {count} bajtów UTF-8; niektóre znaki zajmują kilka bajtów.',
   'username_colon': 'Nazwa użytkownika nie może zawierać dwukropka (:).',
@@ -668,14 +669,14 @@ const Map<String, String> kPlCatalog = <String, String>{
   "routing_action": "Działanie",
   "routing_target": "Domena, IP lub CIDR",
   "routing_priority":
-      "Dokładniejsza reguła ma pierwszeństwo. Własne reguły zastępują Ads i kraje; blokada IP nadal obowiązuje.",
+      "Dokładniejsza reguła ma pierwszeństwo. Własne reguły zastępują blokowanie reklam i reguły krajów; reguły blokowania IP nadal obowiązują.",
   "routing_conflict": "Różne działania dla tego samego celu. Popraw te reguły.",
   "routing_overlap": "Dokładniejsza reguła zastępuje szerszą.",
   "routing_duplicate": "Duplikaty zostaną połączone przy zapisie.",
-  "routing_ads": "reklamy i śledzenie",
-  "routing_ads_ready": "Dane Ads są dostępne.",
+  "routing_ads": "Blokowanie reklam i śledzenia",
+  "routing_ads_ready": "Reguły blokowania reklam są gotowe.",
   "routing_ads_unavailable":
-      "Dane Ads są niedostępne. Połączenia i własne reguły nadal działają.",
+      "Reguły blokowania reklam są niedostępne. Połączenia i własne reguły nadal działają.",
   "routing_pending": "Pobrane reguły obowiązują po ponownym połączeniu.",
   'routing_current': "Bieżące połączenie",
 };

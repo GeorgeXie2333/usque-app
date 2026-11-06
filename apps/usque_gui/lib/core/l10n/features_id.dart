@@ -11,7 +11,7 @@ const Map<String, String> kUiWorkflowId = <String, String>{
   'home_system_proxy': 'Proksi sistem',
   'home_tun_hint': 'Menangkap lalu lintas aplikasi di perangkat ini',
   'home_system_proxy_hint':
-      'Aplikasi yang mengikuti proxy sistem memakai proxy HTTP',
+      'Aplikasi yang mengikuti proksi sistem memakai proksi HTTP',
   'home_system_proxy_requires_http':
       'Aktifkan proksi HTTP lokal terlebih dahulu.',
   'proxy_switches_hint': 'Sakelar langsung berlaku.',
@@ -35,7 +35,7 @@ const Map<String, String> kUiWorkflowId = <String, String>{
   'keep_editing': 'Lanjutkan mengedit',
   'discard_changes': 'Buang perubahan',
   'invalid_port': 'Masukkan port dari 1 sampai 65535.',
-  'listener_exposure': 'Alamat listener mengizinkan akses LAN',
+  'listener_exposure': 'Alamat pendengar mengizinkan akses LAN',
   'invalid_ipv4': 'Masukkan alamat IPv4 yang valid, misalnya 127.0.0.1.',
   'invalid_ipv6': 'Masukkan alamat IPv6 yang valid, misalnya ::1.',
   'output_running': 'Berjalan',
@@ -47,7 +47,8 @@ const Map<String, String> kUiWorkflowId = <String, String>{
   'output_degraded': 'Terbatas',
   'output_error': 'Kesalahan',
   'output_unknown': 'Status tidak tersedia',
-  'shared_network_scope': 'Setelan jaringan digunakan bersama oleh semua akun.',
+  'shared_network_scope':
+      'Pengaturan jaringan digunakan bersama oleh semua akun.',
   'connection_details': 'Detail koneksi',
   'home_overview': 'Ringkasan koneksi',
   'home_exit_region': 'Wilayah keluar',
@@ -70,12 +71,13 @@ const Map<String, String> kUiWorkflowId = <String, String>{
 
 const Map<String, String> kNetworkQualityId = <String, String>{
   'nq_range': 'Rentang',
-  'nq_bytes': "Jumlah bita",
+  'nq_bytes': "Jumlah byte",
   'diag_check_quality_rtt': 'Waktu bolak-balik',
   'diag_check_quality_packet_loss': 'Kehilangan paket',
   'diag_check_quality_queue_pressure': 'Tekanan antrean',
   'diag_check_quality_pmtu': 'MTU jalur',
-  'diag_check_transport_migration_capability': 'Migrasi keluarga yang sama',
+  'diag_check_transport_migration_capability':
+      'Migrasi dalam versi IP yang sama',
   'diag_check_dns_direct_encrypted_configuration': 'Konfigurasi DNS langsung',
   'diag_check_dns_direct_encrypted_runtime_state':
       'Status berjalan DNS langsung',
@@ -162,9 +164,9 @@ const Map<String, String> kNetworkQualityId = <String, String>{
   'nq_loss_h2': 'HTTP/2 tidak menampilkan kehilangan paket yang sebanding.',
   'nq_loss_interval':
       'Diukur pada selang terakhir; bukan kehilangan sepanjang masa.',
-  'nq_congestion': 'Kemacetan',
-  'nq_cwnd': 'Jendela kemacetan',
-  'nq_in_flight': 'Bytes dalam pengiriman',
+  'nq_congestion': 'Kongesti',
+  'nq_cwnd': 'Jendela kongesti',
+  'nq_in_flight': 'Byte dalam pengiriman',
   'nq_send_rate': 'Laju pengiriman',
   'nq_h2_window': 'Jendela terima HTTP/2',
   'nq_stream_window': "Jendela aliran",
@@ -191,7 +193,7 @@ const Map<String, String> kNetworkQualityId = <String, String>{
   'nq_timeouts': 'Habis waktu',
   'nq_last_rtt': 'RTT terakhir',
   'nq_dns_redacted':
-      'Nama server DNS dan alamat IP hanya ditampilkan di Setelan.',
+      'Nama server DNS dan alamat IP hanya ditampilkan di Pengaturan.',
   'nq_queues': 'Tekanan antrean',
   'nq_queue_details': 'Antrean tingkat rendah',
   'nq_queue_empty': 'Belum ada pengukuran antrean.',
@@ -259,7 +261,7 @@ const Map<String, String> kNetworkQualityId = <String, String>{
   'nq_dns_system_privacy':
       'Penyedia DNS jaringan saat ini mungkin melihat domain yang diminta oleh lalu lintas langsung.',
   'nq_dns_scope':
-      'Untuk aturan bypass negara dan domain khusus. DNS lalu lintas VPN tidak berubah.',
+      'Untuk aturan langsung berdasarkan negara dan domain khusus. DNS lalu lintas VPN tidak berubah.',
   'nq_dns_no_capability':
       'Perbarui Usque untuk memakai DNS terenkripsi pada koneksi langsung. Pengaturan disimpan. Anda dapat memilih DNS jaringan saat ini jika menerima dampak privasinya.',
   'nq_dns_invalid_name':
@@ -287,7 +289,7 @@ const Map<String, String> kWindowsRecoveryId = <String, String>{
   'WINDOWS_RECOVERY_EXHAUSTED':
       'Windows tidak dapat memulihkan status jaringan VPN sebelumnya setelah tiga percobaan otomatis. Coba lagi saat siap, atau tinjau diagnostik lokal.',
   'WINDOWS_RECOVERY_BLOCKED':
-      'Perbaikan otomatis dihentikan karena pemulihan pengaturan VPN sebelumnya tidak dapat dipastikan aman. Periksa pembaruan di Pengaturan; jika berlanjut, ekspor paket dari Diagnostik.',
+      'Usque menghentikan perbaikan otomatis karena tidak dapat memastikan pengaturan VPN sebelumnya aman untuk dipulihkan. Buka Pengaturan dan periksa pembaruan; jika masalah berlanjut, buka Diagnostik dan ekspor bundel diagnostik.',
   'WINDOWS_RECOVERY_TIMEOUT':
       'Pemulihan jaringan Windows memakan waktu lebih lama dari yang diharapkan. Koneksi VPN baru belum dimulai. Tunggu pemulihan selesai sebelum mencoba lagi.',
   'WINDOWS_RECOVERY_CONFLICT':
@@ -314,8 +316,8 @@ const Map<String, String> kL4Id = <String, String>{
   'l4_sni_identity':
       'Diatur otomatis oleh akun. Nama server mode koneksi lain tetap disimpan.',
   'l4_edge_requires_l4':
-      'Koneksi ini tidak dapat meresolusi nama di server proxy. Pilih opsi DNS lain.',
-  'proxy_dns_edge_resolved': 'Resolusi nama di server proxy',
+      'Koneksi ini tidak dapat meresolusi nama di server proksi. Pilih opsi DNS lain.',
+  'proxy_dns_edge_resolved': 'Resolusi nama di server proksi',
   'l4_verified': 'L4 telah berhasil membuat koneksi aplikasi',
   'l4_unverified': 'Server terhubung; koneksi aplikasi belum dikonfirmasi',
   'l4_status_unknown': 'Status koneksi aplikasi belum dapat dipastikan',
@@ -353,9 +355,9 @@ const Map<String, String> kNetworkSettingsId = <String, String>{
 const Map<String, String> kChainId = <String, String>{
   'invalid_endpoint':
       'Masukkan alamat server yang valid dan port dari 1 sampai 65535.',
-  'missing_configuration': 'Masukkan alamat dan port server proxy.',
+  'missing_configuration': 'Masukkan alamat dan port server proksi.',
   'source_mismatch':
-      'Gunakan konfigurasi yang sesuai dengan jenis jalur keluar yang dipilih.',
+      'Gunakan konfigurasi yang sesuai dengan sumber pintu keluar yang dipilih.',
   'invalid_dns': 'Periksa alamat server DNS dan mode DNS yang dipilih.',
   'unexpected_credentials':
       'Aktifkan autentikasi nama pengguna dan kata sandi atau hapus kredensial.',
@@ -366,13 +368,13 @@ const Map<String, String> kChainId = <String, String>{
   "dns_doh": "DNS terenkripsi · Cloudflare",
   "dns_tcp": "DNS melalui TCP",
   "dns_auto_hint":
-      "Mode otomatis memakai DoH melalui keluaran ini; DNS khusus memakai TCP. Kegagalan DoH tidak melewati keluaran ini.",
+      "Mode otomatis memakai DoH melalui pintu keluar ini; DNS khusus memakai TCP. Jika DoH gagal, kueri tetap melalui pintu keluar ini.",
 
   "add_proxy": "Tambah proksi",
   "proxy_hint":
       "Terhubung melalui WARP. HTTP membawa TCP; SOCKS5 juga dapat membawa UDP dengan H3/H2.",
   "dns_inherit":
-      "Kosongkan untuk memakai DNS jaringan. Kueri melalui jalur keluar ini.",
+      "Kosongkan untuk memakai DNS jaringan. Kueri melalui pintu keluar ini.",
   "scope_proxy_only":
       "Usque hanya memproksikan koneksi yang dikirim aplikasi kepadanya. Koneksi lain dapat mengungkap alamat IP publik Anda.",
   "scope_bypass":
@@ -380,7 +382,7 @@ const Map<String, String> kChainId = <String, String>{
   "scope_interrupted":
       "Koneksi terputus. Perangkat Anda mungkin kembali ke koneksi jaringan biasa.",
   "scope_android_settings":
-      "Untuk tetap memblokir setelah layanan berhenti, aktifkan VPN selalu aktif dan Blokir koneksi tanpa VPN di setelan sistem.",
+      "Untuk tetap memblokir setelah layanan berhenti, aktifkan “VPN selalu aktif” dan “Memblokir koneksi tanpa VPN” di setelan sistem.",
 
   "batch_title": "Impor konfigurasi",
   "batch_counts":
@@ -397,39 +399,37 @@ const Map<String, String> kChainId = <String, String>{
   "file_count_limit": "Pilih maksimal 128 berkas sekaligus.",
   'duplicate_directive': 'Direktif ini hanya boleh muncul sekali.',
   'mixed_protocols':
-      'Semua titik akhir remote harus memakai angkutan TCP atau UDP yang sama.',
+      'Semua endpoint remote harus memakai transport TCP atau UDP yang sama.',
   'conflicting_protocol':
-      'Nilai remote bertentangan dengan pengaturan angkutan global.',
-  'too_many_endpoints': 'Gunakan paling banyak 16 titik akhir remote.',
+      'Nilai remote bertentangan dengan pengaturan transport global.',
+  'too_many_endpoints': 'Gunakan paling banyak 16 endpoint remote.',
   'conflicting_authentication':
       'CLIENT_CERT bertentangan dengan sertifikat tersemat atau mode autentikasi.',
-  'serialized_size_limit':
-      'Catatan terenkripsi akan melampaui batas ukuran penyimpanan.',
+  'serialized_size_limit': 'Konfigurasi terlalu besar untuk disimpan.',
   'multi_endpoint_unavailable':
-      'Perbarui mesin untuk memakai konfigurasi dengan beberapa titik akhir.',
-  'candidates': 'Titik akhir awal',
-  'random_order':
-      'Titik akhir dicoba dalam urutan acak baru pada setiap koneksi.',
-  'file_order': 'Titik akhir dicoba sesuai urutan berkas.',
-  'attempting': 'Titik akhir yang dicoba',
-  'actual_endpoint': 'Titik akhir yang terhubung',
+      'Konfigurasi ini berisi beberapa server. Perbarui Usque untuk menggunakannya.',
+  'candidates': 'Server untuk dicoba',
+  'random_order': 'Setiap koneksi mencoba server ini dalam urutan acak baru.',
+  'file_order': 'Setiap koneksi mencoba server ini sesuai urutan dalam daftar.',
+  'attempting': 'Mencoba server',
+  'actual_endpoint': 'Server terhubung',
   'attempt_failures': 'Percobaan yang gagal',
-  'failure_transport': 'angkutan tertutup',
-  'failure_authentication': 'autentikasi',
-  'failure_certificate': 'sertifikat',
-  'failure_configuration': 'konfigurasi',
-  'failure_address_changed': 'alamat berubah',
-  'failure_protocol': 'protokol',
-  'failure_cleanup': 'pembersihan',
-  'failure_reason': 'Kegagalan: {reason}.',
+  'failure_transport': 'koneksi terputus',
+  'failure_authentication': 'autentikasi gagal',
+  'failure_certificate': 'sertifikat ditolak',
+  'failure_configuration': 'konfigurasi tidak valid',
+  'failure_address_changed': 'alamat server berubah',
+  'failure_protocol': 'kesalahan protokol',
+  'failure_cleanup': 'pembersihan gagal',
+  'failure_reason': 'Alasan: {reason}.',
   'dns_fallback': 'DNS terowongan (OpenVPN dapat menegosiasikan DNS)',
   'dns_unavailable_title': 'Tidak ada DNS lewat pintu keluar ini',
   'dns_unavailable':
-      'Tidak ada peladen DNS yang dapat dijangkau lewat pintu keluar ini. Gunakan alamat IP atau pilih pintu keluar lain dengan DNS yang dapat dijangkau.',
+      'Tidak ada server DNS yang dapat dijangkau lewat pintu keluar ini. Gunakan alamat IP atau pilih pintu keluar lain dengan DNS yang dapat dijangkau.',
   'authentication_failed':
       'Autentikasi gagal. Perbarui kredensial sebelum menghubungkan lagi.',
   'profile_limit': 'Pustaka konfigurasi penuh (128 konfigurasi).',
-  'metadata_limit': 'Metadata pustaka konfigurasi sudah penuh.',
+  'metadata_limit': 'Pustaka konfigurasi tidak punya ruang untuk entri baru.',
   'title': 'Proksi berantai',
   'subtitle': 'Pilih pintu keluar yang dicapai melalui WARP.',
   'source': 'Sumber pintu keluar',
@@ -439,7 +439,7 @@ const Map<String, String> kChainId = <String, String>{
   'profiles': 'Konfigurasi tersimpan',
   'empty': 'Impor konfigurasi untuk memilih pintu keluar.',
   'empty_hint_openvpn':
-      'Impor berkas .ovpn atau tempel teksnya. Titik akhir TCP dan UDP, sertifikat tersemat, serta nama pengguna/kata sandi didukung.',
+      'Impor berkas .ovpn atau tempel teksnya. Endpoint TCP dan UDP, sertifikat tersemat, serta nama pengguna/kata sandi didukung.',
   'empty_hint_wireguard':
       'Impor berkas .conf atau tempel teksnya. Satu bagian [Interface] dan satu [Peer] didukung.',
   'import_limits':
@@ -485,12 +485,12 @@ const Map<String, String> kChainId = <String, String>{
   'unsupported':
       'Versi Usque ini tidak dapat menggunakan sumber pintu keluar ini. Periksa pembaruan di Pengaturan.',
   'scope':
-      'Aturan langsung eksplisit yang sudah ada tetap berlaku. Lalu lintas lain memakai pintu keluar yang dipilih.',
+      'Aturan koneksi langsung Anda tetap berlaku. Semua lalu lintas lain melalui pintu keluar yang dipilih.',
   'allowed': 'Tujuan yang diizinkan',
   'dns': 'DNS',
   'addresses': 'Alamat terowongan',
-  'address_family': 'Keluarga alamat',
-  'transport': 'Angkutan',
+  'address_family': 'Versi IP',
+  'transport': 'Protokol transport',
   'endpoint': 'Peladen',
   'restricted': 'Tujuan di luar AllowedIPs diblokir pada jalur proksi.',
   'delete_confirm':
@@ -499,7 +499,7 @@ const Map<String, String> kChainId = <String, String>{
       'Pilih konfigurasi lain atau hapus pilihan tersimpan sebelum menghapus konfigurasi ini.',
   'stale_revision': 'Konfigurasi berubah. Segarkan daftar, lalu coba lagi.',
   'secure_storage_failed':
-      'Konfigurasi terenkripsi tidak dapat dibaca atau disimpan.',
+      'Konfigurasi tersimpan tidak dapat dibaca atau ditulis.',
   'invalid_configuration':
       'Konfigurasi tidak valid atau berisi opsi yang tidak didukung.',
   'looks_like_wireguard':
@@ -529,11 +529,11 @@ const Map<String, String> kChainId = <String, String>{
   "delete_blocked": "Dipilih atau sedang digunakan",
   "save_select": "Simpan dan pilih",
   "switch_source": "Beralih ke {source}",
-  "empty_proxy": "Tambahkan proksi untuk memilih jalur keluar.",
+  "empty_proxy": "Tambahkan proksi untuk memilih pintu keluar.",
   "tcp_forwarding": "Penerusan TCP",
   "verified": "Terverifikasi",
   "not_verified": "Belum diverifikasi",
   "unavailable": "Tidak tersedia",
   "udp_association":
-      "Asosiasi diterima; penerusan ujung ke ujung belum diverifikasi",
+      "Relai UDP diterima; penerusan ujung ke ujung belum diverifikasi",
 };

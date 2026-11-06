@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "status": "standalone_fixture_without_sdk_or_application_validation",
+  "flutter_version": "3.44.7",
+  "framework_commit": "84fc5cbb223bc12f83d65b647ff8a56caf779ffd",
+  "engine_commit": "69c8c61792f04cc809dfef0c910414fb9afc06cd",
+  "upstream_base_url": "https://github.com/flutter/flutter/tree/69c8c61792f04cc809dfef0c910414fb9afc06cd/engine/src/flutter/shell/platform/windows",
+  "source_encoding": "UTF-8; frozen bytes canonical LF, guarded by .gitattributes and strict SHA-256",
+  "source_provenance": {
+    "windows_crlf_cc_sha256": "5662571a16f58ad4d64e0f7184bc24a23a3020f7f42d0405ee75294f89e7291d",
+    "windows_crlf_cc_pdb_c13_md5": "a31643c4b01f9ab26eac2fca588b1e65",
+    "canonical_lf_cc_git_blob": "08b69a6d20f6aba48995a4ed6a7c9814c27d6b5d",
+    "flutter_pdb_guid": "744DBB46-9E16-4A5E-AD7E-FD90F5780655",
+    "flutter_pdb_age": 1,
+    "normalization": "Only CRLF to LF; the original Windows file MD5 matched PDB C13 before normalization."
+  },
+  "candidate_changes": [
+    "Includes the earlier-deadline notification fix from official Flutter PR 193181 (nonpredicate wait and future-deadline check).",
+    "Consumes expiry under the mutex before releasing it for a callback, retaining future requests made during that callback.",
+    "Invokes a local callback copy so Stop can clear the member while waiting for the invocation to finish.",
+    "Removes the obsolete schedule counter from ScheduleAt, TimerThreadMain and the declaration."
+  ],
+  "validation_contract": {
+    "original_expiry_expected_contract_failures": 3,
+    "original_notification_expected_contract_failures": 2,
+    "candidate_cases": 10,
+    "engine_gn_gtest_and_dll_integration": "not_run"
+  },
+  "sha256": {
+    "upstream/task_runner_window.cc": "faf6a1fef6415cb35dad6b384d35331ec10660352b2177b5026266024dd1a8a7",
+    "upstream/task_runner_window.h": "89b1c9a9e7d86d4f1368872ebc9eb0a49bc0d22ede2ff25d41d5d7aaf7ad7e34",
+    "LICENSE.flutter": "89519eca6f7b9529b35bdddd623a58c3af06a88c458dbd6531ddb4675acf75a9",
+    "candidate.patch": "61c674cf02e6526d94f3247c752996d46942f78a349559ae909a64dbbc05c6fa",
+    "timer_fixture.cpp": "a22b127e41406f4dfdca4882138aa994d567c4120f05c90b43502ee85723ecd7",
+    "fixture_support.h": "ef70968ad3e110ed8a40d50ad947b57a6479896202be9fe322f1981029ff355d"
+  }
+}

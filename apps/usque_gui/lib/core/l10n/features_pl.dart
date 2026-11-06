@@ -72,11 +72,12 @@ const Map<String, String> kUiWorkflowPl = <String, String>{
 const Map<String, String> kNetworkQualityPl = <String, String>{
   'nq_range': 'Zakres',
   'nq_bytes': "Bajty",
-  'diag_check_quality_rtt': 'Czas rundy',
+  'diag_check_quality_rtt': 'Czas RTT',
   'diag_check_quality_packet_loss': 'Utrata pakietów',
   'diag_check_quality_queue_pressure': 'Obciążenie kolejki',
   'diag_check_quality_pmtu': 'MTU ścieżki',
-  'diag_check_transport_migration_capability': 'Migracja w tej samej rodzinie',
+  'diag_check_transport_migration_capability':
+      'Migracja w obrębie tej samej wersji IP',
   'diag_check_dns_direct_encrypted_configuration':
       'Konfiguracja DNS bezpośredniego',
   'diag_check_dns_direct_encrypted_runtime_state':
@@ -95,7 +96,7 @@ const Map<String, String> kNetworkQualityPl = <String, String>{
       'Przełączenie na nieszyfrowany DNS jest wyłączone.',
   'nq_finding_stale':
       'Odczyt jest nieaktualny albo sieć fizyczna uległa zmianie.',
-  'nq_finding_rtt_high': 'Zmierzony czas rundy jest podwyższony.',
+  'nq_finding_rtt_high': 'Zmierzony czas RTT jest podwyższony.',
   'nq_finding_healthy': 'Dostępne pomiary połączenia mieszczą się w normie.',
   'nq_finding_loss_high': 'Utrata pakietów w interwale jest podwyższona.',
   'nq_finding_queue_pressure':
@@ -150,7 +151,7 @@ const Map<String, String> kNetworkQualityPl = <String, String>{
   'nq_empty': 'Połącz się, aby zobaczyć pomiary.',
   'nq_stale_help':
       'Aktualizacje są wstrzymane. Wyświetlane są ostatnie odczyty.',
-  'nq_rtt': 'Czas rundy',
+  'nq_rtt': 'Czas RTT',
   'nq_latest': 'Najnowszy',
   'nq_smoothed': 'Wygładzony',
   'nq_minimum': 'Minimalny',
@@ -296,7 +297,7 @@ const Map<String, String> kWindowsRecoveryPl = <String, String>{
       'automatycznych próbach. Ponów, gdy będziesz gotowy, albo sprawdź '
       'lokalną diagnostykę.',
   'WINDOWS_RECOVERY_BLOCKED':
-      'Automatyczną naprawę zatrzymano, ponieważ nie potwierdzono bezpiecznego przywrócenia poprzednich ustawień VPN. Sprawdź aktualizacje w Ustawieniach; jeśli problem pozostanie, wyeksportuj pakiet diagnostyczny.',
+      'Usque zatrzymało automatyczną naprawę, ponieważ nie mogło potwierdzić, że przywrócenie poprzednich ustawień VPN jest bezpieczne. Sprawdź aktualizacje w Ustawieniach; jeśli problem pozostanie, otwórz Diagnostykę i wyeksportuj pakiet diagnostyczny.',
   'WINDOWS_RECOVERY_TIMEOUT':
       'Odzyskiwanie sieci Windows trwa dłużej niż oczekiwano. Nie '
       'rozpoczęto nowego połączenia VPN. Poczekaj na zakończenie '
@@ -394,7 +395,7 @@ const Map<String, String> kChainPl = <String, String>{
   "scope_interrupted":
       "Połączenie zostało przerwane. Urządzenie może wrócić do zwykłego połączenia sieciowego.",
   "scope_android_settings":
-      "Aby blokować po zatrzymaniu usługi, włącz w ustawieniach systemowych Zawsze aktywna sieć VPN i Blokuj połączenia bez VPN.",
+      "Aby blokować po zatrzymaniu usługi, włącz w ustawieniach systemowych opcje „Stały VPN” i „Blokuj połączenia bez VPN”.",
 
   "batch_title": "Importuj konfiguracje",
   "batch_counts":
@@ -417,18 +418,18 @@ const Map<String, String> kChainPl = <String, String>{
   'too_many_endpoints': 'Użyj najwyżej 16 punktów remote.',
   'conflicting_authentication':
       'CLIENT_CERT koliduje z osadzonym certyfikatem albo trybem uwierzytelniania.',
-  'serialized_size_limit':
-      'Zaszyfrowany rekord przekroczyłby limit rozmiaru przechowywania.',
+  'serialized_size_limit': 'Konfiguracja jest za duża, aby ją zapisać.',
   'multi_endpoint_unavailable':
-      'Zaktualizuj silnik, aby używać konfiguracji z wieloma punktami.',
-  'candidates': 'Punkty startowe',
+      'Ta konfiguracja zawiera kilka serwerów. Zaktualizuj Usque, aby jej używać.',
+  'candidates': 'Serwery do wypróbowania',
   'random_order':
-      'Punkty są próbowane w nowej kolejności losowej przy każdym połączeniu.',
-  'file_order': 'Punkty są próbowane w kolejności z pliku.',
-  'attempting': 'Próbowany punkt',
-  'actual_endpoint': 'Połączony punkt',
+      'Przy każdym połączeniu serwery są próbowane w nowej losowej kolejności.',
+  'file_order':
+      'Przy każdym połączeniu serwery są próbowane w podanej kolejności.',
+  'attempting': 'Próbowany serwer',
+  'actual_endpoint': 'Połączony serwer',
   'attempt_failures': 'Nieudane próby',
-  'failure_transport': 'transport zamknięty',
+  'failure_transport': 'połączenie zostało zerwane',
   'failure_authentication': 'uwierzytelnianie',
   'failure_certificate': 'certyfikat',
   'failure_configuration': 'konfiguracja',
@@ -436,14 +437,16 @@ const Map<String, String> kChainPl = <String, String>{
   'failure_protocol': 'protokół',
   'failure_cleanup': 'czyszczenie',
   'failure_reason': 'Przyczyna: {reason}.',
-  'dns_fallback': 'DNS tunelu (OpenVPN może negocjować DNS)',
+  'dns_fallback':
+      'Zapewniany przez tunel (serwery OpenVPN mogą go przydzielić)',
   'dns_unavailable_title': 'Brak DNS przez to wyjście',
   'dns_unavailable':
       'Przez to wyjście nie można osiągnąć żadnego serwera DNS. Użyj adresów IP albo wybierz inne wyjście z osiągalnym DNS.',
   'authentication_failed':
       'Uwierzytelnianie nie powiodło się. Zaktualizuj dane logowania przed ponownym połączeniem.',
   'profile_limit': 'Biblioteka konfiguracji jest pełna (128 konfiguracji).',
-  'metadata_limit': 'Metadane biblioteki konfiguracji są pełne.',
+  'metadata_limit':
+      'W bibliotece konfiguracji nie ma miejsca na kolejne wpisy.',
   'title': 'Proxy łańcuchowe',
   'subtitle': 'Wybierz wyjście osiągane przez WARP.',
   'source': 'Źródło wyjścia',
@@ -499,11 +502,11 @@ const Map<String, String> kChainPl = <String, String>{
   'unsupported':
       'Ta wersja Usque nie może używać tego źródła wyjścia. Sprawdź aktualizacje w Ustawieniach.',
   'scope':
-      'Istniejące jawne reguły bezpośrednie nadal obowiązują. Pozostały ruch używa wybranego wyjścia.',
+      'Twoje reguły połączeń bezpośrednich nadal obowiązują. Cały pozostały ruch wychodzi przez wybrane wyjście.',
   'allowed': 'Dozwolone miejsca docelowe',
   'dns': 'DNS',
   'addresses': 'Adresy tunelu',
-  'address_family': 'Rodzina adresów',
+  'address_family': 'Wersja IP',
   'transport': 'Protokół transportowy',
   'endpoint': 'Serwer',
   'restricted':
@@ -552,5 +555,5 @@ const Map<String, String> kChainPl = <String, String>{
   "not_verified": "Niesprawdzone",
   "unavailable": "Niedostępne",
   "udp_association":
-      "Powiązanie przyjęte; przekazywanie end-to-end niesprawdzone",
+      "Przekaźnik UDP przyjęty; pełne przekazywanie do celu niesprawdzone",
 };

@@ -45,6 +45,53 @@ class AndroidEngineMethodHandlerTest {
     }
 
     @Test
+    fun recentsSettingStaysLocalAndRejectsMalformedArguments() {
+        for (enabled in listOf(true, false)) {
+            val result = RecordingResult()
+            handler.handle(MethodCall("setHideFromRecents", mapOf("enabled" to enabled)), result)
+            assertEquals(enabled, activityCommands.recentsHidden)
+            assertNull(result.errorCode)
+            assertEquals(1, result.completionCount)
+        }
+        for (arguments in listOf(
+            null,
+            true,
+            emptyMap<String, Any>(),
+            mapOf("enabled" to "true"),
+            mapOf("enabled" to 1),
+        )) {
+            val result = RecordingResult()
+            handler.handle(MethodCall("setHideFromRecents", arguments), result)
+            assertEquals("INVALID_ARGUMENT", result.errorCode)
+            assertEquals(1, result.completionCount)
+        }
+        val preferences = RecordingResult()
+        handler.handle(MethodCall("platformPreferences", null), preferences)
+        assertEquals(false, (preferences.successValue as Map<*, *>)["hide_from_recents"])
+        assertEquals(0, activityCommands.connectCount)
+        assertTrue(endpoint.whats.isEmpty())
+        assertTrue(engineBridge.commands.isEmpty())
+    }
+
+    @Test
+    fun recentsFailuresHaveStructuredErrorsWithoutPrivateDetails() {
+        activityCommands.failRecents = true
+        for (call in listOf(
+            MethodCall("setHideFromRecents", mapOf("enabled" to true)),
+            MethodCall("platformPreferences", null),
+        )) {
+            val result = RecordingResult()
+            handler.handle(call, result)
+            assertEquals("RECENTS_SETTINGS_FAILED", result.errorCode)
+            assertNull(result.errorDetails)
+            assertFalse(result.errorMessage.orEmpty().contains("private"))
+            assertEquals(1, result.completionCount)
+        }
+        assertTrue(endpoint.whats.isEmpty())
+        assertTrue(engineBridge.commands.isEmpty())
+    }
+
+    @Test
     fun protonAccountFallbackCapabilityReachesFlutterOnlyWithExplicitNativeSupport() {
         val cases =
             listOf(
@@ -433,7 +480,7 @@ class AndroidEngineMethodHandlerTest {
         controlClient =
             VpnControlClient(
                 scheduler = scheduler,
-                serviceBinder = { _: ServiceConnection -> true },
+                serviceBinder = { _: ServiceConnection, _: Boolean -> true },
                 serviceUnbinder = { },
                 endpointFromBinder = { _, _ -> error("unused") },
             )
@@ -467,6 +514,211 @@ class AndroidEngineMethodHandlerTest {
         handler.handle(MethodCall("snapshot", null), result)
         assertEquals(listOf(UsqueVpnService.MSG_SNAPSHOT), endpoint.whats)
         assertNull(result.errorCode)
+    }
+
+    private fun passiveHandler(
+        executor: Executor =
+            Executor {
+                it.run()
+            },
+        mainScheduler: VpnControlClient.MainScheduler = scheduler,
+        bindService: (ServiceConnection, Boolean) -> Boolean = { _, creating ->
+            assertFalse(creating)
+            false
+        },
+        processAbsent: () -> Boolean = { false },
+    ): Pair<AndroidEngineMethodHandler, VpnControlClient> {
+        val local =
+            VpnControlClient(
+                mainScheduler,
+                bindService,
+                {},
+                { _, _ -> error("No live service") },
+                controlServiceProcessAbsent = processAbsent,
+            )
+        return AndroidEngineMethodHandler(
+            profileConfigPath = "/tmp/profiles-v2.json",
+            initialIdentityLease = { AutoCloseable {} },
+            identityStore = identityStore,
+            identityExecutor = executor,
+            mainScheduler = mainScheduler,
+            controlClient = local,
+            activityCommands = activityCommands,
+            engineBridge = engineBridge,
+            maintenanceBridge = maintenance,
+        ) to local
+    }
+
+    @Test
+    fun absentSettingsAndSceneReadsUseOnlyPersistedMetadataWithoutStartingService() {
+        engineBridge.persistedSettingsJson =
+            """{"source_epoch":"ui-owner","sequence":7,"stored_profile":{"id":"saved"},"applied_profile":{"id":"live"},"persisted":true,"persisted_operation_ids":["op"]}"""
+        engineBridge.persistedScenariosJson =
+            """{"source_epoch":"ui-owner","scenarios":[{"id":"saved"}],"applied_scene_confirmed":true,"persisted_operation_id":"op"}"""
+        val (local, client) = passiveHandler()
+        val settings = RecordingResult()
+        local.handle(MethodCall("getNetworkSettingsState", null), settings)
+        val settingsValue = settings.successValue as Map<*, *>
+        assertEquals(false, settingsValue["runtime_observed"])
+        assertFalse(settingsValue.containsKey("source_epoch"))
+        assertFalse(settingsValue.containsKey("persisted_operation_ids"))
+        val scenes = RecordingResult()
+        local.handle(MethodCall("scenarioCommand", mapOf("action" to "list", "known_revision" to "cached")), scenes)
+        val scenesValue = scenes.successValue as Map<*, *>
+        assertEquals(false, scenesValue["runtime_observed"])
+        assertEquals(listOf(mapOf("id" to "saved")), scenesValue["scenarios"])
+        assertFalse(scenesValue.containsKey("persisted_operation_id"))
+        assertEquals(2, engineBridge.persistedReadCount)
+        assertFalse(client.isBound)
+    }
+
+    @Test
+    fun coldStartWithoutTheVpnProcessReadsSavedSettingsAndScenesWithoutABindDeadline() {
+        engineBridge.persistedSettingsJson =
+            """{"source_epoch":"old-owner","sequence":7,"stored_profile":{"id":"saved"},"applied_profile":{"id":"live"},"persisted":true,"persisted_operation_ids":["op"]}"""
+        engineBridge.persistedScenariosJson =
+            """{"source_epoch":"old-owner","scenarios":[{"id":"saved","name":"Daily"}],"current_account_id":"saved","applied_scene_confirmed":true,"persisted_operation_id":"op"}"""
+        val flags = mutableListOf<Boolean>()
+        // Android accepts the observation, but no process exists to answer it.
+        val (local, client) =
+            passiveHandler(
+                bindService = { _, creating ->
+                    flags += creating
+                    true
+                },
+                processAbsent = { true },
+            )
+        client.setUiVisible(true)
+        val settings = RecordingResult()
+        val scenes = RecordingResult()
+        local.handle(MethodCall("getNetworkSettingsState", null), settings)
+        local.handle(MethodCall("scenarioCommand", mapOf("action" to "list")), scenes)
+        for (result in listOf(settings, scenes)) {
+            assertEquals(1, result.completionCount)
+            assertNull(result.errorCode)
+            val value = result.successValue as Map<*, *>
+            assertEquals(false, value["runtime_observed"])
+            assertFalse(value.containsKey("source_epoch"))
+            assertFalse(value.containsKey("applied_profile"))
+            assertFalse(value.containsKey("persisted_operation_id"))
+            assertFalse(value.containsKey("persisted_operation_ids"))
+        }
+        assertEquals(mapOf("id" to "saved"), (settings.successValue as Map<*, *>)["stored_profile"])
+        assertEquals(
+            listOf(mapOf("id" to "saved", "name" to "Daily")),
+            (scenes.successValue as Map<*, *>)["scenarios"],
+        )
+        assertEquals(2, engineBridge.persistedReadCount)
+        assertTrue(flags.isNotEmpty())
+        assertTrue(flags.none { it })
+        assertFalse(client.hasEndpoint)
+        assertEquals(0, activityCommands.connectCount)
+        client.destroy()
+        assertFalse(client.isBound)
+    }
+
+    @Test
+    fun coldStartAndRestartReadSavedSettingsAndScenesWithoutConnectingAfterPassiveBindDeadline() {
+        engineBridge.persistedSettingsJson =
+            """{"source_epoch":"old-owner","sequence":7,"stored_profile":{"id":"saved"},"applied_profile":{"id":"live"},"persisted":true,"persisted_operation_ids":["op"]}"""
+        engineBridge.persistedScenariosJson =
+            """{"source_epoch":"old-owner","scenarios":[{"id":"saved","name":"Daily"}],"current_account_id":"saved","applied_scene_confirmed":true,"persisted_operation_id":"op"}"""
+        // Each launch gets a new UI/control client and reads the same saved data.
+        // Android can accept the observation without a callback, or deliver null.
+        for (nullBinding in listOf(false, true)) {
+            val deadlines = linkedMapOf<Any, Pair<Long, () -> Unit>>()
+            val launchScheduler =
+                object : VpnControlClient.MainScheduler {
+                    override fun post(action: () -> Unit) = action()
+
+                    override fun postDelayed(
+                        delayMillis: Long,
+                        token: Any,
+                        action: () -> Unit,
+                    ) {
+                        deadlines[token] = delayMillis to action
+                    }
+
+                    override fun cancel(token: Any) {
+                        deadlines.remove(token)
+                    }
+                }
+            val connections = mutableListOf<ServiceConnection>()
+            val flags = mutableListOf<Boolean>()
+            val (local, client) =
+                passiveHandler(mainScheduler = launchScheduler, bindService = { connection, creating ->
+                    connections += connection
+                    flags += creating
+                    true
+                })
+            client.setUiVisible(true)
+            val settings = RecordingResult()
+            val scenes = RecordingResult()
+            local.handle(MethodCall("getNetworkSettingsState", null), settings)
+            local.handle(MethodCall("scenarioCommand", mapOf("action" to "list")), scenes)
+            assertEquals(0, settings.completionCount)
+            assertEquals(0, scenes.completionCount)
+            if (nullBinding) connections.single().onNullBinding(null)
+            val reads = deadlines.filterKeys { it.toString().startsWith("settings-") }
+            assertEquals(2, reads.size)
+            for ((token, deadline) in reads) {
+                assertEquals(10_000L, deadline.first)
+                deadlines.remove(token)
+                deadline.second()
+            }
+            for (result in listOf(settings, scenes)) {
+                assertEquals(1, result.completionCount)
+                assertNull(result.errorCode)
+                val value = result.successValue as Map<*, *>
+                assertEquals(false, value["runtime_observed"])
+                assertFalse(value.containsKey("source_epoch"))
+                assertFalse(value.containsKey("applied_profile"))
+                assertFalse(value.containsKey("persisted_operation_id"))
+                assertFalse(value.containsKey("persisted_operation_ids"))
+            }
+            val settingsValue = settings.successValue as Map<*, *>
+            assertEquals(mapOf("id" to "saved"), settingsValue["stored_profile"])
+            val scenesValue = scenes.successValue as Map<*, *>
+            assertEquals(listOf(mapOf("id" to "saved", "name" to "Daily")), scenesValue["scenarios"])
+            assertEquals("saved", scenesValue["current_account_id"])
+            assertTrue(deadlines.keys.none { it.toString().startsWith("settings-") })
+            assertTrue(flags.isNotEmpty())
+            assertTrue(flags.none { it })
+            assertFalse(client.hasEndpoint)
+            assertEquals(0, activityCommands.connectCount)
+            client.destroy()
+            assertFalse(client.isBound)
+        }
+        assertEquals(4, engineBridge.persistedReadCount)
+    }
+
+    @Test
+    fun aLiveSettingsReplyKeepsItsRealEpochAndReceipt() {
+        val result = RecordingResult()
+        handler.handle(MethodCall("getNetworkSettingsState", null), result)
+        controlClient.deliverSettingsReply(
+            endpoint.messages.single().second,
+            """{"source_epoch":"live-owner","sequence":4,"persisted":true,"persisted_operation_ids":["op"]}""",
+        )
+        val value = result.successValue as Map<*, *>
+        assertEquals("live-owner", value["source_epoch"])
+        assertEquals(listOf("op"), value["persisted_operation_ids"])
+        assertEquals(0, engineBridge.persistedReadCount)
+    }
+
+    @Test
+    fun aPersistedReadCannotCompleteAfterItsUiOwnerIsDestroyed() {
+        val tasks = mutableListOf<Runnable>()
+        engineBridge.persistedSettingsJson = """{"stored_profile":{"id":"saved"}}"""
+        val (local, client) = passiveHandler(Executor { tasks += it })
+        val result = RecordingResult()
+        local.handle(MethodCall("getNetworkSettingsState", null), result)
+        assertEquals(0, result.completionCount)
+        client.destroy()
+        tasks.single().run()
+        assertEquals("ENGINE_REQUEST_CANCELLED", result.errorCode)
+        assertEquals(1, result.completionCount)
+        assertEquals(0, engineBridge.persistedReadCount)
     }
 
     @Test
@@ -1691,11 +1943,21 @@ class AndroidEngineMethodHandlerTest {
 
     @Test
     fun finishClearAllDataCompletesOnlyWhenStillInFlight() {
+        finishClearWithRecentsReset(false)
+    }
+
+    @Test
+    fun finishClearAllDataReportsFailureWhenTaskVisibilityCannotBeReset() {
+        finishClearWithRecentsReset(true)
+    }
+
+    private fun finishClearWithRecentsReset(failRecentsReset: Boolean) {
+        activityCommands.failRecents = failRecentsReset
         val localScheduler = ImmediateScheduler()
         val localClient =
             VpnControlClient(
                 scheduler = localScheduler,
-                serviceBinder = { true },
+                serviceBinder = { _, _ -> true },
                 serviceUnbinder = { },
                 endpointFromBinder = { _, _ -> error("unused") },
             )
@@ -1729,10 +1991,11 @@ class AndroidEngineMethodHandlerTest {
         )
 
         assertEquals(1, wipeResult.completionCount)
-        assertNull(wipeResult.errorCode)
+        assertEquals(if (failRecentsReset) "CLEAR_ALL_FAILED" else null, wipeResult.errorCode)
         assertTrue(identityStore.clearAllCount >= 1)
         assertTrue(engineBridge.commands.any { it.contains("clear_all_data") })
         assertTrue(maintenance.clearCount >= 1)
+        assertEquals(if (failRecentsReset) 0 else 1, activityCommands.restoreRecentsCount)
     }
 
     @Test
@@ -1745,7 +2008,7 @@ class AndroidEngineMethodHandlerTest {
         val localClient =
             VpnControlClient(
                 scheduler = localScheduler,
-                serviceBinder = { true },
+                serviceBinder = { _, _ -> true },
                 serviceUnbinder = { },
                 endpointFromBinder = { _, _ -> error("unused") },
             )
@@ -1809,7 +2072,7 @@ class AndroidEngineMethodHandlerTest {
         val localClient =
             VpnControlClient(
                 scheduler = localScheduler,
-                serviceBinder = { true },
+                serviceBinder = { _, _ -> true },
                 serviceUnbinder = { },
                 endpointFromBinder = { _, _ -> error("unused") },
             )
@@ -1952,7 +2215,24 @@ class AndroidEngineMethodHandlerTest {
 
         override fun cancelZeroTrustLogin() = Unit
 
-        override fun platformPreferences(): Map<String, Any?> = mapOf("start_on_boot" to false, "close_to_tray" to true)
+        var recentsHidden = false
+        var failRecents = false
+        var restoreRecentsCount = 0
+
+        override fun platformPreferences(): Map<String, Any?> {
+            if (failRecents) throw IOException("private path")
+            return mapOf("start_on_boot" to false, "close_to_tray" to true, "hide_from_recents" to recentsHidden)
+        }
+
+        override fun setHideFromRecents(enabled: Boolean) {
+            if (failRecents) throw IOException("private path")
+            recentsHidden = enabled
+        }
+
+        override fun restoreRecentsVisibility() {
+            if (failRecents) throw IOException("private path")
+            restoreRecentsCount += 1
+        }
 
         override fun setStartOnBoot(enabled: Boolean) = Unit
 
@@ -1987,6 +2267,9 @@ class AndroidEngineMethodHandlerTest {
         var ready = true
         var linked = true
         var capabilitiesJson: String? = null
+        var persistedSettingsJson: String? = null
+        var persistedScenariosJson: String? = null
+        var persistedReadCount = 0
         var zeroTrustFailure: IOException? = null
         var zeroTrustRegistrationCount = 0
         var consumerLicenseFailure: IOException? = null
@@ -1998,6 +2281,16 @@ class AndroidEngineMethodHandlerTest {
         override fun isReady(): Boolean = ready
 
         override fun capabilities(): String? = capabilitiesJson
+
+        override fun readPersistedNetworkSettings(configPath: String): String? {
+            persistedReadCount++
+            return persistedSettingsJson
+        }
+
+        override fun readPersistedScenarios(configPath: String): String? {
+            persistedReadCount++
+            return persistedScenariosJson
+        }
 
         override fun applyProfileCommand(
             configPath: String,

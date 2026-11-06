@@ -172,7 +172,7 @@ void main() {
           locale.value['connection_sessions'],
         );
       }
-      expect(_strings('zh_CN').proton('automatic_hint'), '连接时选择最低延迟节点。');
+      expect(_strings('zh_CN').proton('automatic_hint'), '连接时选择延迟最低的服务器。');
       expect(_strings('zh_HK').proton('login'), '登入 Proton');
       expect(_strings('zh_TW').proton('login'), '登入 Proton');
       expect(_strings('zh_HK').proton('account'), 'Proton 帳戶');

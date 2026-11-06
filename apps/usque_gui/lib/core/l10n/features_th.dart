@@ -71,7 +71,8 @@ const Map<String, String> kNetworkQualityTh = <String, String>{
   'diag_check_quality_packet_loss': 'การสูญเสียแพ็กเก็ต',
   'diag_check_quality_queue_pressure': 'ความดันของคิว',
   'diag_check_quality_pmtu': 'MTU ของเส้นทาง',
-  'diag_check_transport_migration_capability': 'การย้ายในตระกูลเดียวกัน',
+  'diag_check_transport_migration_capability':
+      'การย้ายภายในเวอร์ชัน IP เดียวกัน',
   'diag_check_dns_direct_encrypted_configuration': 'การกำหนดค่า DNS ตรง',
   'diag_check_dns_direct_encrypted_runtime_state': 'สถานะการทำงาน DNS ตรง',
   'diag_check_dns_direct_encrypted_reachability': 'การเข้าถึง DNS แบบเข้ารหัส',
@@ -110,7 +111,7 @@ const Map<String, String> kNetworkQualityTh = <String, String>{
   'diag_fix_nq_reconnect': 'เชื่อมต่อใหม่เพื่อใช้การกำหนดค่าที่บันทึกไว้',
   'nav_network_quality': 'คุณภาพ',
   'network_quality': 'คุณภาพเครือข่าย',
-  'nq_subtitle': 'เวลาแฝง การสูญเสียแพ็กเก็ต และทรูพุต',
+  'nq_subtitle': 'ความหน่วง การสูญเสียแพ็กเก็ต และทรูพุต',
   'nq_local_only': 'วัดเฉพาะในเครื่อง ไม่มีการอัปโหลด',
   'nq_doctor': 'เรียกใช้ตัวตรวจเครือข่าย',
   'nq_doctor_help': 'การตรวจสอบมาตรฐานไม่ส่งทราฟฟิกและไม่เปลี่ยนการตั้งค่า',
@@ -138,7 +139,7 @@ const Map<String, String> kNetworkQualityTh = <String, String>{
   'nq_minimum': 'ค่าต่ำสุด',
   'nq_h2_ping': 'PING โปรโตคอล HTTP/2',
   'nq_h3_rtt': 'การวัดเส้นทาง QUIC',
-  'nq_throughput': 'อัตราผ่าน',
+  'nq_throughput': 'ทรูพุต',
   'nq_download': 'ดาวน์โหลด',
   'nq_upload': 'อัปโหลด',
   'nq_one_second': '1 วินาที',
@@ -148,7 +149,7 @@ const Map<String, String> kNetworkQualityTh = <String, String>{
   'nq_loss_interval': 'วัดในช่วงล่าสุด ไม่ใช่การสูญเสียตลอดอายุ',
   'nq_congestion': 'ความแออัด',
   'nq_cwnd': 'หน้าต่างความแออัด',
-  'nq_in_flight': 'Bytes ที่กำลังส่ง',
+  'nq_in_flight': 'ไบต์ที่กำลังส่ง',
   'nq_send_rate': 'อัตราการส่งมอบ',
   'nq_h2_window': 'หน้าต่างรับ HTTP/2',
   'nq_stream_window': "หน้าต่างสตรีม",
@@ -161,7 +162,7 @@ const Map<String, String> kNetworkQualityTh = <String, String>{
       'ขนาดแพ็กเก็ตที่เส้นทางเครือข่ายส่งได้ การตรวจสอบอัตโนมัติช่วยลดแพ็กเก็ตสูญหาย และจะไม่เพิ่มค่า MTU ของ VPN ที่กำหนดในการตั้งค่าเครือข่ายขั้นสูง',
   'nq_migration': 'การย้ายเครือข่าย',
   'nq_migration_help':
-      'Usque พยายามรักษาการเชื่อมต่อเมื่อสลับเครือข่าย เช่น จาก Wi-Fi เป็นอินเทอร์เน็ตมือถือ ทั้งสองเครือข่ายต้องใช้ IP เวอร์ชันเดียวกัน คือ IPv4 หรือ IPv6',
+      'Usque พยายามรักษาการเชื่อมต่อเมื่อสลับเครือข่าย เช่น จาก Wi-Fi เป็นอินเทอร์เน็ตมือถือ ทั้งสองเครือข่ายต้องใช้เวอร์ชัน IP เดียวกัน คือ IPv4 หรือ IPv6',
   'nq_attempts': 'ครั้งที่ลอง',
   'nq_successes': 'สำเร็จ',
   'nq_failures': 'ล้มเหลว',
@@ -173,7 +174,7 @@ const Map<String, String> kNetworkQualityTh = <String, String>{
   'nq_ready': 'พร้อม',
   'nq_degraded': 'ลดระดับ',
   'nq_timeouts': 'หมดเวลา',
-  'nq_last_rtt': 'RTT ล่าสุด',
+  'nq_last_rtt': 'เวลาไป-กลับล่าสุด',
   'nq_dns_redacted':
       'ชื่อและที่อยู่ IP ของเซิร์ฟเวอร์ DNS แสดงเฉพาะในการตั้งค่า',
   'nq_queues': 'ความดันของคิว',
@@ -211,7 +212,7 @@ const Map<String, String> kNetworkQualityTh = <String, String>{
   'nq_phase_unknown': 'ยังไม่พร้อม',
   'nq_phase_unsupported': 'ไม่รองรับ',
   'nq_reason_family_unavailable':
-      'เครือข่ายใหม่ใช้ IP เวอร์ชันเดิมไม่ได้ โปรดเชื่อมต่อใหม่',
+      'เครือข่ายใหม่ใช้เวอร์ชัน IP เดิมไม่ได้ ต้องเชื่อมต่อใหม่',
   'nq_reason_socket_protect_failed':
       'ใช้เครือข่ายใหม่อย่างปลอดภัยไม่ได้ หากการเชื่อมต่อไม่กลับมาเอง ให้เชื่อมต่อใหม่',
   'nq_reason_generation_changed_during_setup':
@@ -231,7 +232,7 @@ const Map<String, String> kNetworkQualityTh = <String, String>{
       'การเชื่อมต่อปิดลงระหว่างเปลี่ยนเครือข่าย โปรดเชื่อมต่อใหม่',
   'nq_reason_unsupported': 'การเชื่อมต่อนี้ย้ายไม่ได้',
   'nq_reason_unknown': 'ไม่มีสาเหตุที่รองรับ',
-  'nq_dns_custom': 'ตัวแปลงชื่อแบบเข้ารหัสที่กำหนดเอง',
+  'nq_dns_custom': 'DNS แบบเข้ารหัสที่กำหนดเอง',
   'nq_dns_server': 'ชื่อโดเมนของเซิร์ฟเวอร์ DNS',
   'nq_dns_path': 'เส้นทาง HTTPS',
   'nq_dns_port': 'พอร์ต (0 ใช้ค่าเริ่มต้น)',
@@ -243,7 +244,7 @@ const Map<String, String> kNetworkQualityTh = <String, String>{
   'nq_dns_system_privacy':
       'ผู้ให้บริการ DNS ของเครือข่ายปัจจุบันอาจเห็นโดเมนที่สอบถามสำหรับข้อมูลที่เชื่อมต่อโดยตรง',
   'nq_dns_scope':
-      'ใช้กับกฎข้ามตามประเทศและโดเมนที่กำหนดเอง DNS ของการรับส่งข้อมูล VPN ไม่เปลี่ยนแปลง',
+      'ใช้จับคู่กฎเชื่อมต่อตรงตามประเทศและโดเมนที่กำหนดเอง DNS ของการรับส่งข้อมูล VPN ไม่เปลี่ยนแปลง',
   'nq_dns_no_capability':
       'อัปเดต Usque เพื่อใช้ DNS แบบเข้ารหัสสำหรับการเชื่อมต่อโดยตรง การตั้งค่าที่บันทึกไว้จะคงอยู่ หากยอมรับผลต่อความเป็นส่วนตัวได้ คุณสามารถเลือก “DNS ของเครือข่ายปัจจุบัน” เองได้',
   'nq_dns_invalid_name':
@@ -271,13 +272,13 @@ const Map<String, String> kWindowsRecoveryTh = <String, String>{
   'WINDOWS_RECOVERY_EXHAUSTED':
       'Windows คืนค่าสถานะเครือข่าย VPN ก่อนหน้าไม่ได้หลังลองอัตโนมัติสามครั้ง ลองใหม่เมื่อพร้อม หรือตรวจการวินิจฉัยในเครื่อง',
   'WINDOWS_RECOVERY_BLOCKED':
-      'หยุดซ่อมแซมอัตโนมัติเพราะยืนยันการกู้คืนอย่างปลอดภัยไม่ได้ อัปเดต Usque ในการตั้งค่า หากยังมีปัญหา ให้ส่งออกบันทึกจากการวินิจฉัย',
+      'Usque หยุดซ่อมแซมอัตโนมัติเพราะยืนยันไม่ได้ว่าการคืนค่าการตั้งค่า VPN ก่อนหน้าปลอดภัย เปิด “การตั้งค่า” แล้วตรวจหาอัปเดต หากยังมีปัญหา ให้เปิด “การวินิจฉัย” แล้วส่งออกชุดข้อมูลวินิจฉัย',
   'WINDOWS_RECOVERY_TIMEOUT':
       'การกู้คืนเครือข่าย Windows ใช้เวลานานกว่าที่คาด ยังไม่ได้เริ่มการเชื่อมต่อ VPN ใหม่ รอให้กู้คืนเสร็จก่อนลองใหม่',
   'WINDOWS_RECOVERY_CONFLICT':
       'สถานะเครือข่ายเปลี่ยนแล้ว หรือเซสชันอื่นยังใช้อยู่ หยุดการกู้คืนอัตโนมัติเพื่อปกป้องการเชื่อมต่อที่ใช้งานอยู่',
   'WINDOWS_RECOVERY_UNSUPPORTED':
-      'การติดตั้งนี้กู้คืนการเชื่อมต่อ VPN ก่อนหน้าโดยอัตโนมัติไม่ได้ อัปเดต Usque ในการตั้งค่าแล้วลองอีกครั้ง',
+      'การติดตั้งนี้คืนค่าการตั้งค่า VPN ก่อนหน้าโดยอัตโนมัติไม่ได้ อัปเดต Usque ในการตั้งค่าแล้วลองอีกครั้ง',
 };
 
 const String kWindowsAdapterCleanupTh =
@@ -287,7 +288,7 @@ const Map<String, String> kL4Th = <String, String>{
   'l4_quic_not_ready': 'กำลังเตรียมการเชื่อมต่อ L4',
   'l4_unsupported_packets': 'ปฏิเสธแพ็กเก็ตที่ไม่รองรับหรือผิดรูปแบบ',
   'l4_budget_rejections': 'การเชื่อมต่อที่ถูกปฏิเสธเพราะทรัพยากรไม่พอ',
-  'l4_not_applicable': 'ไม่ใช้ได้ (L4)',
+  'l4_not_applicable': 'ไม่เกี่ยวข้อง (L4)',
   'l4_mode': 'L4 (ทดลอง)',
   'l4_transport_hint':
       'รองรับเฉพาะ TCP แอปที่ต้องใช้ UDP อาจไม่ทำงาน โหมดอัตโนมัติไม่เลือก L4',
@@ -358,7 +359,7 @@ const Map<String, String> kChainTh = <String, String>{
   "scope_interrupted":
       "การเชื่อมต่อถูกตัด อุปกรณ์อาจกลับไปใช้การเชื่อมต่อเครือข่ายปกติ",
   "scope_android_settings":
-      "หากต้องการบล็อกต่อหลังบริการหยุด ให้เปิด VPN แบบเปิดตลอดและบล็อกการเชื่อมต่อที่ไม่ใช้ VPN ในการตั้งค่าระบบ",
+      "หากต้องการบล็อกต่อหลังบริการหยุด ให้เปิด “การเชื่อมต่อ VPN ตลอดเวลา” และ “บล็อกการเชื่อมต่อโดยไม่ใช้ VPN” ในการตั้งค่าระบบ",
 
   "batch_title": "นำเข้าการกำหนดค่า",
   "batch_counts":
@@ -380,22 +381,22 @@ const Map<String, String> kChainTh = <String, String>{
   'too_many_endpoints': 'ใช้ปลายทาง remote ได้ไม่เกิน 16 จุด',
   'conflicting_authentication':
       'CLIENT_CERT ขัดกับใบรับรองในไฟล์หรือโหมดการยืนยันตัวตน',
-  'serialized_size_limit': 'ระเบียนที่เข้ารหัสจะเกินขีดจำกัดขนาดที่เก็บ',
+  'serialized_size_limit': 'การกำหนดค่ามีขนาดใหญ่เกินกว่าจะจัดเก็บได้',
   'multi_endpoint_unavailable':
-      'อัปเดตเอนจินก่อนใช้การกำหนดค่าที่มีหลายปลายทาง',
-  'candidates': 'ปลายทางตอนเริ่ม',
-  'random_order': 'ลองปลายทางตามลำดับสุ่มใหม่ทุกครั้งที่เชื่อมต่อ',
-  'file_order': 'ลองปลายทางตามลำดับในไฟล์',
-  'attempting': 'ปลายทางที่กำลังลอง',
-  'actual_endpoint': 'ปลายทางที่เชื่อมต่อแล้ว',
+      'การกำหนดค่านี้มีเซิร์ฟเวอร์หลายรายการ อัปเดต Usque เพื่อใช้งาน',
+  'candidates': 'เซิร์ฟเวอร์ที่จะลอง',
+  'random_order': 'ลองเซิร์ฟเวอร์เหล่านี้ตามลำดับสุ่มใหม่ทุกครั้งที่เชื่อมต่อ',
+  'file_order': 'ลองเซิร์ฟเวอร์เหล่านี้ตามลำดับที่แสดงทุกครั้งที่เชื่อมต่อ',
+  'attempting': 'เซิร์ฟเวอร์ที่กำลังลอง',
+  'actual_endpoint': 'เซิร์ฟเวอร์ที่เชื่อมต่อ',
   'attempt_failures': 'ครั้งที่ลองไม่สำเร็จ',
-  'failure_transport': 'การส่งถูกปิด',
-  'failure_authentication': 'การยืนยันตัวตน',
-  'failure_certificate': 'ใบรับรอง',
-  'failure_configuration': 'การกำหนดค่า',
-  'failure_address_changed': 'ที่อยู่เปลี่ยน',
-  'failure_protocol': 'โพรโทคอล',
-  'failure_cleanup': 'การเก็บกวาด',
+  'failure_transport': 'การเชื่อมต่อขาด',
+  'failure_authentication': 'การยืนยันตัวตนล้มเหลว',
+  'failure_certificate': 'ใบรับรองถูกปฏิเสธ',
+  'failure_configuration': 'การกำหนดค่าไม่ถูกต้อง',
+  'failure_address_changed': 'ที่อยู่เซิร์ฟเวอร์เปลี่ยน',
+  'failure_protocol': 'ข้อผิดพลาดโปรโตคอล',
+  'failure_cleanup': 'การล้างข้อมูลล้มเหลว',
   'failure_reason': 'สาเหตุ: {reason}',
   'dns_fallback': 'DNS ของอุโมงค์ (OpenVPN อาจเจรจา DNS)',
   'dns_unavailable_title': 'ไม่มี DNS ผ่านทางออกนี้',
@@ -404,7 +405,7 @@ const Map<String, String> kChainTh = <String, String>{
   'authentication_failed':
       'ยืนยันตัวตนไม่สำเร็จ อัปเดตข้อมูลรับรองก่อนเชื่อมต่ออีกครั้ง',
   'profile_limit': 'คลังการกำหนดค่าเต็มแล้ว (128 การกำหนดค่า)',
-  'metadata_limit': 'ข้อมูลกำกับของคลังการกำหนดค่าเต็มแล้ว',
+  'metadata_limit': 'คลังการกำหนดค่าไม่มีที่ว่างสำหรับรายการเพิ่มเติม',
   'title': 'พร็อกซีแบบลูกโซ่',
   'subtitle': 'เลือกทางออกที่เข้าถึงผ่าน WARP',
   'source': 'แหล่งทางออก',
@@ -459,14 +460,15 @@ const Map<String, String> kChainTh = <String, String>{
   'switch_mode': 'ปิด L4 แล้วนำไปใช้',
   'unsupported':
       'Usque รุ่นนี้ใช้แหล่งทางออกนี้ไม่ได้ ตรวจหาอัปเดตในการตั้งค่า',
-  'scope': 'กฎเชื่อมตรงที่ระบุไว้แล้วยังมีผล การรับส่งอื่นใช้ทางออกที่เลือก',
+  'scope':
+      'กฎเชื่อมต่อตรงยังมีผล การรับส่งข้อมูลอื่นทั้งหมดออกผ่านทางออกที่เลือก',
   'allowed': 'ปลายทางที่อนุญาต',
   'dns': 'DNS',
   'addresses': 'ที่อยู่อุโมงค์',
-  'address_family': 'ตระกูลที่อยู่',
+  'address_family': 'เวอร์ชัน IP',
   'transport': 'การส่งข้อมูล',
   'endpoint': 'เซิร์ฟเวอร์',
-  'restricted': 'ปลายทางนอกช่วง AllowedIPs จะถูกบล็อกบนเส้นทางพร็อกซี',
+  'restricted': 'ปลายทางนอกช่วง AllowedIPs จะเข้าถึงผ่านทางออกนี้ไม่ได้',
   'delete_confirm':
       'ลบการกำหนดค่าที่บันทึกไว้นี้หรือไม่ ไฟล์ต้นฉบับที่นำเข้าจะไม่เปลี่ยน',
   'profile_in_use':
@@ -504,5 +506,5 @@ const Map<String, String> kChainTh = <String, String>{
   "not_verified": "ยังไม่ยืนยัน",
   "unavailable": "ใช้ไม่ได้",
   "udp_association":
-      "ยอมรับการเชื่อมโยงแล้ว ยังไม่ยืนยันการส่งต่อแบบต้นทางถึงปลายทาง",
+      "ยอมรับการรีเลย์ UDP แล้ว ยังไม่ยืนยันการส่งต่อแบบต้นทางถึงปลายทาง",
 };

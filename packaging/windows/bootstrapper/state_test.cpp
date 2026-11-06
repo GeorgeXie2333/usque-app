@@ -1,6 +1,6 @@
 #include "state.h"
-#include "brand_palette.h"
 #include "options_result.h"
+#include "paint.h"
 #include "process_output.h"
 
 #include <cstdio>
@@ -18,12 +18,103 @@ int main(int argc, char** argv) {
   const auto check = [&failures](bool condition, const char* label) {
     if (!condition) { std::fprintf(stderr, "FAILED: %s\n", label); ++failures; }
   };
-  check(BrandAccent(false) == RGB(194, 80, 12), "light brand accent");
-  check(BrandAccent(true) == RGB(255, 164, 92), "dark brand accent");
-  check(BrandOnAccent(false) == RGB(255, 255, 255), "light accent text");
-  check(BrandOnAccent(true) == RGB(68, 24, 0), "dark accent text");
-  check(BrandPressed(false) == RGB(175, 72, 11), "light pressed accent");
-  check(BrandPressed(true) == RGB(230, 148, 83), "dark pressed accent");
+  check(ThemeTokens(false).primary == RGB(194, 80, 12), "light brand accent");
+  check(ThemeTokens(true).primary == RGB(255, 164, 92), "dark brand accent");
+  check(ThemeTokens(false).on_primary == RGB(255, 255, 255), "light accent text");
+  check(ThemeTokens(true).on_primary == RGB(68, 24, 0), "dark accent text");
+  check(ThemeTokens(false).primary_pressed == RGB(175, 72, 11), "light pressed accent");
+  check(ThemeTokens(true).primary_pressed == RGB(230, 148, 83), "dark pressed accent");
+  check(ThemeTokens(false).canvas == RGB(245, 244, 241) && ThemeTokens(true).canvas == RGB(14, 14, 16),
+        "canvas matches the Flutter theme");
+  {
+    using namespace paint;
+    const Rgb background = Rgb::FromColorref(kLightTokens.canvas), track = Rgb::FromColorref(kLightTokens.hairline);
+    const Rgb fill = Rgb::FromColorref(kLightTokens.primary), halted = Rgb::FromColorref(kLightTokens.caution);
+    check(fill.r == 0xC2 && fill.g == 0x50 && fill.b == 0x0C && fill.Dib() == 0x00C2500CU, "COLORREF to DIB order");
+    Canvas rounded(40, 20, background);
+    rounded.FillRounded({0, 0, 40, 20}, 10, fill);
+    const Rgb edge = rounded.Pixel(2, 3);
+    check(rounded.Pixel(20, 10) == fill && rounded.Pixel(0, 0) == background && !(edge == fill) &&
+          !(edge == background), "rounded fill is solid inside and antialiased at the corner");
+    Canvas stroked(30, 30, background);
+    stroked.StrokeRounded({5, 5, 25, 25}, 4, 2, fill);
+    check(stroked.Pixel(15, 5) == fill && stroked.Pixel(15, 15) == background && stroked.Pixel(15, 3) == background,
+          "strokes stay inside their rectangle");
+    const BarColors colors{background, track, fill, halted, false, {}};
+    const auto half = RenderBar(200, 6, {BarLookKind::filled, 0.0f, 0.5f, false}, colors);
+    check(half.Pixel(50, 3) == fill && half.Pixel(99, 3) == fill && half.Pixel(100, 3) == track &&
+          half.Pixel(199, 0) == background, "determinate fill ends at its fraction with rounded ends");
+    auto mirrored = RenderBar(100, 6, {BarLookKind::filled, 0.0f, 0.25f, false}, colors);
+    mirrored.Mirror();
+    check(mirrored.Pixel(10, 3) == track && mirrored.Pixel(89, 3) == fill, "mirroring reverses rows for RTL");
+    const auto first_fill = [&](const Canvas& canvas) {
+      for (int x = 0; x < canvas.Width(); ++x) if (canvas.Pixel(x, 3) == fill) return x;
+      return -1;
+    };
+    const auto early = RenderBar(200, 6, {BarLookKind::waiting, 0.3f, 0.0f, false}, colors);
+    const auto late = RenderBar(200, 6, {BarLookKind::waiting, 0.7f, 0.0f, false}, colors);
+    check(first_fill(early) >= 0 && first_fill(late) > first_fill(early), "waiting segment travels forward");
+    const auto rollback = RenderBar(200, 6, {BarLookKind::halted, 0.0f, 0.4f, false}, colors);
+    check(rollback.Pixel(40, 3) == halted && rollback.Pixel(120, 3) == track, "rollback uses the halted tone");
+    const auto lit = RenderBar(400, 6, {BarLookKind::filled, 0.5f, 0.5f, true}, colors);
+    int brightened = 0;
+    for (int x = 0; x < 200; ++x) brightened += lit.Pixel(x, 3) == fill ? 0 : 1;
+    check(brightened > 0 && brightened < 200 && lit.Pixel(300, 3) == track, "held highlight stays on the fill");
+    BarMotion motion;
+    SetupProgress model;
+    check(motion.Step(model, 16, true).kind == BarLookKind::waiting, "motion waits with the model");
+    model.Execute(50);
+    auto look = motion.Step(model, 16, true);
+    check(look.kind == BarLookKind::filled && look.fraction > 0.0f && look.fraction < model.value / 1000.0f &&
+          !look.sweep, "motion eases toward a new value");
+    float previous = 0.0f;
+    bool monotonic = true;
+    for (int step = 0; step < 200; ++step) {
+      look = motion.Step(model, 16, true);
+      monotonic &= look.fraction >= previous;
+      previous = look.fraction;
+    }
+    check(monotonic && look.fraction == model.value / 1000.0f && look.sweep, "held value shows activity");
+    model.Halt();
+    check(motion.Step(model, 16, true).kind == BarLookKind::halted, "rollback halts the presented bar");
+    BarMotion still;
+    SetupProgress quiet;
+    check(still.Step(quiet, 100, false).phase == 0.5f, "reduced motion keeps the waiting segment still");
+    quiet.Cache(100);
+    look = still.Step(quiet, 16, false);
+    check(look.fraction == kBarCacheEnd / 1000.0f && !look.sweep, "reduced motion jumps to the value");
+    for (const Tokens* tokens : {&kLightTokens, &kDarkTokens}) {
+      const auto filled = ButtonLookFor(ButtonKind::filled, true, false, *tokens);
+      const auto outlined = ButtonLookFor(ButtonKind::outlined, true, false, *tokens);
+      const auto text = ButtonLookFor(ButtonKind::text, true, true, *tokens);
+      const auto disabled = ButtonLookFor(ButtonKind::filled, false, true, *tokens);
+      check(filled.has_fill && filled.fill == Rgb::FromColorref(tokens->primary) && !(filled.ring == filled.fill) &&
+            !outlined.has_fill && outlined.border == Rgb::FromColorref(tokens->hairline_strong) &&
+            text.has_fill && !text.has_border && text.ink == Rgb::FromColorref(tokens->primary) &&
+            disabled.ink == Rgb::FromColorref(tokens->disabled_ink), "button roles follow Flutter");
+      const auto destructive = ButtonLookFor(ButtonKind::destructive, true, false, *tokens);
+      check(destructive.fill == Rgb::FromColorref(tokens->danger) && destructive.ink == Rgb::FromColorref(tokens->on_danger),
+            "destructive buttons use the danger pair");
+    }
+    const MarkColors mark_colors{background, Rgb::FromColorref(kLightTokens.success_soft),
+                                 Rgb::FromColorref(kLightTokens.success), false, {}};
+    for (const Mark mark : {Mark::success, Mark::caution, Mark::danger, Mark::neutral}) {
+      const auto canvas = RenderMark(36, mark, mark_colors);
+      int toned = 0;
+      for (int y = 0; y < 36; ++y) for (int x = 0; x < 36; ++x) toned += canvas.Pixel(x, y) == mark_colors.tone ? 1 : 0;
+      check(canvas.Pixel(0, 0) == background && canvas.Pixel(18, 3) == mark_colors.soft && toned > 10,
+            "marks tint a circle and draw their glyph");
+    }
+    const NoticeColors notice_colors{background, Rgb::FromColorref(kLightTokens.caution_fill),
+                                     Rgb::FromColorref(kLightTokens.caution_border), Rgb::FromColorref(kLightTokens.caution)};
+    for (const bool danger : {false, true}) {
+      const auto canvas = RenderNotice(300, 60, danger, notice_colors, 1.0f);
+      int icon = 0;
+      for (int y = 13; y < 31; ++y) for (int x = 14; x < 32; ++x) icon += canvas.Pixel(x, y) == notice_colors.tone ? 1 : 0;
+      check(canvas.Pixel(0, 0) == background && canvas.Pixel(150, 30) == notice_colors.fill && icon > 8,
+            "notices round their frame and draw a leading icon");
+    }
+  }
   check(SelectMode({}) == Mode::install, "fresh install");
   check(SelectMode({true, false, true, true, false}) == Mode::maintenance,
         "exact ProductCode maintenance");
@@ -114,6 +205,59 @@ int main(int argc, char** argv) {
         "strict 240-character boundary receives length guidance");
   check(FolderProblemKey(InstallFolderProblem(L"C:\\Usque*")) == "folder_invalid_characters",
         "path reason maps to a localized, controlled message");
+  check(SetupStepKey(L"InstallFiles", StepContext::install) == "step_files", "fresh install names file work");
+  check(SetupStepKey(L"RemoveFiles", StepContext::install).empty() &&
+        SetupStepKey(L"StopServices", StepContext::install).empty() &&
+        SetupStepKey(L"RemoveExistingProducts", StepContext::install).empty(),
+        "fresh install never claims to remove or close anything");
+  check(SetupStepKey(L"RemoveExistingProducts", StepContext::upgrade) == "step_replacing" &&
+        SetupStepKey(L"StopServices", StepContext::upgrade) == "uninstall_closing_apps" &&
+        SetupStepKey(L"RecoverAgentState", StepContext::upgrade) == "uninstall_restoring_network" &&
+        SetupStepKey(L"RemoveFiles", StepContext::upgrade) == "step_files",
+        "upgrade names the replacement steps");
+  check(SetupStepKey(L"InstallServices", StepContext::install) == "step_services" &&
+        SetupStepKey(L"PublishProduct", StepContext::install) == "step_finishing" &&
+        SetupStepKey(L"InstallValidate", StepContext::install) == "planning", "install phases are named");
+  check(SetupStepKey(L"RemoveFiles", StepContext::uninstall) == "uninstall_removing_files" &&
+        SetupStepKey(L"PurgeUserData", StepContext::uninstall) == "uninstall_deleting_data" &&
+        SetupStepKey(L"InstallFiles", StepContext::uninstall).empty(), "removal keeps its own wording");
+  check(SetupStepKey(L"Rollback", StepContext::install) == "rolling_back" &&
+        SetupStepKey(L"CostFinalize", StepContext::upgrade).empty(), "rollback is named; unlisted actions keep the step");
+  SetupProgress bar;
+  check(bar.mode == BarMode::waiting && bar.value == 0, "bar waits for the first engine progress");
+  bar.Cache(0);
+  check(bar.mode == BarMode::advancing && bar.value == 0, "first cache report makes the bar determinate");
+  bar.Cache(100);
+  check(bar.value == kBarCacheEnd, "cache fills only its own range");
+  bar.Cache(40);
+  check(bar.value == kBarCacheEnd, "a later cache step restarting its count never moves the bar back");
+  bar.Execute(50);
+  check(bar.value == kBarCacheEnd + (kBarExecuteEnd - kBarCacheEnd) / 2, "execution maps after caching");
+  bar.Execute(20);
+  check(bar.value == kBarCacheEnd + (kBarExecuteEnd - kBarCacheEnd) / 2,
+        "a nested MSI session restarting its count holds the bar");
+  bar.Execute(250);
+  check(bar.value == kBarExecuteEnd, "out-of-range engine percentages are clamped");
+  bar.Cache(100);
+  check(bar.value == kBarExecuteEnd, "late cache progress cannot reduce execution progress");
+  const unsigned before_rollback = bar.value;
+  bar.Halt();
+  bar.Execute(10);
+  bar.Complete();
+  check(bar.mode == BarMode::halted && bar.value == before_rollback, "rollback freezes the bar");
+  SetupProgress finished;
+  finished.Complete();
+  check(finished.mode == BarMode::advancing && finished.value == kBarComplete, "success fills the bar");
+  SetupProgress sweep;
+  unsigned previous = 0;
+  unsigned seed = 0x2545F491U;
+  for (int step = 0; step < 5000; ++step) {
+    seed = seed * 1664525U + 1013904223U;
+    const unsigned percent = (seed >> 8) % 130;
+    if ((seed >> 4) & 1) sweep.Cache(percent); else sweep.Execute(percent);
+    check(sweep.value >= previous && sweep.value <= kBarExecuteEnd, "arbitrary engine reports never move the bar back");
+    previous = sweep.value;
+  }
   FinishState finish;
   check(!finish.desktop && finish.launch && !finish.startup, "finish defaults");
   finish.desktop = true;

@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../core/app_strings.dart';
-import '../core/chain_strings.dart';
 import '../core/user_facing_errors.dart';
 import '../core/usque_theme.dart';
 import '../models/app_models.dart';
@@ -58,6 +57,8 @@ class _AccountsPageState extends State<AccountsPage> {
     super.dispose();
   }
 
+  // The rows carry the selection and the live account, so the page needs no
+  // summary; an uncertain result is refreshed from its banner.
   @override
   Widget build(BuildContext context) => SubPage(
     title: controller.strings.get('scenario_accounts'),
@@ -67,73 +68,63 @@ class _AccountsPageState extends State<AccountsPage> {
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        BannerSlot(child: profilesOperationBanner(controller)),
-        if (controller.scenarios.supported) ...[
-          ProfilesSummary(controller: controller),
-          const SizedBox(height: 24),
-        ],
+        BannerSlot(
+          child: profilesOperationBanner(controller, refreshable: true),
+        ),
         AccountsScreen(controller: controller),
       ],
     ),
   );
 }
 
+/// The account list with its management actions. Choosing an account for a
+/// scene uses [ScenarioAccountPicker] instead, which never manages accounts.
 class AccountsScreen extends StatelessWidget {
-  const AccountsScreen({
-    required this.controller,
-    this.selectedProfileId,
-    this.onSelect,
-    super.key,
-  });
+  const AccountsScreen({required this.controller, super.key});
 
   final AppController controller;
-
-  /// Selecting an account for a scene changes only the caller's draft binding.
-  final String? selectedProfileId;
-  final ValueChanged<String>? onSelect;
 
   @override
   Widget build(BuildContext context) {
     final strings = controller.strings;
-    final content = controller.profileIdentitiesLoading
-        ? const Center(child: CircularProgressIndicator())
-        : ContentList(
-            children: controller.profiles
-                .map(
-                  (profile) => _ProfileRow(
-                    profile: profile,
-                    active:
-                        profile.id ==
-                        (onSelect == null
-                            ? controller.activeProfileId
-                            : selectedProfileId),
-                    selectionOnly: onSelect != null,
-                    identityState: controller.identityState(profile.id),
-                    identityStatus: controller.identityStatus(profile.id),
-                    strings: strings,
-                    canDelete: controller.profiles.length > 1,
-                    onActivate: () => onSelect != null
-                        ? onSelect!(profile.id)
-                        : _activateProfile(context, profile, strings),
-                    onConfigureIdentity: () => showProfileIdentityDialog(
-                      context,
-                      controller: controller,
-                      profile: profile,
-                    ),
-                    onEdit: () => _editProfile(context, profile, strings),
-                    onManageIdentity: () => _showIdentityManagement(
-                      context,
-                      profile,
-                      controller.identityStatus(profile.id),
-                      strings,
-                    ),
-                    onDelete: () => _deleteProfile(context, profile, strings),
-                  ),
-                )
-                .toList(growable: false),
-          );
+    if (controller.profileIdentitiesLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    final connected = profilesConnectedAccountId(controller);
+    // While an unconfirmed read may have replaced the saved choice, no row
+    // claims it; the page banner reports the uncertainty.
+    final selected = profilesSelectionUncertain(controller)
+        ? null
+        : controller.activeProfileId;
     // The owning page frames this list and places its create action.
-    return content;
+    return ContentList(
+      children: [
+        for (final profile in controller.profiles)
+          _ManagedAccountRow(
+            profile: profile,
+            selected: profile.id == selected,
+            connected: profile.id == connected,
+            identityState: controller.identityState(profile.id),
+            identityStatus: controller.identityStatus(profile.id),
+            strings: strings,
+            canDelete: controller.profiles.length > 1,
+            onActivate: () => _activateProfile(context, profile, strings),
+            onConfigureIdentity: () => showProfileIdentityDialog(
+              context,
+              controller: controller,
+              profile: profile,
+            ),
+            onEdit: () => _editProfile(context, profile, strings),
+            onManageIdentity: () => _showIdentityManagement(
+              context,
+              profile,
+              controller.identityStatus(profile.id),
+              strings,
+            ),
+            onDelete: () => _deleteProfile(context, profile, strings),
+          ),
+      ],
+    );
   }
 
   /// Switching the account of a live session reconnects it, so that case
@@ -150,7 +141,7 @@ class AccountsScreen extends StatelessWidget {
         builder: (context) => UsqueDialog(
           icon: LucideIcons.refreshCw,
           title: strings.get('set_active'),
-          subtitle: profile.name,
+          subtitle: strings.accountName(profile),
           width: 420,
           content: Text(strings.get('switch_account_reconnect_body')),
           actions: <Widget>[
@@ -222,7 +213,7 @@ class AccountsScreen extends StatelessWidget {
       builder: (context) => UsqueDialog(
         icon: LucideIcons.trash2,
         title: strings.get('delete_profile'),
-        subtitle: profile.name,
+        subtitle: strings.accountName(profile),
         danger: true,
         width: 420,
         content: Text(
@@ -267,6 +258,71 @@ class AddAccountButton extends StatelessWidget {
   );
 }
 
+/// Chooses the account a scene draft binds. A pick returns at once and only
+/// changes the caller's draft; it never switches, edits or deletes accounts.
+/// Adding an account stays available, since the wanted one may not exist yet.
+class ScenarioAccountPicker extends StatelessWidget {
+  const ScenarioAccountPicker({
+    required this.controller,
+    required this.boundAccountId,
+    required this.onSelected,
+    super.key,
+  });
+
+  final AppController controller;
+
+  /// The draft's binding; null follows the selected account.
+  final String? boundAccountId;
+  final ValueChanged<String?> onSelected;
+
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: controller,
+    builder: (context, _) {
+      final strings = controller.strings;
+      return SubPage(
+        title: strings.get('scenario_binding'),
+        subtitle: strings.get('scenario_account_hint'),
+        backLabel: strings.get('back'),
+        contentWidth: 880,
+        actions: [AddAccountButton(controller: controller)],
+        child: controller.profileIdentitiesLoading
+            ? const Center(child: CircularProgressIndicator())
+            : ContentList(
+                children: [
+                  _PickerAccountRow(
+                    key: const ValueKey('scenario-follow-account'),
+                    checked: boundAccountId == null,
+                    title: strings.get('scenario_follow_account'),
+                    detail: Text(
+                      strings
+                          .get('scenario_follow_account_hint')
+                          .replaceAll(
+                            '{account}',
+                            profilesSelectedAccountLabel(controller),
+                          ),
+                    ),
+                    onPick: () => onSelected(null),
+                  ),
+                  for (final profile in controller.profiles)
+                    _PickerAccountRow(
+                      key: ValueKey('scene-select-account-${profile.id}'),
+                      checked: profile.id == boundAccountId,
+                      title: strings.accountName(profile),
+                      detail: _AccountIdentityLine(
+                        state: controller.identityState(profile.id),
+                        status: controller.identityStatus(profile.id),
+                        strings: strings,
+                      ),
+                      onPick: () => onSelected(profile.id),
+                    ),
+                ],
+              ),
+      );
+    },
+  );
+}
+
 class _ProfileEditDialog extends StatefulWidget {
   const _ProfileEditDialog({required this.strings, required this.profile});
 
@@ -286,7 +342,9 @@ class _ProfileEditDialogState extends State<_ProfileEditDialog> {
   @override
   void initState() {
     super.initState();
-    _controller = TextEditingController(text: widget.profile.name);
+    _controller = TextEditingController(
+      text: widget.strings.accountName(widget.profile),
+    );
     _focusNode = FocusNode();
   }
 
@@ -315,7 +373,7 @@ class _ProfileEditDialogState extends State<_ProfileEditDialog> {
     return UsqueDialog(
       icon: LucideIcons.pencil,
       title: widget.strings.get('edit_profile'),
-      subtitle: widget.profile.name,
+      subtitle: widget.strings.accountName(widget.profile),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -454,7 +512,7 @@ class _IdentityManagementDialogState extends State<_IdentityManagementDialog> {
     return UsqueDialog(
       icon: zeroTrust ? LucideIcons.building2 : LucideIcons.keyRound,
       title: widget.strings.get('identity_and_license'),
-      subtitle: widget.profile.name,
+      subtitle: widget.strings.accountName(widget.profile),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -558,10 +616,21 @@ class _IdentityManagementDialogState extends State<_IdentityManagementDialog> {
   }
 }
 
-class _ProfileRow extends StatelessWidget {
-  const _ProfileRow({
+/// The account's kind. Selection has its own marks and never changes it.
+IconData _accountGlyph(ProfileIdentityStatus status) =>
+    status.provider == IdentityProvider.zeroTrust
+    ? LucideIcons.building2
+    : status.licenseState == LicenseState.warpPlus
+    ? LucideIcons.badgeCheck
+    : LucideIcons.user;
+
+/// One managed account: its kind, name and state, at most one inline action
+/// and a labelled menu for the rest, in one block at every width.
+class _ManagedAccountRow extends StatelessWidget {
+  const _ManagedAccountRow({
     required this.profile,
-    required this.active,
+    required this.selected,
+    required this.connected,
     required this.identityState,
     required this.identityStatus,
     required this.strings,
@@ -571,43 +640,124 @@ class _ProfileRow extends StatelessWidget {
     required this.onEdit,
     required this.onManageIdentity,
     required this.onDelete,
-    this.selectionOnly = false,
   });
 
   final UsqueProfile profile;
-  final bool active;
-  final bool selectionOnly;
+  final bool selected, connected, canDelete;
   final ProfileIdentityState identityState;
   final ProfileIdentityStatus identityStatus;
   final AppStrings strings;
-  final bool canDelete;
   final VoidCallback onActivate;
   final VoidCallback onConfigureIdentity;
   final VoidCallback onEdit;
   final VoidCallback onManageIdentity;
   final VoidCallback onDelete;
 
+  Widget _menuItem(
+    BuildContext context,
+    IconData icon,
+    String label, {
+    bool danger = false,
+  }) {
+    final color = danger ? statusToneColor(context, StatusTone.danger) : null;
+    return Row(
+      children: <Widget>[
+        Icon(icon, size: 18, color: color),
+        const SizedBox(width: 12),
+        Flexible(
+          child: Text(
+            label,
+            style: color == null ? null : TextStyle(color: color),
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final UsqueTokens tokens = UsqueTokens.of(context);
-    final bool identityReady = identityState == ProfileIdentityState.ready;
+    final theme = Theme.of(context);
+    final tokens = UsqueTokens.of(context);
+    final ready = identityState == ProfileIdentityState.ready;
+    final tags = <Widget>[
+      // A saved choice, not a confirmed connection: brand, no check.
+      if (selected)
+        InlineStatus(
+          label: strings.get('account_selected'),
+          tone: StatusTone.brand,
+          icon: LucideIcons.circleDot,
+        ),
+      // Only a session the Engine confirms; an uncertain one is reported by
+      // the page banner instead.
+      if (connected)
+        InlineStatus(
+          key: ValueKey('profile-connected-${profile.id}'),
+          label: strings.get('account_connected'),
+          tone: StatusTone.success,
+        ),
+    ];
+    // Identity repair, license, rename and delete share one labelled menu,
+    // so touch screens need no tooltips and delete comes last, after a rule.
+    final menu = PopupMenuButton<String>(
+      key: ValueKey('profile-menu-${profile.id}'),
+      onSelected: (value) {
+        switch (value) {
+          case 'license':
+            onManageIdentity();
+          case 'setup':
+            onConfigureIdentity();
+          case 'rename':
+            onEdit();
+          case 'delete':
+            onDelete();
+        }
+      },
+      itemBuilder: (context) => <PopupMenuEntry<String>>[
+        PopupMenuItem(
+          key: ValueKey('profile-menu-identity-${profile.id}'),
+          value: ready ? 'license' : 'setup',
+          child: _menuItem(
+            context,
+            LucideIcons.keyRound,
+            strings.get(ready ? 'identity_and_license' : 'configure_identity'),
+          ),
+        ),
+        PopupMenuItem(
+          value: 'rename',
+          child: _menuItem(
+            context,
+            LucideIcons.pencil,
+            strings.get('edit_profile'),
+          ),
+        ),
+        const PopupMenuDivider(),
+        // The disabled entry names why, since it cannot be chosen.
+        PopupMenuItem(
+          key: ValueKey('profile-menu-delete-${profile.id}'),
+          value: 'delete',
+          enabled: canDelete,
+          child: _menuItem(
+            context,
+            LucideIcons.trash2,
+            strings.get(canDelete ? 'delete' : 'profile_required'),
+            danger: canDelete,
+          ),
+        ),
+      ],
+    );
     return Semantics(
-      selected: active,
+      selected: selected,
       container: true,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
         decoration: BoxDecoration(
-          color: active
-              ? Theme.of(
-                  context,
-                ).colorScheme.primary.withValues(alpha: tokens.tint * 0.55)
+          color: selected
+              ? theme.colorScheme.primary.withValues(alpha: tokens.tint * 0.55)
               : null,
           border: BorderDirectional(
             start: BorderSide(
               width: 3,
-              color: active
-                  ? Theme.of(context).colorScheme.primary
-                  : Colors.transparent,
+              color: selected ? theme.colorScheme.primary : Colors.transparent,
             ),
           ),
         ),
@@ -616,209 +766,207 @@ class _ProfileRow extends StatelessWidget {
             final compact =
                 constraints.maxWidth < 620 ||
                 MediaQuery.textScalerOf(context).scale(14) > 21;
-            final identityTag = _ProfileTag(
-              icon: identityStatus.provider == IdentityProvider.zeroTrust
-                  ? LucideIcons.building2
-                  : identityStatus.licenseState == LicenseState.warpPlus
-                  ? LucideIcons.badgeCheck
-                  : identityReady
-                  ? LucideIcons.user
-                  : LucideIcons.triangleAlert,
-              tone: identityReady ? null : tokens.caution,
-              label: _accountIdentityLabel(identityStatus, strings),
-            );
-            // A saved choice, not a confirmed connection: brand, no check.
-            final activePill = active
-                ? InlineStatus(
-                    label: strings.get('scenario_selected'),
-                    tone: StatusTone.brand,
-                    icon: LucideIcons.circleDot,
-                  )
-                : null;
-            final primary = <Widget>[
-              // A switch action, not a completed state: no check mark.
-              if (!active)
-                TextButton.icon(
-                  key: selectionOnly
-                      ? ValueKey('scene-select-account-${profile.id}')
-                      : null,
-                  onPressed: onActivate,
-                  icon: const Icon(LucideIcons.arrowLeftRight, size: 18),
-                  label: Text(
-                    strings.get(
-                      selectionOnly ? 'scenario_choose_account' : 'set_active',
-                    ),
-                  ),
-                ),
-              if (identityState != ProfileIdentityState.ready)
-                TextButton.icon(
-                  onPressed: onConfigureIdentity,
-                  icon: const Icon(LucideIcons.keyRound, size: 18),
-                  label: Text(strings.get('configure_identity')),
-                ),
-            ];
-            Widget menuItem(IconData icon, String label) => Row(
-              children: <Widget>[
-                Icon(icon, size: 18),
-                const SizedBox(width: 12),
-                Flexible(child: Text(label)),
-              ],
-            );
-            // Narrow rows keep the primary action visible and move the rest
-            // into a labelled menu, so each account stays one block.
-            final menu = PopupMenuButton<String>(
-              key: ValueKey('profile-menu-${profile.id}'),
-              onSelected: (value) {
-                switch (value) {
-                  case 'license':
-                    onManageIdentity();
-                  case 'rename':
-                    onEdit();
-                  case 'delete':
-                    onDelete();
-                }
-              },
-              itemBuilder: (_) => <PopupMenuEntry<String>>[
-                if (identityState == ProfileIdentityState.ready)
-                  PopupMenuItem(
-                    value: 'license',
-                    child: menuItem(
-                      LucideIcons.keyRound,
-                      strings.get('identity_and_license'),
-                    ),
-                  ),
-                PopupMenuItem(
-                  value: 'rename',
-                  child: menuItem(
-                    LucideIcons.pencil,
-                    strings.get('edit_profile'),
-                  ),
-                ),
-                // The disabled entry names why, since it cannot be chosen.
-                PopupMenuItem(
-                  key: ValueKey('profile-menu-delete-${profile.id}'),
-                  value: 'delete',
-                  enabled: canDelete,
-                  child: menuItem(
-                    LucideIcons.trash2,
-                    strings.get(canDelete ? 'delete' : 'profile_required'),
-                  ),
-                ),
-              ],
-            );
-            // Wrapped runs keep the trailing edge the actions are aligned to.
-            final actions = Wrap(
-              spacing: 6,
-              alignment: WrapAlignment.end,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: compact
-                  ? <Widget>[...primary, menu]
-                  : <Widget>[
-                      ...primary,
-                      // Labelled, because touch screens never show a tooltip; the
-                      // tooltip keeps the full action name.
-                      if (identityState == ProfileIdentityState.ready)
-                        Tooltip(
-                          message: strings.get('identity_and_license'),
-                          child: TextButton.icon(
-                            onPressed: onManageIdentity,
-                            icon: const Icon(LucideIcons.keyRound, size: 18),
-                            label: Text(strings.get('license')),
-                          ),
-                        ),
-                      Tooltip(
-                        message: strings.get('edit_profile'),
-                        child: TextButton.icon(
-                          onPressed: onEdit,
-                          icon: const Icon(LucideIcons.pencil, size: 18),
-                          label: Text(strings.chain('rename')),
-                        ),
-                      ),
-                      IconButton(
-                        key: ValueKey('profile-delete-${profile.id}'),
-                        tooltip: strings.get(
-                          canDelete ? 'delete' : 'profile_required',
-                        ),
-                        onPressed: canDelete ? onDelete : null,
-                        icon: const Icon(LucideIcons.trash2),
-                      ),
-                    ],
-            );
-            final name = Text(
-              profile.name,
-              maxLines: compact ? 2 : 1,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.titleLarge,
-            );
-            // Name and its tags form one block in every layout; the icon
-            // follows the name's line. Wide rows centre the actions on the
-            // block, narrow ones move them below a hairline.
-            final identity = Row(
+            // Switching is the only inline action, and a switch, not a
+            // completed state: no check mark. Under the text it starts on
+            // the text's edge.
+            final activate = selected
+                ? null
+                : TextButton.icon(
+                    key: ValueKey('profile-activate-${profile.id}'),
+                    onPressed: onActivate,
+                    style: compact
+                        ? TextButton.styleFrom(
+                            alignment: AlignmentDirectional.centerStart,
+                            padding: const EdgeInsetsDirectional.fromSTEB(
+                              0,
+                              8,
+                              12,
+                              8,
+                            ),
+                          )
+                        : null,
+                    icon: const Icon(LucideIcons.arrowLeftRight, size: 18),
+                    label: Text(strings.get('set_active')),
+                  );
+            final details = Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                // Layers marks scenes; an account keeps a person glyph, and
-                // the selected one is marked by colour, wash and its tag.
-                Icon(
-                  LucideIcons.circleUser,
-                  size: 24,
-                  color: active
-                      ? Theme.of(context).colorScheme.primary
-                      : Theme.of(context).colorScheme.onSurfaceVariant,
+                Text(
+                  strings.accountName(profile),
+                  maxLines: compact ? 2 : 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.titleLarge,
                 ),
-                const SizedBox(width: 13),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      name,
-                      const SizedBox(height: 8),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 6,
-                        children: <Widget>[identityTag, ?activePill],
-                      ),
-                    ],
-                  ),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 6,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: <Widget>[
+                    _AccountIdentityLine(
+                      state: identityState,
+                      status: identityStatus,
+                      strings: strings,
+                    ),
+                    ...tags,
+                  ],
                 ),
+                if (compact && activate != null) ...<Widget>[
+                  const SizedBox(height: 6),
+                  activate,
+                ],
               ],
             );
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
+            return Row(
+              crossAxisAlignment: compact
+                  ? CrossAxisAlignment.start
+                  : CrossAxisAlignment.center,
               children: <Widget>[
-                if (compact && primary.isEmpty)
-                  // Only the menu remains, so it joins the name's line
-                  // instead of taking a row of its own.
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      Expanded(child: identity),
-                      menu,
-                    ],
-                  )
-                else if (compact)
-                  identity
-                else
-                  Row(
-                    children: <Widget>[
-                      Expanded(child: identity),
-                      const SizedBox(width: 16),
-                      actions,
-                    ],
-                  ),
-                if (compact && primary.isNotEmpty) ...<Widget>[
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    child: Divider(height: 1, color: tokens.hairline),
-                  ),
-                  Align(
-                    alignment: AlignmentDirectional.centerEnd,
-                    child: actions,
-                  ),
+                _AccountGlyphTile(
+                  icon: _accountGlyph(identityStatus),
+                  lit: selected,
+                ),
+                const SizedBox(width: 14),
+                Expanded(child: details),
+                const SizedBox(width: 12),
+                if (!compact && activate != null) ...<Widget>[
+                  activate,
+                  const SizedBox(width: 4),
                 ],
+                menu,
               ],
             );
           },
         ),
+      ),
+    );
+  }
+}
+
+/// One option of [ScenarioAccountPicker]. Activating it picks the option
+/// and returns; arrow keys only move focus, so browsing never picks.
+class _PickerAccountRow extends StatelessWidget {
+  const _PickerAccountRow({
+    required this.checked,
+    required this.title,
+    required this.detail,
+    required this.onPick,
+    super.key,
+  });
+
+  final bool checked;
+  final String title;
+  final Widget detail;
+  final VoidCallback onPick;
+
+  // One node holds the label, the checked state and the activation, as a
+  // radio list tile's would.
+  @override
+  Widget build(BuildContext context) => MergeSemantics(
+    child: Semantics(
+      checked: checked,
+      inMutuallyExclusiveGroup: true,
+      child: ListTile(
+        contentPadding: const EdgeInsetsDirectional.only(start: 16, end: 16),
+        minLeadingWidth: 24,
+        horizontalTitleGap: 16,
+        minTileHeight: 72,
+        minVerticalPadding: 12,
+        selected: checked,
+        selectedTileColor: Theme.of(
+          context,
+        ).colorScheme.primary.withValues(alpha: .06),
+        // A pick, not a confirmed connection: a dot, no check.
+        leading: Icon(
+          checked ? LucideIcons.circleDot : LucideIcons.circle,
+          size: 24,
+        ),
+        title: Text(title, maxLines: 2, overflow: TextOverflow.ellipsis),
+        subtitle: Padding(
+          padding: const EdgeInsets.only(top: 2),
+          child: detail,
+        ),
+        onTap: onPick,
+      ),
+    ),
+  );
+}
+
+/// The account's kind beside its name, tinted while it is the selection.
+class _AccountGlyphTile extends StatelessWidget {
+  const _AccountGlyphTile({required this.icon, required this.lit});
+
+  final IconData icon;
+  final bool lit;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return ExcludeSemantics(
+      child: Container(
+        width: 36,
+        height: 36,
+        decoration: BoxDecoration(
+          color: lit
+              ? theme.colorScheme.primary.withValues(
+                  alpha: UsqueTokens.of(context).tint,
+                )
+              : theme.colorScheme.surfaceContainerHigh,
+          borderRadius: BorderRadius.circular(UsqueRadii.chip),
+        ),
+        child: Icon(
+          icon,
+          size: 18,
+          color: lit
+              ? theme.colorScheme.primary
+              : theme.colorScheme.onSurfaceVariant,
+        ),
+      ),
+    );
+  }
+}
+
+/// The account's kind in words (with a Zero Trust organization), or why its
+/// identity cannot be used. Normal flows always provision an identity, so the
+/// warning appears only after a credential is lost or damaged.
+class _AccountIdentityLine extends StatelessWidget {
+  const _AccountIdentityLine({
+    required this.state,
+    required this.status,
+    required this.strings,
+  });
+
+  final ProfileIdentityState state;
+  final ProfileIdentityStatus status;
+  final AppStrings strings;
+
+  @override
+  Widget build(BuildContext context) {
+    if (state != ProfileIdentityState.ready) {
+      return InlineStatus(
+        label: strings.get(
+          state == ProfileIdentityState.missing
+              ? 'identity_missing'
+              : 'identity_invalid',
+        ),
+        tone: StatusTone.warning,
+      );
+    }
+    final theme = Theme.of(context);
+    final zeroTrust = status.provider == IdentityProvider.zeroTrust;
+    final organization = zeroTrust && status.organization.isNotEmpty
+        ? ' · ${status.organization}'
+        : '';
+    // Product names read left to right, so right-to-left text keeps the plus
+    // of WARP+ after the name; the line still starts on the reading side.
+    final latin = zeroTrust || status.licenseState == LicenseState.warpPlus;
+    final rtl = Directionality.of(context) == TextDirection.rtl;
+    return Text(
+      '${_accountIdentityLabel(status, strings)}$organization',
+      textDirection: latin ? TextDirection.ltr : null,
+      textAlign: latin && rtl ? TextAlign.right : null,
+      style: theme.textTheme.bodyMedium?.copyWith(
+        color: theme.colorScheme.onSurfaceVariant,
       ),
     );
   }
@@ -831,33 +979,5 @@ String _accountIdentityLabel(ProfileIdentityStatus status, AppStrings strings) {
   if (status.licenseState == LicenseState.warpPlus) {
     return 'WARP+';
   }
-  if (status.state != ProfileIdentityState.ready) {
-    return strings.get(switch (status.state) {
-      ProfileIdentityState.missing => 'identity_missing',
-      ProfileIdentityState.invalid => 'identity_invalid',
-      ProfileIdentityState.ready => 'warp_free',
-    });
-  }
   return strings.get('warp_free');
-}
-
-/// One fact about a profile. Outlined rather than filled, so a card full of
-/// them still reads as a single object.
-class _ProfileTag extends StatelessWidget {
-  const _ProfileTag({required this.icon, required this.label, this.tone});
-
-  final IconData icon;
-  final String label;
-
-  /// Overrides the neutral colour when the fact needs attention.
-  final Color? tone;
-
-  @override
-  Widget build(BuildContext context) {
-    return InlineStatus(
-      label: label,
-      tone: tone == null ? StatusTone.neutral : StatusTone.warning,
-      icon: icon,
-    );
-  }
 }

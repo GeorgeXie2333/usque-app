@@ -36,11 +36,24 @@ impl ControlService {
             phase,
             ConnectionPhase::Connected | ConnectionPhase::Degraded
         );
+        // Without a session there is no application to confirm: a selection
+        // waits for the next connection, as on Android. A recorded operation
+        // that stayed unconfirmed, failed or is still applying keeps its status.
+        let idle = state.session_id.is_none() && state.applied_profile.is_none();
+        let recorded_outcome = state.operation_id.is_some()
+            && matches!(
+                state.apply_status,
+                ApplyStatus::Unknown | ApplyStatus::Failed | ApplyStatus::Applying
+            );
         ScenarioContext {
             source_epoch: state.source_epoch,
             session_id: state.session_id.clone(),
             applied_profile: state.applied_profile.clone().filter(|_| connected),
-            apply_status: state.apply_status,
+            apply_status: if idle && !recorded_outcome {
+                ApplyStatus::Deferred
+            } else {
+                state.apply_status
+            },
             dependency_fingerprint: String::new(),
         }
     }
@@ -161,15 +174,13 @@ impl ControlService {
         request: v1::ScenarioRequest,
     ) -> Result<v1::ScenarioResponse, ControlServiceError> {
         let command = ScenarioCommand::parse(&request.command_json)?;
-        let applying = matches!(
-            command,
-            ScenarioCommand::Activate { .. } | ScenarioCommand::Restore { .. }
-        );
         let operation_id = match &command {
             ScenarioCommand::Activate { operation_id, .. }
-            | ScenarioCommand::Restore { operation_id, .. } => Some(*operation_id),
+            | ScenarioCommand::Restore { operation_id, .. }
+            | ScenarioCommand::Reset { operation_id, .. } => Some(*operation_id),
             _ => None,
         };
+        let applying = operation_id.is_some();
         let _submission = self.settings_submission.lock().await;
         self.resolve_unconfirmed_scenario().await;
         // Queries and template edits remain available during connection

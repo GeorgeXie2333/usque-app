@@ -39,8 +39,8 @@ const Map<String, String> kItCatalog = <String, String>{
   'window_restore': 'Ripristina dimensioni della finestra',
   'window_close': 'Chiudi',
   'tray_open': 'Apri Usque',
-  'tray_connect_profile': 'Connetti l’account attivo',
-  'tray_disconnect_profile': 'Disconnetti l’account attivo',
+  'tray_connect_profile': 'Connetti l’account attuale',
+  'tray_disconnect_profile': 'Disconnetti l’account attuale',
   'tray_disconnect_exit': 'Disconnetti e chiudi',
   'notice_connection_interrupted':
       'La connessione si è interrotta. Usque sta tentando di ripristinarla.',
@@ -51,8 +51,8 @@ const Map<String, String> kItCatalog = <String, String>{
       'Il Kill Switch blocca il traffico di rete finché la connessione non viene ripristinata o non ti disconnetti.',
   'connection_status': 'Stato della connessione',
   'home': 'Inizio',
-  'profiles': 'Account',
-  'profiles_subtitle': 'Cambia e gestisci gli account WARP.',
+  'profiles': 'Profili',
+  'profiles_subtitle': 'Salva gli scenari e gestisci gli account.',
   'proxy': 'Proxy',
   'proxy_subtitle':
       'Configura gli indirizzi di ascolto e l’autenticazione condivisi del proxy.',
@@ -60,7 +60,7 @@ const Map<String, String> kItCatalog = <String, String>{
   'settings_subtitle': 'Impostazioni di connessione, proxy e applicazione.',
   'diagnostics': 'Diagnostica',
   'nav_home': 'Inizio',
-  'nav_profiles': 'Account',
+  'nav_profiles': 'Profili',
   'nav_proxy': 'Proxy',
   'nav_settings': 'Opzioni',
   'status_stream_degraded': 'Gli aggiornamenti di stato sono in ritardo',
@@ -79,7 +79,7 @@ const Map<String, String> kItCatalog = <String, String>{
   'error': 'Errore di connessione',
   'active_profile': 'Account attuale',
   'protocol': 'Protocollo',
-  'address_family': 'Famiglia di indirizzi',
+  'address_family': 'Versione IP',
   'duration': 'Durata',
   'download': 'Download',
   'upload': 'Upload',
@@ -93,7 +93,7 @@ const Map<String, String> kItCatalog = <String, String>{
   'dismiss': 'Ignora',
   'new_profile': 'Aggiungi account',
   'profile_name': 'Nome account',
-  'profile_name_too_long': 'Usare al massimo 64 caratteri.',
+  'profile_name_too_long': 'Usa al massimo 64 caratteri.',
   'configure_identity': 'Configura account WARP',
   'identity_ready': 'Account pronto',
   'warp_free': 'WARP Free',
@@ -146,10 +146,10 @@ const Map<String, String> kItCatalog = <String, String>{
   "zero_trust_reauth_endpoints":
       "Un nuovo accesso ripristina gli indirizzi registrati e rimuove quelli personalizzati.",
   'experimental': 'Sperimentale',
-  'show_license': 'Mostra License Key',
-  'hide_license': 'Nascondi License Key',
-  'license_copied': 'License Key copiata',
-  'warp_secret_saved': 'WARP Secret salvato',
+  'show_license': 'Mostra la chiave di licenza',
+  'hide_license': 'Nascondi la chiave di licenza',
+  'license_copied': 'Chiave di licenza copiata',
+  'warp_secret_saved': 'Dati di accesso WARP salvati in',
   'create': 'Crea',
   'cancel': 'Annulla',
   'active': 'Attivo',
@@ -160,7 +160,7 @@ const Map<String, String> kItCatalog = <String, String>{
   'delete': 'Elimina',
   'delete_profile': 'Rimuovere l’account?',
   'delete_profile_body':
-      "Rimuovere questo account e i relativi dati di accesso WARP da questo dispositivo? Se è associata una License Key, Usque proverà anche a scollegarla.",
+      "Rimuovere questo account e i relativi dati di accesso WARP da questo dispositivo? Se è associata una chiave di licenza, Usque proverà anche a scollegarla.",
   'delete_zero_trust_profile_body':
       'Cancella l’account e i dati di accesso da questo dispositivo. Chiedi all’amministratore di rimuovere anche il dispositivo dal pannello Zero Trust dell’organizzazione.',
   'license_not_applicable': 'Account dell’organizzazione · Sperimentale',
@@ -209,7 +209,7 @@ const Map<String, String> kItCatalog = <String, String>{
   'proxy_auth_saved': 'Nome utente e password del proxy salvati.',
   'proxy_auth_cleared': 'Protezione con password del proxy rimossa.',
   'proxy_password_set':
-      'La password è impostata. Immettere una nuova password per sostituirla.',
+      'La password è impostata. Inserisci una nuova password per sostituirla.',
   'proxy_auth_clear': 'Rimuovi protezione con password',
   'general': 'Generale',
   'start_on_boot': 'Avvia Usque all’accesso',
@@ -268,10 +268,10 @@ const Map<String, String> kItCatalog = <String, String>{
   'identity_and_license': 'Account e licenza',
   'license_cleanup_pending':
       'La vecchia registrazione del dispositivo WARP non è ancora stata rimossa.',
-  'copy_license': 'Copia License Key',
-  'change_license': 'Cambia License Key',
+  'copy_license': 'Copia la chiave di licenza',
+  'change_license': 'Cambia la chiave di licenza',
   'unbind_license': 'Torna a WARP Free',
-  'export_warp_secret': 'Esporta WARP Secret',
+  'export_warp_secret': 'Esporta dati di accesso WARP',
   'close': 'Chiudi',
   'advanced': 'Impostazioni di rete avanzate',
   'advanced_subtitle': 'Endpoint, DNS, MTU e instradamento.',
@@ -297,11 +297,11 @@ const Map<String, String> kItCatalog = <String, String>{
   'mtu': 'MTU',
   'dns_ipv4': 'DNS IPv4',
   'dns_ipv6': 'DNS IPv6',
-  'ip_policy': 'Versione IP dell’endpoint',
-  'prefer_ipv4': 'Preferisci endpoint IPv4',
-  'prefer_ipv6': 'Preferisci endpoint IPv6',
-  'ipv4_only': 'Solo endpoint IPv4',
-  'ipv6_only': 'Solo endpoint IPv6',
+  'ip_policy': 'Preferenza IP dell’endpoint',
+  'prefer_ipv4': 'Preferisci IPv4',
+  'prefer_ipv6': 'Preferisci IPv6',
+  'ipv4_only': 'Solo IPv4',
+  'ipv6_only': 'Solo IPv6',
   'kill_switch': 'Kill Switch',
   'on': 'Attivato',
   'off': 'Disattivato',
@@ -321,9 +321,9 @@ const Map<String, String> kItCatalog = <String, String>{
       'Avvia Usque dopo il riavvio del dispositivo. Per connetterti automaticamente, attiva anche “Connetti automaticamente l’account corrente all’avvio”.',
   'add_quick_settings_tile_help':
       'Aggiungi il riquadro Usque su Android 13 o versioni successive. Nelle versioni precedenti, aggiungilo manualmente da Impostazioni rapide.',
-  'always_on_vpn': 'Apri le impostazioni VPN sempre attiva',
+  'always_on_vpn': 'Apri le impostazioni “VPN sempre attiva”',
   'always_on_vpn_help':
-      'Abilitare VPN sempre attiva e Blocca le connessioni senza VPN per proteggersi dalle fughe dopo la chiusura dell’app.',
+      'Attiva “VPN sempre attiva” e “Blocca connessioni senza VPN” per proteggerti dalle fughe di dati dopo la chiusura forzata dell’app.',
   'per_app_proxy': 'Proxy per app',
   'per_app_proxy_off': 'Tutte le app usano la VPN',
   'per_app_proxy_on': 'Proxy di {count} app',
@@ -331,7 +331,7 @@ const Map<String, String> kItCatalog = <String, String>{
   'per_app_proxy_help':
       'Solo le app selezionate usano la VPN. Le app appena installate devono essere selezionate per usarla.',
   'per_app_proxy_lockdown_help':
-      'Se VPN sempre attiva e Blocca le connessioni senza VPN sono attive, le app non selezionate vengono bloccate, non inviate fuori dal tunnel.',
+      'Se “VPN sempre attiva” e “Blocca connessioni senza VPN” sono attive, le app non selezionate vengono bloccate, non inviate fuori dal tunnel.',
   'per_app_proxy_tunnel_hint':
       'Ha effetto quando la VPN è attiva. I proxy SOCKS5 e HTTP non filtrano per app.',
   'per_app_search': 'Cerca app',
@@ -339,7 +339,7 @@ const Map<String, String> kItCatalog = <String, String>{
   'per_app_select_visible': 'Seleziona le app visibili',
   'per_app_clear_visible': 'Deseleziona le app visibili',
   'per_app_selected_count': '{count} selezionate',
-  'per_app_need_one': 'Selezionare almeno un’app prima di abilitare.',
+  'per_app_need_one': 'Seleziona almeno un’app prima di abilitare.',
   'per_app_loading': 'Caricamento delle app installate…',
   'per_app_empty': 'Nessuna app corrisponde a questo filtro.',
   'allow_lan': 'Consenti la rete locale',
@@ -351,7 +351,7 @@ const Map<String, String> kItCatalog = <String, String>{
   'reset': 'Ripristina',
   'save': 'Salva',
   'saved': 'Salvato',
-  'invalid_fields': 'Controllare i campi evidenziati.',
+  'invalid_fields': 'Controlla i campi evidenziati.',
   'required': 'Obbligatorio',
   'invalid_address': 'Indirizzo non valido',
   'invalid_dns_name': 'Nome DNS non valido',
@@ -360,7 +360,7 @@ const Map<String, String> kItCatalog = <String, String>{
       'Controlla i problemi di connessione, esporta i registri e gestisci i dati locali.',
   'engine_status': 'Informazioni sulla connessione',
   'version': 'Versione',
-  'app_version': 'Usque 0.3.3',
+  'app_version': 'Usque 0.3.4',
   'logs': 'Log locali',
   'export_diagnostics': 'Esporta pacchetto diagnostico',
   'diagnostics_saved': 'Pacchetto diagnostico salvato in',
@@ -396,11 +396,11 @@ const Map<String, String> kItCatalog = <String, String>{
   'finish_setup': 'Termina configurazione',
   'back': 'Indietro',
   'continue': 'Continua',
-  'heads_up': 'Prima di connettersi',
+  'heads_up': 'Prima di connetterti',
   'permission_note':
       'Il sistema operativo può mostrare una conferma aggiuntiva al primo collegamento.',
   'setup_failed': 'Impossibile completare la configurazione',
-  'profile_required': 'Mantenere almeno un account.',
+  'profile_required': 'Mantieni almeno un account.',
   'socks_capabilities': 'TCP e UDP',
   'http_capabilities': 'CONNECT e inoltro ordinario',
   'geo_direct': 'Impostazioni di bypass',
@@ -409,7 +409,7 @@ const Map<String, String> kItCatalog = <String, String>{
   'bypass_targets_hint':
       'Un CIDR, IP o dominio per riga. Include tutti i sottodomini. Le app con DNS cifrato proprio sono identificate solo tramite IP.',
   'bypass_unsupported':
-      'Questo motore non supporta destinazioni personalizzate.',
+      'Questa versione di Usque non supporta destinazioni di bypass personalizzate. Cerca aggiornamenti in Impostazioni.',
   'bypass_limit': 'Massimo 256 regole di indirizzo e 256 domini.',
   'bypass_line_error': 'Riga {line}: {reason}',
   'bypass_summary':
@@ -445,7 +445,7 @@ const Map<String, String> kItCatalog = <String, String>{
       'Codici di errore, passaggi di connessione, tempi, statistiche del traffico e stato delle funzioni',
   'diag_export_excluded': 'Escluso:',
   'diag_export_excluded_body':
-      'Chiavi, token, nomi profilo, indirizzi completi, SSID, elenchi app e percorsi utente',
+      'Chiavi, token, nomi account, indirizzi completi, SSID, elenchi app e percorsi utente',
   'diag_export_local_only':
       'L’archivio viene scritto solo nella posizione scelta e non viene mai caricato automaticamente.',
   'diag_run_title': 'Esegui diagnostica di rete',
@@ -492,7 +492,7 @@ const Map<String, String> kItCatalog = <String, String>{
   'diag_stage': 'Fase',
   'diag_family': 'Versione IP',
   'diag_retryable': 'Riprovabile',
-  'diag_fallback_allowed': 'Fallback',
+  'diag_fallback_allowed': 'Fallback consentito',
   'diag_copy_support': 'Copia informazioni di supporto',
   'diag_support_copied': 'Informazioni di supporto copiate.',
   'diag_yes': 'Sì',
@@ -575,7 +575,7 @@ const Map<String, String> kItCatalog = <String, String>{
   'diag_fail_H2_GOAWAY': 'HTTP/2 ha ricevuto GOAWAY',
   'diag_fail_ALL_TRANSPORTS_FAILED': 'HTTP/3 e HTTP/2 entrambi non riusciti',
   'diag_fail_ENDPOINT_PIN_MISMATCH': 'Pin dell’endpoint non corrispondente',
-  'diag_fail_IDENTITY_INVALID': 'Identità non valida',
+  'diag_fail_IDENTITY_INVALID': 'Account WARP non valido',
   'diag_fail_AUTHENTICATION_FAILED': 'Autenticazione non riuscita',
   'diag_fail_CONFIGURATION_INVALID': 'Configurazione non valida',
   'diag_fail_CONNECT_IP_REJECTED': 'CONNECT-IP rifiutato',
@@ -611,7 +611,7 @@ const Map<String, String> kItCatalog = <String, String>{
   'diag_fix_try_http2':
       'In Impostazioni → Impostazioni di rete avanzate, scegli HTTP/2, applica la modifica e prova a riconnetterti.',
   'diag_fix_check_physical_network':
-      'Verifica che Wi-Fi o rete mobile funzionino, poi riprova a connetterti.',
+      'Verifica che Wi-Fi o rete mobile funzionino senza Usque, poi riprova a connetterti.',
   'diag_fix_refresh_or_replace_identity':
       'In Account scegli Configura account WARP per questo account. Accedi di nuovo o crea un account WARP, poi riconnettiti.',
   'diag_fix_replace_identity':
@@ -619,7 +619,7 @@ const Map<String, String> kItCatalog = <String, String>{
   'diag_fix_review_configuration':
       'In Impostazioni → Impostazioni di rete avanzate, correggi i campi segnalati e applica le modifiche.',
   'diag_fix_restore_platform_state':
-      'Esci completamente da Usque e riaprilo. Se il problema persiste, esporta un pacchetto da Diagnostica per chiedere assistenza.',
+      'Esci completamente da Usque, riaprilo e riprova. Se il problema persiste, apri Diagnostica ed esporta un pacchetto diagnostico per chiedere assistenza.',
   'diag_fix_resolve_dependency':
       'Risolvi prima i controlli non riusciti nell’elenco, poi ripeti la diagnostica.',
   'diag_fix_run_deep_diagnostics':
@@ -635,7 +635,7 @@ const Map<String, String> kItCatalog = <String, String>{
   'diag_fix_retry': 'Riprova tra poco.',
   'diag_fix_none': 'Nessuna azione richiesta.',
   'diag_fix_default':
-      'Riprova. Se il problema persiste, apri Diagnostica ed esporta un pacchetto per chiedere assistenza.',
+      'Riprova. Se il problema persiste, apri Diagnostica ed esporta un pacchetto diagnostico per chiedere assistenza.',
   'diag_event_attempt_started': 'Tentativo di connessione avviato',
   'diag_event_endpoint_resolved': 'Indirizzo dell’endpoint risolto',
   'diag_event_socket_connected': 'Socket connesso',
@@ -659,7 +659,7 @@ const Map<String, String> kItCatalog = <String, String>{
   'diag_event_disconnected': 'Disconnesso',
   'diag_event_failed': 'Connessione non riuscita',
   'operation_failed':
-      'Impossibile completare l’operazione. Riprova; se il problema persiste, esporta un pacchetto diagnostico per ricevere assistenza.',
+      'Impossibile completare l’operazione. Riprova; se il problema persiste, apri Diagnostica ed esporta un pacchetto diagnostico per chiedere assistenza.',
   'operation_timeout': 'L’operazione è scaduta. Controlla la rete e riprova.',
   'accounts_reset':
       'Le impostazioni dell’account illeggibili sono state reimpostate. Una copia resta su questo dispositivo. Configura di nuovo l’account in Account.',
@@ -677,15 +677,15 @@ const Map<String, String> kItCatalog = <String, String>{
   "routing_action": "Azione",
   "routing_target": "Dominio, IP o CIDR",
   "routing_priority":
-      "Prevale la regola più specifica. Le regole personalizzate prevalgono su Ads e paesi; il blocco IP resta attivo.",
+      "Prevale la regola più specifica. Le regole personalizzate prevalgono sul blocco degli annunci e sulle regole per paese; le regole di blocco IP restano attive.",
   "routing_conflict":
       "Azioni diverse per la stessa destinazione. Modifica queste regole.",
   "routing_overlap": "La regola più specifica prevale su quella più ampia.",
   "routing_duplicate": "I duplicati verranno uniti al salvataggio.",
-  "routing_ads": "pubblicità e tracciamento",
-  "routing_ads_ready": "I dati Ads sono disponibili.",
+  "routing_ads": "Blocco di annunci e tracker",
+  "routing_ads_ready": "Le regole di blocco degli annunci sono pronte.",
   "routing_ads_unavailable":
-      "Dati Ads non disponibili. Connessioni e regole personalizzate restano disponibili.",
+      "Le regole di blocco degli annunci non sono disponibili. Connessioni e regole personalizzate restano disponibili.",
   "routing_pending": "Le regole scaricate si applicano dopo la riconnessione.",
   'routing_current': "Connessione attuale",
 };

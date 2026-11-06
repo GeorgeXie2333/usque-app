@@ -37,8 +37,8 @@ const Map<String, String> kPtCatalog = <String, String>{
   'window_restore': 'Restaurar tamanho da janela',
   'window_close': 'Fechar',
   'tray_open': 'Abrir o Usque',
-  'tray_connect_profile': 'Conectar a conta ativa',
-  'tray_disconnect_profile': 'Desconectar a conta ativa',
+  'tray_connect_profile': 'Conectar a conta atual',
+  'tray_disconnect_profile': 'Desconectar a conta atual',
   'tray_disconnect_exit': 'Desconectar e sair',
   'notice_connection_interrupted':
       'A conexão foi interrompida. O Usque está tentando restaurá-la.',
@@ -49,8 +49,8 @@ const Map<String, String> kPtCatalog = <String, String>{
       'O Kill Switch está bloqueando o tráfego de rede até que a conexão seja restaurada ou você se desconecte.',
   'connection_status': 'Status da conexão',
   'home': 'Início',
-  'profiles': 'Contas',
-  'profiles_subtitle': 'Alterne e gerencie contas WARP.',
+  'profiles': 'Perfis',
+  'profiles_subtitle': 'Salve cenários e gerencie contas.',
   'proxy': 'Proxy',
   'proxy_subtitle':
       'Configure os endereços de escuta e a autenticação compartilhados do proxy.',
@@ -58,7 +58,7 @@ const Map<String, String> kPtCatalog = <String, String>{
   'settings_subtitle': 'Configurações de conexão, proxy e aplicativo.',
   'diagnostics': 'Diagnósticos',
   'nav_home': 'Início',
-  'nav_profiles': 'Contas',
+  'nav_profiles': 'Perfis',
   'nav_proxy': 'Proxy',
   'nav_settings': 'Ajustes',
   'status_stream_degraded': 'A atualização do status está atrasada',
@@ -77,7 +77,7 @@ const Map<String, String> kPtCatalog = <String, String>{
   'error': 'Erro de conexão',
   'active_profile': 'Conta atual',
   'protocol': 'Protocolo',
-  'address_family': 'Família de endereços',
+  'address_family': 'Versão de IP',
   'duration': 'Duração',
   'download': 'Download',
   'upload': 'Upload',
@@ -144,21 +144,21 @@ const Map<String, String> kPtCatalog = <String, String>{
   "zero_trust_reauth_endpoints":
       "Entrar novamente restaura os endereços registrados e remove seus endereços personalizados.",
   'experimental': 'Experimental',
-  'show_license': 'Mostrar License Key',
-  'hide_license': 'Ocultar License Key',
-  'license_copied': 'License Key copiada',
-  'warp_secret_saved': 'WARP Secret salvo',
+  'show_license': 'Mostrar chave de licença',
+  'hide_license': 'Ocultar chave de licença',
+  'license_copied': 'Chave de licença copiada',
+  'warp_secret_saved': 'Dados de login WARP salvos em',
   'create': 'Criar',
   'cancel': 'Cancelar',
   'active': 'Ativo',
-  'set_active': 'Definir como ativo',
+  'set_active': 'Definir como ativa',
   'switch_account_reconnect_body':
       'A conexão atual será restabelecida com esta conta.',
   'edit': 'Editar',
   'delete': 'Excluir',
   'delete_profile': 'Remover conta?',
   'delete_profile_body':
-      "Remover esta conta e os dados de login do WARP deste dispositivo? Se houver uma License Key vinculada, o Usque também tentará desvinculá-la.",
+      "Remover esta conta e os dados de login WARP deste dispositivo? Se houver uma chave de licença vinculada, o Usque também tentará desvinculá-la.",
   'delete_zero_trust_profile_body':
       'Apaga a conta e seus dados de login deste dispositivo. Peça ao administrador que também remova o registro do dispositivo no painel Zero Trust da organização.',
   'license_not_applicable': 'Conta da organização · Experimental',
@@ -264,10 +264,10 @@ const Map<String, String> kPtCatalog = <String, String>{
   'identity_and_license': 'Conta e licença',
   'license_cleanup_pending':
       'O registro antigo do dispositivo WARP ainda não foi removido.',
-  'copy_license': 'Copiar License Key',
-  'change_license': 'Alterar License Key',
+  'copy_license': 'Copiar chave de licença',
+  'change_license': 'Alterar chave de licença',
   'unbind_license': 'Voltar ao WARP Free',
-  'export_warp_secret': 'Exportar WARP Secret',
+  'export_warp_secret': 'Exportar dados de login WARP',
   'close': 'Fechar',
   'advanced': 'Configurações avançadas de rede',
   'advanced_subtitle': 'Endpoints, DNS, MTU e roteamento.',
@@ -293,11 +293,11 @@ const Map<String, String> kPtCatalog = <String, String>{
   'mtu': 'MTU',
   'dns_ipv4': 'DNS IPv4',
   'dns_ipv6': 'DNS IPv6',
-  'ip_policy': 'Versão de IP do endpoint',
-  'prefer_ipv4': 'Preferir endpoint IPv4',
-  'prefer_ipv6': 'Preferir endpoint IPv6',
-  'ipv4_only': 'Somente endpoint IPv4',
-  'ipv6_only': 'Somente endpoint IPv6',
+  'ip_policy': 'Preferência de IP do endpoint',
+  'prefer_ipv4': 'Preferir IPv4',
+  'prefer_ipv6': 'Preferir IPv6',
+  'ipv4_only': 'Somente IPv4',
+  'ipv6_only': 'Somente IPv6',
   'kill_switch': 'Kill Switch',
   'on': 'Ativado',
   'off': 'Desativado',
@@ -306,7 +306,7 @@ const Map<String, String> kPtCatalog = <String, String>{
   'ks_inactive': 'Inativo',
   'ks_error': 'Erro',
   'ks_engaging': 'Ativando',
-  'always_on': 'VPN sempre ativada',
+  'always_on': 'VPN sempre ativa',
   'lockdown': 'Bloquear sem VPN',
   'not_used_proxy': 'Não usado no modo proxy',
   'kill_switch_help':
@@ -317,9 +317,9 @@ const Map<String, String> kPtCatalog = <String, String>{
       'Inicie o Usque quando o dispositivo reiniciar. Para conectar automaticamente, ative também “Conectar a conta atual automaticamente ao iniciar”.',
   'add_quick_settings_tile_help':
       'Adicione o bloco do Usque no Android 13 ou posterior. Em versões anteriores, adicione-o manualmente nas Configurações rápidas.',
-  'always_on_vpn': 'Abrir configurações de VPN sempre ativada',
+  'always_on_vpn': 'Abrir configurações de “VPN sempre ativa”',
   'always_on_vpn_help':
-      'Ative VPN sempre ativada e Bloquear conexões sem VPN para proteção contra vazamentos depois que o aplicativo for encerrado.',
+      'Ative “VPN sempre ativa” e “Bloquear conexões sem VPN” para se proteger contra vazamentos depois que o aplicativo for encerrado.',
   'per_app_proxy': 'Proxy por aplicativo',
   'per_app_proxy_off': 'Todos os aplicativos usam a VPN',
   'per_app_proxy_on': 'Aplicando proxy a {count} aplicativos',
@@ -327,7 +327,7 @@ const Map<String, String> kPtCatalog = <String, String>{
   'per_app_proxy_help':
       'Somente os aplicativos marcados usam a VPN. Aplicativos recém-instalados precisam ser marcados para usá-la.',
   'per_app_proxy_lockdown_help':
-      'Se VPN sempre ativada e Bloquear conexões sem VPN estiverem ativados, os aplicativos que você não selecionar serão bloqueados, não enviados para fora do túnel.',
+      'Se “VPN sempre ativa” e “Bloquear conexões sem VPN” estiverem ativados, os aplicativos que você não selecionar serão bloqueados, não enviados para fora do túnel.',
   'per_app_proxy_tunnel_hint':
       'Entra em vigor quando a VPN está ativada. Os proxies SOCKS5 e HTTP não filtram por aplicativo.',
   'per_app_search': 'Pesquisar aplicativos',
@@ -339,7 +339,7 @@ const Map<String, String> kPtCatalog = <String, String>{
   'per_app_loading': 'Carregando aplicativos instalados…',
   'per_app_empty': 'Nenhum aplicativo corresponde a este filtro.',
   'allow_lan': 'Permitir rede local',
-  'bypass_cidrs': 'CIDRs de bypass adicionais',
+  'bypass_cidrs': 'CIDRs diretos adicionais',
   'bypass_hint': 'Um CIDR por linha',
   'reset_defaults': 'Restaurar padrões de rede',
   'reset_defaults_body':
@@ -356,7 +356,7 @@ const Map<String, String> kPtCatalog = <String, String>{
       'Verifique problemas de conexão, exporte registros e gerencie os dados locais.',
   'engine_status': 'Informações da conexão',
   'version': 'Versão',
-  'app_version': 'Usque 0.3.3',
+  'app_version': 'Usque 0.3.4',
   'logs': 'Logs locais',
   'export_diagnostics': 'Exportar pacote de diagnóstico',
   'diagnostics_saved': 'Pacote de diagnóstico salvo em',
@@ -398,24 +398,25 @@ const Map<String, String> kPtCatalog = <String, String>{
   'profile_required': 'Mantenha pelo menos uma conta.',
   'socks_capabilities': 'TCP e UDP',
   'http_capabilities': 'CONNECT e encaminhamento comum',
-  'geo_direct': 'Definições de desvio',
-  'bypass_custom': 'Destinos personalizados',
+  'geo_direct': 'Conexão direta',
+  'bypass_custom': 'Destinos diretos personalizados',
   'bypass_countries': 'Países / regiões',
   'bypass_targets_hint':
       'Um CIDR, IP ou domínio por linha. Inclui todos os subdomínios. Apps com DNS cifrado próprio são identificadas apenas por IP.',
-  'bypass_unsupported': 'Este motor não suporta destinos personalizados.',
+  'bypass_unsupported':
+      'Esta versão do Usque não suporta destinos diretos personalizados. Procure atualizações em Configurações.',
   'bypass_limit': 'Máximo de 256 regras de endereços e 256 domínios.',
   'bypass_line_error': 'Linha {line}: {reason}',
   'bypass_summary': '{countries} regiões · {targets} destinos personalizados',
   'geo_direct_help':
-      'O tráfego correspondente a esses países ou regiões ignora a VPN/TUN do Usque e os proxies locais HTTP e SOCKS5. O provedor DNS da rede atual pode ver os domínios consultados. Aplicativos com DNS criptografado são classificados apenas pelo IP.',
+      'O tráfego correspondente a esses países ou regiões vai direto, sem passar pela VPN/TUN do Usque nem pelos proxies locais HTTP e SOCKS5. O provedor DNS da rede atual pode ver os domínios consultados. Aplicativos com DNS criptografado são classificados apenas pelo IP.',
   'geo_update_all': 'Atualizar dados geográficos',
   'geo_last_updated': 'Última atualização bem-sucedida: {current}',
   'geo_never_updated': 'Ainda não atualizado',
   'geo_updating': 'Atualizando {current} de {total}',
   'geo_download': 'Baixar',
   'geo_update': 'Atualizar',
-  'geo_enable': 'Roteamento direto',
+  'geo_enable': 'Direto',
   'geo_search': 'Pesquisar países',
   'geo_not_downloaded': 'Não baixado',
   'geo_downloaded': 'Baixado',
@@ -437,7 +438,7 @@ const Map<String, String> kPtCatalog = <String, String>{
       'Códigos de erro, etapas da conexão, tempos, estatísticas de tráfego e status dos recursos',
   'diag_export_excluded': 'Excluído:',
   'diag_export_excluded_body':
-      'Chaves, tokens, nomes de perfil, endereços completos, SSIDs, listas de apps e caminhos de usuário',
+      'Chaves, tokens, nomes de conta, endereços completos, SSIDs, listas de apps e caminhos de usuário',
   'diag_export_local_only':
       'O arquivo é gravado apenas no local que você escolher e nunca é enviado automaticamente.',
   'diag_run_title': 'Executar diagnóstico de rede',
@@ -483,7 +484,7 @@ const Map<String, String> kPtCatalog = <String, String>{
   'diag_stage': 'Etapa',
   'diag_family': 'Versão de IP',
   'diag_retryable': 'Repetível',
-  'diag_fallback_allowed': 'Fallback',
+  'diag_fallback_allowed': 'Fallback permitido',
   'diag_copy_support': 'Copiar informações de suporte',
   'diag_support_copied': 'Informações de suporte copiadas.',
   'diag_yes': 'Sim',
@@ -564,7 +565,7 @@ const Map<String, String> kPtCatalog = <String, String>{
   'diag_fail_H2_GOAWAY': 'HTTP/2 recebeu GOAWAY',
   'diag_fail_ALL_TRANSPORTS_FAILED': 'HTTP/3 e HTTP/2 falharam',
   'diag_fail_ENDPOINT_PIN_MISMATCH': 'Pin do endpoint não confere',
-  'diag_fail_IDENTITY_INVALID': 'Identidade inválida',
+  'diag_fail_IDENTITY_INVALID': 'Conta WARP inválida',
   'diag_fail_AUTHENTICATION_FAILED': 'Falha na autenticação',
   'diag_fail_CONFIGURATION_INVALID': 'Configuração inválida',
   'diag_fail_CONNECT_IP_REJECTED': 'CONNECT-IP rejeitado',
@@ -598,7 +599,7 @@ const Map<String, String> kPtCatalog = <String, String>{
   'diag_fix_try_http2':
       'Em Configurações → Configurações avançadas de rede, escolha HTTP/2, aplique as alterações e tente conectar novamente.',
   'diag_fix_check_physical_network':
-      'Verifique se o Wi-Fi ou a rede móvel funciona e tente conectar novamente.',
+      'Verifique se o Wi-Fi ou os dados móveis funcionam sem o Usque e tente conectar novamente.',
   'diag_fix_refresh_or_replace_identity':
       'Em Contas, escolha Configurar conta WARP para esta conta. Entre novamente ou crie uma conta WARP e reconecte.',
   'diag_fix_replace_identity':
@@ -606,7 +607,7 @@ const Map<String, String> kPtCatalog = <String, String>{
   'diag_fix_review_configuration':
       'Em Configurações → Configurações avançadas de rede, corrija os campos destacados e aplique as alterações.',
   'diag_fix_restore_platform_state':
-      'Feche o Usque por completo e abra novamente. Se continuar falhando, exporte um pacote em Diagnósticos para pedir ajuda.',
+      'Feche o Usque por completo, abra-o novamente e tente de novo. Se continuar falhando, abra Diagnósticos e exporte um pacote de diagnóstico para pedir ajuda.',
   'diag_fix_resolve_dependency':
       'Resolva primeiro as verificações que falharam na lista e execute o diagnóstico novamente.',
   'diag_fix_run_deep_diagnostics':
@@ -614,7 +615,7 @@ const Map<String, String> kPtCatalog = <String, String>{
   'diag_fix_run_release_leak_gate':
       'Exporte um pacote de diagnóstico e envie ao suporte. As informações sensíveis são removidas.',
   'diag_fix_inspect_platform_state':
-      'Em Diagnósticos, veja as falhas de Proteção do sistema. Se persistirem, exporte um pacote de diagnóstico para pedir ajuda.',
+      'Abra Diagnósticos e confira as verificações de Proteção do sistema. Se continuarem falhando, exporte um pacote de diagnóstico para pedir ajuda.',
   'diag_fix_generate_tunnel_traffic':
       'Abra uma página pela conexão do Usque e repita a verificação.',
   'diag_fix_export_diagnostics':
@@ -622,7 +623,7 @@ const Map<String, String> kPtCatalog = <String, String>{
   'diag_fix_retry': 'Tente novamente em breve.',
   'diag_fix_none': 'Nenhuma ação é necessária.',
   'diag_fix_default':
-      'Tente novamente. Se o problema persistir, abra Diagnósticos e exporte um pacote para pedir ajuda.',
+      'Tente novamente. Se o problema persistir, abra Diagnósticos e exporte um pacote de diagnóstico para pedir ajuda.',
   'diag_event_attempt_started': 'Tentativa de conexão iniciada',
   'diag_event_endpoint_resolved': 'Endereço do endpoint resolvido',
   'diag_event_socket_connected': 'Soquete conectado',
@@ -647,7 +648,7 @@ const Map<String, String> kPtCatalog = <String, String>{
   'diag_event_disconnected': 'Desconectado',
   'diag_event_failed': 'Falha na conexão',
   'operation_failed':
-      'Não foi possível concluir a operação. Tente novamente; se o problema persistir, exporte um pacote de diagnóstico para obter ajuda.',
+      'Não foi possível concluir a operação. Tente novamente; se continuar falhando, abra Diagnósticos e exporte um pacote de diagnóstico para pedir ajuda.',
   'operation_timeout':
       'A operação demorou demais. Verifique a rede e tente novamente.',
   'accounts_reset':
@@ -660,22 +661,22 @@ const Map<String, String> kPtCatalog = <String, String>{
   'dns_duplicate_address': 'Remova os endereços IP duplicados.',
   'dns_address_not_allowed':
       'Um endereço não pode ser usado para conectar ao servidor DNS. Use os IPs fornecidos pelo seu provedor DNS.',
-  "routing_rules": "Regras de encaminhamento personalizadas",
+  "routing_rules": "Regras de roteamento personalizadas",
   "routing_add": "Adicionar regra",
   "routing_batch": "Colar regras",
   "routing_action": "Ação",
   "routing_target": "Domínio, IP ou CIDR",
   "routing_priority":
-      "A regra mais específica tem prioridade. Regras próprias prevalecem sobre Ads e países; o bloqueio IP continua válido.",
+      "A regra mais específica tem prioridade. Regras personalizadas prevalecem sobre o bloqueio de anúncios e as regras por país; as regras de bloqueio de IP continuam valendo.",
   "routing_conflict":
       "Ações diferentes para o mesmo destino. Edite estas regras.",
   "routing_overlap":
       "A regra mais específica prevalece sobre a mais abrangente.",
   "routing_duplicate": "Duplicatas serão unidas ao salvar.",
-  "routing_ads": "anúncios e rastreamento",
-  "routing_ads_ready": "Os dados de Ads estão disponíveis.",
+  "routing_ads": "Bloqueio de anúncios e rastreadores",
+  "routing_ads_ready": "As regras de bloqueio de anúncios estão prontas.",
   "routing_ads_unavailable":
-      "Ads indisponível. Conexões e regras próprias continuam disponíveis.",
+      "As regras de bloqueio de anúncios estão indisponíveis. As conexões e as regras personalizadas continuam disponíveis.",
   "routing_pending": "As regras baixadas entram em vigor após reconectar.",
   'routing_current': "Conexão atual",
 };

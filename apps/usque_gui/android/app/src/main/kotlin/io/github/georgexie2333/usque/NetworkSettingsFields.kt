@@ -4,6 +4,17 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 internal object NetworkSettingsFields {
+    /** A UI-process configuration read is not an observation of the VPN owner. */
+    fun persistedOnly(value: String): Map<String, Any?> {
+        require(value.length <= 2 * 1024 * 1024)
+        val source = JSONObject(value)
+        val projected = JSONObject().put("runtime_observed", false)
+        for (key in listOf("stored_profile", "shared_network_profile")) {
+            source.optJSONObject(key)?.let { projected.put(key, it) }
+        }
+        return objectMap(projected)
+    }
+
     fun decode(value: String): Map<String, Any?> {
         require(value.length <= 2 * 1024 * 1024)
         val source = JSONObject(value)

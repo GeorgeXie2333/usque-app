@@ -7,6 +7,7 @@ const Map<String, String> kOnboardingEn = <String, String>{
   'onboarding_android_permissions_body':
       'Notifications help keep Usque running in the background by showing a persistent service notification. No other notifications will be sent. You can decline and continue setup.',
   'onboarding_vpn_required': 'VPN permission required',
+  'onboarding_notifications_title': 'Notifications',
   'onboarding_notifications_optional': 'Notifications are optional',
   'onboarding_notifications_granted': 'Notifications allowed',
   'onboarding_notifications_denied':
@@ -38,6 +39,7 @@ kOnboardingCatalogs = <String, Map<String, String>>{
     'onboarding_android_permissions_body':
         '通知权限用于显示常驻通知，帮助 Usque 在后台保持运行，不会推送其他通知。你也可以选择不允许并继续设置。',
     'onboarding_vpn_required': '需要 VPN 权限',
+    'onboarding_notifications_title': '通知',
     'onboarding_notifications_optional': '通知权限可选',
     'onboarding_notifications_granted': '已允许通知',
     'onboarding_notifications_denied': '已拒绝通知 · 可以继续设置',
@@ -46,7 +48,7 @@ kOnboardingCatalogs = <String, Map<String, String>>{
     'onboarding_ready': '已保存的 WARP 账号已就绪。',
     'onboarding_interrupted': '账号设置已中断。',
     'onboarding_failed': '账号设置失败。请检查填写的信息后重试。',
-    'onboarding_unavailable': '无法检查账号设置，请再次检查。',
+    'onboarding_unavailable': '暂时无法确认账号设置结果，请重试。',
     'onboarding_check_result': '检查结果',
     'onboarding_result_unknown':
         '上一次请求可能已创建账号。请先检查结果；再次注册可能创建另一个 Cloudflare 账号。',
@@ -63,6 +65,7 @@ kOnboardingCatalogs = <String, Map<String, String>>{
     'onboarding_android_permissions_body':
         '通知權限用於顯示常駐通知，協助 Usque 在背景持續運作，不會推送其他通知。你亦可選擇不允許並繼續設定。',
     'onboarding_vpn_required': '需要 VPN 權限',
+    'onboarding_notifications_title': '通知',
     'onboarding_notifications_optional': '通知權限可選',
     'onboarding_notifications_granted': '已允許通知',
     'onboarding_notifications_denied': '已拒絕通知 · 可以繼續設定',
@@ -88,6 +91,7 @@ kOnboardingCatalogs = <String, Map<String, String>>{
     'onboarding_android_permissions_body':
         '通知權限用於顯示常駐通知，協助 Usque 在背景持續執行，不會推送其他通知。你也可以選擇不允許並繼續設定。',
     'onboarding_vpn_required': '需要 VPN 權限',
+    'onboarding_notifications_title': '通知',
     'onboarding_notifications_optional': '通知權限為選用',
     'onboarding_notifications_granted': '已允許通知',
     'onboarding_notifications_denied': '已拒絕通知 · 可以繼續設定',
@@ -114,6 +118,7 @@ kOnboardingCatalogs = <String, Map<String, String>>{
     'onboarding_android_permissions_body':
         '通知の許可は、常駐通知を表示して Usque のバックグラウンド動作を維持するために使用します。その他の通知は送信しません。許可せずに設定を続けることもできます。',
     'onboarding_vpn_required': 'VPN 権限が必要です',
+    'onboarding_notifications_title': '通知',
     'onboarding_notifications_optional': '通知は任意です',
     'onboarding_notifications_granted': '通知が許可されています',
     'onboarding_notifications_denied': '通知は拒否されました · 設定を続行できます',
@@ -140,6 +145,7 @@ kOnboardingCatalogs = <String, Map<String, String>>{
     'onboarding_android_permissions_body':
         '알림 권한은 상시 알림을 표시하여 Usque가 백그라운드에서 계속 실행되도록 돕는 데 사용됩니다. 다른 알림은 보내지 않습니다. 허용하지 않고 설정을 계속할 수도 있습니다.',
     'onboarding_vpn_required': 'VPN 권한 필요',
+    'onboarding_notifications_title': '알림',
     'onboarding_notifications_optional': '알림은 선택 사항입니다',
     'onboarding_notifications_granted': '알림 허용됨',
     'onboarding_notifications_denied': '알림 거부됨 · 설정을 계속할 수 있습니다',
@@ -167,6 +173,7 @@ kOnboardingCatalogs = <String, Map<String, String>>{
     'onboarding_android_permissions_body':
         'Las notificaciones ayudan a mantener Usque en segundo plano mediante una notificación permanente del servicio. No se enviarán otras notificaciones. Puedes rechazarlas y continuar la configuración.',
     'onboarding_vpn_required': 'Se necesita permiso de VPN',
+    'onboarding_notifications_title': 'Notificaciones',
     'onboarding_notifications_optional': 'Las notificaciones son opcionales',
     'onboarding_notifications_granted': 'Notificaciones permitidas',
     'onboarding_notifications_denied':
@@ -196,6 +203,7 @@ kOnboardingCatalogs = <String, Map<String, String>>{
     'onboarding_android_permissions_body':
         'As notificações ajudam a manter o Usque em execução em segundo plano com uma notificação permanente do serviço. Nenhuma outra notificação será enviada. Você pode recusar e continuar a configuração.',
     'onboarding_vpn_required': 'Permissão de VPN necessária',
+    'onboarding_notifications_title': 'Notificações',
     'onboarding_notifications_optional': 'As notificações são opcionais',
     'onboarding_notifications_granted': 'Notificações permitidas',
     'onboarding_notifications_denied':
@@ -225,6 +233,7 @@ kOnboardingCatalogs = <String, Map<String, String>>{
     'onboarding_android_permissions_body':
         'Les notifications aident Usque à rester actif en arrière-plan grâce à une notification permanente du service. Aucune autre notification ne sera envoyée. Vous pouvez refuser et poursuivre la configuration.',
     'onboarding_vpn_required': 'Autorisation VPN nécessaire',
+    'onboarding_notifications_title': 'Notifications',
     'onboarding_notifications_optional': 'Les notifications sont facultatives',
     'onboarding_notifications_granted': 'Notifications autorisées',
     'onboarding_notifications_denied':
@@ -254,6 +263,7 @@ kOnboardingCatalogs = <String, Map<String, String>>{
     'onboarding_android_permissions_body':
         'Meldingen helpen Usque op de achtergrond actief te blijven door een permanente servicemelding te tonen. Er worden geen andere meldingen verstuurd. Je kunt weigeren en doorgaan met instellen.',
     'onboarding_vpn_required': 'VPN-toestemming vereist',
+    'onboarding_notifications_title': 'Meldingen',
     'onboarding_notifications_optional': 'Meldingen zijn optioneel',
     'onboarding_notifications_granted': 'Meldingen toegestaan',
     'onboarding_notifications_denied': 'Meldingen geweigerd · je kunt doorgaan',
@@ -282,6 +292,7 @@ kOnboardingCatalogs = <String, Map<String, String>>{
     'onboarding_android_permissions_body':
         'Bildirimler, kalıcı bir hizmet bildirimi göstererek Usque uygulamasının arka planda çalışmasını destekler. Başka bildirim gönderilmez. İzin vermeden kuruluma devam edebilirsiniz.',
     'onboarding_vpn_required': 'VPN izni gerekli',
+    'onboarding_notifications_title': 'Bildirimler',
     'onboarding_notifications_optional': 'Bildirimler isteğe bağlıdır',
     'onboarding_notifications_granted': 'Bildirimlere izin verildi',
     'onboarding_notifications_denied':
@@ -311,6 +322,7 @@ kOnboardingCatalogs = <String, Map<String, String>>{
     'onboarding_android_permissions_body':
         'Разрешение на уведомления используется для постоянного уведомления службы, помогающего Usque работать в фоне. Другие уведомления отправляться не будут. Можно отказаться и продолжить настройку.',
     'onboarding_vpn_required': 'Требуется разрешение на VPN',
+    'onboarding_notifications_title': 'Уведомления',
     'onboarding_notifications_optional': 'Уведомления необязательны',
     'onboarding_notifications_granted': 'Уведомления разрешены',
     'onboarding_notifications_denied':
@@ -340,6 +352,7 @@ kOnboardingCatalogs = <String, Map<String, String>>{
     'onboarding_android_permissions_body':
         'اجازهٔ اعلان برای نمایش اعلان دائمی سرویس و کمک به اجرای Usque در پس‌زمینه استفاده می‌شود. هیچ اعلان دیگری ارسال نمی‌شود. می‌توانید اجازه ندهید و راه‌اندازی را ادامه دهید.',
     'onboarding_vpn_required': 'مجوز VPN لازم است',
+    'onboarding_notifications_title': 'اعلان‌ها',
     'onboarding_notifications_optional': 'اعلان‌ها اختیاری هستند',
     'onboarding_notifications_granted': 'اعلان‌ها مجاز هستند',
     'onboarding_notifications_denied':
@@ -369,6 +382,7 @@ kOnboardingCatalogs = <String, Map<String, String>>{
     'onboarding_android_permissions_body':
         'يساعد إذن الإشعارات على استمرار تشغيل Usque في الخلفية من خلال إشعار دائم للخدمة. لن تُرسل أي إشعارات أخرى. يمكنك الرفض ومتابعة الإعداد.',
     'onboarding_vpn_required': 'يلزم إذن VPN',
+    'onboarding_notifications_title': 'الإشعارات',
     'onboarding_notifications_optional': 'الإشعارات اختيارية',
     'onboarding_notifications_granted': 'الإشعارات مسموحة',
     'onboarding_notifications_denied': 'تم رفض الإشعارات · يمكن متابعة الإعداد',
@@ -395,6 +409,7 @@ kOnboardingCatalogs = <String, Map<String, String>>{
     'onboarding_android_permissions_body':
         'Benachrichtigungen helfen Usque durch eine dauerhafte Dienstbenachrichtigung, im Hintergrund aktiv zu bleiben. Es werden keine anderen Benachrichtigungen gesendet. Du kannst ablehnen und die Einrichtung fortsetzen.',
     'onboarding_vpn_required': 'VPN-Berechtigung erforderlich',
+    'onboarding_notifications_title': 'Benachrichtigungen',
     'onboarding_notifications_optional': 'Benachrichtigungen sind optional',
     'onboarding_notifications_granted': 'Benachrichtigungen erlaubt',
     'onboarding_notifications_denied':
@@ -422,8 +437,9 @@ kOnboardingCatalogs = <String, Map<String, String>>{
         'Lisensi akun baru tidak dapat dilepas. Hubungkan ke internet dan coba pembersihan lagi. Data akun belum dihapus.',
     'onboarding_zero_trust_privacy': 'Kebijakan privasi Zero Trust',
     'onboarding_android_permissions_body':
-        'Izin notifikasi digunakan untuk menampilkan notifikasi layanan tetap yang membantu Usque terus berjalan di latar belakang. Tidak ada notifikasi lain yang akan dikirim. Anda dapat menolak dan melanjutkan pengaturan.',
+        'Izin notifikasi digunakan untuk menampilkan notifikasi layanan tetap yang membantu Usque terus berjalan di latar belakang. Tidak ada notifikasi lain yang akan dikirim. Anda dapat menolak dan melanjutkan penyiapan.',
     'onboarding_vpn_required': 'Izin VPN diperlukan',
+    'onboarding_notifications_title': 'Notifikasi',
     'onboarding_notifications_optional': 'Notifikasi bersifat opsional',
     'onboarding_notifications_granted': 'Notifikasi diizinkan',
     'onboarding_notifications_denied':
@@ -453,6 +469,7 @@ kOnboardingCatalogs = <String, Map<String, String>>{
     'onboarding_android_permissions_body':
         'Le notifiche aiutano Usque a rimanere attivo in background mostrando una notifica permanente del servizio. Non verranno inviate altre notifiche. Puoi rifiutare e continuare la configurazione.',
     'onboarding_vpn_required': 'Autorizzazione VPN necessaria',
+    'onboarding_notifications_title': 'Notifiche',
     'onboarding_notifications_optional': 'Le notifiche sono facoltative',
     'onboarding_notifications_granted': 'Notifiche consentite',
     'onboarding_notifications_denied': 'Notifiche rifiutate · puoi continuare',
@@ -482,6 +499,7 @@ kOnboardingCatalogs = <String, Map<String, String>>{
     'onboarding_android_permissions_body':
         'Uprawnienie do powiadomień służy do wyświetlania stałego powiadomienia usługi, które pomaga Usque działać w tle. Inne powiadomienia nie będą wysyłane. Możesz odmówić i kontynuować konfigurację.',
     'onboarding_vpn_required': 'Wymagane uprawnienie VPN',
+    'onboarding_notifications_title': 'Powiadomienia',
     'onboarding_notifications_optional': 'Powiadomienia są opcjonalne',
     'onboarding_notifications_granted': 'Powiadomienia dozwolone',
     'onboarding_notifications_denied':
@@ -511,6 +529,7 @@ kOnboardingCatalogs = <String, Map<String, String>>{
     'onboarding_android_permissions_body':
         'สิทธิ์การแจ้งเตือนใช้เพื่อแสดงการแจ้งเตือนบริการแบบถาวร ซึ่งช่วยให้ Usque ทำงานในเบื้องหลังต่อไป โดยจะไม่ส่งการแจ้งเตือนอื่น คุณสามารถปฏิเสธและตั้งค่าต่อได้',
     'onboarding_vpn_required': 'ต้องอนุญาต VPN',
+    'onboarding_notifications_title': 'การแจ้งเตือน',
     'onboarding_notifications_optional': 'การแจ้งเตือนเป็นทางเลือก',
     'onboarding_notifications_granted': 'อนุญาตการแจ้งเตือนแล้ว',
     'onboarding_notifications_denied': 'ปฏิเสธการแจ้งเตือน · ตั้งค่าต่อได้',
@@ -539,6 +558,7 @@ kOnboardingCatalogs = <String, Map<String, String>>{
     'onboarding_android_permissions_body':
         'Дозвіл на сповіщення використовується для постійного сповіщення служби, яке допомагає Usque працювати у фоні. Інші сповіщення не надсилатимуться. Можна відмовити й продовжити налаштування.',
     'onboarding_vpn_required': 'Потрібен дозвіл на VPN',
+    'onboarding_notifications_title': 'Сповіщення',
     'onboarding_notifications_optional': 'Сповіщення необов’язкові',
     'onboarding_notifications_granted': 'Сповіщення дозволено',
     'onboarding_notifications_denied':
@@ -569,6 +589,7 @@ kOnboardingCatalogs = <String, Map<String, String>>{
     'onboarding_android_permissions_body':
         'Quyền thông báo dùng để hiển thị thông báo dịch vụ thường trực, giúp Usque tiếp tục chạy trong nền. Ứng dụng sẽ không gửi thông báo nào khác. Bạn có thể từ chối và tiếp tục thiết lập.',
     'onboarding_vpn_required': 'Cần quyền VPN',
+    'onboarding_notifications_title': 'Thông báo',
     'onboarding_notifications_optional': 'Thông báo là tùy chọn',
     'onboarding_notifications_granted': 'Đã cho phép thông báo',
     'onboarding_notifications_denied': 'Đã từ chối thông báo · có thể tiếp tục',

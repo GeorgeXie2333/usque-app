@@ -237,7 +237,7 @@ class _HomeDesktopControlsState extends State<HomeDesktopControls> {
       _saveFailure = null;
     });
     try {
-      await widget.controller.networkSettings.refresh();
+      await widget.controller.networkSettings.refresh(requireRuntime: true);
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -381,7 +381,11 @@ class _ChainDetails extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          ChainSelectionText(view, key: const ValueKey('home-chain-selection')),
+          ChainSelectionText(
+            view,
+            strings: strings,
+            key: const ValueKey('home-chain-selection'),
+          ),
           if (label != null) ...[
             const SizedBox(height: 2),
             Semantics(

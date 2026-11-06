@@ -350,9 +350,14 @@ void main() {
         find.byKey(const ValueKey('scenario-account-management')),
       );
       await tester.pumpAndSettle();
-      expect(find.byType(AccountsScreen), findsOneWidget);
+      // The picker only picks: adding stays, management does not.
+      expect(find.byType(ScenarioAccountPicker), findsOneWidget);
+      expect(find.byType(AccountsScreen), findsNothing);
       expect(find.byType(AddAccountButton), findsOneWidget);
       expect(find.text(app.strings.get('set_active')), findsNothing);
+      expect(find.byType(PopupMenuButton<String>), findsNothing);
+      expect(find.text(app.strings.get('edit_profile')), findsNothing);
+      expect(find.text(app.strings.get('delete')), findsNothing);
       await tester.tap(
         find.byKey(const ValueKey('scene-select-account-account-b')),
       );
@@ -498,7 +503,7 @@ void main() {
       await tester.binding.handlePopRoute();
       await tester.pumpAndSettle();
       expect(
-        find.text(app.strings.get('discard_changes_title')),
+        find.text(app.strings.get('scenario_discard_title')),
         findsOneWidget,
       );
       await tapText(tester, app.strings.get('keep_editing'));

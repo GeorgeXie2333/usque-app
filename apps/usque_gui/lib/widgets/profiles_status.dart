@@ -1,127 +1,64 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
-import '../core/chain_strings.dart';
 import '../state/app_controller.dart';
 import 'common.dart';
 
-/// The same saved and observed combination on Profiles and its account page.
-class ProfilesSummary extends StatelessWidget {
-  const ProfilesSummary({required this.controller, this.onRestore, super.key});
-
-  final AppController controller;
-  final VoidCallback? onRestore;
-
-  /// The saved choices beside the confirmed running combination, which can
-  /// differ until a switch is applied.
-  @override
-  Widget build(BuildContext context) {
-    final app = controller;
-    final strings = app.strings, state = app.scenarios.catalog;
-    final theme = Theme.of(context);
-    final accountId = state?.currentAccountId ?? app.activeProfileId;
-    final account = app.profiles.where((a) => a.id == accountId).firstOrNull;
-    final accountUnconfirmed =
-        app.scenarios.queryUnconfirmed && accountId != app.activeProfileId;
-    final runtimeConfirmed =
-        app.scenarios.runtimeConfirmed && state?.appliedSceneConfirmed == true;
-    final appliedAccount = runtimeConfirmed
-        ? app.profiles.where((a) => a.id == state?.appliedAccountId).firstOrNull
-        : null;
-    final appliedScene = runtimeConfirmed
-        ? state?.scenarios
-                  .where((scene) => scene.id == state.appliedScenarioId)
-                  .firstOrNull
-                  ?.name ??
-              strings.get('scenario_custom')
-        : strings.get('scenario_unknown');
-    Widget item(IconData icon, String label, String value, {Key? key}) =>
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(icon, size: 16, color: theme.colorScheme.onSurfaceVariant),
-                const SizedBox(width: 6),
-                Flexible(
-                  child: Text(
-                    label,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 4),
-            Text(value, key: key, style: theme.textTheme.titleSmall),
-          ],
-        );
-    final facts = Wrap(
-      spacing: 40,
-      runSpacing: 12,
-      children: [
-        item(
-          LucideIcons.layers3,
-          strings.get('scenario_current'),
-          state?.selected?.name ?? strings.get('scenario_custom'),
-        ),
-        item(
-          LucideIcons.user,
-          strings.get('scenario_current_account'),
-          accountUnconfirmed
-              ? strings.get('scenario_unknown')
-              : account?.name ?? strings.get('not_available'),
-          key: const ValueKey('profiles-selected-account'),
-        ),
-        if (state?.sessionId != null || app.snapshot.isConnected)
-          item(
-            LucideIcons.activity,
-            strings.chain('current'),
-            runtimeConfirmed
-                ? '${appliedAccount?.name ?? strings.get('not_available')} · $appliedScene'
-                : strings.get('scenario_unknown'),
-            key: const ValueKey('profiles-running'),
-          ),
-      ],
-    );
-    // Refresh stays beside the facts at every width; it is small, and an
-    // uncertain switch is resolved by refreshing before anything else.
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(child: facts),
-            const SizedBox(width: 16),
-            IconButton(
-              tooltip: strings.get('settings_refresh'),
-              onPressed: app.scenarios.busy ? null : app.scenarios.refresh,
-              icon: const Icon(LucideIcons.refreshCw),
-            ),
-          ],
-        ),
-        if (state?.canRestore == true && onRestore != null) ...[
-          const SizedBox(height: 8),
-          Align(
-            alignment: AlignmentDirectional.centerStart,
-            child: TextButton.icon(
-              onPressed: app.scenarios.busy ? null : onRestore,
-              icon: const Icon(LucideIcons.history, size: 18),
-              label: Text(strings.get('scenario_restore')),
-            ),
-          ),
-        ],
-      ],
-    );
-  }
+/// Whether an unconfirmed read may have replaced the saved account choice.
+bool profilesSelectionUncertain(AppController app) {
+  final accountId =
+      app.scenarios.catalog?.currentAccountId ?? app.activeProfileId;
+  return app.scenarios.queryUnconfirmed && accountId != app.activeProfileId;
 }
 
-/// Engine and switch problems, above the content they concern.
-Widget? profilesOperationBanner(AppController app) {
+/// The saved account choice, or unknown while an unconfirmed read may have
+/// replaced it.
+String profilesSelectedAccountLabel(AppController app) {
+  final strings = app.strings, state = app.scenarios.catalog;
+  final accountId = state?.currentAccountId ?? app.activeProfileId;
+  if (profilesSelectionUncertain(app)) {
+    return strings.get('scenario_unknown');
+  }
+  return app.profiles
+          .where((a) => a.id == accountId)
+          .map(strings.accountName)
+          .firstOrNull ??
+      strings.get('not_available');
+}
+
+/// The confirmed running account and scene, or null without a session. A
+/// combination the Engine has not confirmed reads as unknown.
+String? profilesRunningLabel(AppController app) {
+  final strings = app.strings, state = app.scenarios.catalog;
+  if (state?.sessionId == null && !app.snapshot.isConnected) return null;
+  if (!app.scenarios.runtimeConfirmed || state?.appliedSceneConfirmed != true) {
+    return strings.get('scenario_unknown');
+  }
+  final account = app.profiles
+      .where((a) => a.id == state!.appliedAccountId)
+      .firstOrNull;
+  final scene =
+      state!.scenarios
+          .where((scene) => scene.id == state.appliedScenarioId)
+          .firstOrNull
+          ?.name ??
+      strings.get('scenario_custom');
+  return '${account == null ? strings.get('not_available') : strings.accountName(account)} · $scene';
+}
+
+/// The account a live session is confirmed to use, or null. Without a
+/// connection or a runtime-confirmed catalogue nothing is claimed.
+String? profilesConnectedAccountId(AppController app) {
+  if (!app.snapshot.isConnected || !app.scenarios.runtimeConfirmed) {
+    return null;
+  }
+  return app.scenarios.catalog?.appliedAccountId;
+}
+
+/// Engine and switch problems, above the content they concern. Pages without
+/// their own refresh control set [refreshable], so an uncertain or failed
+/// scene result offers the refresh that resolves it.
+Widget? profilesOperationBanner(AppController app, {bool refreshable = false}) {
   final strings = app.strings, scenes = app.scenarios, state = scenes.catalog;
   final failed = scenes.runtimeConfirmed && state?.applyStatus == 'failed';
   final banners = [
@@ -154,6 +91,14 @@ Widget? profilesOperationBanner(AppController app) {
               ? 'scenario_failed'
               : scenarioErrorKey(scenes.errorCode),
         ),
+        action: refreshable
+            ? TextButton.icon(
+                key: const ValueKey('profiles-banner-refresh'),
+                onPressed: scenes.busy ? null : scenes.refresh,
+                icon: const Icon(LucideIcons.refreshCw, size: 18),
+                label: Text(strings.get('settings_refresh')),
+              )
+            : null,
       ),
   ];
   if (banners.isEmpty) return null;

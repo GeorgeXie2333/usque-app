@@ -39,6 +39,13 @@ class AppStrings {
     return Locale(parts.first, parts.length > 1 ? parts[1] : null);
   }
 
+  /// Localizes only the original default account's unchanged display name.
+  /// Stored names and user-created accounts are kept verbatim.
+  String accountName(UsqueProfile account) =>
+      account.id == UsqueProfile.defaultProfileId && account.name == 'Default'
+      ? get('account_default_name')
+      : account.name;
+
   String get vpnGateUnsupported =>
       get('l4_unsupported').replaceAll('L4', 'VPN Gate');
 
@@ -128,6 +135,8 @@ class AppStrings {
     'endpoint_preset_fi',
     'endpoint_preset_de',
     'endpoint_preset_us',
+    // French spells it the same.
+    'onboarding_notifications_title',
   };
 
   @visibleForTesting

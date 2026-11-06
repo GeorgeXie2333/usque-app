@@ -6,29 +6,29 @@ Rendering is not approval.
 
 ## Usque {{release_tag}} official release / Usque {{release_tag}} 正式版发布
 
-Usque {{release_tag}} brings a Linux desktop app, adds optional Proton VPN support, and makes everyday connections easier to manage.
+Usque {{release_tag}} introduces connection scenes, refreshes Profiles, and makes everyday connections easier to manage.
 
-Usque {{release_tag}} 带来 Linux 桌面版和可选的 Proton VPN 支持，让日常连接更容易管理。
+Usque {{release_tag}} 带来连接场景和焕新的配置页面，让日常连接管理更轻松。
 
 ## Highlights / 更新亮点 ✨
 
-- **Linux desktop** — Usque is now available on Linux, with downloads for different devices and popular distributions.
-  <br>**Linux 桌面版** — 现在可以在 Linux 上使用 Usque，并为不同设备和常见发行版提供下载。
+- **Connection scenes** — Save your preferred account, exit and network settings together, then preview changes before switching.
+  <br>**连接场景** — 将常用账号、出口和网络设置保存为场景，切换前即可查看变化。
 
-- **Proton VPN (experimental)** — Use Proton VPN with WARP, sign in or continue as a guest, and choose a server by country or city. You can also select another server while connected.
-  <br>**Proton VPN（实验性）** — 在 WARP 连接基础上使用 Proton VPN，支持账号登录或游客模式，并可按国家和城市选择节点；连接期间也能选择其他节点。
+- **Simpler setup and Profiles** — A refreshed welcome experience and a clearer Profiles page make accounts and scenes easier to manage.
+  <br>**更简洁的设置与配置** — 全新欢迎界面和更清晰的配置页面，让账号与场景管理更方便。
 
-- **A clearer home screen** — See your connection, selected exit and traffic together in a layout adapted to your device.
-  <br>**更清晰的首页** — 在一处查看连接状态、所选出口和流量，桌面与手机布局都更加清晰。
+- **Update routing while connected** — Supported custom routing changes can apply to new connections without disconnecting.
+  <br>**连接中更新分流** — 支持的自定义分流修改可直接用于新连接，无需断开当前连接。
 
-- **More intuitive network checks** — Network quality and diagnostics now present results and suggested next steps more clearly.
-  <br>**更直观的网络检查** — 网络质量和诊断页面更清楚地展示结果与建议。
+- **A smoother Windows experience** — Improved behavior when Usque is hidden or minimized, with clearer installation and removal screens.
+  <br>**更流畅的 Windows 体验** — 改进隐藏或最小化时的应用表现，并优化安装与卸载界面。
 
-- **Connection recovery** — Improved recovery after network changes and connection interruptions.
-  <br>**连接恢复** — 改进网络变化和连接中断后的恢复体验。
+- **Android and Android TV** — Hide Usque from recent tasks on Android, and navigate and edit text more comfortably with an Android TV remote.
+  <br>**Android 与 Android TV** — 可在 Android 最近任务中隐藏 Usque，并更方便地使用电视遥控器导航和输入。
 
-- **Everyday refinements** — Simplified connection settings and more complete translations across 21 languages.
-  <br>**日常体验改进** — 简化连接设置，并完善 21 种语言的界面翻译。
+- **Everyday refinements** — Improved connection handling across devices and polished translations in 21 languages.
+  <br>**日常体验改进** — 改进各平台的连接处理，并完善 21 种语言的界面翻译。
 
 ## Download / 下载 📥
 
@@ -46,6 +46,12 @@ Usque {{release_tag}} 带来 Linux 桌面版和可选的 Proton VPN 支持，让
 <details>
 <summary>Usage and privacy / 使用与隐私</summary>
 
+- **Before upgrading** — Back up your data first. Settings saved by this version cannot be opened directly in v0.3.3 or earlier. [Upgrade guide](https://github.com/{{repository}}/blob/{{release_tag}}/docs/INSTALLATION.md#configuration-compatibility-when-upgrading)
+  <br>**升级前** — 请先备份数据；此版本保存的设置不能直接由 v0.3.3 或更早版本读取。[升级指南](https://github.com/{{repository}}/blob/{{release_tag}}/docs/INSTALLATION.md#configuration-compatibility-when-upgrading)
+
+- **Scenes** — Open **Profiles** to create or use a scene and review its changes before switching. [Scenes guide](https://github.com/{{repository}}/blob/{{release_tag}}/docs/SCENARIOS.md)
+  <br>**场景** — 打开“配置”创建或使用场景，切换前可查看变化。[场景指南](https://github.com/{{repository}}/blob/{{release_tag}}/docs/SCENARIOS.md)
+
 - **Proton VPN** — Choose it in **Proxy → Chain proxy** and complete any verification when prompted. [Proton VPN guide](https://github.com/{{repository}}/blob/{{release_tag}}/docs/PROTON_VPN.md)
   <br>**Proton VPN** — 在“代理 → 链式代理”中选择，并按提示完成验证。[Proton VPN 指南](https://github.com/{{repository}}/blob/{{release_tag}}/docs/PROTON_VPN.md)
 
@@ -56,7 +62,7 @@ Usque {{release_tag}} 带来 Linux 桌面版和可选的 Proton VPN 支持，让
   <br>**网络选择** — Proton 账号设置使用当前网络；直连规则遵循你保存的设置。[连接与隐私指南](https://github.com/{{repository}}/blob/{{release_tag}}/docs/CHAIN_PROXY.md)
 
 - **Android blocking** — To keep apps blocked when the VPN stops, enable **Always-on VPN** and **Block connections without VPN** in Android settings.
-  <br>**Android 断网保护** — 若要在 VPN 停止后继续阻止应用联网，请在系统设置中开启“始终开启的 VPN”和“阻止未使用 VPN 的连接”。
+  <br>**Android 断网保护** — 若要在 VPN 停止后继续阻止应用联网，请在系统设置中开启“始终开启的 VPN”和“屏蔽未使用 VPN 的所有连接”。
 
 </details>
 

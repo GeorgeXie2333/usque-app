@@ -46,6 +46,21 @@ class _AccountsEngine extends SceneEngine {
   }
 }
 
+class _UnreadableScenesEngine extends SceneEngine {
+  bool failList = false;
+
+  @override
+  Future<Map<String, Object?>> scenarioCommand(
+    Map<String, Object?> request,
+  ) async {
+    if (request['action'] == 'list' && failList) {
+      sceneCalls.add(Map.of(request));
+      throw const EngineException('ENGINE_UNAVAILABLE', 'Read failed');
+    }
+    return super.scenarioCommand(request);
+  }
+}
+
 class _StartingEngine extends SceneEngine {
   final capabilities = Completer<EngineCapabilities?>();
 
@@ -339,7 +354,7 @@ void main() {
       app.openAccounts();
       await tester.pumpAndSettle();
       expect(
-        find.text(app.strings.get('discard_changes_title')),
+        find.text(app.strings.get('scenario_discard_title')),
         findsOneWidget,
       );
       app.openAccounts();
@@ -356,7 +371,7 @@ void main() {
       app.openProfiles();
       await tester.pumpAndSettle();
       expect(
-        find.text(app.strings.get('discard_changes_title')),
+        find.text(app.strings.get('scenario_discard_title')),
         findsOneWidget,
       );
       await tester.tap(find.text(app.strings.get('keep_editing')));
@@ -400,7 +415,9 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Added here'), findsNothing);
     expect(find.text('Renamed here'), findsOneWidget);
-    await tester.tap(find.byKey(ValueKey('profile-delete-${created.id}')));
+    await tester.tap(find.byKey(ValueKey('profile-menu-${created.id}')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(ValueKey('profile-menu-delete-${created.id}')));
     await tester.pumpAndSettle();
     await tester.tap(
       find.widgetWithText(FilledButton, app.strings.get('delete')),
@@ -505,6 +522,14 @@ void main() {
       expect(find.byType(AccountsPage), findsOneWidget);
       expect(app.scenarios.unconfirmed, isTrue);
       expect(find.text(app.strings.get('scenario_unknown')), findsWidgets);
+      // Accounts has no status card, so the banner offers the refresh.
+      final refresh = find.byKey(const ValueKey('profiles-banner-refresh'));
+      expect(refresh, findsOneWidget);
+      final lists = engine.sceneCalls.where((r) => r['action'] == 'list');
+      final listed = lists.length;
+      await tester.tap(refresh);
+      await tester.pumpAndSettle();
+      expect(lists.length, greaterThan(listed));
       expect(
         engine.sceneCalls.where((r) => r['action'] == 'activate'),
         hasLength(1),
@@ -544,5 +569,227 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
     },
     variant: TargetPlatformVariant.only(TargetPlatform.android),
+  );
+
+  testWidgets(
+    'account rows mark only the confirmed live account and name Zero Trust teams',
+    (tester) async {
+      final base = UsqueProfile.defaultProfile();
+      final work = base.copyWith(id: 'work', name: 'Work');
+      final engine = _AccountsEngine()
+        ..storedProfiles = [base, work]
+        ..extraState = {
+          'session_id': 'session-a',
+          'observation_session_id': 'session-a',
+          'applied_account_id': 'work',
+          'applied_scenario_id': null,
+          'applied_scene_confirmed': false,
+        };
+      engine.settingsState = NetworkSettingsState(
+        sourceEpoch: engine.settingsEpoch,
+        sequence: 1,
+        sessionId: 'session-a',
+        appliedProfile: work,
+      );
+      final app = await _profiles(tester, engine);
+      app
+        ..profileIdentityStates = {
+          base.id: ProfileIdentityState.ready,
+          'work': ProfileIdentityState.ready,
+        }
+        ..profileIdentityStatuses = {
+          'work': const ProfileIdentityStatus(
+            state: ProfileIdentityState.ready,
+            provider: IdentityProvider.zeroTrust,
+            organization: 'example-team',
+          ),
+        }
+        ..snapshot = const EngineSnapshot(phase: ConnectionPhase.connected);
+      await tester.tap(_manage);
+      await tester.pumpAndSettle();
+      expect(app.scenarios.runtimeConfirmed, isTrue);
+      final live = find.byKey(const ValueKey('profile-connected-work'));
+      expect(live, findsOneWidget);
+      expect(
+        find.descendant(of: live, matching: find.text('Connected')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(ValueKey('profile-connected-${base.id}')),
+        findsNothing,
+      );
+      expect(find.text('Zero Trust · example-team'), findsOneWidget);
+      // The selection and the live account are separate facts.
+      expect(find.text(app.strings.get('account_selected')), findsOneWidget);
+      // Without a connection nothing is claimed.
+      app.snapshot = const EngineSnapshot(phase: ConnectionPhase.disconnected);
+      await app.scenarios.refresh();
+      await tester.pumpAndSettle();
+      expect(live, findsNothing);
+    },
+  );
+
+  testWidgets(
+    'a damaged identity keeps its warning and offers repair from the menu',
+    (tester) async {
+      final base = UsqueProfile.defaultProfile();
+      final engine = _AccountsEngine()
+        ..storedProfiles = [base, base.copyWith(id: 'work', name: 'Work')];
+      final app = await _profiles(tester, engine);
+      app.profileIdentityStates = {
+        base.id: ProfileIdentityState.ready,
+        'work': ProfileIdentityState.invalid,
+      };
+      await tester.tap(_manage);
+      await tester.pumpAndSettle();
+      expect(find.text(app.strings.get('identity_invalid')), findsOneWidget);
+      // Switching stays the only inline action.
+      expect(find.byKey(const ValueKey('profile-activate-work')), findsOne);
+      await tester.tap(find.byKey(const ValueKey('profile-menu-work')));
+      await tester.pumpAndSettle();
+      expect(find.text(app.strings.get('configure_identity')), findsOneWidget);
+      expect(find.text(app.strings.get('identity_and_license')), findsNothing);
+      await tester.tap(find.text(app.strings.get('configure_identity')));
+      await tester.pumpAndSettle();
+      expect(find.byType(UsqueDialog), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'scene account picker picks on activation and names the followed account',
+    (tester) async {
+      final base = UsqueProfile.defaultProfile();
+      final engine = SceneEngine()
+        ..storedProfiles = [base, base.copyWith(id: 'work', name: 'Work')];
+      final app = await _profiles(tester, engine);
+      final strings = app.strings;
+      final row = find.byKey(const ValueKey('scenario-account-management'));
+      String following(String name) => strings
+          .get('scenario_follow_account_named')
+          .replaceAll('{account}', name);
+      await tester.tap(find.byKey(const ValueKey('scenario-create')));
+      await tester.pumpAndSettle();
+      expect(
+        find.descendant(of: row, matching: find.text(following(base.name))),
+        findsOneWidget,
+      );
+      await tester.tap(row);
+      await tester.pumpAndSettle();
+      expect(find.byType(ScenarioAccountPicker), findsOneWidget);
+      final follow = find.byKey(const ValueKey('scenario-follow-account'));
+      final work = find.byKey(const ValueKey('scene-select-account-work'));
+      expect(
+        find.text(
+          strings
+              .get('scenario_follow_account_hint')
+              .replaceAll('{account}', base.name),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        tester.getSemantics(follow),
+        isSemantics(
+          hasCheckedState: true,
+          isChecked: true,
+          isInMutuallyExclusiveGroup: true,
+          hasTapAction: true,
+        ),
+      );
+      expect(
+        tester.getSemantics(work),
+        isSemantics(hasCheckedState: true, isChecked: false),
+      );
+      expect(tester.getSize(work).height, greaterThanOrEqualTo(48));
+      await tester.tap(work);
+      await tester.pumpAndSettle();
+      expect(find.byType(ScenarioAccountPicker), findsNothing);
+      expect(
+        find.descendant(of: row, matching: find.text('Work')),
+        findsOneWidget,
+      );
+      expect(app.activeProfileId, base.id);
+      expect(engine.sceneCalls.where((r) => r['action'] == 'save'), isEmpty);
+    },
+  );
+
+  testWidgets('arrow keys browse the account picker without picking', (
+    tester,
+  ) async {
+    final base = UsqueProfile.defaultProfile();
+    final engine = SceneEngine()
+      ..storedProfiles = [base, base.copyWith(id: 'work', name: 'Work')];
+    final app = await _profiles(tester, engine);
+    await tester.tap(find.byKey(const ValueKey('scenario-create')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('scenario-account-management')));
+    await tester.pumpAndSettle();
+    final follow = find.byKey(const ValueKey('scenario-follow-account'));
+    Focus.of(
+      tester.element(
+        find.descendant(
+          of: follow,
+          matching: find.text(app.strings.get('scenario_follow_account')),
+        ),
+      ),
+    ).requestFocus();
+    await tester.pumpAndSettle();
+    await _key(tester, LogicalKeyboardKey.arrowDown);
+    await _key(tester, LogicalKeyboardKey.arrowDown);
+    expect(find.byType(ScenarioAccountPicker), findsOneWidget);
+    await _key(tester, LogicalKeyboardKey.enter);
+    expect(find.byType(ScenarioAccountPicker), findsNothing);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('scenario-account-management')),
+        matching: find.text('Work'),
+      ),
+      findsOneWidget,
+    );
+    expect(app.activeProfileId, base.id);
+  });
+
+  testWidgets('picking the bound option again leaves a saved scene unchanged', (
+    tester,
+  ) async {
+    final app = await _profiles(tester, SceneEngine());
+    await tester.tap(find.text(app.strings.get('edit')).first);
+    await tester.pumpAndSettle();
+    expect(find.byType(ScenarioEditorScreen), findsOneWidget);
+    expect(find.text(app.strings.get('scenario_unsaved')), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('scenario-account-management')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('scenario-follow-account')));
+    await tester.pumpAndSettle();
+    expect(find.byType(ScenarioAccountPicker), findsNothing);
+    expect(find.text(app.strings.get('scenario_unsaved')), findsNothing);
+  });
+
+  testWidgets(
+    'no account claims the selection while an unconfirmed read may replace it',
+    (tester) async {
+      final base = UsqueProfile.defaultProfile();
+      final engine = _UnreadableScenesEngine()
+        ..storedProfiles = [base, base.copyWith(id: 'work', name: 'Work')]
+        ..extraState = {'current_account_id': 'work'};
+      final app = await _profiles(tester, engine);
+      await tester.tap(_manage);
+      await tester.pumpAndSettle();
+      final selected = find.text(app.strings.get('account_selected'));
+      expect(selected, findsOneWidget);
+      engine.failList = true;
+      await app.scenarios.refresh();
+      await tester.pumpAndSettle();
+      expect(app.scenarios.queryUnconfirmed, isTrue);
+      expect(selected, findsNothing);
+      expect(
+        find.byKey(const ValueKey('profiles-banner-refresh')),
+        findsOneWidget,
+      );
+      engine.failList = false;
+      await tester.tap(find.byKey(const ValueKey('profiles-banner-refresh')));
+      await tester.pumpAndSettle();
+      expect(app.scenarios.queryUnconfirmed, isFalse);
+      expect(selected, findsOneWidget);
+    },
   );
 }

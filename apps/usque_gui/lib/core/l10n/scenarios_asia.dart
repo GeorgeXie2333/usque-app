@@ -1,5 +1,6 @@
 // Localized connection-scene labels; placeholders match the English catalogue.
 const kScenarioZhTw = <String, String>{
+  'scenario_fact': '{label}：{value}',
   'scenario_platform_unsupported': '此情境包含目前裝置不支援的設定。',
   'scenario_limit': "情境庫超過限制，請刪除不再使用的情境。",
   'scenario_vpn_permission': '請先中斷連線、選擇此情境，再連線以完成 VPN 授權。',
@@ -28,31 +29,33 @@ const kScenarioZhTw = <String, String>{
   'scenario_selected': '已選取',
   'scenario_applied': '已套用',
   'scenario_modified': '已修改',
-  'scenario_binding_modified': '帳號與綁定不同',
+  'scenario_binding_modified': '帳號與情境綁定不一致',
   'scenario_template_updated': '情境有更新',
   'scenario_pending': '已儲存，待套用',
   'scenario_failed': '已儲存，套用失敗',
   'scenario_unknown': '結果待確認',
   'scenario_custom': '自訂',
-  'scenario_unsupported': '目前引擎不支援情境，仍可管理帳號。',
+  'scenario_use_custom': '切換為自訂',
+  'scenario_custom_hint': '取消所選情境，端點、傳輸、IP 偏好與出口還原為 Usque 預設值，其他設定保持不變。',
+  'scenario_unsupported': '此版本的 Usque 不支援情境，仍可管理帳號。',
   'scenario_save_failed': '操作未能完成，請先重新整理狀態再重試。',
   'scenario_reference_missing': '此情境需要的帳號或出口無法使用。',
-  'scenario_global_hint': "輸出、區域網路存取、廣告封鎖、分流與 DNS 沿用全域設定。",
-  'scenario_output': '輸出',
+  'scenario_global_hint': "{tunnel} 與代理開關、區域網路存取、廣告阻擋、分流與 DNS 沿用全域設定。",
+  'scenario_output': '{tunnel} 與代理',
   'scenario_exit': '出口',
   'scenario_connection': '連線偏好',
   'scenario_current': '已選情境',
   'scenario_current_account': '已選帳號',
   'scenario_running_account': '連線使用的帳號',
   'scenario_no_changes': '所選設定已一致。',
-  'scenario_will_reconnect': '引擎將依所需連線流程套用變更，可能需要重新連線。',
+  'scenario_will_reconnect': 'Usque 會自動套用這些變更，可能需要重新連線。',
   'scenario_disconnected_hint': '連線將保持中斷。',
   'scenario_delete_title': '刪除情境？',
-  'scenario_delete_body': '刪除此情境範本，保留目前網路設定。',
+  'scenario_delete_body': '刪除此已儲存的情境，保留目前網路設定。',
   'scenario_validation_name': '請輸入 1–64 個字元的名稱。',
   'scenario_keep_account': '保留目前帳號。',
   'scenario_account_change': '帳號變更',
-  'scenario_library_hint': "可在此新增、匯入或管理節點，選擇只寫入情境草稿。",
+  'scenario_library_hint': "可在此新增、匯入或管理出口，所選項目會加入正在編輯的情境。",
   'scenario_saved': '情境已儲存',
   'scenario_confirm_use': '套用情境',
   'scenario_new_flows': '變更對新連線生效，現有連線可能保留原路徑。',
@@ -65,21 +68,31 @@ const kScenarioZhTw = <String, String>{
   'scenario_unsaved': '情境有未儲存的變更',
   'scenario_inherited_changes': '同時生效的其他已儲存設定',
   'scenario_choose_exit': "使用此選擇",
-  'scenario_choose_account': "綁定至情境",
+  'scenario_account_hint': "使用情境時會以這裡選擇的帳號連線。",
+  'scenario_follow_account_hint': "跟隨已選帳號，目前為 {account}",
+  'scenario_follow_account_named': "沿用目前帳號（{account}）",
+  'account_selected': '已選取',
+  'account_connected': '已連線',
+  'account_default_name': '預設帳號',
+  'warp_via_wireguard': 'WARP（透過 WireGuard）',
+  'scenario_saving': '正在儲存情境…',
+  'scenario_discard_title': '捨棄未儲存的情境變更？',
+  'scenario_discard_body': '此情境尚未儲存的變更將會遺失。',
 };
 
 const kScenarioAr = <String, String>{
+  'scenario_fact': '{label}: {value}',
   'scenario_platform_unsupported':
       'يحتوي هذا المشهد على إعداد غير متاح على هذا الجهاز.',
   'scenario_limit':
-      "تجاوزت مكتبة السيناريوهات الحد المسموح. احذف سيناريو غير مستخدم.",
+      "تجاوزت مكتبة المشاهد الحد المسموح. احذف مشهدًا غير مستخدم.",
   'scenario_vpn_permission':
       'اقطع الاتصال، ثم اختر هذا المشهد وأعد الاتصال لمنح إذن VPN.',
   'scenario_rules_missing':
       'جهّز بيانات قواعد التوجيه المطلوبة في الإعدادات قبل استخدام هذا المشهد.',
-  'profiles': 'ملفات الإعداد',
-  'nav_profiles': 'ملفات',
-  'profiles_subtitle': 'احفظ إعدادات الشبكة وأدِر الحسابات.',
+  'profiles': 'ملفات التعريف',
+  'nav_profiles': 'ملفات التعريف',
+  'profiles_subtitle': 'احفظ المشاهد وأدِر الحسابات.',
   'profiles_manage_accounts': 'إدارة الحسابات',
   'scenario_scenes': 'المشاهد',
   'scenario_accounts': 'الحسابات',
@@ -108,14 +121,17 @@ const kScenarioAr = <String, String>{
   'scenario_failed': 'تم الحفظ؛ فشل التطبيق',
   'scenario_unknown': 'النتيجة غير مؤكدة',
   'scenario_custom': 'مخصص',
+  'scenario_use_custom': 'التبديل إلى مخصص',
+  'scenario_custom_hint':
+      'يلغي تحديد المشهد. تعود نقطة النهاية والنقل وتفضيل IP والمخرج إلى إعدادات Usque الافتراضية، وتبقى الإعدادات الأخرى كما هي.',
   'scenario_unsupported':
-      'لا يدعم هذا المحرك المشاهد. تظل إدارة الحسابات متاحة.',
+      'لا يدعم هذا الإصدار من Usque المشاهد. تظل إدارة الحسابات متاحة.',
   'scenario_save_failed': 'تعذر إكمال العملية. حدّث الحالة قبل إعادة المحاولة.',
   'scenario_reference_missing':
       'أحد الحسابات أو المخارج المطلوبة لهذا المشهد غير متاح.',
   'scenario_global_hint':
-      "تستخدم المخرجات والوصول إلى الشبكة المحلية وحظر الإعلانات والتوجيه وDNS إعدادات الجهاز.",
-  'scenario_output': 'المخرجات',
+      "مفاتيح {tunnel} والوكلاء والوصول إلى الشبكة المحلية وحظر الإعلانات والتوجيه وDNS تستخدم إعدادات الجهاز.",
+  'scenario_output': '{tunnel} والوكلاء',
   'scenario_exit': 'المخرج',
   'scenario_connection': 'تفضيلات الاتصال',
   'scenario_current': 'المشهد المحدد',
@@ -123,7 +139,7 @@ const kScenarioAr = <String, String>{
   'scenario_running_account': 'حساب الاتصال',
   'scenario_no_changes': 'الإعدادات المحددة متطابقة بالفعل.',
   'scenario_will_reconnect':
-      'سيطبق المحرك التغييرات وفق إجراءات الاتصال المطلوبة. قد تلزم إعادة الاتصال.',
+      'سيطبّق Usque هذه التغييرات تلقائيًا. قد يحتاج إلى إعادة الاتصال.',
   'scenario_disconnected_hint': 'سيظل الاتصال مقطوعًا.',
   'scenario_delete_title': 'حذف المشهد؟',
   'scenario_delete_body':
@@ -132,7 +148,7 @@ const kScenarioAr = <String, String>{
   'scenario_keep_account': 'يتم الاحتفاظ بالحساب الحالي.',
   'scenario_account_change': 'تغيير الحساب',
   'scenario_library_hint':
-      "أنشئ العقد أو استوردها أو أدرها هنا. يُنقل اختيارك إلى مسودة السيناريو.",
+      "أنشئ المخارج أو استوردها أو أدرها هنا. يُضاف اختيارك إلى المشهد الذي تعدّله.",
   'scenario_saved': 'تم حفظ المشهد',
   'scenario_confirm_use': 'تطبيق المشهد',
   'scenario_new_flows':
@@ -149,10 +165,20 @@ const kScenarioAr = <String, String>{
   'scenario_unsaved': 'تغييرات غير محفوظة في المشهد',
   'scenario_inherited_changes': 'إعدادات محفوظة أخرى ستُطبَّق أيضًا',
   'scenario_choose_exit': "استخدام هذا الاختيار",
-  'scenario_choose_account': "ربط بالسيناريو",
+  'scenario_account_hint': "عند استخدام المشهد، يتصل بالحساب المختار هنا.",
+  'scenario_follow_account_hint': "يتبع الحساب المحدد، حاليًا {account}",
+  'scenario_follow_account_named': "استخدام الحساب الحالي ({account})",
+  'account_selected': 'محدد',
+  'account_connected': 'متصل',
+  'account_default_name': 'الحساب الافتراضي',
+  'warp_via_wireguard': 'WARP عبر WireGuard',
+  'scenario_saving': 'جارٍ حفظ المشهد…',
+  'scenario_discard_title': 'تجاهل تغييرات المشهد غير المحفوظة؟',
+  'scenario_discard_body': 'ستُفقد التغييرات غير المحفوظة في هذا المشهد.',
 };
 
 const kScenarioFa = <String, String>{
+  'scenario_fact': '{label}: {value}',
   'scenario_platform_unsupported':
       'این سناریو تنظیمی دارد که در این دستگاه در دسترس نیست.',
   'scenario_limit':
@@ -192,15 +218,18 @@ const kScenarioFa = <String, String>{
   'scenario_failed': 'ذخیره شد؛ اعمال ناموفق بود',
   'scenario_unknown': 'نتیجه تأیید نشده است',
   'scenario_custom': 'سفارشی',
+  'scenario_use_custom': 'تغییر به سفارشی',
+  'scenario_custom_hint':
+      'انتخاب سناریو لغو می‌شود. نقطهٔ پایانی، انتقال، ترجیح IP و خروجی به پیش‌فرض‌های Usque برمی‌گردند و سایر تنظیمات تغییری نمی‌کنند.',
   'scenario_unsupported':
-      'این موتور از سناریوها پشتیبانی نمی‌کند. مدیریت حساب‌ها همچنان در دسترس است.',
+      'این نسخه از Usque از سناریوها پشتیبانی نمی‌کند. مدیریت حساب‌ها همچنان در دسترس است.',
   'scenario_save_failed':
       'عملیات تکمیل نشد. پیش از تلاش مجدد، وضعیت را تازه‌سازی کنید.',
   'scenario_reference_missing':
       'حساب یا خروجی مورد نیاز این سناریو در دسترس نیست.',
   'scenario_global_hint':
-      "خروجی‌ها، دسترسی به شبکهٔ محلی، مسدودسازی تبلیغات، مسیریابی و DNS از تنظیمات دستگاه استفاده می‌کنند.",
-  'scenario_output': 'خروجی‌ها',
+      "کلیدهای {tunnel} و پروکسی، دسترسی به شبکهٔ محلی، مسدودسازی تبلیغات، مسیریابی و DNS از تنظیمات دستگاه استفاده می‌کنند.",
+  'scenario_output': '{tunnel} و پروکسی‌ها',
   'scenario_exit': 'خروجی',
   'scenario_connection': 'ترجیحات اتصال',
   'scenario_current': 'سناریوی انتخاب‌شده',
@@ -208,7 +237,7 @@ const kScenarioFa = <String, String>{
   'scenario_running_account': 'حساب اتصال',
   'scenario_no_changes': 'تنظیمات انتخاب‌شده از قبل یکسان هستند.',
   'scenario_will_reconnect':
-      'موتور تغییرات را طبق روند اتصال لازم اعمال می‌کند. ممکن است اتصال مجدد لازم باشد.',
+      'Usque این تغییرات را به‌طور خودکار اعمال می‌کند. ممکن است لازم باشد دوباره متصل شود.',
   'scenario_disconnected_hint': 'اتصال قطع می‌ماند.',
   'scenario_delete_title': 'سناریو حذف شود؟',
   'scenario_delete_body':
@@ -217,7 +246,7 @@ const kScenarioFa = <String, String>{
   'scenario_keep_account': 'حساب فعلی حفظ می‌شود.',
   'scenario_account_change': 'تغییر حساب',
   'scenario_library_hint':
-      "در اینجا گره بسازید، وارد کنید یا مدیریت کنید. انتخاب شما به پیش‌نویس سناریو منتقل می‌شود.",
+      "در اینجا خروجی‌ها را بسازید، وارد کنید یا مدیریت کنید. انتخاب شما به سناریویی که در حال ویرایش آن هستید افزوده می‌شود.",
   'scenario_saved': 'سناریو ذخیره شد',
   'scenario_confirm_use': 'اعمال سناریو',
   'scenario_new_flows':
@@ -235,10 +264,22 @@ const kScenarioFa = <String, String>{
   'scenario_inherited_changes':
       'سایر تنظیمات ذخیره‌شده که همزمان اعمال می‌شوند',
   'scenario_choose_exit': "استفاده از این انتخاب",
-  'scenario_choose_account': "پیوند به سناریو",
+  'scenario_account_hint':
+      "هنگام استفاده از سناریو، با حسابی که اینجا انتخاب می‌کنید متصل می‌شود.",
+  'scenario_follow_account_hint':
+      "از حساب انتخاب‌شده پیروی می‌کند؛ اکنون {account}",
+  'scenario_follow_account_named': "استفاده از حساب فعلی ({account})",
+  'account_selected': 'انتخاب‌شده',
+  'account_connected': 'متصل',
+  'account_default_name': 'حساب پیش‌فرض',
+  'warp_via_wireguard': 'WARP از طریق WireGuard',
+  'scenario_saving': 'در حال ذخیرهٔ سناریو…',
+  'scenario_discard_title': 'تغییرات ذخیره‌نشدهٔ سناریو کنار گذاشته شود؟',
+  'scenario_discard_body': 'تغییرات ذخیره‌نشدهٔ این سناریو از بین می‌روند.',
 };
 
 const kScenarioId = <String, String>{
+  'scenario_fact': '{label}: {value}',
   'scenario_platform_unsupported':
       'Skenario ini berisi pengaturan yang tidak tersedia di perangkat ini.',
   'scenario_limit':
@@ -278,23 +319,26 @@ const kScenarioId = <String, String>{
   'scenario_failed': 'Disimpan; penerapan gagal',
   'scenario_unknown': 'Hasil belum dikonfirmasi',
   'scenario_custom': 'Kustom',
+  'scenario_use_custom': 'Beralih ke Kustom',
+  'scenario_custom_hint':
+      'Menghapus pilihan skenario. Endpoint, transport, preferensi IP, dan pintu keluar kembali ke default Usque; pengaturan lain tetap sama.',
   'scenario_unsupported':
-      'Engine ini tidak mendukung skenario. Pengelolaan akun tetap tersedia.',
+      'Versi Usque ini tidak mendukung skenario. Pengelolaan akun tetap tersedia.',
   'scenario_save_failed':
       'Operasi tidak dapat diselesaikan. Muat ulang status sebelum mencoba lagi.',
   'scenario_reference_missing':
-      'Akun atau jalur keluar yang dibutuhkan skenario ini tidak tersedia.',
+      'Akun atau pintu keluar yang dibutuhkan skenario ini tidak tersedia.',
   'scenario_global_hint':
-      "Keluaran, akses LAN, pemblokiran iklan, perutean, dan DNS menggunakan pengaturan perangkat.",
-  'scenario_output': 'Keluaran',
-  'scenario_exit': 'Jalur keluar',
+      "{tunnel}, sakelar proksi, akses LAN, pemblokiran iklan, perutean, dan DNS menggunakan pengaturan perangkat.",
+  'scenario_output': '{tunnel} dan proksi',
+  'scenario_exit': 'Pintu keluar',
   'scenario_connection': 'Preferensi koneksi',
   'scenario_current': 'Skenario yang dipilih',
   'scenario_current_account': 'Akun yang dipilih',
-  'scenario_running_account': 'Akun koneksi',
+  'scenario_running_account': 'Akun tersambung',
   'scenario_no_changes': 'Pengaturan yang dipilih sudah sesuai.',
   'scenario_will_reconnect':
-      'Engine akan menerapkan perubahan melalui proses koneksi yang diperlukan. Penyambungan ulang mungkin dibutuhkan.',
+      'Usque akan menerapkan perubahan ini secara otomatis. Koneksi mungkin perlu disambungkan ulang.',
   'scenario_disconnected_hint': 'Koneksi akan tetap terputus.',
   'scenario_delete_title': 'Hapus skenario?',
   'scenario_delete_body':
@@ -303,7 +347,7 @@ const kScenarioId = <String, String>{
   'scenario_keep_account': 'Akun saat ini dipertahankan.',
   'scenario_account_change': 'Perubahan akun',
   'scenario_library_hint':
-      "Buat, impor, atau kelola node di sini. Pilihan Anda diteruskan ke draf skenario.",
+      "Buat, impor, atau kelola pintu keluar di sini. Pilihan Anda ditambahkan ke skenario yang sedang diedit.",
   'scenario_saved': 'Skenario disimpan',
   'scenario_confirm_use': 'Terapkan skenario',
   'scenario_new_flows':
@@ -322,10 +366,23 @@ const kScenarioId = <String, String>{
   'scenario_inherited_changes':
       'Pengaturan tersimpan lain yang juga diterapkan',
   'scenario_choose_exit': "Gunakan pilihan ini",
-  'scenario_choose_account': "Tautkan ke skenario",
+  'scenario_account_hint':
+      "Saat skenario digunakan, koneksi memakai akun yang dipilih di sini.",
+  'scenario_follow_account_hint':
+      "Mengikuti akun yang dipilih, saat ini {account}",
+  'scenario_follow_account_named': "Gunakan akun saat ini ({account})",
+  'account_selected': 'Dipilih',
+  'account_connected': 'Tersambung',
+  'account_default_name': 'Akun bawaan',
+  'warp_via_wireguard': 'WARP melalui WireGuard',
+  'scenario_saving': 'Menyimpan skenario…',
+  'scenario_discard_title': 'Buang perubahan skenario yang belum disimpan?',
+  'scenario_discard_body':
+      'Perubahan yang belum disimpan pada skenario ini akan hilang.',
 };
 
 const kScenarioTh = <String, String>{
+  'scenario_fact': '{label}: {value}',
   'scenario_platform_unsupported':
       'สถานการณ์นี้มีการตั้งค่าที่อุปกรณ์นี้ไม่รองรับ',
   'scenario_limit': "คลังสถานการณ์เกินขีดจำกัด โปรดลบสถานการณ์ที่ไม่ได้ใช้",
@@ -335,7 +392,7 @@ const kScenarioTh = <String, String>{
       'เตรียมข้อมูลกฎการกำหนดเส้นทางที่จำเป็นในหน้าการตั้งค่าก่อนใช้สถานการณ์นี้',
   'profiles': 'โปรไฟล์',
   'nav_profiles': 'โปรไฟล์',
-  'profiles_subtitle': 'บันทึกชุดการตั้งค่าและจัดการบัญชี',
+  'profiles_subtitle': 'บันทึกสถานการณ์และจัดการบัญชี',
   'profiles_manage_accounts': 'จัดการบัญชี',
   'scenario_scenes': 'สถานการณ์',
   'scenario_accounts': 'บัญชี',
@@ -364,13 +421,17 @@ const kScenarioTh = <String, String>{
   'scenario_failed': 'บันทึกแล้ว แต่นำไปใช้ไม่สำเร็จ',
   'scenario_unknown': 'ยังไม่ยืนยันผลลัพธ์',
   'scenario_custom': 'กำหนดเอง',
-  'scenario_unsupported': 'เอนจินนี้ไม่รองรับสถานการณ์ แต่ยังจัดการบัญชีได้',
+  'scenario_use_custom': 'เปลี่ยนเป็นกำหนดเอง',
+  'scenario_custom_hint':
+      'ยกเลิกการเลือกสถานการณ์ ปลายทาง ทรานสปอร์ต ค่ากำหนด IP และทางออกจะกลับเป็นค่าเริ่มต้นของ Usque ส่วนการตั้งค่าอื่นยังคงเดิม',
+  'scenario_unsupported':
+      'Usque เวอร์ชันนี้ไม่รองรับสถานการณ์ แต่ยังจัดการบัญชีได้',
   'scenario_save_failed': 'ดำเนินการไม่สำเร็จ โปรดรีเฟรชสถานะก่อนลองอีกครั้ง',
   'scenario_reference_missing':
       'บัญชีหรือทางออกที่สถานการณ์นี้ต้องใช้ไม่พร้อมใช้งาน',
   'scenario_global_hint':
-      "เอาต์พุต การเข้าถึง LAN การบล็อกโฆษณา การกำหนดเส้นทาง และ DNS ใช้การตั้งค่าอุปกรณ์",
-  'scenario_output': 'ช่องทางรับส่ง',
+      "สวิตช์ {tunnel} และพร็อกซี การเข้าถึง LAN การบล็อกโฆษณา การกำหนดเส้นทาง และ DNS ใช้การตั้งค่าของอุปกรณ์",
+  'scenario_output': '{tunnel} และพร็อกซี',
   'scenario_exit': 'ทางออก',
   'scenario_connection': 'ค่ากำหนดการเชื่อมต่อ',
   'scenario_current': 'สถานการณ์ที่เลือก',
@@ -378,7 +439,7 @@ const kScenarioTh = <String, String>{
   'scenario_running_account': 'บัญชีที่ใช้เชื่อมต่อ',
   'scenario_no_changes': 'การตั้งค่าที่เลือกตรงกันอยู่แล้ว',
   'scenario_will_reconnect':
-      'เอนจินจะใช้การเปลี่ยนแปลงตามขั้นตอนการเชื่อมต่อที่จำเป็น ซึ่งอาจต้องเชื่อมต่อใหม่',
+      'Usque จะใช้การเปลี่ยนแปลงเหล่านี้โดยอัตโนมัติ และอาจต้องเชื่อมต่อใหม่',
   'scenario_disconnected_hint': 'จะยังคงตัดการเชื่อมต่ออยู่',
   'scenario_delete_title': 'ลบสถานการณ์หรือไม่?',
   'scenario_delete_body':
@@ -387,7 +448,7 @@ const kScenarioTh = <String, String>{
   'scenario_keep_account': 'คงบัญชีปัจจุบันไว้',
   'scenario_account_change': 'เปลี่ยนบัญชี',
   'scenario_library_hint':
-      "สร้าง นำเข้า หรือจัดการโหนดได้ที่นี่ การเลือกจะส่งกลับไปยังฉบับร่างของสถานการณ์",
+      "สร้าง นำเข้า หรือจัดการทางออกได้ที่นี่ รายการที่เลือกจะถูกเพิ่มลงในสถานการณ์ที่กำลังแก้ไข",
   'scenario_saved': 'บันทึกสถานการณ์แล้ว',
   'scenario_confirm_use': 'ใช้สถานการณ์นี้',
   'scenario_new_flows':
@@ -405,10 +466,23 @@ const kScenarioTh = <String, String>{
   'scenario_unsaved': 'มีการเปลี่ยนแปลงสถานการณ์ที่ยังไม่ได้บันทึก',
   'scenario_inherited_changes': 'การตั้งค่าที่บันทึกไว้อื่น ๆ ที่จะมีผลด้วย',
   'scenario_choose_exit': "ใช้การเลือกนี้",
-  'scenario_choose_account': "ผูกกับสถานการณ์",
+  'scenario_account_hint':
+      "เมื่อใช้สถานการณ์ จะเชื่อมต่อด้วยบัญชีที่เลือกที่นี่",
+  'scenario_follow_account_hint': "ตามบัญชีที่เลือก ขณะนี้คือ {account}",
+  'scenario_follow_account_named': "ใช้บัญชีปัจจุบัน ({account})",
+  'account_selected': 'เลือกแล้ว',
+  'account_connected': 'เชื่อมต่อแล้ว',
+  'account_default_name': 'บัญชีเริ่มต้น',
+  'warp_via_wireguard': 'WARP ผ่าน WireGuard',
+  'scenario_saving': 'กำลังบันทึกสถานการณ์…',
+  'scenario_discard_title':
+      'ละทิ้งการเปลี่ยนแปลงสถานการณ์ที่ยังไม่ได้บันทึกหรือไม่?',
+  'scenario_discard_body':
+      'การเปลี่ยนแปลงที่ยังไม่ได้บันทึกของสถานการณ์นี้จะหายไป',
 };
 
 const kScenarioUk = <String, String>{
+  'scenario_fact': '{label}: {value}',
   'scenario_platform_unsupported':
       'Цей сценарій містить налаштування, недоступне на цьому пристрої.',
   'scenario_limit':
@@ -448,15 +522,18 @@ const kScenarioUk = <String, String>{
   'scenario_failed': 'Збережено; не вдалося застосувати',
   'scenario_unknown': 'Результат не підтверджено',
   'scenario_custom': 'Власні налаштування',
+  'scenario_use_custom': 'Перейти до «Власні налаштування»',
+  'scenario_custom_hint':
+      'Скасовує вибір сценарію. Кінцева точка, транспорт, перевага IP і вихід повертаються до типових значень Usque; інші налаштування не змінюються.',
   'scenario_unsupported':
-      'Цей рушій не підтримує сценарії. Керування обліковими записами доступне.',
+      'Ця версія Usque не підтримує сценарії. Керування обліковими записами й далі доступне.',
   'scenario_save_failed':
       'Не вдалося завершити операцію. Оновіть стан перед повторною спробою.',
   'scenario_reference_missing':
       'Обліковий запис або вихід, потрібний цьому сценарію, недоступний.',
   'scenario_global_hint':
-      "Виходи, доступ до LAN, блокування реклами, маршрутизація та DNS використовують налаштування пристрою.",
-  'scenario_output': 'Вихідні інтерфейси',
+      "{tunnel} і перемикачі проксі, доступ до LAN, блокування реклами, маршрутизація та DNS використовують налаштування пристрою.",
+  'scenario_output': '{tunnel} і проксі',
   'scenario_exit': 'Вихід',
   'scenario_connection': 'Параметри з’єднання',
   'scenario_current': 'Вибраний сценарій',
@@ -464,7 +541,7 @@ const kScenarioUk = <String, String>{
   'scenario_running_account': 'Обліковий запис з’єднання',
   'scenario_no_changes': 'Вибрані налаштування вже збігаються.',
   'scenario_will_reconnect':
-      'Рушій застосує зміни за потрібною процедурою з’єднання. Може знадобитися повторне підключення.',
+      'Usque застосує зміни автоматично. Може знадобитися повторне підключення.',
   'scenario_disconnected_hint': 'З’єднання залишиться розірваним.',
   'scenario_delete_title': 'Видалити сценарій?',
   'scenario_delete_body':
@@ -473,7 +550,7 @@ const kScenarioUk = <String, String>{
   'scenario_keep_account': 'Поточний обліковий запис зберігається.',
   'scenario_account_change': 'Зміна облікового запису',
   'scenario_library_hint':
-      "Тут можна створювати, імпортувати й керувати вузлами. Вибір переноситься до чернетки сценарію.",
+      "Тут можна створювати, імпортувати виходи й керувати ними. Вибраний вихід додається до сценарію, який ви редагуєте.",
   'scenario_saved': 'Сценарій збережено',
   'scenario_confirm_use': 'Застосувати сценарій',
   'scenario_new_flows':
@@ -492,10 +569,23 @@ const kScenarioUk = <String, String>{
   'scenario_inherited_changes':
       'Інші збережені налаштування, які також застосуються',
   'scenario_choose_exit': "Використати цей вибір",
-  'scenario_choose_account': "Прив’язати до сценарію",
+  'scenario_account_hint':
+      "Під час використання сценарію з’єднання встановлюється з обліковим записом, вибраним тут.",
+  'scenario_follow_account_hint':
+      "Відповідає вибраному обліковому запису, зараз {account}",
+  'scenario_follow_account_named':
+      "Використовувати поточний обліковий запис ({account})",
+  'account_selected': 'Вибрано',
+  'account_connected': 'Зʼєднано',
+  'account_default_name': 'Типовий обліковий запис',
+  'warp_via_wireguard': 'WARP через WireGuard',
+  'scenario_saving': 'Збереження сценарію…',
+  'scenario_discard_title': 'Відкинути незбережені зміни сценарію?',
+  'scenario_discard_body': 'Незбережені зміни цього сценарію буде втрачено.',
 };
 
 const kScenarioVi = <String, String>{
+  'scenario_fact': '{label}: {value}',
   'scenario_platform_unsupported':
       'Kịch bản này có thiết lập không khả dụng trên thiết bị này.',
   'scenario_limit':
@@ -535,15 +625,18 @@ const kScenarioVi = <String, String>{
   'scenario_failed': 'Đã lưu; áp dụng thất bại',
   'scenario_unknown': 'Chưa xác nhận kết quả',
   'scenario_custom': 'Tùy chỉnh',
+  'scenario_use_custom': 'Chuyển sang Tùy chỉnh',
+  'scenario_custom_hint':
+      'Bỏ chọn kịch bản. Điểm cuối, truyền tải, ưu tiên IP và lối ra trở về mặc định của Usque; các thiết lập khác giữ nguyên.',
   'scenario_unsupported':
-      'Engine này không hỗ trợ kịch bản. Bạn vẫn có thể quản lý tài khoản.',
+      'Phiên bản Usque này không hỗ trợ kịch bản. Bạn vẫn có thể quản lý tài khoản.',
   'scenario_save_failed':
       'Không thể hoàn tất thao tác. Hãy làm mới trạng thái trước khi thử lại.',
   'scenario_reference_missing':
       'Tài khoản hoặc lối ra mà kịch bản này cần hiện không khả dụng.',
   'scenario_global_hint':
-      "Đầu ra, truy cập LAN, chặn quảng cáo, định tuyến và DNS dùng cài đặt thiết bị.",
-  'scenario_output': 'Đầu ra',
+      "Công tắc {tunnel} và proxy, truy cập LAN, chặn quảng cáo, định tuyến và DNS dùng cài đặt thiết bị.",
+  'scenario_output': '{tunnel} và proxy',
   'scenario_exit': 'Lối ra',
   'scenario_connection': 'Tùy chọn kết nối',
   'scenario_current': 'Kịch bản đã chọn',
@@ -551,7 +644,7 @@ const kScenarioVi = <String, String>{
   'scenario_running_account': 'Tài khoản đang kết nối',
   'scenario_no_changes': 'Các thiết lập đã chọn đã khớp.',
   'scenario_will_reconnect':
-      'Engine sẽ áp dụng thay đổi theo quy trình kết nối cần thiết. Có thể cần kết nối lại.',
+      'Usque sẽ tự động áp dụng các thay đổi này. Có thể cần kết nối lại.',
   'scenario_disconnected_hint': 'Kết nối sẽ tiếp tục ngắt.',
   'scenario_delete_title': 'Xóa kịch bản?',
   'scenario_delete_body':
@@ -560,7 +653,7 @@ const kScenarioVi = <String, String>{
   'scenario_keep_account': 'Giữ nguyên tài khoản hiện tại.',
   'scenario_account_change': 'Thay đổi tài khoản',
   'scenario_library_hint':
-      "Tạo, nhập hoặc quản lý nút tại đây. Lựa chọn sẽ được đưa vào bản nháp kịch bản.",
+      "Tạo, nhập hoặc quản lý lối ra tại đây. Lựa chọn của bạn sẽ được thêm vào kịch bản đang chỉnh sửa.",
   'scenario_saved': 'Đã lưu kịch bản',
   'scenario_confirm_use': 'Áp dụng kịch bản',
   'scenario_new_flows':
@@ -578,10 +671,21 @@ const kScenarioVi = <String, String>{
   'scenario_unsaved': 'Thay đổi kịch bản chưa lưu',
   'scenario_inherited_changes': 'Các cài đặt đã lưu khác cũng được áp dụng',
   'scenario_choose_exit': "Dùng lựa chọn này",
-  'scenario_choose_account': "Liên kết với kịch bản",
+  'scenario_account_hint':
+      "Khi dùng kịch bản, kết nối sẽ dùng tài khoản chọn ở đây.",
+  'scenario_follow_account_hint': "Theo tài khoản đã chọn, hiện là {account}",
+  'scenario_follow_account_named': "Dùng tài khoản hiện tại ({account})",
+  'account_selected': 'Đã chọn',
+  'account_connected': 'Đã kết nối',
+  'account_default_name': 'Tài khoản mặc định',
+  'warp_via_wireguard': 'WARP qua WireGuard',
+  'scenario_saving': 'Đang lưu kịch bản…',
+  'scenario_discard_title': 'Bỏ các thay đổi kịch bản chưa lưu?',
+  'scenario_discard_body': 'Các thay đổi chưa lưu của kịch bản này sẽ bị mất.',
 };
 
 const kScenarioZhHk = <String, String>{
+  'scenario_fact': '{label}：{value}',
   'scenario_platform_unsupported': '此情境包含目前裝置不支援的設定。',
   'scenario_limit': "情境庫超過限制，請刪除不再使用的情境。",
   'scenario_vpn_permission': '請先中斷連線、選擇此情境，再連線以完成 VPN 授權。',
@@ -610,31 +714,33 @@ const kScenarioZhHk = <String, String>{
   'scenario_selected': '已選取',
   'scenario_applied': '已套用',
   'scenario_modified': '已修改',
-  'scenario_binding_modified': '帳戶與綁定不同',
+  'scenario_binding_modified': '帳戶與情境綁定不一致',
   'scenario_template_updated': '情境有更新',
   'scenario_pending': '已儲存，待套用',
   'scenario_failed': '已儲存，套用失敗',
   'scenario_unknown': '結果待確認',
   'scenario_custom': '自訂',
-  'scenario_unsupported': '目前引擎不支援情境，仍可管理帳戶。',
+  'scenario_use_custom': '切換為自訂',
+  'scenario_custom_hint': '取消所選情境，端點、傳輸、IP 偏好及出口還原為 Usque 預設值，其他設定保持不變。',
+  'scenario_unsupported': '此版本的 Usque 不支援情境，仍可管理帳戶。',
   'scenario_save_failed': '操作未能完成，請先重新整理狀態再重試。',
   'scenario_reference_missing': '此情境需要的帳戶或出口無法使用。',
-  'scenario_global_hint': "輸出、區域網絡存取、廣告封鎖、分流與 DNS 沿用全域設定。",
-  'scenario_output': '輸出',
+  'scenario_global_hint': "{tunnel} 及代理開關、區域網絡存取、廣告封鎖、分流與 DNS 沿用全域設定。",
+  'scenario_output': '{tunnel} 及代理',
   'scenario_exit': '出口',
   'scenario_connection': '連線偏好',
   'scenario_current': '已選情境',
   'scenario_current_account': '已選帳戶',
   'scenario_running_account': '連線使用的帳戶',
   'scenario_no_changes': '所選設定已一致。',
-  'scenario_will_reconnect': '引擎將依所需連線流程套用變更，可能需要重新連線。',
+  'scenario_will_reconnect': 'Usque 會自動套用這些變更，可能需要重新連線。',
   'scenario_disconnected_hint': '連線將保持中斷。',
   'scenario_delete_title': '刪除情境？',
-  'scenario_delete_body': '刪除此情境範本，保留目前網絡設定。',
+  'scenario_delete_body': '刪除此已儲存的情境，保留目前網絡設定。',
   'scenario_validation_name': '請輸入 1–64 個字元的名稱。',
   'scenario_keep_account': '保留目前帳戶。',
   'scenario_account_change': '帳戶變更',
-  'scenario_library_hint': "可在此新增、匯入或管理節點，選擇只寫入情境草稿。",
+  'scenario_library_hint': "可在此新增、匯入或管理出口，所選項目會加入正在編輯的情境。",
   'scenario_saved': '情境已儲存',
   'scenario_confirm_use': '套用情境',
   'scenario_new_flows': '變更對新連線生效，現有連線可能保留原路徑。',
@@ -647,5 +753,14 @@ const kScenarioZhHk = <String, String>{
   'scenario_unsaved': '情境有未儲存的變更',
   'scenario_inherited_changes': '同時生效的其他已儲存設定',
   'scenario_choose_exit': "使用此選擇",
-  'scenario_choose_account': "綁定至情境",
+  'scenario_account_hint': "使用情境時會以這裡選擇的帳戶連線。",
+  'scenario_follow_account_hint': "跟隨已選帳戶，目前為 {account}",
+  'scenario_follow_account_named': "沿用目前帳戶（{account}）",
+  'account_selected': '已選取',
+  'account_connected': '已連線',
+  'account_default_name': '預設帳戶',
+  'warp_via_wireguard': 'WARP（透過 WireGuard）',
+  'scenario_saving': '正在儲存情境…',
+  'scenario_discard_title': '放棄未儲存的情境修改？',
+  'scenario_discard_body': '此情境尚未儲存的修改將會遺失。',
 };

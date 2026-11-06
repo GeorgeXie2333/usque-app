@@ -36,8 +36,8 @@ const Map<String, String> kEnCatalog = <String, String>{
   'window_restore': 'Restore window',
   'window_close': 'Close',
   'tray_open': 'Open Usque',
-  'tray_connect_profile': 'Connect Active Profile',
-  'tray_disconnect_profile': 'Disconnect Active Profile',
+  'tray_connect_profile': 'Connect current account',
+  'tray_disconnect_profile': 'Disconnect current account',
   'tray_disconnect_exit': 'Disconnect and Exit',
   'notice_connection_interrupted':
       'The connection was interrupted. Usque is trying to restore it.',
@@ -48,15 +48,15 @@ const Map<String, String> kEnCatalog = <String, String>{
       'Kill Switch is blocking network traffic until the connection is restored or you disconnect.',
   'connection_status': 'Connection status',
   'home': 'Home',
-  'profiles': 'Accounts',
-  'profiles_subtitle': 'Switch and manage WARP accounts.',
+  'profiles': 'Profiles',
+  'profiles_subtitle': 'Save scenes and manage accounts.',
   'proxy': 'Proxy',
   'proxy_subtitle': 'Configure shared proxy listeners and authentication.',
   'settings': 'Settings',
   'settings_subtitle': 'Connection, proxy and application settings.',
   'diagnostics': 'Diagnostics',
   'nav_home': 'Home',
-  'nav_profiles': 'Accounts',
+  'nav_profiles': 'Profiles',
   'nav_proxy': 'Proxy',
   'nav_settings': 'Settings',
   'status_stream_degraded': 'Status updates are delayed',
@@ -142,7 +142,7 @@ const Map<String, String> kEnCatalog = <String, String>{
   'show_license': 'Show License Key',
   'hide_license': 'Hide License Key',
   'license_copied': 'License Key copied',
-  'warp_secret_saved': 'WARP Secret saved',
+  'warp_secret_saved': 'WARP login information saved to',
   'create': 'Create',
   'cancel': 'Cancel',
   'active': 'Active',
@@ -260,7 +260,7 @@ const Map<String, String> kEnCatalog = <String, String>{
   'copy_license': 'Copy License Key',
   'change_license': 'Change License Key',
   'unbind_license': 'Return to free WARP',
-  'export_warp_secret': 'Export WARP Secret',
+  'export_warp_secret': 'Export WARP login information',
   'close': 'Close',
   'advanced': 'Advanced network settings',
   'advanced_subtitle': 'Endpoints, DNS, MTU, and routing.',
@@ -285,11 +285,11 @@ const Map<String, String> kEnCatalog = <String, String>{
   'mtu': 'MTU',
   'dns_ipv4': 'DNS IPv4',
   'dns_ipv6': 'DNS IPv6',
-  'ip_policy': 'Endpoint IP version',
-  'prefer_ipv4': 'Prefer IPv4 endpoint',
-  'prefer_ipv6': 'Prefer IPv6 endpoint',
-  'ipv4_only': 'IPv4 endpoint only',
-  'ipv6_only': 'IPv6 endpoint only',
+  'ip_policy': 'Endpoint IP preference',
+  'prefer_ipv4': 'Prefer IPv4',
+  'prefer_ipv6': 'Prefer IPv6',
+  'ipv4_only': 'IPv4 only',
+  'ipv6_only': 'IPv6 only',
   'kill_switch': 'Kill Switch',
   'on': 'On',
   'off': 'Off',
@@ -348,7 +348,7 @@ const Map<String, String> kEnCatalog = <String, String>{
       'Check connection problems, export logs and manage local data.',
   'engine_status': 'Connection information',
   'version': 'Version',
-  'app_version': 'Usque 0.3.3',
+  'app_version': 'Usque 0.3.4',
   'logs': 'Local logs',
   'export_diagnostics': 'Export diagnostic bundle',
   'diagnostics_saved': 'Diagnostic bundle saved to',
@@ -395,7 +395,8 @@ const Map<String, String> kEnCatalog = <String, String>{
   'bypass_countries': 'Countries / regions',
   'bypass_targets_hint':
       'One CIDR, IP or domain per line. Domains include all subdomains. Apps using their own encrypted DNS can only be matched by IP.',
-  'bypass_unsupported': 'This Engine does not support custom bypass targets.',
+  'bypass_unsupported':
+      'This version of Usque does not support custom bypass targets. Check for updates in Settings.',
   'bypass_limit': 'At most 256 address rules and 256 domains.',
   'bypass_line_error': 'Line {line}: {reason}',
   'bypass_summary': '{countries} regions · {targets} custom targets',
@@ -429,7 +430,7 @@ const Map<String, String> kEnCatalog = <String, String>{
       'Error codes, connection steps, timings, traffic statistics and feature status',
   'diag_export_excluded': 'Excluded:',
   'diag_export_excluded_body':
-      'Keys, tokens, profile names, full addresses, SSIDs, app lists, and user paths',
+      'Keys, tokens, account names, full addresses, SSIDs, app lists, and user paths',
   'diag_export_local_only':
       'The archive is written only to the location you choose and is never uploaded automatically.',
   'diag_run_title': 'Run network diagnostics',
@@ -465,7 +466,7 @@ const Map<String, String> kEnCatalog = <String, String>{
   'diag_timeline_empty':
       'Key connection transitions will appear here after a connection attempt.',
   'diag_timeline_truncated':
-      'Showing the latest 100 records. The diagnostic package includes all records still saved on this device.',
+      'Showing the latest 100 records. The diagnostic bundle includes all records still saved on this device.',
   'diag_metric_reconnects': 'Reconnects',
   'diag_metric_fallbacks': 'Transport fallbacks',
   'diag_metric_network_changes': 'Network changes',
@@ -554,7 +555,7 @@ const Map<String, String> kEnCatalog = <String, String>{
   'diag_fail_H2_GOAWAY': 'HTTP/2 GOAWAY received',
   'diag_fail_ALL_TRANSPORTS_FAILED': 'HTTP/3 and HTTP/2 both failed',
   'diag_fail_ENDPOINT_PIN_MISMATCH': 'Endpoint pin mismatch',
-  'diag_fail_IDENTITY_INVALID': 'Identity invalid',
+  'diag_fail_IDENTITY_INVALID': 'WARP account invalid',
   'diag_fail_AUTHENTICATION_FAILED': 'Authentication failed',
   'diag_fail_CONFIGURATION_INVALID': 'Configuration invalid',
   'diag_fail_CONNECT_IP_REJECTED': 'CONNECT-IP rejected',
@@ -593,7 +594,7 @@ const Map<String, String> kEnCatalog = <String, String>{
   'diag_fix_review_configuration':
       'Open Settings → Advanced network settings, correct the highlighted values and apply changes.',
   'diag_fix_restore_platform_state':
-      'Fully exit and reopen Usque, then retry. If it still fails, open Diagnostics and export a diagnostic package for support.',
+      'Fully exit and reopen Usque, then retry. If it still fails, open Diagnostics and export a diagnostic bundle for support.',
   'diag_fix_resolve_dependency':
       'Address the failed checks in this list first, then run diagnostics again.',
   'diag_fix_run_deep_diagnostics':
@@ -601,7 +602,7 @@ const Map<String, String> kEnCatalog = <String, String>{
   'diag_fix_run_release_leak_gate':
       'Export a diagnostic bundle and send it to support. Sensitive information is removed.',
   'diag_fix_inspect_platform_state':
-      'Open Diagnostics and review the System protection checks. If they still fail, export a diagnostic package for support.',
+      'Open Diagnostics and review the System protection checks. If they still fail, export a diagnostic bundle for support.',
   'diag_fix_generate_tunnel_traffic':
       'Open a web page through Usque, then run this check again.',
   'diag_fix_export_diagnostics':
@@ -609,7 +610,7 @@ const Map<String, String> kEnCatalog = <String, String>{
   'diag_fix_retry': 'Try again shortly.',
   'diag_fix_none': 'No action is required.',
   'diag_fix_default':
-      'Try again. If the problem persists, open Diagnostics and export a diagnostic package for support.',
+      'Try again. If the problem persists, open Diagnostics and export a diagnostic bundle for support.',
   'diag_event_attempt_started': 'Connection attempt started',
   'diag_event_endpoint_resolved': 'Endpoint address resolved',
   'diag_event_socket_connected': 'Socket connected',
@@ -633,7 +634,7 @@ const Map<String, String> kEnCatalog = <String, String>{
   'diag_event_disconnected': 'Disconnected',
   'diag_event_failed': 'Connection failed',
   'operation_failed':
-      'Could not complete the operation. Try again; if it still fails, open Diagnostics and export a diagnostic package for support.',
+      'Could not complete the operation. Try again; if it still fails, open Diagnostics and export a diagnostic bundle for support.',
   'operation_timeout':
       'The operation took too long. Check your network and try again.',
   'accounts_reset':
@@ -652,15 +653,15 @@ const Map<String, String> kEnCatalog = <String, String>{
   "routing_action": "Action",
   "routing_target": "Domain, IP or CIDR",
   "routing_priority":
-      "More specific rules win. Custom rules override Ads and countries; IP rejection still applies.",
+      "More specific rules win. Custom rules override ad blocking and country rules; IP block rules still apply.",
   "routing_conflict":
       "Different actions for the same target. Edit these rules.",
   "routing_overlap": "The more specific rule overrides the broader rule.",
   "routing_duplicate": "Duplicate rules will be merged.",
   "routing_ads": "Ad and tracker blocking",
-  "routing_ads_ready": "Ads data is ready.",
+  "routing_ads_ready": "Ad-blocking rules are ready.",
   "routing_ads_unavailable":
-      "Ads unavailable. Connections and custom rules remain available.",
+      "Ad-blocking rules are unavailable. Connections and custom rules remain available.",
   "routing_pending": "Downloaded rules apply after reconnecting.",
   'routing_current': "Current connection",
 };

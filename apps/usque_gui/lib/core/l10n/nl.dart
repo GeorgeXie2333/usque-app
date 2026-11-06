@@ -37,8 +37,8 @@ const Map<String, String> kNlCatalog = <String, String>{
   'window_restore': 'Venstergrootte herstellen',
   'window_close': 'Sluiten',
   'tray_open': 'Usque openen',
-  'tray_connect_profile': 'Actief account verbinden',
-  'tray_disconnect_profile': 'Actief account verbreken',
+  'tray_connect_profile': 'Huidig account verbinden',
+  'tray_disconnect_profile': 'Huidig account verbreken',
   'tray_disconnect_exit': 'Verbreken en afsluiten',
   'notice_connection_interrupted':
       'De verbinding is onderbroken. Usque probeert deze te herstellen.',
@@ -49,15 +49,15 @@ const Map<String, String> kNlCatalog = <String, String>{
       'Kill Switch blokkeert netwerkverkeer totdat de verbinding is hersteld of je de verbinding verbreekt.',
   'connection_status': 'Verbindingsstatus',
   'home': 'Start',
-  'profiles': 'Accounts',
-  'profiles_subtitle': 'Wissel en beheer WARP-accounts.',
+  'profiles': 'Profielen',
+  'profiles_subtitle': 'Sla scenario’s op en beheer accounts.',
   'proxy': 'Proxy',
   'proxy_subtitle': 'Stel gedeelde proxy-luisteradressen en authenticatie in.',
   'settings': 'Instellingen',
   'settings_subtitle': 'Verbindings-, proxy- en applicatie-instellingen.',
   'diagnostics': 'Diagnostiek',
   'nav_home': 'Start',
-  'nav_profiles': 'Accounts',
+  'nav_profiles': 'Profielen',
   'nav_proxy': 'Proxy',
   'nav_settings': 'Opties',
   'status_stream_degraded': 'Statusupdates zijn vertraagd',
@@ -76,7 +76,7 @@ const Map<String, String> kNlCatalog = <String, String>{
   'error': 'Verbindingsfout',
   'active_profile': 'Huidig account',
   'protocol': 'Protocol',
-  'address_family': 'Adresfamilie',
+  'address_family': 'IP-versie',
   'duration': 'Duur',
   'download': 'Downloaden',
   'upload': 'Uploaden',
@@ -144,10 +144,10 @@ const Map<String, String> kNlCatalog = <String, String>{
   "zero_trust_reauth_endpoints":
       "Opnieuw aanmelden herstelt de geregistreerde eindpuntadressen en verwijdert je aangepaste adressen.",
   'experimental': 'Experimenteel',
-  'show_license': 'License Key tonen',
-  'hide_license': 'License Key verbergen',
-  'license_copied': 'License Key gekopieerd',
-  'warp_secret_saved': 'WARP Secret opgeslagen',
+  'show_license': 'Licentiesleutel tonen',
+  'hide_license': 'Licentiesleutel verbergen',
+  'license_copied': 'Licentiesleutel gekopieerd',
+  'warp_secret_saved': 'WARP-aanmeldgegevens opgeslagen in',
   'create': 'Aanmaken',
   'cancel': 'Annuleren',
   'active': 'Actief',
@@ -158,7 +158,7 @@ const Map<String, String> kNlCatalog = <String, String>{
   'delete': 'Verwijderen',
   'delete_profile': 'Account verwijderen?',
   'delete_profile_body':
-      "Dit account en de WARP-aanmeldgegevens van dit apparaat verwijderen? Als er een License Key is gekoppeld, probeert Usque die ook te ontkoppelen.",
+      "Dit account en de WARP-aanmeldgegevens van dit apparaat verwijderen? Als er een licentiesleutel is gekoppeld, probeert Usque die ook te ontkoppelen.",
   'delete_zero_trust_profile_body':
       'Verwijdert het account en de aanmeldgegevens van dit apparaat. Vraag de beheerder ook het apparaat uit het Zero Trust-dashboard van de organisatie te verwijderen.',
   'license_not_applicable': 'Organisatieaccount · Experimenteel',
@@ -210,7 +210,7 @@ const Map<String, String> kNlCatalog = <String, String>{
       'Wachtwoord is ingesteld. Voer een nieuw wachtwoord in om het te vervangen.',
   'proxy_auth_clear': 'Wachtwoordbeveiliging verwijderen',
   'general': 'Algemeen',
-  'start_on_boot': 'Usque starten wanneer u zich aanmeldt',
+  'start_on_boot': 'Usque starten wanneer je je aanmeldt',
   'close_to_tray': 'Het venster naar het systeemvak sluiten',
   'add_quick_settings_tile': 'Tegel Snelle instellingen toevoegen',
   'theme': 'Thema',
@@ -264,10 +264,10 @@ const Map<String, String> kNlCatalog = <String, String>{
   'identity_and_license': 'Account en licentie',
   'license_cleanup_pending':
       'De oude WARP-apparaatregistratie is nog niet verwijderd.',
-  'copy_license': 'License Key kopiëren',
-  'change_license': 'License Key wijzigen',
+  'copy_license': 'Licentiesleutel kopiëren',
+  'change_license': 'Licentiesleutel wijzigen',
   'unbind_license': 'Terugkeren naar WARP Free',
-  'export_warp_secret': 'WARP Secret exporteren',
+  'export_warp_secret': 'WARP-aanmeldgegevens exporteren',
   'close': 'Sluiten',
   'advanced': 'Geavanceerde netwerkinstellingen',
   'advanced_subtitle': 'Eindpunten, DNS, MTU en routering.',
@@ -278,25 +278,25 @@ const Map<String, String> kNlCatalog = <String, String>{
   'automatic': 'Automatisch',
   'http3': 'HTTP/3',
   'http2': 'HTTP/2',
-  'endpoint_selection': 'Endpointselectie',
+  'endpoint_selection': 'Eindpuntselectie',
   'endpoint_section': 'Eindpunt',
   'endpoint_automatic': 'Automatisch',
   'endpoint_custom': 'Aangepast',
   'endpoint_automatic_help':
-      'Kies het snelste beschikbare endpoint voor dit account. Adreswijzigingen worden alleen in de modus Aangepast opgeslagen.',
+      'Kies het snelste beschikbare eindpunt voor dit account. Adreswijzigingen worden alleen in de modus Aangepast opgeslagen.',
   'endpoint_custom_help': 'Gebruik de onderstaande IPv4- en IPv6-adressen.',
-  'endpoint_unsupported': 'Werk Usque bij voor automatische endpointselectie.',
+  'endpoint_unsupported': 'Werk Usque bij voor automatische eindpuntselectie.',
   'endpoint_ipv4': 'Eindpunt IPv4',
   'endpoint_ipv6': 'Eindpunt IPv6',
   'sni': 'SNI',
   'mtu': 'MTU',
   'dns_ipv4': 'DNS IPv4',
   'dns_ipv6': 'DNS IPv6',
-  'ip_policy': 'IP-versie van eindpunt',
-  'prefer_ipv4': 'Voorkeur voor IPv4-eindpunt',
-  'prefer_ipv6': 'Voorkeur voor IPv6-eindpunt',
-  'ipv4_only': 'Alleen IPv4-eindpunt',
-  'ipv6_only': 'Alleen IPv6-eindpunt',
+  'ip_policy': 'IP-voorkeur van eindpunt',
+  'prefer_ipv4': 'Voorkeur voor IPv4',
+  'prefer_ipv6': 'Voorkeur voor IPv6',
+  'ipv4_only': 'Alleen IPv4',
+  'ipv6_only': 'Alleen IPv6',
   'kill_switch': 'Kill Switch',
   'on': 'Aan',
   'off': 'Uit',
@@ -305,7 +305,7 @@ const Map<String, String> kNlCatalog = <String, String>{
   'ks_inactive': 'Inactief',
   'ks_error': 'Fout',
   'ks_engaging': 'Wordt ingeschakeld',
-  'always_on': 'Altijd-aan-VPN',
+  'always_on': 'Always-on VPN',
   'lockdown': 'Blokkeren zonder VPN',
   'not_used_proxy': 'Niet gebruikt in proxymodus',
   'kill_switch_help':
@@ -315,18 +315,18 @@ const Map<String, String> kNlCatalog = <String, String>{
   'start_on_boot_android':
       'Start Usque nadat het apparaat opnieuw is opgestart. Zet ook “Het huidige account bij het starten automatisch verbinden” aan om automatisch te verbinden.',
   'add_quick_settings_tile_help':
-      'Voeg de Usque-tegel toe op Android 13 of later. Op oudere versies voegt u deze handmatig toe via Snelle instellingen.',
-  'always_on_vpn': 'Instellingen voor Altijd-aan-VPN openen',
+      'Voeg de Usque-tegel toe op Android 13 of later. Op oudere versies voeg je deze handmatig toe via Snelle instellingen.',
+  'always_on_vpn': 'Instellingen voor “Always-on VPN” openen',
   'always_on_vpn_help':
-      'Schakel Altijd-aan-VPN en Verbindingen zonder VPN blokkeren in voor lekbescherming nadat de app is beëindigd.',
+      'Schakel “Always-on VPN” en “Verbindingen zonder VPN blokkeren” in voor lekbescherming nadat de app is beëindigd.',
   'per_app_proxy': 'Proxy per app',
   'per_app_proxy_off': 'Alle apps gebruiken de VPN',
   'per_app_proxy_on': 'Proxy voor {count} apps',
   'per_app_proxy_enable': 'Alleen geselecteerde apps via proxy',
   'per_app_proxy_help':
-      'Alleen aangevinkte apps gebruiken de VPN. Nieuw geïnstalleerde apps moet u eerst aanvinken voordat ze de VPN gebruiken.',
+      'Alleen aangevinkte apps gebruiken de VPN. Nieuw geïnstalleerde apps moet je eerst aanvinken voordat ze de VPN gebruiken.',
   'per_app_proxy_lockdown_help':
-      'Als Altijd-aan-VPN en Verbindingen zonder VPN blokkeren zijn ingeschakeld, worden apps die u niet selecteert geblokkeerd, niet buiten de tunnel gestuurd.',
+      'Als “Always-on VPN” en “Verbindingen zonder VPN blokkeren” zijn ingeschakeld, worden apps die je niet selecteert geblokkeerd in plaats van buiten de tunnel om gestuurd.',
   'per_app_proxy_tunnel_hint':
       'Geldt als de VPN aan staat. SOCKS5- en HTTP-proxy’s filteren niet per app.',
   'per_app_search': 'Apps zoeken',
@@ -334,11 +334,11 @@ const Map<String, String> kNlCatalog = <String, String>{
   'per_app_select_visible': 'Zichtbare apps selecteren',
   'per_app_clear_visible': 'Zichtbare apps deselecteren',
   'per_app_selected_count': '{count} geselecteerd',
-  'per_app_need_one': 'Selecteer ten minste één app voordat u dit inschakelt.',
+  'per_app_need_one': 'Selecteer ten minste één app voordat je dit inschakelt.',
   'per_app_loading': 'Geïnstalleerde apps laden…',
   'per_app_empty': 'Geen apps komen overeen met dit filter.',
   'allow_lan': 'Lokaal netwerk toestaan',
-  'bypass_cidrs': 'Aanvullende bypass-CIDRs',
+  'bypass_cidrs': 'Extra omzeilings-CIDR’s',
   'bypass_hint': 'Eén CIDR per regel',
   'reset_defaults': 'Netwerkstandaardwaarden herstellen',
   'reset_defaults_body':
@@ -355,7 +355,7 @@ const Map<String, String> kNlCatalog = <String, String>{
       'Controleer verbindingsproblemen, exporteer logboeken en beheer lokale gegevens.',
   'engine_status': 'Verbindingsinformatie',
   'version': 'Versie',
-  'app_version': 'Usque 0.3.3',
+  'app_version': 'Usque 0.3.4',
   'logs': 'Lokale logboeken',
   'export_diagnostics': 'Diagnostisch pakket exporteren',
   'diagnostics_saved': 'Diagnostisch pakket opgeslagen in',
@@ -390,9 +390,9 @@ const Map<String, String> kNlCatalog = <String, String>{
   'finish_setup': 'Instellen voltooien',
   'back': 'Terug',
   'continue': 'Doorgaan',
-  'heads_up': 'Voordat u verbindt',
+  'heads_up': 'Voordat je verbindt',
   'permission_note':
-      'Het besturingssysteem kan een extra bevestiging tonen wanneer u voor het eerst verbindt.',
+      'Het besturingssysteem kan een extra bevestiging tonen wanneer je voor het eerst verbindt.',
   'setup_failed': 'Instellen kon niet worden voltooid',
   'profile_required': 'Behoud ten minste één account.',
   'socks_capabilities': 'TCP en UDP',
@@ -402,7 +402,8 @@ const Map<String, String> kNlCatalog = <String, String>{
   'bypass_countries': 'Landen / regio’s',
   'bypass_targets_hint':
       'Eén CIDR, IP of domein per regel. Inclusief alle subdomeinen. Apps met eigen versleutelde DNS worden alleen op IP herkend.',
-  'bypass_unsupported': 'Deze engine ondersteunt geen eigen omzeilingsdoelen.',
+  'bypass_unsupported':
+      'Deze versie van Usque ondersteunt geen eigen omzeilingsdoelen. Controleer op updates bij Instellingen.',
   'bypass_limit': 'Maximaal 256 adresregels en 256 domeinen.',
   'bypass_line_error': 'Regel {line}: {reason}',
   'bypass_summary': '{countries} regio’s · {targets} eigen doelen',
@@ -414,13 +415,13 @@ const Map<String, String> kNlCatalog = <String, String>{
   'geo_updating': 'Bezig met bijwerken van {current} van {total}',
   'geo_download': 'Downloaden',
   'geo_update': 'Bijwerken',
-  'geo_enable': 'Directe routering',
+  'geo_enable': 'Rechtstreeks',
   'geo_search': 'Landen zoeken',
   'geo_not_downloaded': 'Niet gedownload',
   'geo_downloaded': 'Gedownload',
   'geo_chip': 'Rechtstreeks: {current}',
   'geo_download_first':
-      'Download eerst de geografische gegevens van dit land voordat u het inschakelt.',
+      'Download eerst de geografische gegevens van dit land voordat je het inschakelt.',
   'geo_update_complete':
       'Geografische gegevens: {updated} bijgewerkt, {current} al actueel.',
   'geo_update_failed':
@@ -436,7 +437,7 @@ const Map<String, String> kNlCatalog = <String, String>{
       'Foutcodes, verbindingsstappen, tijden, verkeersstatistieken en functiestatus',
   'diag_export_excluded': 'Uitgesloten:',
   'diag_export_excluded_body':
-      'Sleutels, tokens, profielnamen, volledige adressen, SSID’s, lijsten met apps en gebruikerspaden',
+      'Sleutels, tokens, accountnamen, volledige adressen, SSID’s, lijsten met apps en gebruikerspaden',
   'diag_export_local_only':
       'Het archief wordt alleen naar de gekozen locatie geschreven en nooit automatisch geüpload.',
   'diag_run_title': 'Netwerkdiagnostiek uitvoeren',
@@ -473,7 +474,7 @@ const Map<String, String> kNlCatalog = <String, String>{
   'diag_timeline_empty':
       'Belangrijke verbindingswisselingen verschijnen hier na een verbindingspoging.',
   'diag_timeline_truncated':
-      'De laatste 100 vermeldingen worden getoond. Het diagnosepakket bevat alle vermeldingen die nog op dit apparaat staan.',
+      'De laatste 100 vermeldingen worden getoond. Het diagnostische pakket bevat alle vermeldingen die nog op dit apparaat staan.',
   'diag_metric_reconnects': 'Herverbindingen',
   'diag_metric_fallbacks': 'Fallbacks',
   'diag_metric_network_changes': 'Netwerkwijzigingen',
@@ -543,7 +544,7 @@ const Map<String, String> kNlCatalog = <String, String>{
       'Verbindingsdienst van Usque niet beschikbaar',
   'diag_fail_AGENT_UNREACHABLE':
       'De systeemnetwerkdienst van Usque is niet bereikbaar',
-  'diag_fail_VPN_SERVICE_UNAVAILABLE': 'VPN-service niet beschikbaar',
+  'diag_fail_VPN_SERVICE_UNAVAILABLE': 'VPN-dienst niet beschikbaar',
   'diag_fail_PROXY_PORT_IN_USE': 'Proxypoort in gebruik',
   'diag_fail_PHYSICAL_IPV4_UNAVAILABLE': 'Fysiek IPv4 niet beschikbaar',
   'diag_fail_PHYSICAL_IPV6_UNAVAILABLE': 'Fysiek IPv6 niet beschikbaar',
@@ -563,7 +564,7 @@ const Map<String, String> kNlCatalog = <String, String>{
   'diag_fail_H2_GOAWAY': 'HTTP/2 ontving GOAWAY',
   'diag_fail_ALL_TRANSPORTS_FAILED': 'HTTP/3 en HTTP/2 zijn beide mislukt',
   'diag_fail_ENDPOINT_PIN_MISMATCH': 'Eindpuntpin komt niet overeen',
-  'diag_fail_IDENTITY_INVALID': 'Identiteit ongeldig',
+  'diag_fail_IDENTITY_INVALID': 'WARP-account ongeldig',
   'diag_fail_AUTHENTICATION_FAILED': 'Authenticatie mislukt',
   'diag_fail_CONFIGURATION_INVALID': 'Configuratie ongeldig',
   'diag_fail_CONNECT_IP_REJECTED': 'CONNECT-IP geweigerd',
@@ -598,7 +599,7 @@ const Map<String, String> kNlCatalog = <String, String>{
   'diag_fix_try_http2':
       'Kies HTTP/2 bij Instellingen → Geavanceerde netwerkinstellingen, pas de wijziging toe en verbind opnieuw.',
   'diag_fix_check_physical_network':
-      'Controleer of wifi of mobiele data werkt en probeer opnieuw te verbinden.',
+      'Controleer of wifi of mobiele data zonder Usque werkt en probeer opnieuw te verbinden.',
   'diag_fix_refresh_or_replace_identity':
       'Kies bij Accounts voor dit account WARP-account instellen. Meld je opnieuw aan of maak een WARP-account en verbind daarna opnieuw.',
   'diag_fix_replace_identity':
@@ -606,7 +607,7 @@ const Map<String, String> kNlCatalog = <String, String>{
   'diag_fix_review_configuration':
       'Corrigeer bij Instellingen → Geavanceerde netwerkinstellingen de gemarkeerde velden en pas de wijzigingen toe.',
   'diag_fix_restore_platform_state':
-      'Sluit Usque volledig en open het opnieuw. Exporteer bij aanhoudende problemen via Diagnostiek een diagnosepakket voor hulp.',
+      'Sluit Usque volledig, open het opnieuw en probeer het nog eens. Open bij aanhoudende problemen Diagnostiek en exporteer een diagnostisch pakket voor ondersteuning.',
   'diag_fix_resolve_dependency':
       'Los eerst de mislukte controles in de lijst op en voer de diagnose opnieuw uit.',
   'diag_fix_run_deep_diagnostics':
@@ -614,7 +615,7 @@ const Map<String, String> kNlCatalog = <String, String>{
   'diag_fix_run_release_leak_gate':
       'Exporteer een diagnostisch pakket en stuur het naar ondersteuning. Gevoelige gegevens worden verwijderd.',
   'diag_fix_inspect_platform_state':
-      'Bekijk bij Diagnostiek de fouten in Systeembescherming. Exporteer een diagnosepakket voor hulp als ze blijven bestaan.',
+      'Bekijk bij Diagnostiek de controles van Systeembescherming. Exporteer een diagnostisch pakket voor ondersteuning als ze blijven mislukken.',
   'diag_fix_generate_tunnel_traffic':
       'Open via Usque een webpagina en voer deze controle opnieuw uit.',
   'diag_fix_export_diagnostics':
@@ -622,7 +623,7 @@ const Map<String, String> kNlCatalog = <String, String>{
   'diag_fix_retry': 'Probeer het binnenkort opnieuw.',
   'diag_fix_none': 'Geen actie vereist.',
   'diag_fix_default':
-      'Probeer opnieuw. Open bij aanhoudende problemen Diagnostiek en exporteer een pakket voor hulp.',
+      'Probeer het opnieuw. Open bij aanhoudende problemen Diagnostiek en exporteer een diagnostisch pakket voor ondersteuning.',
   'diag_event_attempt_started': 'Verbindingspoging gestart',
   'diag_event_endpoint_resolved': 'Eindpuntadres opgelost',
   'diag_event_socket_connected': 'Socket verbonden',
@@ -647,7 +648,7 @@ const Map<String, String> kNlCatalog = <String, String>{
   'diag_event_disconnected': 'Verbinding verbroken',
   'diag_event_failed': 'Verbinding mislukt',
   'operation_failed':
-      'De bewerking kon niet worden voltooid. Probeer opnieuw; exporteer bij aanhoudende problemen een diagnosepakket voor ondersteuning.',
+      'De bewerking kon niet worden voltooid. Probeer het opnieuw; open bij aanhoudende problemen Diagnostiek en exporteer een diagnostisch pakket voor ondersteuning.',
   'operation_timeout':
       'De bewerking duurde te lang. Controleer je netwerk en probeer opnieuw.',
   'accounts_reset':
@@ -666,15 +667,15 @@ const Map<String, String> kNlCatalog = <String, String>{
   "routing_action": "Actie",
   "routing_target": "Domein, IP of CIDR",
   "routing_priority":
-      "Specifiekere regels gaan voor. Eigen regels gaan boven Ads en landen; IP-blokkering blijft gelden.",
+      "Specifiekere regels gaan voor. Eigen regels gaan boven advertentieblokkering en landregels; IP-blokkeerregels blijven gelden.",
   "routing_conflict":
       "Verschillende acties voor hetzelfde doel. Pas deze regels aan.",
   "routing_overlap": "De specifiekere regel gaat voor de bredere regel.",
   "routing_duplicate": "Dubbele regels worden bij opslaan samengevoegd.",
-  "routing_ads": "advertenties en tracking",
-  "routing_ads_ready": "Ads-gegevens zijn beschikbaar.",
+  "routing_ads": "Advertentie- en trackerblokkering",
+  "routing_ads_ready": "Regels voor advertentieblokkering zijn gereed.",
   "routing_ads_unavailable":
-      "Ads-gegevens ontbreken. Verbindingen en eigen regels blijven beschikbaar.",
+      "Regels voor advertentieblokkering zijn niet beschikbaar. Verbindingen en eigen regels blijven beschikbaar.",
   "routing_pending": "Gedownloade regels gelden na opnieuw verbinden.",
   'routing_current': "Huidige verbinding",
 };

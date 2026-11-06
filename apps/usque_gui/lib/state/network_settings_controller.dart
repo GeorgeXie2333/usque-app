@@ -13,6 +13,7 @@ class NetworkSettingsController extends ChangeNotifier {
   Future<void> _tail = Future.value();
   final Set<String> _retiredEpochs = {};
   NetworkSettingsState? state;
+  NetworkSettingsState? _lastRuntimeState;
   String? saveError;
   // Only an ordinal is retained; backend target text never reaches diagnostics.
   int? invalidBypassDomainEntry;
@@ -24,6 +25,8 @@ class NetworkSettingsController extends ChangeNotifier {
   bool _supported = false;
   bool _observationVisible = true;
   Future<void>? _refreshing;
+  bool _refreshRequiresRuntime = false;
+  final Set<String> _controlOwners = {};
   Timer? _confirmationRetry;
   int _confirmationRetries = 0;
   static const _confirmationRetryDelays = [
@@ -38,6 +41,9 @@ class NetworkSettingsController extends ChangeNotifier {
   Future<void> get flushed => _tail;
   bool get unconfirmed =>
       _queryUnconfirmed ||
+      state?.runtimeObserved == false &&
+          _lastRuntimeState?.operationId != null &&
+          _lastRuntimeState?.status == NetworkSettingsApplyStatus.unknown ||
       _saveAttempts.values.any((attempt) => attempt.unconfirmed);
   bool get needsConfirmation =>
       unconfirmed ||
@@ -85,8 +91,17 @@ class NetworkSettingsController extends ChangeNotifier {
 
   void accept(NetworkSettingsState incoming) {
     if (_resetting || _disposed) return;
+    if (!incoming.runtimeObserved) {
+      state = incoming;
+      _observationRevision++;
+      _queryUnconfirmed = false;
+      // Stored fields can be edited while disconnected. This read cannot settle
+      // an earlier write, retire a live epoch, or confirm runtime application.
+      _notify();
+      return;
+    }
     if (_retiredEpochs.contains(incoming.sourceEpoch)) return;
-    final previous = state;
+    final previous = _lastRuntimeState;
     if (previous != null) {
       if (previous.sourceEpoch == incoming.sourceEpoch &&
           incoming.sequence < previous.sequence) {
@@ -107,6 +122,7 @@ class NetworkSettingsController extends ChangeNotifier {
     final wasUnsupported =
         supported && saveError == 'NETWORK_SETTINGS_UNSUPPORTED';
     state = incoming;
+    _lastRuntimeState = incoming;
     if (wasUnsupported) saveError = null;
     _observationRevision++;
     _queryUnconfirmed = false;
@@ -130,20 +146,26 @@ class NetworkSettingsController extends ChangeNotifier {
     }
   }
 
-  Future<void> refresh() {
+  Future<void> refresh({bool requireRuntime = false}) {
     if (_disposed || !supported || _resetting || !_observationVisible) {
       return Future<void>.value();
     }
     final pending = _refreshing;
-    if (pending != null) return pending;
+    if (pending != null) {
+      if (requireRuntime && !_refreshRequiresRuntime) {
+        return pending.then((_) => refresh(requireRuntime: true));
+      }
+      return pending;
+    }
     _cancelConfirmationRetry();
     _confirmationRetries = 0;
-    return _startRefresh();
+    return _startRefresh(requireRuntime: requireRuntime);
   }
 
-  Future<void> _startRefresh() {
+  Future<void> _startRefresh({bool requireRuntime = false}) {
+    _refreshRequiresRuntime = requireRuntime;
     late final Future<void> work;
-    work = _refreshOnce().whenComplete(() {
+    work = _refreshOnce(requireRuntime: requireRuntime).whenComplete(() {
       if (identical(_refreshing, work)) {
         _refreshing = null;
         _notify();
@@ -154,12 +176,30 @@ class NetworkSettingsController extends ChangeNotifier {
     return work;
   }
 
-  Future<void> _refreshOnce() async {
+  Future<void> _refreshOnce({bool requireRuntime = false}) async {
     final generation = _dataGeneration;
     final revision = _observationRevision;
+    final engine = _engine;
+    final control = engine is ControlOperationClient
+        ? engine as ControlOperationClient
+        : null;
+    String? ownerToken;
     try {
+      if (requireRuntime && control != null) {
+        ownerToken = await control.beginControlOperation();
+        _controlOwners.add(ownerToken);
+      }
       final incoming = await _engine.getNetworkSettingsState();
-      if (generation == _dataGeneration) accept(incoming);
+      if (requireRuntime && !incoming.runtimeObserved) {
+        throw const EngineException(
+          'NETWORK_SETTINGS_UNCONFIRMED',
+          'The runtime settings were not observed.',
+        );
+      }
+      if (generation == _dataGeneration &&
+          (incoming.runtimeObserved || revision == _observationRevision)) {
+        accept(incoming);
+      }
     } on Object catch (error) {
       // An older query failure must not invalidate a newer authoritative reply.
       if (generation == _dataGeneration && revision == _observationRevision) {
@@ -173,6 +213,23 @@ class NetworkSettingsController extends ChangeNotifier {
         }
         _notify();
       }
+    } finally {
+      if (ownerToken != null && control != null) {
+        await _releaseControlOwner(control, ownerToken);
+      }
+    }
+  }
+
+  Future<void> _releaseControlOwner(
+    ControlOperationClient control,
+    String token,
+  ) async {
+    try {
+      await control.endControlOperation(token);
+      _controlOwners.remove(token);
+    } on Object {
+      // Retain an unacknowledged local release for disposal. It cannot change
+      // the already observed settings or acknowledge a write.
     }
   }
 
@@ -219,6 +276,12 @@ class NetworkSettingsController extends ChangeNotifier {
           prepared.fields,
         );
         if (_resetting || generation != _dataGeneration) return false;
+        if (!result.runtimeObserved) {
+          throw const EngineException(
+            'NETWORK_SETTINGS_UNCONFIRMED',
+            'The settings operation was not observed.',
+          );
+        }
         // A reply to this request can durably confirm its own save even when
         // newer events have superseded the snapshot it carries. Never roll
         // the current configuration or engine epoch back to that snapshot.
@@ -284,13 +347,14 @@ class NetworkSettingsController extends ChangeNotifier {
   }
 
   void reset() {
-    final epoch = state?.sourceEpoch;
+    final epoch = _lastRuntimeState?.sourceEpoch;
     if (epoch != null) _retiredEpochs.add(epoch);
     _dataGeneration++;
     _cancelConfirmationRetry();
     _confirmationRetries = 0;
     _refreshing = null;
     state = null;
+    _lastRuntimeState = null;
     saveError = null;
     invalidBypassDomainEntry = null;
     routingErrorIds = [];
@@ -342,6 +406,14 @@ class NetworkSettingsController extends ChangeNotifier {
   void dispose() {
     _disposed = true;
     _cancelConfirmationRetry();
+    final engine = _engine;
+    if (engine is ControlOperationClient) {
+      for (final token in _controlOwners.toList()) {
+        unawaited(
+          _releaseControlOwner(engine as ControlOperationClient, token),
+        );
+      }
+    }
     super.dispose();
   }
 }

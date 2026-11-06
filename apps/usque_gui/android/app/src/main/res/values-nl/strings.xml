@@ -17,7 +17,7 @@
     <string name="vpn_notif_invalid_network_profile">Ongeldig netwerkprofiel</string>
     <string name="vpn_notif_recovery_unavailable">VPN-herstel niet beschikbaar</string>
     <string name="tile_connected">Verbonden</string>
-    <string name="tile_disconnected">Verbroken</string>
+    <string name="tile_disconnected">Niet verbonden</string>
     <string name="tile_connecting">Verbinden</string>
     <string name="tile_reconnecting">Opnieuw verbinden</string>
     <string name="tile_disconnecting">Verbreken</string>

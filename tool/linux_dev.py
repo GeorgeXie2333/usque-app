@@ -10,10 +10,17 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 GUI = ROOT / "apps/usque_gui"
+# One palette per animation; the last frame holds before the loop restarts.
+CONNECT_GIF_FILTER = (
+    "tpad=stop_mode=clone:stop_duration=2,split[a][b];"
+    "[a]palettegen=max_colors=128:stats_mode=full[p];"
+    "[b][p]paletteuse=dither=sierra2_4a"
+)
 
 
 def linux_executable(path: str | Path) -> str:
@@ -57,7 +64,13 @@ def flutter_sdk() -> Path:
     raise ValueError("flutter.sdk is missing from Android local.properties.")
 
 
-def run(args: list[str], cwd: Path = ROOT, *, capture: bool = False) -> str:
+def run(
+    args: list[str],
+    cwd: Path = ROOT,
+    *,
+    capture: bool = False,
+    env: dict[str, str] | None = None,
+) -> str:
     print(f"[{cwd.relative_to(ROOT) or '.'}] {' '.join(args)}", flush=True)
     # Arguments are fixed command vectors; no shell or credential interpolation.
     result = subprocess.run(  # noqa: S603
@@ -66,6 +79,7 @@ def run(args: list[str], cwd: Path = ROOT, *, capture: bool = False) -> str:
         check=True,
         text=True,
         stdout=subprocess.PIPE if capture else None,
+        env=env,
     )
     return result.stdout if capture else ""
 
@@ -129,6 +143,55 @@ def android(sdk: Path) -> None:
     run([gradlew, "--no-daemon", ":app:testDebugUnitTest", ":app:lintDebug"], GUI / "android")
 
 
+def readme_assets(sdk: Path) -> None:
+    """Render README images from fixtures, then encode the connect animations."""
+    if platform.machine().lower() not in {"x86_64", "amd64"}:
+        raise ValueError("README assets use the Linux amd64 font fixtures.")
+    executable = str(sdk / "bin/flutter")
+    ffmpeg = command("ffmpeg")
+    run([executable, "pub", "get", "--enforce-lockfile"], GUI)
+    with tempfile.TemporaryDirectory(prefix="usque-readme-frames-") as frames:
+        environment = {
+            **os.environ,
+            "USQUE_README_ASSETS": str(ROOT),
+            "USQUE_README_FRAMES": frames,
+        }
+        run(
+            [
+                executable,
+                "test",
+                "--no-pub",
+                "--tags",
+                "readme-assets",
+                "test/readme_assets_test.dart",
+            ],
+            GUI,
+            env=environment,
+        )
+        for theme, suffix in (("light", ""), ("dark", "-dark")):
+            source = Path(frames) / f"connect-{theme}"
+            if not any(source.glob("frame_*.png")):
+                raise ValueError(f"No {theme} animation frames were rendered.")
+            run(
+                [
+                    ffmpeg,
+                    "-hide_banner",
+                    "-loglevel",
+                    "error",
+                    "-y",
+                    "-framerate",
+                    "15",
+                    "-i",
+                    str(source / "frame_%04d.png"),
+                    "-vf",
+                    CONNECT_GIF_FILTER,
+                    "-loop",
+                    "0",
+                    str(ROOT / f"assets/screenshots/usque-android-connect{suffix}.gif"),
+                ]
+            )
+
+
 def python_checks() -> None:
     ruff = command("ruff")
     run([ruff, "check", "tool"])
@@ -155,6 +218,7 @@ def main() -> int:
     checks.add_argument("scope", choices=("all", "static", "rust", "flutter", "android", "python"))
     actions.add_parser("preview", help="Run the Linux debug UI preview with hot reload")
     actions.add_parser("build-preview", help="Compile the Linux debug UI preview")
+    actions.add_parser("readme-assets", help="Render README banners, screenshots and animations")
     editor = actions.add_parser(
         "edit", help="Open native Neovim with Rust/Dart/Ruff language servers"
     )
@@ -198,6 +262,8 @@ def main() -> int:
             }
             for scope in steps if args.scope == "all" else (args.scope,):
                 steps[scope]()
+        elif args.action == "readme-assets":
+            readme_assets(sdk)
         elif args.action == "edit":
             run([command("nvim"), "-u", str(ROOT / "tool/neovim.lua"), "--", *args.files])
         else:

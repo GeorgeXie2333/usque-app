@@ -27,19 +27,17 @@ const Map<String, String> kUiWorkflowEs = <String, String>{
   'changes_apply_hint':
       'Las ediciones surten efecto al seleccionar “Aplicar cambios”.',
   'changes_failed':
-      'No se pudieron aplicar los cambios. Revise los valores guardados e '
-      'inténtelo de nuevo.',
-  'form_errors': 'Revise los campos resaltados antes de aplicar los cambios.',
+      'No se pudieron aplicar los cambios. Revisa los valores guardados e inténtalo de nuevo.',
+  'form_errors': 'Revisa los campos resaltados antes de aplicar los cambios.',
   'discard_changes_title': '¿Descartar los cambios sin aplicar?',
   'discard_changes_body': 'Se perderán las ediciones que no se hayan aplicado.',
   'keep_editing': 'Seguir editando',
   'discard_changes': 'Descartar cambios',
-  'invalid_port': 'Introduzca un puerto entre 1 y 65535.',
+  'invalid_port': 'Introduce un puerto entre 1 y 65535.',
   'listener_exposure':
       'Las direcciones de escucha permiten el acceso desde la red local',
-  'invalid_ipv4':
-      'Introduzca una dirección IPv4 válida, por ejemplo 127.0.0.1.',
-  'invalid_ipv6': 'Introduzca una dirección IPv6 válida, por ejemplo ::1.',
+  'invalid_ipv4': 'Introduce una dirección IPv4 válida, por ejemplo 127.0.0.1.',
+  'invalid_ipv6': 'Introduce una dirección IPv6 válida, por ejemplo ::1.',
   'output_running': 'En ejecución',
   'output_waiting': 'Activada · no en ejecución',
   'output_disabled': 'Desactivada',
@@ -66,8 +64,7 @@ const Map<String, String> kUiWorkflowEs = <String, String>{
   'application_group': 'Aplicación',
   'tools_group': 'Herramientas',
   'reset_draft_hint':
-      'Los valores predeterminados se cargarán en este formulario. Aplique '
-      'los cambios para que surtan efecto.',
+      'Los valores predeterminados se cargarán en este formulario. Aplica los cambios para que surtan efecto.',
   'error_generic': 'Se produjo un error',
 };
 
@@ -78,7 +75,8 @@ const Map<String, String> kNetworkQualityEs = <String, String>{
   'diag_check_quality_packet_loss': 'Pérdida de paquetes',
   'diag_check_quality_queue_pressure': 'Presión de cola',
   'diag_check_quality_pmtu': 'MTU de la ruta',
-  'diag_check_transport_migration_capability': 'Migración de la misma familia',
+  'diag_check_transport_migration_capability':
+      'Migración con la misma versión de IP',
   'diag_check_dns_direct_encrypted_configuration':
       'Configuración de DNS directo',
   'diag_check_dns_direct_encrypted_runtime_state':
@@ -121,14 +119,13 @@ const Map<String, String> kNetworkQualityEs = <String, String>{
       'La comprobación de diagnóstico agotó el tiempo de espera',
   'nq_finding_probe_failed': 'Esta comprobación falló.',
   'diag_fix_nq_profile':
-      'Revise los campos DNS personalizados y el nombre del certificado. No '
-      'desactive la verificación TLS.',
+      'Revisa los campos DNS personalizados y el nombre del certificado. No desactives la verificación TLS.',
   'diag_fix_nq_retry':
-      'Espere a que la red se estabilice y, a continuación, reintente.',
+      'Espera a que la red se estabilice y vuelve a intentarlo.',
   'diag_fix_nq_network':
-      'Compruebe la conectividad local y compare una muestra reciente antes '
-      'de cambiar los ajustes.',
-  'diag_fix_nq_reconnect': 'Reconecte para aplicar la configuración guardada.',
+      'Comprueba la conectividad local y compara una muestra reciente antes de cambiar los ajustes.',
+  'diag_fix_nq_reconnect':
+      'Vuelve a conectar para aplicar la configuración guardada.',
   'nav_network_quality': 'Calidad',
   'network_quality': 'Calidad de red',
   'nq_subtitle': 'Latencia, pérdida de paquetes y rendimiento.',
@@ -235,7 +232,7 @@ const Map<String, String> kNetworkQualityEs = <String, String>{
   'nq_phase_unknown': 'No listo',
   'nq_phase_unsupported': 'No compatible',
   'nq_reason_family_unavailable':
-      'La nueva red no permite usar la misma versión IP. Debes volver a conectar.',
+      'La nueva red no permite usar la misma versión de IP. Debes volver a conectar.',
   'nq_reason_socket_protect_failed':
       'Usque no pudo usar la nueva red con seguridad. Si la conexión no se recupera, vuelve a conectar manualmente.',
   'nq_reason_generation_changed_during_setup':
@@ -268,7 +265,7 @@ const Map<String, String> kNetworkQualityEs = <String, String>{
   'nq_dns_system_privacy':
       'El proveedor DNS de tu red puede ver los dominios solicitados por el tráfico directo.',
   'nq_dns_scope':
-      'Se usa para reglas de omisión por país y dominios personalizados. El DNS del tráfico VPN no cambia.',
+      'Se usa para las reglas de conexión directa por país y por dominios personalizados. El DNS del tráfico VPN no cambia.',
   'nq_dns_no_capability':
       'Actualiza Usque para usar DNS cifrado en conexiones directas. Se conservan tus ajustes. Puedes elegir DNS de la red actual si aceptas sus implicaciones de privacidad.',
   'nq_dns_invalid_name':
@@ -279,7 +276,7 @@ const Map<String, String> kNetworkQualityEs = <String, String>{
       'Introduce entre 1 y 8 direcciones IP del servidor.',
   'nq_dns_invalid_port':
       'Introduce un puerto de 1 a 65535, o 0 para usar el predeterminado.',
-  'nq_dns_invalid_mode': 'Elija un modo DNS compatible.',
+  'nq_dns_invalid_mode': 'Elige un modo DNS compatible.',
   'nq_doctor_deep_title': '¿Ejecutar comprobaciones profundas de red?',
   'nq_doctor_deep_body':
       'Las comprobaciones pueden enviar tráfico de prueba. Duran hasta 15 segundos y se pueden cancelar. La configuración de conexión no cambiará.',
@@ -294,19 +291,13 @@ const Map<String, String> kWindowsRecoveryEs = <String, String>{
   'WINDOWS_DEVICE_RECOVERY_REQUIRED':
       'La limpieza de la conexión VPN anterior no ha terminado. Cierra Usque por completo y ábrelo de nuevo. Si sigue fallando, abre Diagnóstico.',
   'WINDOWS_RECOVERY_FAILED':
-      'No se pudo restaurar por completo el estado de red VPN anterior. No '
-      'se inició una conexión VPN nueva. Reintente la conexión o revise el '
-      'diagnóstico local.',
+      'No se pudo restaurar por completo el estado de red VPN anterior. No se inició una conexión VPN nueva. Reintenta la conexión o revisa el diagnóstico local.',
   'WINDOWS_RECOVERY_EXHAUSTED':
-      'Windows no pudo restaurar el estado de red VPN anterior tras tres '
-      'intentos automáticos. Reintente cuando esté listo o revise el '
-      'diagnóstico local.',
+      'Windows no pudo restaurar el estado de red VPN anterior tras tres intentos automáticos. Reinténtalo cuando quieras o revisa el diagnóstico local.',
   'WINDOWS_RECOVERY_BLOCKED':
-      'Se detuvo la reparación automática al no poder confirmar que fuera seguro restaurar los ajustes VPN anteriores. Busca actualizaciones en Ajustes; si persiste, exporta un paquete desde Diagnóstico.',
+      'Usque detuvo la reparación automática porque no pudo confirmar que fuera seguro restaurar los ajustes VPN anteriores. Abre Ajustes y busca actualizaciones; si el problema persiste, abre Diagnóstico y exporta un paquete de diagnóstico.',
   'WINDOWS_RECOVERY_TIMEOUT':
-      'La recuperación de red de Windows está tardando más de lo esperado. '
-      'No se inició una conexión VPN nueva. Espere a que termine la '
-      'recuperación antes de reintentar.',
+      'La recuperación de red de Windows está tardando más de lo esperado. No se inició una conexión VPN nueva. Espera a que termine la recuperación antes de reintentar.',
   'WINDOWS_RECOVERY_CONFLICT':
       'El estado de la red cambió o sigue en uso por otra sesión. Se '
       'detuvo la recuperación automática para proteger la conexión activa.',
@@ -366,24 +357,24 @@ const Map<String, String> kNetworkSettingsEs = <String, String>{
   'settings_unsupported':
       'Cierra Usque por completo, ábrelo y guarda de nuevo. Si sigue fallando, busca actualizaciones en Ajustes.',
   'settings_save_failed':
-      'No se pudieron guardar los ajustes. Se conservan sus cambios.',
+      'No se pudieron guardar los ajustes. Se conservan tus cambios.',
   'settings_reconnect': 'Reconectar',
 };
 
 const Map<String, String> kChainEs = <String, String>{
   'invalid_endpoint':
-      'Introduzca una dirección de servidor válida y un puerto entre 1 y 65535.',
+      'Introduce una dirección de servidor válida y un puerto entre 1 y 65535.',
   'missing_configuration':
-      'Introduzca la dirección y el puerto del servidor proxy.',
+      'Introduce la dirección y el puerto del servidor proxy.',
   'source_mismatch':
-      'Use una configuración que coincida con el tipo de salida seleccionado.',
+      'Usa una configuración que coincida con el tipo de salida seleccionado.',
   'invalid_dns':
-      'Revise las direcciones de los servidores DNS y el modo DNS seleccionado.',
+      'Revisa las direcciones de los servidores DNS y el modo DNS seleccionado.',
   'unexpected_credentials':
-      'Active la autenticación con usuario y contraseña o borre las credenciales.',
-  'missing_credentials': 'Introduzca tanto el usuario como la contraseña.',
+      'Activa la autenticación con usuario y contraseña o borra las credenciales.',
+  'missing_credentials': 'Introduce tanto el usuario como la contraseña.',
   'invalid_credential':
-      'Compruebe si las credenciales contienen caracteres no válidos o son demasiado largas.',
+      'Comprueba si las credenciales contienen caracteres no válidos o son demasiado largas.',
   "dns_auto": "Automático (DoH por defecto)",
   "dns_doh": "DNS cifrado · Cloudflare",
   "dns_tcp": "DNS por TCP",
@@ -394,7 +385,7 @@ const Map<String, String> kChainEs = <String, String>{
   "proxy_hint":
       "Conexión mediante WARP. HTTP transporta TCP; SOCKS5 también puede transportar UDP con H3/H2.",
   "dns_inherit":
-      "Déjelo vacío para heredar el DNS de red. Las consultas usan esta salida.",
+      "Déjalo vacío para heredar el DNS de red. Las consultas usan esta salida.",
   "scope_proxy_only":
       "Usque solo actúa como proxy de las conexiones que las aplicaciones le envían. Otras conexiones pueden revelar tu IP pública.",
   "scope_bypass":
@@ -402,21 +393,21 @@ const Map<String, String> kChainEs = <String, String>{
   "scope_interrupted":
       "La conexión se ha interrumpido. El dispositivo puede volver a su conexión de red habitual.",
   "scope_android_settings":
-      "Para seguir bloqueando cuando el servicio se detenga, activa VPN siempre activa y Bloquear conexiones sin VPN en los ajustes del sistema.",
+      "Para seguir bloqueando cuando el servicio se detenga, activa “VPN siempre activada” y “Bloquear conexiones sin VPN” en los ajustes del sistema.",
 
   "batch_title": "Importar configuraciones",
   "batch_counts":
       "Listas: {ready} · Incompletas: {pending} · Fallidas: {failed} · Guardadas: {saved}",
   "batch_ready": "Lista para importar",
-  "batch_pending": "Complete el nombre o las credenciales",
+  "batch_pending": "Completa el nombre o las credenciales",
   "batch_saved": "Importada",
   "batch_close": "Cerrar",
   "batch_import": "Importar válidas ({count})",
   "batch_checking": "Comprobando {done} de {total}",
   "batch_saving": "Guardando configuraciones…",
   "batch_uncertain":
-      "Se interrumpió el guardado. Cierre y revise la biblioteca antes de volver a importar; algunas entradas podrían estar guardadas.",
-  "file_count_limit": "Seleccione como máximo 128 archivos a la vez.",
+      "Se interrumpió el guardado. Cierra y revisa la biblioteca antes de volver a importar; algunas entradas podrían estar guardadas.",
+  "file_count_limit": "Selecciona como máximo 128 archivos a la vez.",
   'duplicate_directive': 'Esta directiva solo puede aparecer una vez.',
   'mixed_protocols':
       'Todos los extremos remote deben usar el mismo transporte TCP o UDP.',
@@ -426,24 +417,24 @@ const Map<String, String> kChainEs = <String, String>{
   'conflicting_authentication':
       'CLIENT_CERT entra en conflicto con el certificado en línea o el modo de autenticación.',
   'serialized_size_limit':
-      'El registro cifrado superaría el límite de almacenamiento.',
+      'La configuración es demasiado grande para guardarla.',
   'multi_endpoint_unavailable':
-      'Actualiza el motor para usar configuraciones con varios extremos.',
-  'candidates': 'Extremos de inicio',
+      'Esta configuración incluye varios servidores. Actualiza Usque para usarla.',
+  'candidates': 'Servidores que probar',
   'random_order':
-      'Prueba los extremos en un orden aleatorio nuevo en cada conexión.',
-  'file_order': 'Prueba los extremos en el orden del archivo.',
-  'attempting': 'Probando extremo',
-  'actual_endpoint': 'Extremo conectado',
+      'Cada conexión prueba estos servidores en un nuevo orden aleatorio.',
+  'file_order': 'Cada conexión prueba estos servidores en el orden indicado.',
+  'attempting': 'Probando servidor',
+  'actual_endpoint': 'Servidor conectado',
   'attempt_failures': 'Intentos fallidos',
-  'failure_transport': 'transporte cerrado',
-  'failure_authentication': 'autenticación',
-  'failure_certificate': 'certificado',
-  'failure_configuration': 'configuración',
-  'failure_address_changed': 'dirección cambiada',
-  'failure_protocol': 'protocolo',
-  'failure_cleanup': 'limpieza',
-  'failure_reason': 'Fallo: {reason}.',
+  'failure_transport': 'se perdió la conexión',
+  'failure_authentication': 'falló la autenticación',
+  'failure_certificate': 'se rechazó el certificado',
+  'failure_configuration': 'la configuración no es válida',
+  'failure_address_changed': 'cambió la dirección del servidor',
+  'failure_protocol': 'un error de protocolo',
+  'failure_cleanup': 'falló la limpieza',
+  'failure_reason': 'Motivo: {reason}.',
   'dns_fallback': 'DNS del túnel (OpenVPN puede negociar el DNS)',
   'dns_unavailable_title': 'No hay DNS por esta salida',
   'dns_unavailable':
@@ -509,11 +500,11 @@ const Map<String, String> kChainEs = <String, String>{
   'unsupported':
       'Esta versión de Usque no puede usar este origen de salida. Busca actualizaciones en Ajustes.',
   'scope':
-      'Las reglas directas explícitas siguen vigentes. El resto del tráfico usa la salida elegida.',
+      'Tus reglas de conexión directa siguen vigentes. El resto del tráfico sale por la salida elegida.',
   'allowed': 'Destinos permitidos',
   'dns': 'DNS',
   'addresses': 'Direcciones del túnel',
-  'address_family': 'Familia de direcciones',
+  'address_family': 'Versión de IP',
   'transport': 'Transporte',
   'endpoint': 'Servidor',
   'restricted':
@@ -562,5 +553,5 @@ const Map<String, String> kChainEs = <String, String>{
   "not_verified": "Sin verificar",
   "unavailable": "No disponible",
   "udp_association":
-      "Asociación aceptada; reenvío de extremo a extremo sin verificar",
+      "Retransmisión UDP aceptada; reenvío de extremo a extremo sin verificar",
 };

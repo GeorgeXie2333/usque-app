@@ -156,7 +156,7 @@ const kChainEn = <String, String>{
   'allowed': 'Allowed destinations',
   'dns': 'DNS',
   'addresses': 'Tunnel addresses',
-  'address_family': 'Address family',
+  'address_family': 'IP version',
   'transport': 'Transport',
   'endpoint': 'Server',
   'restricted':
@@ -202,7 +202,7 @@ const kChainEn = <String, String>{
   "verified": "Verified",
   "not_verified": "Not verified",
   "unavailable": "Unavailable",
-  "udp_association": "Association accepted; end-to-end forwarding not verified",
+  "udp_association": "UDP relay accepted; end-to-end forwarding not verified",
 };
 
 const kChainZhCn = <String, String>{
@@ -216,15 +216,16 @@ const kChainZhCn = <String, String>{
   "dns_auto": "自动（默认 DoH）",
   "dns_doh": "加密 DNS · Cloudflare",
   "dns_tcp": "TCP DNS",
-  "dns_auto_hint": "自动模式通过此出口使用 DoH；自定义 DNS 使用 TCP。DoH 失败时不会绕过此出口。",
+  "dns_auto_hint": "自动模式通过此出口使用 DoH；自定义 DNS 使用 TCP。DoH 失败时也不会改走其他线路。",
 
   "add_proxy": "添加代理",
   "proxy_hint": "通过 WARP 连接。HTTP 支持 TCP；SOCKS5 在 H3/H2 下还可支持 UDP。",
   "dns_inherit": "留空继承网络 DNS，查询经此出口发送。",
-  "scope_proxy_only": "当前仅代理应用交给 Usque 的连接，其他联网可能显示本机公网 IP。",
+  "scope_proxy_only": "当前仅代理应用交给 Usque 的连接，其他连接可能暴露本机公网 IP。",
   "scope_bypass": "已设置的直连和分应用规则继续生效。",
   "scope_interrupted": "连接已中断，设备可能恢复普通网络。",
-  "scope_android_settings": "如需在服务停止后继续阻断，请在系统设置中开启“始终开启 VPN”和“无 VPN 时拦截连接”。",
+  "scope_android_settings":
+      "如需在服务停止后继续拦截，请在系统设置中开启“始终开启的 VPN”和“屏蔽未使用 VPN 的所有连接”。",
 
   "batch_title": "批量导入配置",
   "batch_counts": "可导入：{ready} · 待补充：{pending} · 失败：{failed} · 已保存：{saved}",
@@ -232,7 +233,7 @@ const kChainZhCn = <String, String>{
   "batch_pending": "请补充名称或认证信息",
   "batch_saved": "已导入",
   "batch_close": "关闭",
-  "batch_import": "导入合格项（{count}）",
+  "batch_import": "导入有效项（{count}）",
   "batch_checking": "正在检查 {done}/{total}",
   "batch_saving": "正在保存配置…",
   "batch_uncertain": "保存中断。请关闭并核对配置库后再导入，部分项目可能已保存。",
@@ -288,7 +289,7 @@ const kChainZhCn = <String, String>{
   'file_loaded': '已从文件读取配置（{lines} 行）。',
   'username': '用户名',
   'password': '密码',
-  'key_password': '私钥口令',
+  'key_password': '私钥密码',
   'show_password': '显示密码',
   'hide_password': '隐藏密码',
   'credentials': '更新认证信息',
@@ -319,7 +320,7 @@ const kChainZhCn = <String, String>{
   'allowed': '允许访问的目标',
   'dns': 'DNS',
   'addresses': '隧道地址',
-  'address_family': '地址族',
+  'address_family': 'IP 类型',
   'transport': '传输协议',
   'endpoint': '服务器',
   'restricted': '不在 AllowedIPs 范围内的目标无法经由此出口访问。',
@@ -342,7 +343,7 @@ const kChainZhCn = <String, String>{
   'invalid_key': '密钥必须是有效的 32 字节 Base64 密钥。',
   'checking': '正在检查配置…',
   'changed': '修改已保存',
-  "source_group_custom": "自有配置",
+  "source_group_custom": "我的配置",
   "source_group_service": "服务",
   "endpoint_ip": "端点 IP",
   "endpoint_select_first": "选择配置后可修改其端点。",
@@ -354,7 +355,7 @@ const kChainZhCn = <String, String>{
   "verified": "已验证",
   "not_verified": "尚未验证",
   "unavailable": "不可用",
-  "udp_association": "关联已接受，端到端转发尚未验证",
+  "udp_association": "UDP 中继已建立，尚未验证端到端转发",
 };
 
 const Map<String, Map<String, String>> kChainCatalogs =

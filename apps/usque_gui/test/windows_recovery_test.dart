@@ -1,11 +1,12 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:usque/core/app_strings.dart';
 import 'package:usque/core/l10n/windows_recovery.dart';
 import 'package:usque/models/app_models.dart';
 import 'package:usque/services/engine_client.dart';
 import 'package:usque/state/app_controller.dart';
 
-import 'app_test.dart' show FakeEngineClient;
+import 'app_test.dart' show EventEngineClient, FakeEngineClient;
 
 class RecoveryErrorEngine extends FakeEngineClient {
   RecoveryErrorEngine(
@@ -26,8 +27,61 @@ class PendingRecoveryEngine extends FakeEngineClient {
       const EngineSnapshot(phase: ConnectionPhase.reconnecting);
 }
 
+class RecoveryErrorEventEngine extends EventEngineClient {
+  @override
+  Future<EngineSnapshot> retry() async => throw const EngineException(
+    'WINDOWS_RECOVERY_TIMEOUT',
+    'Recovery has not finished',
+  );
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  for (final events in [false, true]) {
+    for (final unrelatedError in [false, true]) {
+      test(
+        'observed connection resolves only connection errors: events=$events unrelated=$unrelatedError',
+        () async {
+          SharedPreferences.setMockInitialValues({
+            'onboarding_complete': true,
+            'update_checks_enabled': false,
+          });
+          final FakeEngineClient engine = events
+              ? RecoveryErrorEventEngine()
+              : RecoveryErrorEngine('WINDOWS_RECOVERY_TIMEOUT');
+          final controller = AppController(engine);
+          addTearDown(controller.dispose);
+          await controller.initialize();
+          await controller.retry();
+          final recoveryError = controller.lastError;
+          expect(recoveryError, isNotNull);
+
+          Future<void> observe(ConnectionPhase phase) async {
+            final next = EngineSnapshot(phase: phase);
+            if (engine is EventEngineClient) {
+              engine.emitSnapshot(next);
+              await Future<void>.delayed(Duration.zero);
+            } else {
+              engine.current = next;
+              await controller.refreshSnapshot(silent: true);
+            }
+          }
+
+          await observe(ConnectionPhase.preparing);
+          expect(controller.lastError, recoveryError);
+          if (unrelatedError) {
+            // An unrelated operation may have the same localized message.
+            // Its failure must survive a connection update as well.
+            controller.lastError = recoveryError;
+          }
+          await observe(ConnectionPhase.connected);
+          expect(controller.snapshot.phase, ConnectionPhase.connected);
+          expect(controller.lastError, unrelatedError ? recoveryError : isNull);
+        },
+      );
+    }
+  }
 
   test(
     'adapter cleanup context survives replies and snapshots without exposing raw diagnostics',
