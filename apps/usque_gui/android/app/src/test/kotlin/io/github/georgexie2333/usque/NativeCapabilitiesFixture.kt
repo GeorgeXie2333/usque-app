@@ -8,6 +8,6 @@ internal fun expandedNativeCapabilities(): String =
     JSONObject(NetworkQualityFields.capabilities(null).mapValues { true })
         .put("h3_congestion_control_algorithms", JSONArray(listOf("cubic", "reno", "bbr", "bbr3")))
         .put("tls_fingerprints", JSONArray(listOf("default", "chrome155")))
-        .put("max_masque_connections", 6)
+        .put("max_masque_connections", 16)
         .put("future_capability", true)
         .toString()

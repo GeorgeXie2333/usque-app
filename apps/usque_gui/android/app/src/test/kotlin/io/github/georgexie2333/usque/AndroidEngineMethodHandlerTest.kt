@@ -26,7 +26,7 @@ class AndroidEngineMethodHandlerTest {
         val capabilities = result.successValue as Map<*, *>
         assertEquals(listOf("cubic", "reno", "bbr", "bbr3"), capabilities["h3_congestion_control_algorithms"])
         assertEquals(listOf("default", "chrome155"), capabilities["tls_fingerprints"])
-        assertEquals(6, capabilities["max_masque_connections"])
+        assertEquals(16, capabilities["max_masque_connections"])
         for (key in listOf("l4_masque_connections", "connection_scenarios", "network_settings_application")) {
             assertEquals(true, capabilities[key])
         }
