@@ -1,4 +1,9 @@
 const kProtonVi = <String, String>{
+  'guest_unavailable_macos':
+      'Không thể đăng nhập với tư cách khách trên macOS. Hãy đăng nhập bằng tài khoản Proton.',
+  'verification_unavailable_macos':
+      'Proton yêu cầu xác minh con người mà ứng dụng macOS này không hỗ trợ. Hãy dùng tài khoản Proton khác hoặc nhập cấu hình WireGuard.',
+  'empty_login': 'Đăng nhập để thêm tài khoản Proton.',
   'fallback_account':
       'Không thể liên lạc với Proton. Hãy chọn tài khoản WARP hiện có rồi thử lại.',
   'fallback_failed':

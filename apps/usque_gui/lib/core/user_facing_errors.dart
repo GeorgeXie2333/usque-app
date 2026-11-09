@@ -52,6 +52,21 @@ String userFacingFailure(
   final recovery = strings.windowsRecoveryError(code, details: details);
   if (recovery != null) return recovery;
   final key = switch (code) {
+    'MACOS_INSTALL_REQUIRED' => 'macos_install_required',
+    'MACOS_LOGIN_APPROVAL_REQUIRED' => 'macos_login_approval',
+    'MACOS_LOGIN_ITEM_FAILED' => 'macos_login_failed',
+    'MACOS_WARP_CONNECTION_REQUIRED' => 'macos_warp_connection_required',
+    'SYSTEM_PROXY_PERMISSION_CANCELLED' || 'SYSTEM_PROXY_PERMISSION_REQUIRED'
+        when defaultTargetPlatform == TargetPlatform.macOS =>
+      'macos_proxy_permission',
+    'SYSTEM_PROXY_RECOVERY_PENDING'
+        when defaultTargetPlatform == TargetPlatform.macOS =>
+      'macos_proxy_recovery',
+    'SYSTEM_PROXY_CONFLICT' ||
+    'SYSTEM_PROXY_NO_NETWORK_SERVICE' ||
+    'SYSTEM_PROXY_UNAVAILABLE'
+        when defaultTargetPlatform == TargetPlatform.macOS =>
+      'macos_proxy_failed',
     'SECURE_STORAGE_FAILED'
         when defaultTargetPlatform == TargetPlatform.linux =>
       'linux_keyring_unavailable',

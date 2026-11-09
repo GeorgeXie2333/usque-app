@@ -10,7 +10,7 @@ use std::sync::Arc;
 use chrono::Utc;
 use thiserror::Error;
 use tokio::sync::Mutex;
-#[cfg(any(windows, target_os = "linux", test))]
+#[cfg(any(windows, target_os = "macos", target_os = "linux", test))]
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 use usque_core::{
@@ -22,14 +22,14 @@ pub(crate) use checks::DiagnosticContext;
 #[cfg(target_os = "linux")]
 pub(crate) use checks::LinuxPlatformObservation;
 pub(crate) use probes::DiagnosticProbeContext;
-#[cfg(any(windows, target_os = "linux", test))]
+#[cfg(any(windows, target_os = "macos", target_os = "linux", test))]
 pub(crate) use report::finding_to_proto;
 pub(crate) use report::{empty_session_to_proto, session_to_proto, timeline_to_proto};
 
 use catalog::diagnostic_catalog;
 use checks::{DiagnosticCheck, pending_finding};
 
-#[cfg(any(windows, target_os = "linux", test))]
+#[cfg(any(windows, target_os = "macos", target_os = "linux", test))]
 #[derive(Debug, Clone)]
 pub(crate) enum DiagnosticEvent {
     SessionStarted(DiagnosticSession),
@@ -51,7 +51,7 @@ pub(crate) struct DiagnosticsManager {
     lifecycle: Arc<Mutex<()>>,
     run_session_id: Option<uuid::Uuid>,
     // Desktop Windows/Linux expose the live stream; tests exercise it on hosts.
-    #[cfg(any(windows, target_os = "linux", test))]
+    #[cfg(any(windows, target_os = "macos", target_os = "linux", test))]
     events: broadcast::Sender<DiagnosticEvent>,
 }
 
@@ -77,7 +77,7 @@ impl DiagnosticsManager {
                 cancellation: None,
                 worker: None,
             })),
-            #[cfg(any(windows, target_os = "linux", test))]
+            #[cfg(any(windows, target_os = "macos", target_os = "linux", test))]
             events: broadcast::channel(128).0,
         }
     }
@@ -120,7 +120,7 @@ impl DiagnosticsManager {
             state.worker = Some(tokio::spawn(async move {
                 runner::run(manager, checks, Arc::new(context), cancellation).await;
             }));
-            #[cfg(any(windows, target_os = "linux", test))]
+            #[cfg(any(windows, target_os = "macos", target_os = "linux", test))]
             let _ = self
                 .events
                 .send(DiagnosticEvent::SessionStarted(session.clone()));
@@ -175,7 +175,7 @@ impl DiagnosticsManager {
         }
     }
 
-    #[cfg(any(windows, target_os = "linux", test))]
+    #[cfg(any(windows, target_os = "macos", target_os = "linux", test))]
     pub(crate) fn subscribe(&self) -> broadcast::Receiver<DiagnosticEvent> {
         self.events.subscribe()
     }
@@ -208,11 +208,11 @@ impl DiagnosticsManager {
             };
             finding.status = DiagnosticCheckStatus::Running;
             finding.started_at = Some(Utc::now());
-            #[cfg(any(windows, target_os = "linux", test))]
+            #[cfg(any(windows, target_os = "macos", target_os = "linux", test))]
             let started = finding.clone();
             session.recompute_summary();
             session.revision = session.revision.saturating_add(1);
-            #[cfg(any(windows, target_os = "linux", test))]
+            #[cfg(any(windows, target_os = "macos", target_os = "linux", test))]
             let _ = self.events.send(DiagnosticEvent::CheckStarted {
                 session_id: session.session_id,
                 finding: started,
@@ -246,7 +246,7 @@ impl DiagnosticsManager {
             session.current_check = None;
             session.recompute_summary();
             session.revision = session.revision.saturating_add(1);
-            #[cfg(any(windows, target_os = "linux", test))]
+            #[cfg(any(windows, target_os = "macos", target_os = "linux", test))]
             let _ = self.events.send(DiagnosticEvent::CheckCompleted {
                 session_id: session.session_id,
                 finding: completed,
@@ -287,7 +287,7 @@ impl DiagnosticsManager {
             state.cancellation = None;
             session
         };
-        #[cfg(any(windows, target_os = "linux", test))]
+        #[cfg(any(windows, target_os = "macos", target_os = "linux", test))]
         let _ = self.events.send(if cancelled {
             DiagnosticEvent::SessionCancelled(session.clone())
         } else {

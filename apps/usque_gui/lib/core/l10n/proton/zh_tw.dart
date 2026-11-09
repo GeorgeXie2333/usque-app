@@ -1,4 +1,8 @@
 const kProtonZhTw = <String, String>{
+  'guest_unavailable_macos': 'macOS 不支援訪客登入。請使用 Proton 帳戶登入。',
+  'verification_unavailable_macos':
+      'Proton 要求人機驗證，但此 macOS 應用程式不支援此功能。請使用其他 Proton 帳戶，或匯入 WireGuard 設定。',
+  'empty_login': '請登入以新增 Proton 帳戶。',
   'fallback_account': '無法連線至 Proton。請選擇現有的 WARP 帳號後重試。',
   'fallback_failed': '無法透過 WARP 連線。請檢查所選 WARP 帳號及網路後重試。',
   'fallback_starting': '正在透過 WARP 連線…',

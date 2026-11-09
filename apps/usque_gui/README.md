@@ -3,7 +3,7 @@
 Flutter UI for Windows, Linux, Android and Android TV. macOS source is retained for
 future work but is not built, tested or released for the current product.
 The UI uses native Flutter widgets. An isolated native WebView is reserved for
-the official Proton human-verification page when the user completes its puzzle;
+the official Proton human-verification page on Android, Windows and Linux when the user completes its puzzle;
 account passwords and all other application UI stay in native widgets.
 
 Desktop builds start the Rust sidecar and talk to it over current-user IPC. Android talks to the Rust library inside the isolated `:vpn` process.
@@ -358,7 +358,10 @@ preferences and require disconnection before editing the current account.
 The server picker shows bundled country flags beside country codes and keeps its
 draggable scrollbar visible while the list overflows.
 Refresh, sign-in renewal and removal sit in the account's menu; once an account
-exists, guest setup and sign-in move under **Add account**. Setup and job errors
+exists, guest setup and sign-in move under **Add account**. macOS offers account
+sign-in only: guest registration and the embedded verification browser are
+removed. If Proton requires browser verification, cancel setup and import a
+Proton configuration under OpenVPN or WireGuard instead. Setup and job errors
 use the shared warning banner. The
 native layer retains the complete eligible directory and exposes revision-bound
 128-entry metadata pages. Physical entries and session credentials stay private.

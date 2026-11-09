@@ -10,6 +10,8 @@
   ·
   <a href="README.zh-CN.md">简体中文</a>
   ·
+  <a href="README.zh-Hant.md">繁體中文</a>
+  ·
   <a href="README.ja.md">日本語</a>
   ·
   <a href="README.ko.md">한국어</a>
@@ -233,7 +235,57 @@ VPN, SOCKS5 and HTTP are enabled by default; system proxy is off. They share one
 
 ### Experimental and unsupported
 
-[Zero Trust enrollment](docs/ZERO_TRUST_EXPERIMENTAL.md) is experimental. It uses an organization identity for the MASQUE Internet tunnel and does not provide full Cloudflare One™ Client compatibility. macOS source is retained but not built or released. iOS, store distribution and a public CLI are outside this release's scope.
+[Zero Trust enrollment](docs/ZERO_TRUST_EXPERIMENTAL.md) is experimental. It uses
+an organization identity for the MASQUE Internet tunnel and does not provide full
+Cloudflare One™ Client compatibility. macOS has separate arm64 and x86_64
+[development DMG builds](docs/MACOS_DEVELOPMENT_PACKAGING.md), with desktop and
+proxy features under validation. The system VPN and production automatic
+installation remain disabled pending signed device acceptance. See the
+[macOS parity matrix](docs/MACOS_WINDOWS_PARITY.md) for implemented and pending
+features. iOS, store distribution and a public CLI are outside this release's scope.
+
+### macOS development testing and known issues
+
+Historical **unofficial v0.3.3 dev pre-release** for macOS 13+:
+[Apple Silicon (arm64)](https://github.com/JustinL330/usque-app/releases/download/macos-dev-v0.3.3-compact-12636756/usque-v0.3.3-macos-arm64.dmg)
+or [Intel (x86_64)](https://github.com/JustinL330/usque-app/releases/download/macos-dev-v0.3.3-compact-12636756/usque-v0.3.3-macos-x86_64.dmg).
+These ad-hoc signed packages are not notarized or production releases. Read the
+[release notes, checksums and manifests](https://github.com/JustinL330/usque-app/releases/tag/macos-dev-v0.3.3-compact-12636756)
+before testing; system VPN activation remains disabled.
+The compact images reduce downloads by 46.6% / 43.2%; see the
+[size explanation and validation](docs/MACOS_PACKAGE_SIZE.md). These older
+downloads include CEF verification and all application languages.
+
+Current `dev` source follows v0.3.4 and includes macOS connection scenes, confirmed
+cleanup before quitting, and protected WARP preparation for VPN Gate. macOS Proton
+guest registration and its embedded verification browser have been removed.
+Ordinary account sign-in remains available; a login requiring browser verification
+cannot complete in this macOS build. The downloads above predate these changes
+and do not include the v0.3.4 UI or features; no replacement installer has been published.
+
+The [macOS test checklist](docs/MACOS_QA_CHECKLIST.md) separates isolated tests
+from actual device acceptance. The following items remain open:
+
+- **System VPN/TUN:** disabled in development packages. Signed provider routing,
+  DNS and Kill Switch tests have not passed device acceptance. Proxy-only mode
+  does not provide system-wide Kill Switch protection.
+- **System proxy and chain exits:** isolated configuration, recovery and transport
+  tests do not establish a successful live connection. Real authorization and
+  each external exit still need device tests. Current macOS source reuses WARP
+  or opens a temporary WARP connection for VPN Gate, retaining saved chain
+  settings; direct physical-network catalogue fallback remains disabled.
+- **Zero Trust:** callback validation and cancel/retry tests use synthetic data;
+  an actual organization login and callback remain unverified.
+- **Proton accounts:** macOS has no guest registration or embedded verification
+  browser. Account sign-in, authenticator codes and saved-account management
+  remain available; live sign-in and traffic still require device testing.
+- **Desktop and hardware:** layout checks use headless Windows/macOS widget
+  renders. Actual native-window interaction, Intel execution and macOS 13 hardware
+  remain untested. The default Mac content area now matches Windows at 1040×760,
+  fits the available screen, and preserves saved window geometry.
+
+No application, browser, permission window or host network setting is opened or
+changed by this background validation. Development packages are not notarized.
 
 ## Default network settings
 

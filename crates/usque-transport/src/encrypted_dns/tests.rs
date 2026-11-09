@@ -1285,8 +1285,15 @@ async fn proxy_dns_failure_is_terminal_and_data_fallback_reuses_encrypted_answer
 async fn a_request_retry_changes_bootstrap_once_and_never_uses_a_third() {
     for both_fail in [false, true] {
         let (server_config, client) = test_certificates(ConfigMode::Doh, "resolver.test", false);
-        let first =
-            TestServer::start(ConfigMode::Doh, Behavior::Non200, server_config.clone()).await;
+        // Candidate selection prefers IPv6. Use its actual loopback first and
+        // IPv4 loopback second, without adding platform-specific 127/8 aliases.
+        let first = TestServer::start_at(
+            ConfigMode::Doh,
+            Behavior::Non200,
+            server_config.clone(),
+            SocketAddr::new(Ipv6Addr::LOCALHOST.into(), 0),
+        )
+        .await;
         let second = TestServer::start_at(
             ConfigMode::Doh,
             if both_fail {
@@ -1295,7 +1302,7 @@ async fn a_request_retry_changes_bootstrap_once_and_never_uses_a_third() {
                 Behavior::Echo
             },
             server_config,
-            SocketAddr::new("127.0.0.2".parse().unwrap(), first.endpoint.port()),
+            SocketAddr::new(Ipv4Addr::LOCALHOST.into(), first.endpoint.port()),
         )
         .await;
         let protector = SpyProtector::new();

@@ -10,6 +10,8 @@ use usque_transport::{
 
 #[cfg(target_os = "linux")]
 mod linux_routes;
+#[cfg(target_os = "macos")]
+mod macos_routes;
 #[cfg(all(test, target_os = "linux"))]
 mod tests;
 
@@ -119,6 +121,8 @@ fn observe() -> (u64, PhysicalNetworkAvailability) {
     }
     #[cfg(windows)]
     default_interfaces().hash(&mut hash);
+    #[cfg(target_os = "macos")]
+    macos_routes::observe().hash(&mut hash);
     let availability = if v4.is_none() && v6.is_none() {
         PhysicalNetworkAvailability::Offline
     } else {

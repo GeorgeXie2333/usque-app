@@ -1,5 +1,14 @@
 # Profiles and scenes / 配置与场景
 
+Windows, Linux and macOS desktop Engines support this workflow. On macOS use
+Cmd+2 to open Profiles and Cmd+S to save a draft; Cmd+, opens Settings through
+the same unsaved-change guard. Scenes preserve the device's output limits:
+saving or using a scene does not enable unavailable system VPN or Kill Switch.
+
+Windows、Linux 和 macOS 桌面引擎均支持此流程。macOS 使用 Cmd+2 打开配置、
+Cmd+S 保存草稿、Cmd+, 打开设置；离开编辑器仍须确认未保存修改。
+场景沿用本机输出限制，保存或使用场景不会启用尚不可用的系统 VPN 或断网保护。
+
 Open **Profiles** to save and reuse a local network setup. The page opens on the
 selected-scene status card above the scene list; **Manage accounts** opens its
 **Accounts** subpage. Home's account

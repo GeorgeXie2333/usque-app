@@ -1,0 +1,37 @@
+[package]
+name = "usque-macos-runtime"
+description = "Provider-owned Network Extension runtime and versioned control contract"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = ["wireguard"]
+wireguard = ["usque-transport/wireguard"]
+
+[lib]
+name = "usque_macos_runtime"
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+async-trait.workspace = true
+bytes.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+usque-core = { path = "../usque-core" }
+usque-geo = { path = "../usque-geo" }
+usque-transport = { path = "../usque-transport" }
+uuid.workspace = true
+zeroize.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

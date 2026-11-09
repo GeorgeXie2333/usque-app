@@ -1,4 +1,9 @@
 const kProtonEs = <String, String>{
+  'guest_unavailable_macos':
+      'El inicio de sesión como invitado no está disponible en macOS. Inicia sesión con una cuenta de Proton.',
+  'verification_unavailable_macos':
+      'Proton requiere una verificación humana que esta app de macOS no admite. Usa otra cuenta de Proton o importa una configuración de WireGuard.',
+  'empty_login': 'Inicia sesión para añadir una cuenta de Proton.',
   'fallback_account':
       'No se pudo acceder a Proton. Selecciona una cuenta WARP existente y vuelve a intentarlo.',
   'fallback_failed':

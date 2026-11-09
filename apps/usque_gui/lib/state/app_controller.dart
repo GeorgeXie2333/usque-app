@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
+import 'dart:ui' show Locale;
 
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -31,11 +32,49 @@ class _AdsRulesWork {
 enum ProfilesDestination { root, accounts }
 
 class AppController extends ChangeNotifier {
+  final settingsNavigationRequests = ValueNotifier<int>(0);
+
+  void requestSettingsNavigation() {
+    if (!_disposed) settingsNavigationRequests.value++;
+  }
+
+  /// The mounted desktop shell checks its current dialogs and unsaved drafts
+  /// before native menu commands mutate connection settings.
+  bool Function()? nativeNetworkActionGuard;
+  bool get nativeNetworkActionsAllowed =>
+      _exitCleanup == null && (nativeNetworkActionGuard?.call() ?? true);
+
+  void notifyNativeNetworkActionGuardChanged() {
+    if (!_disposed) _notifyListeners();
+  }
+
   String? _lastProtonCompletedJob;
+  bool get protonGuestLoginSupported =>
+      defaultTargetPlatform != TargetPlatform.macOS;
+  bool get protonHumanVerificationSupported =>
+      defaultTargetPlatform != TargetPlatform.macOS;
+
   Future<ProtonVpnResult> protonVpn(
     Map<String, Object?> command, {
     Uint8List? sensitiveInput,
   }) async {
+    if (!protonGuestLoginSupported && command['action'] == 'guest') {
+      throw const EngineException(
+        'PROTON_GUEST_UNAVAILABLE',
+        'Proton guest sign-in is unavailable on macOS.',
+      );
+    }
+    if (!protonHumanVerificationSupported &&
+        const {
+          'handoff',
+          'verify',
+          'verification_failed',
+        }.contains(command['action'])) {
+      throw const EngineException(
+        'PROTON_VERIFICATION_UNAVAILABLE',
+        'Proton human verification is unavailable on macOS.',
+      );
+    }
     final engine = _engine;
     if (engine is ProtonVpnClient) {
       final generation = _dataGeneration;
@@ -62,6 +101,12 @@ class AppController extends ChangeNotifier {
   }
 
   Future<Uint8List?> completeProtonHumanVerification(Uint8List handoff) {
+    if (!protonHumanVerificationSupported) {
+      throw const EngineException(
+        'PROTON_VERIFICATION_UNAVAILABLE',
+        'Proton human verification is unavailable on macOS.',
+      );
+    }
     final engine = _engine;
     if (engine is ProtonHumanVerificationClient) {
       return (engine as ProtonHumanVerificationClient)
@@ -74,6 +119,7 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> cancelProtonHumanVerification() async {
+    if (!protonHumanVerificationSupported) return;
     final engine = _engine;
     if (engine is ProtonHumanVerificationClient) {
       await (engine as ProtonHumanVerificationClient)
@@ -355,9 +401,18 @@ class AppController extends ChangeNotifier {
       networkSettings.state?.persisted == true &&
       networkSettings.state?.status == NetworkSettingsApplyStatus.failed;
 
+  /// Shared by the Home control and native menu-bar connection action. An
+  /// in-flight connection remains cancellable while unrelated writes are busy.
+  bool get connectionActionEnabled =>
+      _exitCleanup == null &&
+      (!busy || snapshot.isTransitional) &&
+      snapshot.phase != ConnectionPhase.disconnecting &&
+      snapshot.errorCode != 'WINDOWS_RECOVERY_BLOCKED';
+
   /// True while the Home and tray output shortcuts must not start a save.
   bool get networkShortcutsLocked =>
       !initialized ||
+      _exitCleanup != null ||
       busy ||
       snapshot.isTransitional ||
       snapshot.errorCode == 'WINDOWS_RECOVERY_BLOCKED' ||
@@ -384,6 +439,7 @@ class AppController extends ChangeNotifier {
   bool _startupUpdateCheckStarted = false;
   bool _disposed = false;
   int _connectionIntent = 0;
+  Future<void>? _exitCleanup;
   int _updateOperationGeneration = 0;
   UpdateDownloadCancellation? _updateCancellation;
 
@@ -410,7 +466,7 @@ class AppController extends ChangeNotifier {
       onboardingPhase == OnboardingPhase.submitting ||
       onboardingPhase == OnboardingPhase.reconciling;
   bool _busy = false;
-  bool get busy => _busy || profileIdentitiesLoading;
+  bool get busy => _busy || profileIdentitiesLoading || _exitCleanup != null;
   set busy(bool value) => _busy = value;
   bool profileIdentitiesLoading = false;
   int _activeOperations = 0;
@@ -443,12 +499,16 @@ class AppController extends ChangeNotifier {
     await _refreshCapabilities();
   }
 
-  bool get tunnelOutputSupported =>
-      defaultTargetPlatform != TargetPlatform.linux ||
-      engineCapabilities?.vpn == true;
-  bool get systemProxyOutputSupported =>
-      defaultTargetPlatform != TargetPlatform.linux ||
-      engineCapabilities?.systemProxy == true;
+  bool get tunnelOutputSupported => switch (defaultTargetPlatform) {
+    TargetPlatform.linux ||
+    TargetPlatform.macOS => engineCapabilities?.vpn == true,
+    _ => true,
+  };
+  bool get systemProxyOutputSupported => switch (defaultTargetPlatform) {
+    TargetPlatform.linux ||
+    TargetPlatform.macOS => engineCapabilities?.systemProxy == true,
+    _ => true,
+  };
   PerAppProxySettings perAppProxy = const PerAppProxySettings();
   int zeroTrustCallbackTicket = 0;
   Object? _zeroTrustCurrentOwner;
@@ -554,7 +614,18 @@ class AppController extends ChangeNotifier {
   Map<String, ProfileIdentityStatus> profileIdentityStatuses =
       <String, ProfileIdentityStatus>{};
 
-  AppStrings get strings => AppStrings(localePreference);
+  Locale? _systemLocale;
+  AppStrings get strings =>
+      AppStrings(localePreference, systemLocale: _systemLocale);
+
+  /// Keep system language changes in memory. The user's language preference
+  /// stays "system", and desktop integrations receive the same catalog as UI.
+  void noteSystemLocale(Locale locale) {
+    if (_disposed || _systemLocale == locale) return;
+    final previousCatalog = strings.catalogId;
+    _systemLocale = locale;
+    if (strings.catalogId != previousCatalog) _notifyListeners();
+  }
 
   double? get updateProgress => updateTotalBytes <= 0
       ? null
@@ -1547,7 +1618,7 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> connectOrDisconnect() async {
-    if (snapshot.phase == ConnectionPhase.disconnecting) return;
+    if (!connectionActionEnabled) return;
     final intent = ++_connectionIntent;
     if (snapshot.isConnected || snapshot.isTransitional) {
       snapshot = EngineSnapshot(
@@ -1607,6 +1678,7 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> retry() async {
+    if (_exitCleanup != null) return;
     final intent = ++_connectionIntent;
     final success = await _run(
       () => withControlOperation(() async {
@@ -1632,15 +1704,46 @@ class AppController extends ChangeNotifier {
     }
   }
 
-  Future<void> disconnectForExit() async {
+  Future<void> disconnectForExit() {
+    final pending = _exitCleanup;
+    if (pending != null) return pending;
+    late final Future<void> cleanup;
+    cleanup = _disconnectForExit().whenComplete(() {
+      if (identical(_exitCleanup, cleanup)) _exitCleanup = null;
+      _notifyListeners();
+    });
+    _exitCleanup = cleanup;
+    _notifyListeners();
+    return cleanup;
+  }
+
+  Future<void> _disconnectForExit() async {
     _connectionIntent++;
     await _onboardingPreferenceWrites;
     await LinuxPreferencesStore.flushPending();
-    if (snapshot.phase != ConnectionPhase.disconnected) {
+    // Account and network edits share a queue above the Engine's RPC queue.
+    // Drain already queued edits before the final stop can overtake them.
+    await flushProfileWrites();
+    final requiresCleanupConfirmation =
+        defaultTargetPlatform == TargetPlatform.macOS;
+    // A disconnected snapshot can still have a startup rollback or proxy
+    // restoration pending. macOS Disconnect acknowledges completed cleanup,
+    // so always ask the Engine rather than trusting the cached phase.
+    if (requiresCleanupConfirmation ||
+        snapshot.phase != ConnectionPhase.disconnected) {
       try {
         snapshot = await _engine.disconnect();
         _notifyListeners();
+        if (requiresCleanupConfirmation &&
+            (snapshot.phase != ConnectionPhase.disconnected ||
+                snapshot.errorCode != null)) {
+          throw const EngineException(
+            'DISCONNECT_CLEANUP_FAILED',
+            'Disconnection cleanup has not completed. Retry Disconnect before quitting.',
+          );
+        }
       } on Object {
+        if (requiresCleanupConfirmation) rethrow;
         // The native disconnect path is fail-fast; exit must not leave the UI
         // alive indefinitely if the cleanup acknowledgement is unavailable.
       }
@@ -3395,6 +3498,7 @@ class AppController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    settingsNavigationRequests.dispose();
     _adsTimer?.cancel();
     _zeroTrustCurrentOwner = null;
     _onboardingPollTimer?.cancel();

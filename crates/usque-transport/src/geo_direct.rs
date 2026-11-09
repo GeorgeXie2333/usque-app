@@ -248,6 +248,12 @@ impl GeoDirectPolicy {
         self.ads = crate::live_ads::LiveAds::watch(cache_dir, self.ads_enabled);
         self
     }
+    /// Multi-process providers replace the entire verified policy snapshot;
+    /// they must not independently follow mutable advertising cache files.
+    pub fn with_frozen_ads(mut self, cache_dir: &Path) -> Self {
+        self.ads = crate::live_ads::LiveAds::snapshot(cache_dir, self.ads_enabled);
+        self
+    }
 
     pub fn ads_revision(&self) -> Option<String> {
         self.ads.rules().map(|ads| ads.revision().to_owned())
@@ -306,7 +312,7 @@ impl GeoDirectPolicy {
     pub(crate) fn rejects_ip(&self, ip: IpAddr) -> bool {
         self.custom_ip(ip) == Some(GeoRoute::Reject)
     }
-    pub(crate) fn resolved_route(&self, host: &str, ip: IpAddr) -> GeoRoute {
+    pub fn resolved_route(&self, host: &str, ip: IpAddr) -> GeoRoute {
         if self.frozen_routing.is_none() {
             return self.freeze_routing().resolved_route(host, ip);
         }

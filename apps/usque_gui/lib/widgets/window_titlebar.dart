@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../core/app_strings.dart';
@@ -8,19 +9,18 @@ import '../models/app_models.dart';
 import '../state/window_frame.dart';
 import 'usque_logo.dart';
 
-/// Height of the Flutter-drawn Windows caption, in logical pixels.
-/// Keep in sync with `kCaptionHeightLogical` in the runner.
+/// Height of the Flutter-drawn desktop caption, in logical pixels.
+/// Keep in sync with the native Windows and macOS caption hit regions.
 const double kWindowTitleBarHeight = 40;
 
 /// Width of one caption button, in logical pixels.
 /// Keep in sync with `kCaptionButtonWidthLogical` in the runner.
 const double kWindowCaptionButtonWidth = 46;
 
-/// The Windows caption, drawn by Flutter.
+/// Desktop caption content, drawn by Flutter. macOS keeps native traffic lights.
 ///
-/// Display-only: native `WM_NCHITTEST` owns drag, snap, resize, and the three
-/// window commands. Closing still goes through `WM_CLOSE` so the tray
-/// preference keeps deciding what a close actually means.
+/// Display-only: Windows hit testing and AppKit own window commands and drag.
+/// Native close handling preserves each platform's close-to-tray preference.
 class WindowTitleBar extends StatelessWidget {
   const WindowTitleBar({required this.strings, required this.phase, super.key});
 
@@ -29,12 +29,13 @@ class WindowTitleBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final bool macOS = defaultTargetPlatform == TargetPlatform.macOS;
     final ThemeData theme = Theme.of(context);
     final UsqueTokens tokens = UsqueTokens.of(context);
     final WindowFrame frame = WindowFrame.instance;
 
     return Directionality(
-      // The native caption hit regions use physical Windows coordinates.
+      // Native caption hit regions keep the same placement in RTL locales.
       textDirection: TextDirection.ltr,
       child: ListenableBuilder(
         listenable: frame,
@@ -57,7 +58,10 @@ class WindowTitleBar extends StatelessWidget {
                   children: <Widget>[
                     Expanded(
                       child: Padding(
-                        padding: const EdgeInsetsDirectional.only(start: 12),
+                        // Reserve the left edge for AppKit traffic lights.
+                        padding: EdgeInsetsDirectional.only(
+                          start: macOS ? 90 : 12,
+                        ),
                         child: Row(
                           children: <Widget>[
                             const UsqueLogo(size: 17),
@@ -75,24 +79,30 @@ class WindowTitleBar extends StatelessWidget {
                         ),
                       ),
                     ),
-                    _WindowButton(
-                      label: strings.get('window_minimize'),
-                      hovered: frame.captionHover == CaptionHover.min,
-                      glyph: _Glyph.minimize,
-                    ),
-                    _WindowButton(
-                      label: strings.get(
-                        frame.maximized ? 'window_restore' : 'window_maximize',
+                    if (!macOS) ...<Widget>[
+                      _WindowButton(
+                        label: strings.get('window_minimize'),
+                        hovered: frame.captionHover == CaptionHover.min,
+                        glyph: _Glyph.minimize,
                       ),
-                      hovered: frame.captionHover == CaptionHover.max,
-                      glyph: frame.maximized ? _Glyph.restore : _Glyph.maximize,
-                    ),
-                    _WindowButton(
-                      label: strings.get('window_close'),
-                      hovered: frame.captionHover == CaptionHover.close,
-                      danger: true,
-                      glyph: _Glyph.close,
-                    ),
+                      _WindowButton(
+                        label: strings.get(
+                          frame.maximized
+                              ? 'window_restore'
+                              : 'window_maximize',
+                        ),
+                        hovered: frame.captionHover == CaptionHover.max,
+                        glyph: frame.maximized
+                            ? _Glyph.restore
+                            : _Glyph.maximize,
+                      ),
+                      _WindowButton(
+                        label: strings.get('window_close'),
+                        hovered: frame.captionHover == CaptionHover.close,
+                        danger: true,
+                        glyph: _Glyph.close,
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -215,7 +225,7 @@ class _GlyphPainter extends CustomPainter {
       oldDelegate.color != color || oldDelegate.glyph != glyph;
 }
 
-/// Wraps the application in the Windows caption.
+/// Wraps the application in its shared desktop caption.
 class WindowFrameScaffold extends StatelessWidget {
   const WindowFrameScaffold({
     required this.strings,

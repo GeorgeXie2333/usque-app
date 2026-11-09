@@ -1,4 +1,4 @@
-//! Authenticated chain profile encryption with a per-user Secret Service key.
+//! Authenticated desktop chain encryption with a per-user vault key.
 //!
 //! Only encrypted records are written to disk. Unlock failures never generate
 //! a replacement for an existing key. A loaded key remains in zeroizing memory
@@ -15,17 +15,25 @@ use usque_platform::{SecretRecord, SecretVault};
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
+#[cfg(target_os = "linux")]
 const MAGIC: &[u8] = b"USQUE-LINUX-CHAIN\0\x01";
+#[cfg(target_os = "macos")]
+const MAGIC: &[u8] = b"USQUE-MACOS-CHAIN\0\x01";
+#[cfg(target_os = "linux")]
 pub(crate) const KEY_ID: Uuid = Uuid::from_bytes([
     0x2a, 0x31, 0x17, 0x93, 0x15, 0x52, 0x48, 0x51, 0x90, 0x42, 0xa0, 0x2b, 0x3e, 0x1c, 0x6f, 0x8d,
 ]);
+#[cfg(target_os = "macos")]
+pub(crate) const KEY_ID: Uuid = Uuid::from_bytes([
+    0xa7, 0x33, 0x63, 0x43, 0x65, 0x85, 0x4f, 0xe1, 0xa2, 0x26, 0x4e, 0xeb, 0x51, 0xb8, 0x05, 0x39,
+]);
 
-pub(crate) struct LinuxProfileCipher {
+pub(crate) struct DesktopProfileCipher {
     vault: Arc<dyn SecretVault>,
     key: Mutex<Option<Zeroizing<Vec<u8>>>>,
 }
 
-impl LinuxProfileCipher {
+impl DesktopProfileCipher {
     pub(crate) fn new(vault: Arc<dyn SecretVault>) -> Self {
         Self {
             vault,
@@ -92,7 +100,7 @@ impl LinuxProfileCipher {
     }
 }
 
-impl ProfileCipher for LinuxProfileCipher {
+impl ProfileCipher for DesktopProfileCipher {
     fn reset_session_key(&self) {
         if let Ok(mut key) = self.key.lock() {
             *key = None;
@@ -163,7 +171,15 @@ impl ProfileCipher for LinuxProfileCipher {
 }
 
 fn failure(reason: &'static str) -> ImportError {
-    ImportError::new(0, "secret_service", reason)
+    ImportError::new(
+        0,
+        if cfg!(target_os = "macos") {
+            "keychain"
+        } else {
+            "secret_service"
+        },
+        reason,
+    )
 }
 
 #[cfg(test)]
@@ -207,7 +223,7 @@ mod tests {
             key: Mutex::new(None),
             locked: false,
         });
-        let cipher = LinuxProfileCipher::new(vault.clone());
+        let cipher = DesktopProfileCipher::new(vault.clone());
         let id = Uuid::new_v4();
         let first = cipher.seal(id, b"private\0binary\xffvalue").unwrap();
         let second = cipher.seal(id, b"private\0binary\xffvalue").unwrap();
@@ -217,7 +233,7 @@ mod tests {
             b"private\0binary\xffvalue"
         );
         assert!(cipher.open(Uuid::new_v4(), &first).is_err());
-        let reopened = LinuxProfileCipher::new(vault);
+        let reopened = DesktopProfileCipher::new(vault);
         assert!(reopened.open(id, &first).is_ok());
         let mut corrupted = first.clone();
         *corrupted.last_mut().unwrap() ^= 1;
@@ -228,7 +244,7 @@ mod tests {
     }
     #[test]
     fn locked_keyring_never_falls_back_or_replaces_its_key() {
-        let cipher = LinuxProfileCipher::new(Arc::new(TestVault {
+        let cipher = DesktopProfileCipher::new(Arc::new(TestVault {
             key: Mutex::new(Some(Zeroizing::new(vec![7; 32]))),
             locked: true,
         }));
@@ -242,7 +258,7 @@ mod tests {
             key: Mutex::new(None),
             locked: false,
         });
-        let cipher = LinuxProfileCipher::new(vault.clone());
+        let cipher = DesktopProfileCipher::new(vault.clone());
         let catalogue: Vec<_> = (0..2500)
             .map(|index| Node {
                 id: format!("logical-{index}"),
@@ -307,7 +323,7 @@ mod tests {
                 .windows(plaintext.len())
                 .any(|part| part == plaintext.as_slice())
         );
-        let reopened = LinuxProfileCipher::new(vault);
+        let reopened = DesktopProfileCipher::new(vault);
         let restored = SessionStore::new(parent.path(), &reopened)
             .load(record.id)
             .unwrap();
@@ -323,7 +339,7 @@ mod tests {
     #[test]
     fn shared_cipher_preserves_independent_chain_profile_size_limits() {
         let parent = tempfile::tempdir().unwrap();
-        let cipher = LinuxProfileCipher::new(Arc::new(TestVault {
+        let cipher = DesktopProfileCipher::new(Arc::new(TestVault {
             key: Mutex::new(None),
             locked: false,
         }));
@@ -361,7 +377,7 @@ mod tests {
 
     #[test]
     fn shared_cipher_enforces_plaintext_and_ciphertext_upper_bounds() {
-        let cipher = LinuxProfileCipher::new(Arc::new(TestVault {
+        let cipher = DesktopProfileCipher::new(Arc::new(TestVault {
             key: Mutex::new(Some(Zeroizing::new(vec![7; 32]))),
             locked: false,
         }));
@@ -395,7 +411,7 @@ mod tests {
             "record_too_large"
         );
 
-        let locked = LinuxProfileCipher::new(Arc::new(TestVault {
+        let locked = DesktopProfileCipher::new(Arc::new(TestVault {
             key: Mutex::new(None),
             locked: true,
         }));

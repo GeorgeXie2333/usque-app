@@ -227,7 +227,9 @@ class ServerSelectionTests(unittest.TestCase):
 class PrivateExportTests(unittest.TestCase):
     def test_private_file_and_overwrite_refusal(self):
         with tempfile.TemporaryDirectory() as temporary:
-            path = Path(temporary) / "private.conf"
+            # Use the actual private directory, not macOS's system /var alias;
+            # explicit unsafe symlinks below are still tested and rejected.
+            path = Path(temporary).resolve() / "private.conf"
             export_private_config(path, "synthetic-secret\n")
             self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
             self.assertEqual(path.read_text(), "synthetic-secret\n")
@@ -237,7 +239,7 @@ class PrivateExportTests(unittest.TestCase):
 
     def test_public_parent_and_symlink_ancestors_rejected(self):
         with tempfile.TemporaryDirectory() as temporary:
-            parent = Path(temporary)
+            parent = Path(temporary).resolve()
             public = parent / "public"
             public.mkdir(mode=0o755)
             with self.assertRaisesRegex(WireguardError, "private_export_parent_requires_0700"):
@@ -252,7 +254,7 @@ class PrivateExportTests(unittest.TestCase):
 
     def test_final_symlink_and_traversal_rejected(self):
         with tempfile.TemporaryDirectory() as temporary:
-            parent = Path(temporary)
+            parent = Path(temporary).resolve()
             target = parent / "target"
             target.write_text("unchanged")
             alias = parent / "alias"
@@ -265,7 +267,7 @@ class PrivateExportTests(unittest.TestCase):
 
     def test_invalid_content_cleans_partially_created_file(self):
         with tempfile.TemporaryDirectory() as temporary:
-            path = Path(temporary) / "private.conf"
+            path = Path(temporary).resolve() / "private.conf"
             with self.assertRaises(WireguardError) as failure:
                 export_private_config(path, "synthetic-secret-\N{SNOWMAN}")
             self.assertEqual(str(failure.exception), "private_export_failed")
