@@ -5345,6 +5345,12 @@ fn parse_profile_id(value: &str) -> Result<Uuid, ControlServiceError> {
 fn profile_from_proto(source: v1::Profile) -> Result<Profile, ControlServiceError> {
     let defaults = Profile::default();
     let congestion_control = congestion::from_proto(source.congestion_control)?;
+    let masque_connections = u8::try_from(
+        source
+            .masque_connections
+            .unwrap_or(u32::from(defaults.masque_connections)),
+    )
+    .map_err(|_| ControlServiceError::InvalidRequest("invalid MASQUE connection count".into()))?;
     let tls_fingerprint = match v1::TlsFingerprint::try_from(source.tls_fingerprint) {
         Ok(v1::TlsFingerprint::Unspecified) => usque_core::TlsFingerprint::default(),
         Ok(v1::TlsFingerprint::Default) => usque_core::TlsFingerprint::Default,
@@ -5502,6 +5508,7 @@ fn profile_from_proto(source: v1::Profile) -> Result<Profile, ControlServiceErro
         },
         congestion_control,
         tls_fingerprint,
+        masque_connections,
         endpoint: EndpointSettings {
             ipv4: endpoint
                 .ipv4
@@ -5646,6 +5653,37 @@ fn profile_from_proto(source: v1::Profile) -> Result<Profile, ControlServiceErro
     Ok(profile)
 }
 
+#[cfg(test)]
+mod masque_connections_tests {
+    use super::*;
+
+    #[test]
+    fn counts_round_trip_and_missing_optional_field_means_one() {
+        for count in 1..=6 {
+            let profile = Profile {
+                masque_connections: count,
+                ..Default::default()
+            };
+            assert_eq!(
+                profile_from_proto(profile_to_proto(&profile))
+                    .unwrap()
+                    .masque_connections,
+                count
+            );
+        }
+        let mut legacy = profile_to_proto(&Profile::default());
+        legacy.masque_connections = None;
+        assert_eq!(profile_from_proto(legacy).unwrap().masque_connections, 1);
+        for count in [0, 7, 256, u32::MAX] {
+            let mut invalid = profile_to_proto(&Profile::default());
+            invalid.masque_connections = Some(count);
+            assert!(profile_from_proto(invalid).is_err());
+        }
+        assert_eq!(current_capabilities().max_masque_connections, 6);
+        assert!(current_capabilities().l4_masque_connections);
+    }
+}
+
 fn parse_listeners(values: &[String]) -> Result<Vec<SocketAddr>, ControlServiceError> {
     values
         .iter()
@@ -5667,6 +5705,7 @@ pub(crate) fn profile_to_proto(profile: &Profile) -> v1::Profile {
         data_plane: data_plane::to_proto(profile.data_plane),
         congestion_control: congestion::to_proto(profile.congestion_control),
         tls_fingerprint: tls_fingerprint_to_proto(profile.tls_fingerprint),
+        masque_connections: Some(u32::from(profile.masque_connections)),
         id: profile.id.to_string(),
         name: profile.name.clone(),
         mode: match profile.mode {
@@ -5908,6 +5947,8 @@ fn current_capabilities() -> v1::Capabilities {
         vpn_gate_tcp: true,
         vpn_gate_pool_favorites: true,
         vpn_gate_epoch_requests: true,
+        max_masque_connections: u32::from(usque_core::MAX_MASQUE_CONNECTIONS),
+        l4_masque_connections: true,
         application_quic_blocking: true,
         account_metadata_mutations: true,
         shared_proxy_auth_application: true,

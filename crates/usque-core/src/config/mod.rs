@@ -20,6 +20,8 @@ mod congestion;
 mod data_plane;
 mod endpoint_preset;
 mod initial_identity;
+#[cfg(test)]
+mod masque_connections;
 mod network;
 mod routing;
 mod tls_fingerprint;
@@ -37,7 +39,12 @@ pub use routing::{
 };
 pub use tls_fingerprint::TlsFingerprint;
 
-pub const CURRENT_SCHEMA_VERSION: u32 = 27;
+pub const CURRENT_SCHEMA_VERSION: u32 = 28;
+pub const MAX_MASQUE_CONNECTIONS: u8 = 16;
+
+pub const fn default_masque_connections() -> u8 {
+    3
+}
 /// Vault namespace for device-wide proxy-listener secrets. Never a profile id.
 pub const SHARED_NETWORK_SECRET_ID: Uuid =
     Uuid::from_u128(0x9f1c_6b20_5a7e_4d3a_9c11_00c0_ffee_0001);
@@ -492,6 +499,8 @@ pub struct Profile {
     pub data_plane: DataPlaneMode,
     #[serde(default)]
     pub congestion_control: CongestionControlAlgorithm,
+    #[serde(default = "default_masque_connections")]
+    pub masque_connections: u8,
     pub endpoint: EndpointSettings,
     /// Selects the physical address family used to reach the MASQUE endpoint.
     /// It never restricts IPv4 or IPv6 payloads carried inside CONNECT-IP.
@@ -540,6 +549,7 @@ impl Default for Profile {
             tls_fingerprint: TlsFingerprint::default(),
             data_plane: DataPlaneMode::ConnectIp,
             congestion_control: CongestionControlAlgorithm::default(),
+            masque_connections: default_masque_connections(),
             endpoint: EndpointSettings::default(),
             ip_policy: IpPolicy::Auto,
             mtu: DEFAULT_MTU,
@@ -600,6 +610,11 @@ impl Profile {
         let trimmed_name = self.name.trim();
         if trimmed_name.is_empty() || trimmed_name.chars().count() > 64 {
             return Err(ConfigError::InvalidProfileName);
+        }
+        if !(1..=MAX_MASQUE_CONNECTIONS).contains(&self.masque_connections) {
+            return Err(ConfigError::InvalidMasqueConnections(
+                self.masque_connections,
+            ));
         }
         self.endpoint.validate()?;
         if self.endpoint.preset_region.is_some()
@@ -1551,6 +1566,8 @@ pub enum ConfigError {
     InvalidUdpIdleTimeout(u32),
     #[error("MTU must be between 1280 and 9000, got {0}")]
     InvalidMtu(u16),
+    #[error("MASQUE connection count must be between 1 and 16, got {0}")]
+    InvalidMasqueConnections(u8),
     #[error("at least one DNS server is required")]
     MissingDnsServer,
     #[error("no more than {MAX_DNS_SERVERS} DNS servers are allowed, got {0}")]

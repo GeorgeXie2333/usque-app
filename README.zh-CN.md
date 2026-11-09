@@ -245,6 +245,7 @@ VPN、SOCKS5 和 HTTP 默认开启，系统代理默认关闭。它们共用一�
 | 端口 / SNI | `443` / `speed.cloudflare.com` |
 | 传输 | 自动：先 HTTP/3，再 HTTP/2 |
 | HTTP/3 拥塞控制 | `cubic`；可选择 BBRv2、实验性 BBRv3 和 `reno` |
+| MASQUE 连接数 | `3`；HTTP/2、HTTP/3 / L4 均可手动填写 `1–16` |
 | QUIC UDP 接收缓冲 | Windows/Android 的 H3、L4 均以 [2 MiB 为目标](docs/UDP_RECEIVE_BUFFER.md)申请；实际容量由系统决定 |
 | TUN MTU | `1280` |
 | 备用 DNS | `1.1.1.1`、`2606:4700:4700::1111` |
@@ -259,6 +260,8 @@ VPN、SOCKS5 和 HTTP 默认开启，系统代理默认关闭。它们共用一�
 修改代理地址和端口后，需要点击 **应用修改** 才会提交。代理默认通过当前出口解析：在高级设置中配置 [WARP DNS](docs/WARP_DNS.md)，或在链式配置中设置最终出口 DNS。代理页不再提供 DNS 设置；旧版本保存的代理 DNS 选择继续生效。
 
 高级设置中的重置只会填入默认值，仍需提交才会生效。
+
+打开 **高级网络设置 → MASQUE 连接数**，填写 **1–16**（默认 **3**），再点击 **应用修改**。连接数变化会重新连接；不同流分配到不同 MASQUE 连接，同一条流固定使用一条连接。该设置适用于 HTTP/2、HTTP/3 CONNECT-IP 和 L4（HTTP/3 TCP CONNECT）。详见[连接行为](docs/NETWORK_SETTINGS.md#parallel-masque-connections)。
 
 高级网络设置的“自动选择”会并发连接账号可用的端点；“自定义”保留手动地址。端口和 SNI 在两种模式均可修改。详见[自动选择端点](docs/NETWORK_SETTINGS.md#automatic-endpoints--自动选择端点)。
 

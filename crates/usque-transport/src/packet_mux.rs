@@ -97,7 +97,7 @@ struct ReverseMapping {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-struct FragmentKey {
+pub(crate) struct FragmentKey {
     source: IpAddr,
     destination: IpAddr,
     protocol: u8,
@@ -787,6 +787,38 @@ enum ParsedPacket {
         fragment: Option<FragmentKey>,
     },
     Fragment(FragmentKey),
+}
+
+pub(crate) enum PoolPacketKey {
+    Flow {
+        hash: u64,
+        fragment: Option<FragmentKey>,
+    },
+    Fragment(FragmentKey),
+}
+
+/// Reuse the mux's bounded IPv4/IPv6 extension and fragment parser. No packet
+/// bytes or addresses escape into diagnostics.
+pub(crate) fn pool_packet_key(packet: &[u8]) -> Option<PoolPacketKey> {
+    use std::hash::{DefaultHasher, Hash, Hasher};
+    match ParsedPacket::parse(packet, Direction::Outgoing)? {
+        ParsedPacket::Flow { tuple, fragment } => {
+            let mut hash = DefaultHasher::new();
+            (
+                tuple.protocol,
+                tuple.local_address,
+                tuple.local_id,
+                tuple.remote_address,
+                tuple.remote_id,
+            )
+                .hash(&mut hash);
+            Some(PoolPacketKey::Flow {
+                hash: hash.finish(),
+                fragment,
+            })
+        }
+        ParsedPacket::Fragment(key) => Some(PoolPacketKey::Fragment(key)),
+    }
 }
 
 struct NetworkPacket {

@@ -19,6 +19,7 @@ macro_rules! network_fields {
             "tls_fingerprint" => tls_fingerprint,
             "data_plane" => data_plane,
             "congestion_control" => congestion_control,
+            "masque_connections" => masque_connections,
             "endpoint.ipv4" => endpoint.ipv4,
             "endpoint.ipv6" => endpoint.ipv6,
             "endpoint.port" => endpoint.port,

@@ -12,27 +12,36 @@ use crate::packet_batch::{PacketBatch, PacketBatchResult};
 pub(crate) type BatchSendFuture =
     Pin<Box<dyn Future<Output = Result<PacketBatchResult, TransportError>> + Send + 'static>>;
 
-/// One active MASQUE data channel. The enum deliberately has no fan-out or
-/// multipath variant: Auto may replace a channel, but only one channel carries
-/// packets at a time.
+/// One managed data plane, optionally containing a bounded set of flow-pinned
+/// MASQUE connections. Auto replaces the complete set as one owned unit.
 pub(crate) enum MasqueTunnel {
     Http3(Box<H3Tunnel>),
     Http2(Box<H2Tunnel>),
+    Parallel(Box<crate::parallel_tunnel::ParallelTunnel>),
 }
 
 impl MasqueTunnel {
+    pub(crate) fn control_state(&self) -> PeerNetworkState {
+        match self {
+            Self::Http3(tunnel) => tunnel.control_state(),
+            Self::Http2(tunnel) => tunnel.control_state(),
+            Self::Parallel(tunnel) => tunnel.control_state(),
+        }
+    }
     pub(crate) fn packet_budget(
         &self,
     ) -> Option<watch::Receiver<Option<crate::tcp_packet_budget::H3PacketBudget>>> {
         match self {
             Self::Http3(tunnel) => Some(tunnel.packet_budget()),
             Self::Http2(_) => None,
+            Self::Parallel(tunnel) => tunnel.packet_budget(),
         }
     }
     pub(crate) fn transport(&self) -> Transport {
         match self {
             Self::Http3(_) => Transport::Http3,
             Self::Http2(_) => Transport::Http2,
+            Self::Parallel(tunnel) => tunnel.transport(),
         }
     }
 
@@ -40,6 +49,7 @@ impl MasqueTunnel {
         match self {
             Self::Http2(tunnel) => tunnel.activate_network_quality(),
             Self::Http3(tunnel) => tunnel.activate_network_quality(),
+            Self::Parallel(tunnel) => tunnel.activate_network_quality(),
         }
     }
 
@@ -50,6 +60,8 @@ impl MasqueTunnel {
                 handle.enabled().then_some(handle)
             }
             Self::Http2(_) => None,
+            // A physical generation change replaces every member together.
+            Self::Parallel(_) => None,
         }
     }
 
@@ -80,6 +92,7 @@ impl MasqueTunnel {
                     Some(control),
                 )
             }
+            Self::Parallel(tunnel) => tunnel.into_parts(),
         }
     }
 }
@@ -90,6 +103,7 @@ impl crate::endpoint_race::RaceConnection for MasqueTunnel {
         match self {
             Self::Http3(tunnel) => tunnel.shutdown().await,
             Self::Http2(tunnel) => tunnel.shutdown().await,
+            Self::Parallel(tunnel) => tunnel.shutdown().await,
         }
     }
 
@@ -97,6 +111,7 @@ impl crate::endpoint_race::RaceConnection for MasqueTunnel {
         match self {
             Self::Http3(tunnel) => tunnel.is_alive(),
             Self::Http2(tunnel) => tunnel.is_alive(),
+            Self::Parallel(tunnel) => tunnel.is_alive(),
         }
     }
 }
@@ -114,6 +129,7 @@ impl crate::endpoint_race::RaceConnection for (MasqueTunnel, usque_core::Address
 pub(crate) enum MasqueSendHalf {
     Http3(H3SendHalf),
     Http2(H2SendHalf),
+    Parallel(crate::parallel_tunnel::ParallelSendHalf),
 }
 
 impl MasqueSendHalf {
@@ -121,6 +137,7 @@ impl MasqueSendHalf {
         match self {
             Self::Http3(send) => send.start_owned_batch(batch),
             Self::Http2(send) => send.start_owned_batch(batch),
+            Self::Parallel(send) => send.start_owned_batch(batch),
         }
     }
 
@@ -128,6 +145,7 @@ impl MasqueSendHalf {
         match self {
             Self::Http3(send) => send.close(),
             Self::Http2(send) => send.close(),
+            Self::Parallel(send) => send.close(),
         }
     }
 }
@@ -135,6 +153,7 @@ impl MasqueSendHalf {
 pub(crate) enum MasqueReceiveHalf {
     Http3(H3ReceiveHalf),
     Http2(Box<H2ReceiveHalf>),
+    Parallel(tokio::sync::mpsc::Receiver<PacketBatch>),
 }
 
 impl MasqueReceiveHalf {
@@ -142,6 +161,7 @@ impl MasqueReceiveHalf {
         match self {
             Self::Http3(receive) => receive.receive_batch().await,
             Self::Http2(receive) => receive.receive_batch().await,
+            Self::Parallel(receive) => receive.recv().await.ok_or(TransportError::TunnelClosed),
         }
     }
 }
@@ -149,13 +169,22 @@ impl MasqueReceiveHalf {
 pub(crate) enum MasqueDriver {
     Http3(H3Driver),
     Http2(H2Driver),
+    Parallel(crate::parallel_tunnel::ParallelDriver),
 }
 
 impl MasqueDriver {
+    pub(crate) fn abort_handle(&self) -> tokio::task::AbortHandle {
+        match self {
+            Self::Http3(driver) => driver.abort_handle(),
+            Self::Http2(driver) => driver.abort_handle(),
+            Self::Parallel(driver) => driver.abort_handle(),
+        }
+    }
     pub(crate) async fn wait(self) -> Result<(), TransportError> {
         match self {
             Self::Http3(driver) => driver.wait().await,
             Self::Http2(driver) => driver.wait().await,
+            Self::Parallel(driver) => driver.wait().await,
         }
     }
 }

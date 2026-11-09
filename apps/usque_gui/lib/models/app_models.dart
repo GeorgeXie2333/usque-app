@@ -881,6 +881,9 @@ class ProxySettings {
 }
 
 class UsqueProfile {
+  static const defaultMasqueConnections = 3;
+  static const maxMasqueConnections = 16;
+
   const UsqueProfile({
     required this.id,
     required this.name,
@@ -888,6 +891,7 @@ class UsqueProfile {
     this.transport = TransportPolicy.automatic,
     this.dataPlane = DataPlaneMode.connectIp,
     this.congestionControl = CongestionControlAlgorithm.cubic,
+    this.masqueConnections = defaultMasqueConnections,
     this.tlsFingerprint = TlsFingerprint.chrome155,
     this.ipPolicy = IpPolicy.automatic,
     this.endpointSelection = EndpointSelection.automatic,
@@ -931,6 +935,7 @@ class UsqueProfile {
   final TransportPolicy transport;
   final DataPlaneMode dataPlane;
   final CongestionControlAlgorithm congestionControl;
+  final int masqueConnections;
   final TlsFingerprint tlsFingerprint;
   final IpPolicy ipPolicy;
   final EndpointSelection endpointSelection;
@@ -991,6 +996,7 @@ class UsqueProfile {
   UsqueProfile resetAdvancedDefaults() {
     return copyWith(
       congestionControl: CongestionControlAlgorithm.cubic,
+      masqueConnections: defaultMasqueConnections,
       tlsFingerprint: TlsFingerprint.chrome155,
       transport: TransportPolicy.automatic,
       dataPlane: DataPlaneMode.connectIp,
@@ -1020,6 +1026,7 @@ class UsqueProfile {
     TransportPolicy? transport,
     DataPlaneMode? dataPlane,
     CongestionControlAlgorithm? congestionControl,
+    int? masqueConnections,
     TlsFingerprint? tlsFingerprint,
     IpPolicy? ipPolicy,
     EndpointSelection? endpointSelection,
@@ -1060,6 +1067,7 @@ class UsqueProfile {
       transport: transport ?? this.transport,
       dataPlane: dataPlane ?? this.dataPlane,
       congestionControl: congestionControl ?? this.congestionControl,
+      masqueConnections: masqueConnections ?? this.masqueConnections,
       tlsFingerprint: tlsFingerprint ?? this.tlsFingerprint,
       ipPolicy: ipPolicy ?? this.ipPolicy,
       endpointSelection: endpointSelection ?? this.endpointSelection,
@@ -1101,6 +1109,7 @@ class UsqueProfile {
       'vpn_gate': vpnGate.toMap(),
       if (chainExit != null) 'chain_exit': chainExit!.toMap(),
       'congestion_control': congestionControl.name,
+      'masque_connections': masqueConnections,
       'tls_fingerprint': tlsFingerprint.wireName,
       'ip_policy': ipPolicy.name,
       'endpoint_selection': endpointSelection.name,
@@ -1198,6 +1207,9 @@ class UsqueProfile {
           ? TlsFingerprint.fromWire(map['tls_fingerprint']) ??
                 (throw const FormatException('Invalid tls_fingerprint'))
           : TlsFingerprint.chrome155,
+      masqueConnections: map.containsKey('masque_connections')
+          ? _boundedInt(map, 'masque_connections', 1, maxMasqueConnections)
+          : defaultMasqueConnections,
       ipPolicy: _enumByName(IpPolicy.values, _string(map, 'ip_policy')),
       endpointSelection: map.containsKey('endpoint_selection')
           ? _enumByName(
@@ -2183,6 +2195,8 @@ class EngineCapabilities {
     this.l4DnsConversion = false,
     this.h3CongestionControlAlgorithms = const <CongestionControlAlgorithm>[],
     this.tlsFingerprints = const <TlsFingerprint>[],
+    this.maxMasqueConnections = 0,
+    this.l4MasqueConnections = false,
     this.networkQuality = false,
     this.encryptedDirectDns = false,
     this.encryptedWarpDns = false,
@@ -2212,6 +2226,8 @@ class EngineCapabilities {
     liveAdsRules: map['live_ads_rules'] == true,
     automaticEndpoints: map['automatic_endpoints'] == true,
     endpointPresets: map['endpoint_presets'] == true,
+    maxMasqueConnections: (map['max_masque_connections'] as num?)?.toInt() ?? 0,
+    l4MasqueConnections: map['l4_masque_connections'] == true,
     continuousConnection: map['continuous_connection'] == true,
     zeroTrustEndpointEditing: map['zero_trust_endpoint_editing'] == true,
     chainOpenvpnMultiEndpoint: map['chain_openvpn_multi_endpoint'] == true,
@@ -2282,6 +2298,8 @@ class EngineCapabilities {
   bool get l4Available => l4Tcp && l4TunTcp && l4DnsConversion;
   final List<CongestionControlAlgorithm> h3CongestionControlAlgorithms;
   final List<TlsFingerprint> tlsFingerprints;
+  final int maxMasqueConnections;
+  final bool l4MasqueConnections;
   final bool encryptedDirectDns;
   final bool encryptedWarpDns;
   final bool quicMigration;
@@ -2323,6 +2341,8 @@ class EngineCapabilities {
           l4TunTcp == other.l4TunTcp &&
           l4DnsConversion == other.l4DnsConversion &&
           listEquals(tlsFingerprints, other.tlsFingerprints) &&
+          maxMasqueConnections == other.maxMasqueConnections &&
+          l4MasqueConnections == other.l4MasqueConnections &&
           listEquals(
             h3CongestionControlAlgorithms,
             other.h3CongestionControlAlgorithms,
@@ -2367,7 +2387,11 @@ class EngineCapabilities {
     l4DnsConversion,
     Object.hash(
       Object.hashAll(h3CongestionControlAlgorithms),
-      Object.hashAll(tlsFingerprints),
+      Object.hash(
+        Object.hashAll(tlsFingerprints),
+        maxMasqueConnections,
+        l4MasqueConnections,
+      ),
     ),
     networkQuality,
     Object.hash(encryptedDirectDns, encryptedWarpDns),

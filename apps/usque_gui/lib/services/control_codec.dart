@@ -129,6 +129,7 @@ class ControlCodec {
       writer.message(25, routing.takeBytes());
     }
     writer.enumeration(26, profile.tlsFingerprint.protoValue);
+    writer.optionalUnsigned(27, profile.masqueConnections);
     writer.message(17, directDns.takeBytes());
     if (profile.warpDns != const WarpDnsSettings()) {
       writer.message(24, warpDns.takeBytes());
@@ -895,6 +896,7 @@ UsqueProfile _decodeProfile(_ProtoReader reader) {
   var disableQuic = false;
   var congestionControl = defaults.congestionControl;
   var tlsFingerprint = defaults.tlsFingerprint;
+  var masqueConnections = UsqueProfile.defaultMasqueConnections;
   var ipPolicy = defaults.ipPolicy;
   var endpointIpv4 = defaults.endpointIpv4;
   var endpointIpv6 = defaults.endpointIpv6;
@@ -1035,6 +1037,12 @@ UsqueProfile _decodeProfile(_ProtoReader reader) {
         congestionControl = value == 0
             ? CongestionControlAlgorithm.cubic
             : _decodeCongestionControl(value);
+      case 27:
+        masqueConnections = reader.varint(field);
+        if (masqueConnections < 1 ||
+            masqueConnections > UsqueProfile.maxMasqueConnections) {
+          throw const FormatException('Invalid MASQUE connection count');
+        }
       case 19:
         final value = reader.varint(field);
         dataPlane = value == 0
@@ -1072,6 +1080,7 @@ UsqueProfile _decodeProfile(_ProtoReader reader) {
     disableQuic: disableQuic,
     congestionControl: congestionControl,
     tlsFingerprint: tlsFingerprint,
+    masqueConnections: masqueConnections,
     ipPolicy: ipPolicy,
     endpointIpv4: endpointIpv4,
     endpointIpv6: endpointIpv6,
@@ -1890,6 +1899,8 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
   var liveAdsRules = false;
   var automaticEndpoints = false;
   var endpointPresets = false;
+  var maxMasqueConnections = 0;
+  var l4MasqueConnections = false;
   var continuousConnection = false;
   var protonAccountWarpFallback = false;
   var protonServerSwitching = false;
@@ -1935,6 +1946,10 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
         chainHttpProxy = reader.varint(field) != 0;
       case 49:
         endpointPresets = reader.varint(field) != 0;
+      case 56:
+        maxMasqueConnections = reader.varint(field);
+      case 57:
+        l4MasqueConnections = reader.varint(field) != 0;
       case 50:
         chainProtonVpn = reader.varint(field) != 0;
       case 51:
@@ -2037,6 +2052,8 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
     liveAdsRules: liveAdsRules,
     automaticEndpoints: automaticEndpoints,
     endpointPresets: endpointPresets,
+    maxMasqueConnections: maxMasqueConnections,
+    l4MasqueConnections: l4MasqueConnections,
     continuousConnection: continuousConnection,
     protonAccountWarpFallback: protonAccountWarpFallback,
     protonServerSwitching: protonServerSwitching,

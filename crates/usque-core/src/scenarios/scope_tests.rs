@@ -137,7 +137,10 @@ fn pre_scene_configuration_initializes_empty_scenes_without_changing_global_sett
     let store = crate::storage::ConfigStore::new(directory.path().join("profiles.json"));
     std::fs::write(store.path(), serde_json::to_vec(&old).unwrap()).unwrap();
     let migrated = store.load().unwrap();
-    assert_eq!(migrated.schema_version, 27);
+    assert_eq!(
+        migrated.schema_version,
+        crate::config::CURRENT_SCHEMA_VERSION
+    );
     assert_eq!(migrated.network, config.network);
     assert_eq!(migrated.profiles, config.profiles);
     assert_eq!(migrated.active_profile_id, config.active_profile_id);
@@ -179,7 +182,10 @@ fn unsupported_development_schemas_and_scene_fields_are_not_migrated_or_rewritte
         assert_eq!(std::fs::read(store.path()).unwrap(), bytes);
         assert!(!store.backup_path().exists());
     };
-    for version in [28, 29] {
+    for version in [
+        crate::config::CURRENT_SCHEMA_VERSION + 1,
+        crate::config::CURRENT_SCHEMA_VERSION + 2,
+    ] {
         let mut value = serde_json::to_value(&config).unwrap();
         value["schema_version"] = json!(version);
         rejected(value);

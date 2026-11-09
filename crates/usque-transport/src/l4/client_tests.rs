@@ -180,7 +180,7 @@ async fn automatic_race_rejects_real_wrong_pin_peer_and_reuses_verified_quic_win
     drop((good_server, bad_server));
 }
 
-fn identities() -> (MasqueTlsIdentity, MasqueTlsIdentity) {
+pub(super) fn identities() -> (MasqueTlsIdentity, MasqueTlsIdentity) {
     let client = MasqueKeyPair::generate();
     let server = MasqueKeyPair::generate();
     let build = |own: &MasqueKeyPair, peer: &MasqueKeyPair| {
@@ -295,6 +295,23 @@ async fn server(
     targets: Arc<Mutex<Vec<String>>>,
     hold_settings: Option<Arc<tokio::sync::Notify>>,
 ) {
+    server_with_control(socket, identity, expected_sni, targets, hold_settings, None).await;
+}
+
+pub(super) enum ServerCommand {
+    GoAway,
+    Close,
+    Settings,
+}
+
+pub(super) async fn server_with_control(
+    socket: UdpSocket,
+    identity: MasqueTlsIdentity,
+    expected_sni: &'static str,
+    targets: Arc<Mutex<Vec<String>>>,
+    hold_settings: Option<Arc<tokio::sync::Notify>>,
+    mut commands: Option<tokio::sync::mpsc::UnboundedReceiver<ServerCommand>>,
+) {
     let address = socket.local_addr().unwrap();
     let mut incoming = vec![0; 65536];
     let (n, remote) = socket.recv_from(&mut incoming).await.unwrap();
@@ -321,13 +338,17 @@ async fn server(
     let mut h3: Option<quiche::h3::Connection> = None;
     let mut pending: HashMap<u64, (VecDeque<u8>, bool)> = HashMap::new();
     let mut output = vec![0; 65536];
+    let mut next_stream = 0;
+    let mut settings_allowed = hold_settings.is_none();
     loop {
         if quic.is_closed() {
             break;
         }
         if quic.is_established() && h3.is_none() {
             assert_eq!(quic.server_name(), Some(expected_sni));
-            if let Some(established) = &hold_settings {
+            if let Some(established) = &hold_settings
+                && !settings_allowed
+            {
                 established.notify_one();
             } else {
                 h3 = Some(
@@ -343,6 +364,7 @@ async fn server(
             loop {
                 match h3.poll(&mut quic) {
                     Ok((id, quiche::h3::Event::Headers { list, .. })) => {
+                        next_stream = next_stream.max(id + 4);
                         assert_eq!(list.len(), 2);
                         assert_eq!(list[0].name(), b":method");
                         assert_eq!(list[0].value(), b"CONNECT");
@@ -401,6 +423,19 @@ async fn server(
             socket.send_to(&output[..n], info.to).await.unwrap();
         }
         tokio::select! {
+            command = async {
+                match &mut commands {
+                    Some(receiver) => receiver.recv().await,
+                    None => std::future::pending().await,
+                }
+            } => {
+                match command {
+                    Some(ServerCommand::GoAway) => h3.as_mut().unwrap().send_goaway(&mut quic, next_stream).unwrap(),
+                    Some(ServerCommand::Close) => { quic.close(true, 0x100, b"fixture").unwrap(); },
+                    Some(ServerCommand::Settings) => { settings_allowed = true; },
+                    None => { commands = None; },
+                }
+            },
             received = socket.recv_from(&mut incoming) => {
                 let (n, from) = received.unwrap();
                 assert_eq!(from, remote, "all targets must reuse one QUIC session");

@@ -36,6 +36,14 @@ existing application connections are not preserved across those changes.
 Listener and authentication edits apply as in other modes. Congestion control
 remains a saved preference for the next manual connection.
 
+In the same page, **MASQUE connections** accepts **1–16**, default **3**. Apply a
+changed count to reconnect with that many independent HTTP/3 connections. New TCP
+CONNECT streams rotate across ready members; each established stream stays on
+its member. Initial startup waits for every requested member. During recovery,
+healthy members can continue serving while failed or draining members are
+replaced. A single TCP stream, including a single OpenVPN TCP chain connection,
+uses one member. Parallel connections do not add ordinary UDP support.
+
 The transport selector shows a short L4 hint while L4 is selected; the traffic
 limits are on the proxy page and above. If the engine does not support L4, the
 option is unavailable and explains why; a previously saved L4 selection shows
@@ -150,10 +158,14 @@ handling. See the [backpressure and stop follow-up](L4_BACKPRESSURE_FIX.md).
 | Stream receive-window ceiling | 32 MiB | 16 MiB | 4 MiB |
 | Shared application buffer budget | 128 MiB | 64 MiB | 24 MiB |
 
-The receive-window ceiling is conservatively split in half between possible
-sessions **before** advertisement: already advertised QUIC credit cannot be
-revoked when a draining/replacement session appears. This means a sole session
-does not claim the aggregate maximum. Actual stream admission is also bounded
+The receive-window ceiling is divided by **connection count + 1** before
+advertisement; one slot is reserved for a draining/replacement session. Initial
+connection/stream credit and the stream window are capped to that share. The
+default count of three uses one quarter of the ceiling per session; an explicit
+count of one retains the previous half-ceiling behavior.
+Already advertised QUIC credit cannot be revoked when a replacement appears.
+Global stream counts and the application buffer budget remain unchanged.
+Actual stream admission is also bounded
 by the server's stream credit and remaining memory. These budgets are not RSS
 limits. TUN terminators prefer 256 KiB per direction and downshift to 64 KiB;
 packet and TCP-stack reservations are charged to the application budget.
@@ -161,13 +173,26 @@ Fixed admission reservations leave one eighth of the budget (up to 16 MiB)
 available for DATA progress. Filling all relay/listener reservations must not
 leave every accepted stream unable to read or write its next chunk.
 
-One main session and at most one draining session share a two-slot hard cap,
-including address-family candidates. Slots remain held until actor/path cleanup.
+Active and draining sessions share a **connection count + 1** hard cap.
+The existing eight-candidate startup cap is shared across the pool; only one
+logical member is dialed at a time. In a parallel pool, unpromoted family and
+endpoint candidates also retain the 256 KiB wire-ingress bound, including custom
+endpoints. This reserves at most 2 MiB of startup ingress in addition to the
+admitted-session receive ceiling. Slots remain held until actor/path cleanup.
 GOAWAY drains for at most 30 seconds; repeats cannot extend that deadline.
 Handshake work is shared independently of individual waiting callers. A target
 has a 10-second overall dial budget; QUIC establishment uses the existing
 8-second bound and 250-ms address-family racing. Healthy MAX_STREAMS exhaustion
 waits within the original deadline, without rebuilding the session.
+
+Member failures close only their own established streams; data is never replayed.
+The pool generation remains stable while another admitting member survives,
+including GOAWAY replacement. Losing all admitting members advances the generation
+before new streams are delivered. With multiple members, physical network changes
+join all old member cleanup before redialing. Count one retains in-place H3
+migration. Socket protection and authenticated identity/pin rules apply to each
+member. Counters aggregate across the pool; transport-quality and socket details
+follow one active member. No flow targets or credentials are added to logs.
 
 For locally resolved HTTP/SOCKS5 targets, this ten-second deadline includes
 DNS. Each family becomes usable as soon as its answer arrives. Target dialing

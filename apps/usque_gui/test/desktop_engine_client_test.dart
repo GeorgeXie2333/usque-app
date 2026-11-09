@@ -74,6 +74,7 @@ const List<int> _goldenProfileBytes = <int>[
   0x01,
   0x00, // routing {} (field 25 present even when explicitly clearing rules)
   0xd0, 0x01, 0x03, // tls_fingerprint CHROME155 (appended field 26)
+  0xd8, 0x01, 0x01, // optional masque_connections 1 (appended field 27)
   0x8a, 0x01, 0x02, // direct_dns { (field 17, 2 bytes)
   0x08, 0x01, //   mode PHYSICAL_SYSTEM
   // }

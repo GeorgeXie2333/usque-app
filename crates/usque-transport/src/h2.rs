@@ -501,6 +501,9 @@ pub struct H2Driver {
 }
 
 impl H2Driver {
+    pub(crate) fn abort_handle(&self) -> tokio::task::AbortHandle {
+        self.task.as_ref().expect("driver is owned").abort_handle()
+    }
     pub async fn wait(mut self) -> Result<(), TransportError> {
         let task = self
             .task

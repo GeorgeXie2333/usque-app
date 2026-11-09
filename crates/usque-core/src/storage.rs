@@ -562,6 +562,12 @@ fn migrate_app_config(config: &mut AppConfig) {
         // loading the configurations that predate this feature.
         config.schema_version = 27;
     }
+    if config.schema_version < 28 {
+        // Versions before schema 28 had no user-selected connection count.
+        // Apply the current default; preserve explicit counts in newer schemas.
+        config.network.masque_connections = crate::config::default_masque_connections();
+        config.schema_version = 28;
+    }
 }
 
 #[cfg(not(windows))]

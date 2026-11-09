@@ -112,6 +112,7 @@ mod startup_admission_tests {
 }
 
 pub(crate) struct L4Actor {
+    pub(crate) connections: u8,
     #[cfg(test)]
     pub(crate) test_options: super::test_options::TestOptions,
     pub(crate) session_slot: Option<Arc<tokio::sync::OwnedSemaphorePermit>>,
@@ -170,6 +171,7 @@ impl L4Actor {
         let pool = ReceivePool::shared(&budget);
         let receive_waiter = BudgetWaiter::new(&budget, Some(wake.clone()));
         Self {
+            connections: 1,
             #[cfg(test)]
             test_options: super::test_options::TestOptions::default(),
             session_slot: None,

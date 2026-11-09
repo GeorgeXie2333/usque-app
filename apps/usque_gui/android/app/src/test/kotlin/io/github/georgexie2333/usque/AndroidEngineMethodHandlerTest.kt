@@ -19,6 +19,43 @@ import java.util.concurrent.TimeUnit
 
 class AndroidEngineMethodHandlerTest {
     @Test
+    fun fullNativeCapabilitiesReachFlutterWithoutEnablingUnknownFieldsOrStartingVpn() {
+        engineBridge.capabilitiesJson = expandedNativeCapabilities()
+        val result = RecordingResult()
+        handler.handle(MethodCall("getCapabilities", null), result)
+        val capabilities = result.successValue as Map<*, *>
+        assertEquals(listOf("cubic", "reno", "bbr", "bbr3"), capabilities["h3_congestion_control_algorithms"])
+        assertEquals(listOf("default", "chrome155"), capabilities["tls_fingerprints"])
+        assertEquals(6, capabilities["max_masque_connections"])
+        for (key in listOf("l4_masque_connections", "connection_scenarios", "network_settings_application")) {
+            assertEquals(true, capabilities[key])
+        }
+        assertFalse(capabilities.containsKey("future_capability"))
+        assertEquals(1, result.completionCount)
+        assertEquals(0, activityCommands.connectCount)
+        assertTrue(endpoint.whats.isEmpty())
+        assertTrue(engineBridge.commands.isEmpty())
+    }
+
+    @Test
+    fun legacyAndInvalidNativeCapabilityDocumentsCannotEnableTheNewControls() {
+        for (native in listOf(
+            null,
+            "{}",
+            "invalid",
+            """{"max_masque_connections":"6","l4_masque_connections":"true"}""",
+        )) {
+            engineBridge.capabilitiesJson = native
+            val result = RecordingResult()
+            handler.handle(MethodCall("getCapabilities", null), result)
+            val capabilities = result.successValue as Map<*, *>
+            assertEquals(0, capabilities["max_masque_connections"])
+            assertEquals(false, capabilities["l4_masque_connections"])
+            assertEquals(emptyList<String>(), capabilities["h3_congestion_control_algorithms"])
+        }
+    }
+
+    @Test
     fun protonServerSwitchingCapabilityReachesFlutterOnlyWithExplicitNativeSupport() {
         val cases =
             listOf(

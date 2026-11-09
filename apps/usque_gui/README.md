@@ -10,6 +10,16 @@ Desktop builds start the Rust sidecar and talk to it over current-user IPC. Andr
 
 Build and test commands are in [CONTRIBUTING.md](../../CONTRIBUTING.md). Feature status is in [docs/IMPLEMENTATION.md](../../docs/IMPLEMENTATION.md).
 
+Advanced network settings includes **MASQUE connections**, a manually entered
+integer from 1 to 16 (default 3) for HTTP/2/HTTP/3 CONNECT-IP and L4 TCP CONNECT.
+Applying a changed count reconnects through the normal settings transaction.
+Older native components keep unsupported settings read-only; L4 support is
+advertised separately. See [network settings](../../docs/NETWORK_SETTINGS.md#parallel-masque-connections).
+
+高级网络设置中的 **MASQUE 连接数** 可手动填写 1–16，默认 3。HTTP/2、HTTP/3
+CONNECT-IP 和 L4 TCP CONNECT 均支持；应用修改后按正常设置事务重新连接。
+不支持此项的旧版本中只读，L4 能力独立检查。
+
 ## Localization
 
 Keep all 21 catalogs complete when adding interface copy. Proton uses its own

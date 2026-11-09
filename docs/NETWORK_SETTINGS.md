@@ -4,6 +4,73 @@ Settings can be saved without changing the current connection. The API reports
 saving and application separately, so the GUI can show whether a change is saved,
 active, waiting for a later connection, or awaiting confirmation.
 
+## Parallel MASQUE connections
+
+Open **Advanced network settings → MASQUE connections**, enter **1–16** (default
+**3**), then **Apply changes**. Changing the count uses the existing reconnect
+transaction. Reset stages `3` in the draft. This is a shared advanced setting;
+changing accounts or applying a scene retains it. HTTP/2/HTTP/3 CONNECT-IP and
+L4 TCP CONNECT use the same count.
+Older native components without the capability leave the input read-only and
+ask the user to update Usque.
+
+Each HTTP/2 or HTTP/3 CONNECT-IP member has its own outer connection and
+congestion state. Auto selects the first member's transport and builds all
+remaining members with that transport. The complete set must connect before
+startup succeeds. A member failure closes the set and the supervisor reconnects
+it; H3 recovery probes also build a complete set. Physical network changes
+replace the set together rather than migrating only one member.
+
+A shared packet stack hashes each TCP/UDP flow (or ICMP identifier) to one
+member. It does not stripe a single flow. First-fragment associations keep later
+IPv4/IPv6 fragments on the same member; unknown or expired fragments are dropped.
+The fragment table is bounded to 1,024 entries with a 60-second lifetime.
+Receive paths merge into a bounded batch queue. IPv4/IPv6 availability is the
+intersection of member permissions, and H3 packet size uses the smallest member
+budget. Traffic counters cover the set; RTT, loss and transport-quality details
+describe the primary member. Increasing the count can increase memory and socket
+use; throughput depends on concurrent flows and the network.
+
+L4 builds the requested number of independent HTTP/3 sessions before initial
+startup succeeds. New TCP CONNECT streams rotate across available members and
+remain owned by their selected member. Global stream, pending-dial and application
+buffer budgets do not grow with the count. QUIC receive windows are divided by
+`count + 1` before advertisement, reserving one slot for a draining/replacement
+session. GOAWAY preserves accepted streams for the existing bounded drain period;
+member failure replaces that member without replaying data or closing healthy
+streams. A pool generation stays stable during partial replacement and changes
+after all admitting members are lost. Recovery can serve new flows through the
+remaining ready members while rebuilding the requested count. A physical network
+change replaces all members together when the count is greater than one; count
+one retains the existing H3 migration behavior. Quality and UDP socket observations
+describe one representative active member; traffic and application counters cover
+the pool.
+
+Schema 28 adds `masque_connections` to shared settings. Configurations from
+versions before schema 28 migrate to `3`; schema 28 retains saved counts, including
+an explicitly saved `1`. Missing JSON fields also default to `3`. Core validation
+rejects values outside `1–16`. Profile protobuf field 27 is optional, so absent
+means `3` and explicit `0` is rejected. Capability field 56 advertises
+`max_masque_connections = 16`; capability field 57, `l4_masque_connections`, separately
+gates L4 editing. Older native components that advertise a lower maximum retain
+that limit in the input and its help text. Missing capabilities mean unsupported.
+Android JSON uses the same names and validation. No packet addresses, flow keys or credentials
+are added to logs. Socket protection, endpoint authorization and native cleanup
+remain owned by the existing platform interfaces.
+Windows bounds automatic/preset MASQUE endpoint permits at four times the maximum
+connection count (64), accommodating pools and bounded recovery/racing work.
+Permits remain scoped to exact authorized endpoints, operations and network
+generations, with reference-counted release and the existing global target cap.
+
+打开 **高级网络设置 → MASQUE 连接数**，填写 **1–16**（默认 **3**），点击
+**应用修改** 后，连接数变化会通过现有事务重新连接。重置只将 `3` 放入草稿。
+不支持自定义连接数的旧版本升级后默认使用 `3`，已支持该设置的版本保留用户保存的值。
+此项是全局高级设置，切换账号或应用场景会保留它。不同流可分配到
+不同连接，同一条流及其分片固定使用同一连接。任一成员失败会关闭整组并由现有监督器
+重连。并行数增加会使用更多内存和套接字，实际吞吐取决于并发流和网络条件。
+L4 使用同一连接数配置，按新 TCP 流轮流分配；成员失败时只补建该成员，健康流继续
+使用原连接。总应用缓冲和流数量上限保持不变，并预留一个排空／替换会话名额。
+
 ## Unconfirmed settings / 设置结果未确认
 
 “Unable to confirm whether network settings have taken effect” concerns local

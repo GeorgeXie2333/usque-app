@@ -6,6 +6,8 @@ mod budget_wait;
 mod client;
 #[cfg(test)]
 mod client_tests;
+#[cfg(test)]
+mod parallel_tests;
 pub(crate) mod performance;
 mod pool;
 #[cfg(test)]
@@ -118,13 +120,31 @@ impl Limits {
         }
     }
 
+    pub(crate) fn connection_share(self, connections: u8) -> Self {
+        assert!((1..=usque_core::MAX_MASQUE_CONNECTIONS).contains(&connections));
+        // Keep one extra slot for GOAWAY draining/replacement. Credit already
+        // advertised on a healthy connection cannot be revoked later.
+        let maximum_connection = self.maximum_connection / (u64::from(connections) + 1);
+        Self {
+            initial_connection: self.initial_connection.min(maximum_connection),
+            maximum_connection,
+            initial_stream: self.initial_stream.min(maximum_connection),
+            maximum_stream: self.maximum_stream.min(maximum_connection),
+            ..self
+        }
+    }
+
+    #[cfg(test)]
     pub(crate) fn configure(self, config: &mut quiche::Config) {
-        // Reserve half for a replacement/draining connection. Advertised
-        // credit cannot be revoked when a second session is established.
-        config.set_initial_max_data(self.initial_connection);
-        config.set_max_connection_window(self.maximum_connection / 2);
-        config.set_initial_max_stream_data_bidi_local(self.initial_stream);
-        config.set_max_stream_window(self.maximum_stream.min(self.maximum_connection / 2));
+        self.configure_connections(config, 1);
+    }
+
+    pub(crate) fn configure_connections(self, config: &mut quiche::Config, connections: u8) {
+        let share = self.connection_share(connections);
+        config.set_initial_max_data(share.initial_connection);
+        config.set_max_connection_window(share.maximum_connection);
+        config.set_initial_max_stream_data_bidi_local(share.initial_stream);
+        config.set_max_stream_window(share.maximum_stream);
         // Client-created CONNECT streams are limited by the SERVER, not this.
         config.set_initial_max_streams_bidi(0);
         config.enable_dgram(false, 0, 0);
@@ -147,6 +167,17 @@ mod contracts {
                 (active, pending, buffers << 20)
             );
             assert!(limits.initial_connection * 2 <= limits.maximum_connection);
+            for connections in 1..=usque_core::MAX_MASQUE_CONNECTIONS {
+                let share = limits.connection_share(connections);
+                let slots = u64::from(connections) + 1;
+                assert!(share.maximum_connection * slots <= limits.maximum_connection);
+                assert!(share.initial_connection <= share.maximum_connection);
+                assert!(share.initial_stream <= share.maximum_stream);
+                assert!(share.maximum_stream <= share.maximum_connection);
+                assert_eq!(share.buffers, limits.buffers);
+                assert_eq!(share.active, limits.active);
+                assert_eq!(share.pending, limits.pending);
+            }
         }
         for error in [
             crate::TransportError::TunnelClosed,

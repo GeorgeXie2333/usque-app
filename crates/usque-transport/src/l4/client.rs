@@ -13,6 +13,7 @@ use usque_core::{AddressFamily, IpPolicy, Profile, Transport};
 
 use super::stream::{Flow, FlowState};
 use super::{BufferBudget, L4Actor, L4Metrics, Limits, OpenRequest, SessionHandle};
+use crate::endpoint_race::RaceConnection;
 use crate::h2::{MasqueTlsIdentity, TransportError};
 use crate::h3::{H3ConnectSettings, H3MigrationResult, H3Tunnel};
 use crate::netstack::{RuntimeHealth, RuntimePath, TrafficCounters};
@@ -127,6 +128,29 @@ struct Session {
     generation: Option<u64>,
 }
 
+impl Session {
+    fn admitting(&self) -> bool {
+        !self.handle.closed.load(Ordering::Acquire) && !self.handle.draining.load(Ordering::Acquire)
+    }
+}
+
+fn next_session_index(sessions: &[Session], cursor: &mut usize) -> Option<usize> {
+    for offset in 0..sessions.len() {
+        let index = (*cursor + offset) % sessions.len();
+        if sessions[index].admitting() {
+            *cursor = (index + 1) % sessions.len();
+            return Some(index);
+        }
+    }
+    None
+}
+
+async fn stop_sessions(sessions: &mut Vec<Session>) {
+    for session in sessions.drain(..) {
+        session.shutdown().await;
+    }
+}
+
 #[async_trait]
 impl crate::endpoint_race::RaceConnection for Session {
     async fn shutdown(self) {
@@ -184,7 +208,13 @@ impl L4Client {
         if identity.provider.is_none() {
             return Err(TransportError::InvalidIdentity);
         }
+        if !(1..=usque_core::MAX_MASQUE_CONNECTIONS).contains(&profile.masque_connections) {
+            return Err(TransportError::Netstack(
+                "MASQUE connection count must be 1–16".into(),
+            ));
+        }
         let limits = Limits::platform();
+        let session_slots = usize::from(profile.masque_connections) + 1;
         let epoch = Arc::new(AtomicU64::new(0));
         let cancellation = parent.child_token();
         let changed = Arc::new(Notify::new());
@@ -234,7 +264,7 @@ impl L4Client {
             requests: rx,
             active: Arc::new(Semaphore::new(limits.active)),
             dns: Arc::new(Semaphore::new(super::DNS_OPERATIONS)),
-            slots: Arc::new(Semaphore::new(2)),
+            slots: Arc::new(Semaphore::new(session_slots)),
             startup_slots: Arc::new(Semaphore::new(8)),
             startup: Some(startup_tx),
         };
@@ -330,24 +360,30 @@ impl Supervisor {
         let mut reconnects = 0u32;
         let mut pin_refreshed = false;
         let mut pin_retry_pending = false;
+        let requested = usize::from(self.profile.masque_connections);
+        let mut session_sequence = 0u64;
+        let mut next_member = 0usize;
         loop {
             budget_waiter.disarm();
             let lost_main = sessions.iter().any(|s| {
                 s.handle.closed.load(Ordering::Acquire)
                     && !s.handle.draining.load(Ordering::Acquire)
             });
-            sessions.retain(|s| !s.handle.closed.load(Ordering::Acquire));
+            let mut index = 0;
+            while index < sessions.len() {
+                if sessions[index].handle.closed.load(Ordering::Acquire) {
+                    sessions.remove(index).shutdown().await;
+                } else {
+                    index += 1;
+                }
+            }
             if lost_main {
+                if self.startup.is_some() && !self.telemetry.continuous_connection() {
+                    self.fail(TransportError::TunnelClosed, reconnects);
+                    break;
+                }
                 next_connect = Instant::now();
                 retry = retry.saturating_add(1);
-                let last_path = self.health.borrow().path();
-                self.health.send_replace(RuntimeHealth::Reconnecting {
-                    last_path,
-                    attempt: retry as u32,
-                    reconnect_count: reconnects,
-                    reason: "L4 session reconnecting".to_owned(),
-                    failure: super::failure(&TransportError::TunnelClosed),
-                });
             }
             let observed = self.protector.network_generation();
             if observed != generation {
@@ -365,7 +401,8 @@ impl Supervisor {
                     .position(|s| !s.handle.draining.load(Ordering::Acquire))
                 {
                     let handle = sessions[index].tunnel.migration_handle();
-                    if let Some(target) = observed
+                    if requested == 1
+                        && let Some(target) = observed
                         && handle.enabled()
                         && self.profile.endpoint.preset_region.is_none()
                         && self.protector.endpoint_family_available(handle.endpoint())
@@ -375,13 +412,15 @@ impl Supervisor {
                             handle.start_migration(target),
                         )));
                     } else {
-                        sessions.clear();
+                        stop_sessions(&mut sessions).await;
                     }
+                } else {
+                    stop_sessions(&mut sessions).await;
                 }
             }
-            let main = sessions
-                .iter()
-                .position(|s| !s.handle.draining.load(Ordering::Acquire));
+            let main = sessions.iter().position(Session::admitting);
+            let active_count = sessions.iter().filter(|s| s.admitting()).count();
+            let ready = self.startup.is_none();
             if main.is_none() {
                 let path = self.health.borrow().path();
                 if matches!(*self.health.borrow(), RuntimeHealth::Connected { .. }) {
@@ -398,6 +437,23 @@ impl Supervisor {
                     .performance
                     .active_epoch
                     .store(0, Ordering::Release);
+            } else if let Some(index) = main
+                && ready
+            {
+                let session = &sessions[index];
+                if self
+                    .metrics
+                    .performance
+                    .active_epoch
+                    .swap(session.epoch, Ordering::AcqRel)
+                    != session.epoch
+                {
+                    session.tunnel.activate_network_quality();
+                    self.health.send_replace(RuntimeHealth::Connected {
+                        path: path_for(session.family),
+                        reconnect_count: reconnects,
+                    });
+                }
             }
             self.metrics.update(|m| {
                 m.sessions = sessions.len() as u32;
@@ -405,11 +461,12 @@ impl Supervisor {
                     .iter()
                     .filter(|s| s.handle.draining.load(Ordering::Acquire))
                     .count() as u32;
-                m.connect_verified =
-                    main.is_some_and(|i| sessions[i].handle.verified.load(Ordering::Acquire));
+                m.connect_verified = ready
+                    && sessions
+                        .iter()
+                        .any(|s| s.admitting() && s.handle.verified.load(Ordering::Acquire));
             });
-            if let Some(index) = main {
-                let session = &sessions[index];
+            if ready && main.is_some() {
                 let mut budget_waiting = false;
                 for _ in 0..queue.len() {
                     let Some(request) = queue.pop_front() else {
@@ -451,8 +508,13 @@ impl Supervisor {
                         queue.push_back(request);
                         continue;
                     };
+                    let Some(index) = next_session_index(&sessions, &mut next_member) else {
+                        queue.push_front(request);
+                        break;
+                    };
+                    let session = &sessions[index];
                     let flow = Arc::new(Flow {
-                        session_generation: session.epoch,
+                        session_generation: self.epoch.load(Ordering::Acquire),
                         state: Mutex::new(FlowState::default()),
                         target: request.target,
                         deadline: request.deadline,
@@ -475,11 +537,11 @@ impl Supervisor {
                     }
                 }
             }
-            // This is a bounded cold start or replacement, never a background
-            // CONNECT-IP probe. One draining connection leaves one slot.
-            if main.is_none()
+            // One setup at a time shares the existing eight-candidate startup
+            // budget. Live and draining sessions share requested + 1 slots.
+            if active_count < requested
                 && connecting.is_none()
-                && sessions.len() < 2
+                && sessions.len() < requested + 1
                 && Instant::now() >= next_connect
             {
                 connecting_cancel = self.cancellation.child_token();
@@ -511,21 +573,26 @@ impl Supervisor {
                     connecting.take();
                     match result {
                         Ok(session) if session.generation != self.protector.network_generation() => {
-                            drop(session);
+                            session.shutdown().await;
                             next_connect = Instant::now();
                         }
                         Ok(mut session) => {
                             pin_retry_pending = false;
                             if let Some(admission) = &session.handle.startup_admission { admission.promote(); }
-                            session.epoch = self.epoch.fetch_add(1, Ordering::AcqRel).wrapping_add(1);
+                            if !sessions.iter().any(Session::admitting) {
+                                self.epoch.fetch_add(1, Ordering::AcqRel);
+                            }
+                            session_sequence = session_sequence.checked_add(1).expect("L4 session sequence exhausted");
+                            session.epoch = session_sequence;
                             session.handle.epoch.store(session.epoch, Ordering::Release);
-                            self.metrics.performance.active_epoch.store(session.epoch, Ordering::Release);
-                            session.tunnel.activate_network_quality();
-                            let path = path_for(session.family);
                             sessions.push(session);
                             if self.startup.is_none() { reconnects = reconnects.saturating_add(1); }
-                            self.health.send_replace(RuntimeHealth::Connected { path, reconnect_count: reconnects });
-                            if let Some(startup) = self.startup.take() { let _ = startup.send(Ok(())); }
+                            if self.startup.is_none() || sessions.iter().filter(|s| s.admitting()).count() == requested {
+                                let primary = sessions.iter().find(|s| s.admitting()).expect("new member is active");
+                                let path = path_for(primary.family);
+                                self.health.send_replace(RuntimeHealth::Connected { path, reconnect_count: reconnects });
+                                if let Some(startup) = self.startup.take() { let _ = startup.send(Ok(())); }
+                            }
                         }
                         Err(TransportError::EndpointPinMismatch) if !pin_refreshed && self.pin_refresher.is_some() => {
                             pin_refreshed = true;
@@ -561,8 +628,10 @@ impl Supervisor {
                             }
                             next_connect = Instant::now() + usque_core::recovery::RETRY_INTERVAL;
                             retry = retry.saturating_add(1);
-                            let last_path = self.health.borrow().path();
-                            self.health.send_replace(if self.startup.is_some() { RuntimeHealth::Connecting { requested: last_path, attempt: retry as u32 } } else { RuntimeHealth::Reconnecting { last_path, attempt: retry as u32, reconnect_count: reconnects, reason: "L4 session reconnecting".to_owned(), failure } });
+                            if !sessions.iter().any(Session::admitting) {
+                                let last_path = self.health.borrow().path();
+                                self.health.send_replace(if self.startup.is_some() { RuntimeHealth::Connecting { requested: last_path, attempt: retry as u32 } } else { RuntimeHealth::Reconnecting { last_path, attempt: retry as u32, reconnect_count: reconnects, reason: "L4 session reconnecting".to_owned(), failure } });
+                            }
                         }
                     }
                 }
@@ -570,7 +639,7 @@ impl Supervisor {
                     migration.take();
                     match result {
                         H3MigrationResult::Promoted { .. } => self.metrics.update(|m| m.migration_preserved_flows += u64::from(m.active_flows)),
-                        _ => { sessions.clear(); next_connect = Instant::now(); }
+                        _ => { stop_sessions(&mut sessions).await; next_connect = Instant::now(); }
                     }
                 }
                 _ = self.changed.notified() => {
@@ -580,7 +649,7 @@ impl Supervisor {
                 _ = tick.tick() => {
                     queue.retain(|r| !r.reply.is_closed() && !r.cancellation.is_cancelled());
                 },
-                _ = sleep_until(next_connect), if main.is_none() && connecting.is_none() && next_connect > Instant::now() => {},
+                _ = sleep_until(next_connect), if active_count < requested && connecting.is_none() && next_connect > Instant::now() => {},
             }
         }
         self.cancellation.cancel();
@@ -595,7 +664,7 @@ impl Supervisor {
             .active_epoch
             .store(0, Ordering::Release);
         drop(migration);
-        drop(sessions);
+        stop_sessions(&mut sessions).await;
         for request in queue {
             let _ = request.reply.send(Err(DialError::Closed));
         }
@@ -822,9 +891,11 @@ impl Setup {
             self.metrics.clone(),
             self.changed.clone(),
         );
+        actor.connections = self.profile.masque_connections;
         actor.session_slot = Some(slot);
         if self.profile.endpoint.selection == usque_core::EndpointSelection::Automatic
             || self.profile.endpoint.preset_region.is_some()
+            || self.profile.masque_connections > 1
         {
             actor.limit_startup(startup_slot);
         } else {

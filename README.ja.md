@@ -245,6 +245,7 @@ VPN、SOCKS5、HTTP は既定で有効、システムプロキシは無効です
 | ポート / SNI | `443` / `speed.cloudflare.com` |
 | トランスポート | 自動: HTTP/3、次に HTTP/2 |
 | HTTP/3 輻輳制御 | `cubic`。BBRv2、実験的な BBRv3、`reno` も選択可能 |
+| MASQUE 接続数 | `3`。HTTP/2 と HTTP/3 / L4 で `1–16` を手動入力可能 |
 | QUIC UDP 受信バッファ | Windows/Android の H3 と L4 で [2 MiB を目標](docs/UDP_RECEIVE_BUFFER.md)として要求。実際の容量は OS に依存 |
 | TUN MTU | `1280` |
 | フォールバック DNS | `1.1.1.1`、`2606:4700:4700::1111` |
@@ -259,6 +260,8 @@ VPN、SOCKS5、HTTP は既定で有効、システムプロキシは無効です
 プロキシのアドレスとポートの編集は、変更を適用するまで下書きです。プロキシ DNS は既定で現在の出口を使用します。高度な設定で [WARP DNS](docs/WARP_DNS.md)、またはチェーン設定で最終出口の DNS を設定します。プロキシ画面に DNS の設定項目はありません。旧バージョンで保存したプロキシ DNS の設定は引き続き有効です。
 
 高度な設定のリセットは既定値を下書きに読み込むだけで、即座には適用しません。
+
+**高度なネットワーク設定 → MASQUE 接続数** に **1～16**（既定値 **3**）を入力し、**変更を適用** します。接続数を変更すると再接続します。異なるフローを複数の MASQUE 接続に分散し、各フローは同じ接続を使い続けます。HTTP/2、HTTP/3 CONNECT-IP と L4（HTTP/3 TCP CONNECT）に適用されます。[接続の動作](docs/NETWORK_SETTINGS.md#parallel-masque-connections)を参照してください。
 
 高度なネットワーク設定の自動選択は、アカウントで利用可能なエンドポイントへの接続を並行して試みます。カスタムでは手動のアドレスを維持します。ポートと SNI はどちらでも編集できます。[自動エンドポイント選択](docs/NETWORK_SETTINGS.md#automatic-endpoints--自动选择端点)を参照してください。
 
