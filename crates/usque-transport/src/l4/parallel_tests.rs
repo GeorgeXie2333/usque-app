@@ -158,7 +158,7 @@ async fn open(client: &L4Client, number: usize) -> TcpStream {
 #[tokio::test]
 async fn every_count_builds_one_pool_and_distributes_pinned_streams() {
     timeout(Duration::from_secs(30), async {
-        for count in 1..=6 {
+        for count in 1..=16 {
             let (mut identity, peer) = identities();
             identity.provider = Some(IdentityProvider::Consumer);
             let mut fixture = Fixture::start(peer, None).await;

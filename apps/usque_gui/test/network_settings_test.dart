@@ -166,6 +166,204 @@ void main() {
     },
   );
 
+  for (final receipt in [false, true]) {
+    testWidgets(
+      'durable ${receipt ? 'receipt' : 'event'} finishes save while preserving RPC order',
+      (tester) async {
+        final reply = Completer<NetworkSettingsState>();
+        final engine = SettingsEngine()..response = reply;
+        final controller = NetworkSettingsController(engine)..supported = true;
+        addTearDown(controller.dispose);
+        final profile = UsqueProfile.defaultProfile().copyWith(mtu: 1400);
+        bool? saved;
+        unawaited(
+          controller.save(profile, ['mtu']).then((value) => saved = value),
+        );
+        await tester.pump();
+        final operation = engine.submitted.single;
+        var drained = false;
+        unawaited(controller.flushed.then((_) => drained = true));
+        controller.accept(
+          NetworkSettingsState(
+            sourceEpoch: 'one',
+            sequence: 1,
+            operationId: receipt ? 'later-save' : operation,
+            persisted: true,
+            persistedOperationIds: receipt ? [operation] : const [],
+            sharedNetwork: profile,
+            status: NetworkSettingsApplyStatus.applying,
+          ),
+        );
+        await tester.pump();
+        expect(saved, isTrue);
+        expect(reply.isCompleted, isFalse);
+        expect(drained, isFalse);
+        expect(controller.state!.status, NetworkSettingsApplyStatus.applying);
+        final next = controller.save(profile.copyWith(mtu: 1300), ['mtu']);
+        await tester.pump();
+        expect(engine.submitted, hasLength(1));
+        engine.response = null;
+        reply.completeError(
+          const EngineException('ENGINE_REQUEST_TIMEOUT', 'late reply timeout'),
+        );
+        await tester.pump();
+        expect(await next, isTrue);
+        await controller.flushed;
+        expect(engine.submitted, hasLength(2));
+        expect(engine.queries, 0);
+        expect(controller.saveError, isNull);
+        expect(controller.unconfirmed, isFalse);
+      },
+    );
+  }
+
+  testWidgets(
+    'only an authoritative matching receipt can finish a pending save',
+    (tester) async {
+      final reply = Completer<NetworkSettingsState>();
+      final engine = SettingsEngine()..response = reply;
+      final controller = NetworkSettingsController(engine)..supported = true;
+      addTearDown(controller.dispose);
+      controller.accept(
+        const NetworkSettingsState(sourceEpoch: 'retired', sequence: 1),
+      );
+      controller.accept(
+        const NetworkSettingsState(sourceEpoch: 'current', sequence: 5),
+      );
+      bool? saved;
+      unawaited(
+        controller
+            .save(UsqueProfile.defaultProfile(), ['mtu'])
+            .then((value) => saved = value),
+      );
+      await tester.pump();
+      final operation = engine.submitted.single;
+      for (final state in [
+        NetworkSettingsState(
+          sourceEpoch: 'current',
+          sequence: 4,
+          operationId: operation,
+          persisted: true,
+        ),
+        NetworkSettingsState(
+          sourceEpoch: 'retired',
+          sequence: 10,
+          operationId: operation,
+          persisted: true,
+        ),
+        NetworkSettingsState(
+          sourceEpoch: 'current',
+          sequence: 6,
+          operationId: operation,
+        ),
+        const NetworkSettingsState(
+          sourceEpoch: 'current',
+          sequence: 7,
+          operationId: 'unrelated',
+          persisted: true,
+        ),
+        NetworkSettingsState(
+          sourceEpoch: 'current',
+          sequence: 8,
+          operationId: operation,
+          persisted: true,
+          runtimeObserved: false,
+        ),
+      ]) {
+        controller.accept(state);
+        await tester.pump();
+        expect(saved, isNull);
+      }
+      controller.accept(
+        NetworkSettingsState(
+          sourceEpoch: 'current',
+          sequence: 8,
+          operationId: operation,
+          persisted: true,
+          status: NetworkSettingsApplyStatus.applying,
+        ),
+      );
+      await tester.pump();
+      expect(saved, isTrue);
+      reply.completeError(
+        const EngineException('NETWORK_SETTINGS_SAVE_FAILED', 'late failure'),
+      );
+      await tester.pump();
+      await controller.flushed;
+      expect(controller.saveError, isNull);
+    },
+  );
+
+  testWidgets('advanced save spinner ends on durable event before RPC reply', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1280, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    SharedPreferences.setMockInitialValues({'update_checks_enabled': false});
+    final engine = SettingsEngine();
+    final app = AppController(engine);
+    await app.initialize();
+    addTearDown(app.dispose);
+    final reply = Completer<NetworkSettingsState>();
+    engine.response = reply;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: UsqueTheme.light(),
+        home: AdvancedSettingsScreen(controller: app),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final mtu = find.byWidgetPredicate(
+      (widget) =>
+          widget is TextField &&
+          widget.decoration?.labelText == app.strings.get('mtu'),
+    );
+    await tester.ensureVisible(mtu);
+    await tester.enterText(mtu, '1400');
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.widgetWithText(FilledButton, app.strings.get('save_changes')),
+    );
+    await tester.pump();
+    expect(
+      find.descendant(
+        of: find.byType(SaveChangesBar),
+        matching: find.byType(CircularProgressIndicator),
+      ),
+      findsOneWidget,
+    );
+    app.networkSettings.accept(
+      NetworkSettingsState(
+        sourceEpoch: engine.settingsEpoch,
+        sequence: 100,
+        operationId: engine.submitted.single,
+        persisted: true,
+        sharedNetwork: app.activeProfile.copyWith(mtu: 1400),
+        status: NetworkSettingsApplyStatus.applying,
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(reply.isCompleted, isFalse);
+    expect(
+      find.descendant(
+        of: find.byType(SaveChangesBar),
+        matching: find.byType(CircularProgressIndicator),
+      ),
+      findsNothing,
+    );
+    expect(tester.widget<TextField>(mtu).enabled, isTrue);
+    expect(app.activeProfile.mtu, 1400);
+    reply.completeError(
+      const EngineException('ENGINE_REQUEST_TIMEOUT', 'late timeout'),
+    );
+    await tester.pumpAndSettle();
+    await app.networkSettings.flushed;
+    expect(app.networkSettings.saveError, isNull);
+    expect(tester.takeException(), isNull);
+  });
+
   for (final restarted in [false, true]) {
     test(
       'own durable reply confirms a save after a newer observation: restarted=$restarted',

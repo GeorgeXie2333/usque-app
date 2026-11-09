@@ -460,7 +460,9 @@ async fn shared_session_serves_parallel_connects_socks_http_and_half_close_witho
             let endpoint = socket.local_addr().unwrap();
             let targets = Arc::new(Mutex::new(Vec::new()));
             let server = AbortOnDropHandle::new(tokio::spawn(server(socket, peer, expected_sni, targets.clone(), None)));
-            let mut profile = Profile { data_plane: DataPlaneMode::L4Proxy, transport: TransportPolicy::Http2, ip_policy: IpPolicy::Ipv4Only, ..Profile::default() };
+            // This peer intentionally supports one session; pool behavior has
+            // separate multi-session fixtures in parallel_tests.
+            let mut profile = Profile { data_plane: DataPlaneMode::L4Proxy, transport: TransportPolicy::Http2, ip_policy: IpPolicy::Ipv4Only, masque_connections: 1, ..Profile::default() };
             profile.endpoint.ipv4 = "127.0.0.1".parse().unwrap();
             profile.endpoint.selection = usque_core::EndpointSelection::Custom;
             profile.endpoint.port = endpoint.port();

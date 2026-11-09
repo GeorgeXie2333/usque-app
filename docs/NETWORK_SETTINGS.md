@@ -4,6 +4,30 @@ Settings can be saved without changing the current connection. The API reports
 saving and application separately, so the GUI can show whether a change is saved,
 active, waiting for a later connection, or awaiting confirmation.
 
+The apply button stops saving as soon as a live Engine reply or event durably
+acknowledges that operation, including a recent-operation receipt. An unrelated
+operation, stale event, stored-only read, or runtime application status cannot
+confirm the save. The original request still drains in submission order before
+later writes or queued connection operations proceed. A late reply cannot undo
+the acknowledged save or replace a newer settings snapshot. Runtime application
+continues to have its own status.
+
+GEO validation retains one immutable parsed classifier in memory. Every save
+still reads the selected rule files and compares SHA-256 content fingerprints,
+including country selection, file format, and optional/global catalog presence.
+Unchanged inputs reuse the classifier; changed inputs must parse successfully,
+and missing or unreadable required files still fail validation. Global GeoSite
+validation and country selection share one protobuf decode. Current DNS and
+profile checks run for every save. Configuration file locking, temporary-file
+synchronization, and atomic replacement remain required before acknowledgement.
+
+收到本次操作的持久化成功回复、事件或近期保存回执后，应用按钮立即结束保存提示；
+旧事件、其他操作、只读磁盘配置和运行时状态不能代替保存确认。原始请求仍按提交
+顺序收尾，后续写入和排队的连接操作继续等待它完成。实际应用设置有独立状态。
+GEO 校验在内存中保留一份已解析规则，每次保存仍读取规则并核对内容指纹；内容
+未变时复用，规则变化、损坏或缺失时重新校验或拒绝保存。当前 DNS 防绕过检查、
+配置锁、临时文件同步及原子替换保持不变。
+
 ## Parallel MASQUE connections
 
 Open **Advanced network settings → MASQUE connections**, enter **1–16** (default

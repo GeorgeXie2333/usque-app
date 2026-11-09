@@ -1,16 +1,16 @@
 use super::*;
 
 #[test]
-fn defaults_and_legacy_json_keep_one_connection() {
+fn defaults_and_missing_json_fields_use_three_connections() {
     let profile = Profile::default();
-    assert_eq!(profile.masque_connections, 1);
+    assert_eq!(profile.masque_connections, 3);
     let mut value = serde_json::to_value(&profile).unwrap();
     value.as_object_mut().unwrap().remove("masque_connections");
     assert_eq!(
         serde_json::from_value::<Profile>(value)
             .unwrap()
             .masque_connections,
-        1
+        3
     );
     let mut shared = serde_json::to_value(SharedNetworkSettings::default()).unwrap();
     shared.as_object_mut().unwrap().remove("masque_connections");
@@ -18,13 +18,14 @@ fn defaults_and_legacy_json_keep_one_connection() {
         serde_json::from_value::<SharedNetworkSettings>(shared)
             .unwrap()
             .masque_connections,
-        1
+        3
     );
 }
 
 #[test]
 fn range_shared_settings_and_scenes_preserve_the_count() {
-    for count in 1..=6 {
+    assert_eq!(MAX_MASQUE_CONNECTIONS, 16);
+    for count in 1..=16 {
         let profile = Profile {
             masque_connections: count,
             ..Default::default()
@@ -47,7 +48,7 @@ fn range_shared_settings_and_scenes_preserve_the_count() {
             .unwrap();
         assert_eq!(inherited.masque_connections, count);
     }
-    for count in [0, 7, 255] {
+    for count in [0, 17, 255] {
         let profile = Profile {
             masque_connections: count,
             ..Default::default()
@@ -75,17 +76,36 @@ fn editing_connection_count_requires_a_reconnect() {
 }
 
 #[test]
-fn schema_27_migration_preserves_the_single_connection_behavior() {
-    let temp = tempfile::tempdir().unwrap();
-    let path = temp.path().join("config.json");
-    let mut config = serde_json::to_value(AppConfig::default()).unwrap();
-    config["schema_version"] = 27.into();
-    config["network"]
-        .as_object_mut()
-        .unwrap()
-        .remove("masque_connections");
-    std::fs::write(&path, serde_json::to_vec(&config).unwrap()).unwrap();
-    let loaded = crate::storage::ConfigStore::new(&path).load().unwrap();
-    assert_eq!(loaded.schema_version, CURRENT_SCHEMA_VERSION);
-    assert_eq!(loaded.network.masque_connections, 1);
+fn migration_defaults_old_schemas_and_preserves_explicit_schema_28_counts() {
+    for (schema, count, expected) in [
+        (27, None, 3),
+        (27, Some(1), 3),
+        (28, None, 3),
+        (28, Some(1), 1),
+        (28, Some(16), 16),
+    ] {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("config.json");
+        let mut config = serde_json::to_value(AppConfig::default()).unwrap();
+        config["schema_version"] = schema.into();
+        match count {
+            Some(count) => config["network"]["masque_connections"] = count.into(),
+            None => {
+                config["network"]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("masque_connections");
+            }
+        }
+        std::fs::write(&path, serde_json::to_vec(&config).unwrap()).unwrap();
+        let store = crate::storage::ConfigStore::new(&path);
+        let loaded = store.load().unwrap();
+        assert_eq!(loaded.schema_version, CURRENT_SCHEMA_VERSION);
+        assert_eq!(
+            loaded.network.masque_connections, expected,
+            "schema {schema}, count {count:?}"
+        );
+        store.save(&loaded).unwrap();
+        assert_eq!(store.load().unwrap().network.masque_connections, expected);
+    }
 }

@@ -54,6 +54,20 @@ impl GeoSiteSet {
         countries: &[CountryCode],
     ) -> Result<BTreeMap<CountryCode, Self>, GeoError> {
         let list = GeoSiteList::decode(bytes).map_err(|_| GeoError::InvalidGeoSite)?;
+        Ok(Self::from_decoded(list, countries))
+    }
+
+    /// Validate and select from the same decode of the global catalog.
+    pub(crate) fn from_validated_v2ray_dat_many(
+        bytes: &[u8],
+        countries: &[CountryCode],
+    ) -> Result<BTreeMap<CountryCode, Self>, GeoError> {
+        let list = GeoSiteList::decode(bytes).map_err(|_| GeoError::InvalidGeoSite)?;
+        Self::validate_decoded(&list)?;
+        Ok(Self::from_decoded(list, countries))
+    }
+
+    fn from_decoded(list: GeoSiteList, countries: &[CountryCode]) -> BTreeMap<CountryCode, Self> {
         let mut sets = countries
             .iter()
             .cloned()
@@ -69,12 +83,16 @@ impl GeoSiteSet {
             }
         }
         sets.retain(|_, set| set.has_rules());
-        Ok(sets)
+        sets
     }
 
     /// Validates the global v2fly catalog without selecting a country.
     pub fn validate_v2ray_dat(bytes: &[u8]) -> Result<(), GeoError> {
         let list = GeoSiteList::decode(bytes).map_err(|_| GeoError::InvalidGeoSite)?;
+        Self::validate_decoded(&list)
+    }
+
+    fn validate_decoded(list: &GeoSiteList) -> Result<(), GeoError> {
         if list.entry.iter().any(|entry| {
             !entry.country_code.trim().is_empty()
                 && entry.domain.iter().any(|domain| {

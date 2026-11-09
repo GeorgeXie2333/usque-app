@@ -14,7 +14,7 @@ import 'ui_workflow_test.dart' show workflowHost;
 
 void main() {
   test('count persists through JSON, optional protobuf and reset', () {
-    for (var count = 1; count <= 6; count++) {
+    for (var count = 1; count <= 16; count++) {
       final profile = UsqueProfile.defaultProfile().copyWith(
         masqueConnections: count,
       );
@@ -23,19 +23,19 @@ void main() {
         decodeProfile(codec.encodeProfile(profile)).masqueConnections,
         count,
       );
-      expect(profile.resetAdvancedDefaults().masqueConnections, 1);
+      expect(profile.resetAdvancedDefaults().masqueConnections, 3);
     }
     final legacy = UsqueProfile.defaultProfile().toMap()
       ..remove('masque_connections');
-    expect(UsqueProfile.fromMap(legacy).masqueConnections, 1);
-    expect(decodeProfile(Uint8List(0)).masqueConnections, 1);
-    for (final value in [0, 7, -1, 1.5, '2', null]) {
+    expect(UsqueProfile.fromMap(legacy).masqueConnections, 3);
+    expect(decodeProfile(Uint8List(0)).masqueConnections, 3);
+    for (final value in [0, 17, -1, 1.5, '2', null]) {
       expect(
         () => UsqueProfile.fromMap({...legacy, 'masque_connections': value}),
         throwsFormatException,
       );
     }
-    for (final value in [0, 7]) {
+    for (final value in [0, 17]) {
       expect(
         () => decodeProfile(
           (ControlPayloadWriter()..optionalUnsigned(27, value)).takeBytes(),
@@ -95,6 +95,7 @@ void main() {
     bool l4Supported = true,
     bool h2 = false,
     double scale = 1,
+    int maximum = 16,
   }) async {
     tester.view.physicalSize = const Size(430, 1000);
     tester.view.devicePixelRatio = 1;
@@ -109,7 +110,7 @@ void main() {
         l4TunTcp: true,
         l4DnsConversion: true,
         tlsFingerprints: TlsFingerprint.values,
-        maxMasqueConnections: supported ? 6 : 0,
+        maxMasqueConnections: supported ? maximum : 0,
         l4MasqueConnections: supported && l4Supported,
       );
     await app.networkSettings.refresh();
@@ -135,21 +136,39 @@ void main() {
     tester,
   ) async {
     final app = await screen(tester);
-    expect(tester.widget<TextFormField>(field()).controller!.text, '1');
-    for (final invalid in ['0', '7', '10', '']) {
+    expect(tester.widget<TextFormField>(field()).controller!.text, '3');
+    for (final invalid in ['0', '17', '100', '']) {
       await tester.enterText(field(), invalid);
       await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(FilledButton, 'Apply changes'));
       await tester.pumpAndSettle();
-      expect(find.text('1–6'), findsOneWidget);
-      expect(app.sharedNetwork.masqueConnections, 1);
+      expect(find.text('1–16'), findsOneWidget);
+      expect(app.sharedNetwork.masqueConnections, 3);
     }
+    for (final count in [1, 7, 16]) {
+      await tester.enterText(field(), '$count');
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Apply changes'));
+      await tester.pumpAndSettle();
+      expect(app.sharedNetwork.masqueConnections, count);
+      expect(app.networkSettings.state?.deferredFields, ['masque_connections']);
+    }
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a lower advertised maximum remains enforced', (tester) async {
+    final app = await screen(tester, maximum: 6);
+    await tester.enterText(field(), '7');
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Apply changes'));
+    await tester.pumpAndSettle();
+    expect(find.text('1–6'), findsOneWidget);
+    expect(app.sharedNetwork.masqueConnections, 3);
     await tester.enterText(field(), '6');
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(FilledButton, 'Apply changes'));
     await tester.pumpAndSettle();
     expect(app.sharedNetwork.masqueConnections, 6);
-    expect(app.networkSettings.state?.deferredFields, ['masque_connections']);
     expect(tester.takeException(), isNull);
   });
 

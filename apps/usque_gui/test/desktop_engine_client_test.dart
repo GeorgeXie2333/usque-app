@@ -19,6 +19,7 @@ const UsqueProfile _goldenProfile = UsqueProfile(
   endpointPort: 1,
   sni: 'c',
   mtu: 1280,
+  masqueConnections: 3,
   dnsIpv4: 'd',
   dnsIpv6: 'e',
   killSwitch: true,
@@ -74,7 +75,7 @@ const List<int> _goldenProfileBytes = <int>[
   0x01,
   0x00, // routing {} (field 25 present even when explicitly clearing rules)
   0xd0, 0x01, 0x03, // tls_fingerprint CHROME155 (appended field 26)
-  0xd8, 0x01, 0x01, // optional masque_connections 1 (appended field 27)
+  0xd8, 0x01, 0x03, // optional masque_connections 3 (appended field 27)
   0x8a, 0x01, 0x02, // direct_dns { (field 17, 2 bytes)
   0x08, 0x01, //   mode PHYSICAL_SYSTEM
   // }

@@ -182,7 +182,7 @@ class FakeEngineClient
   Future<EngineCapabilities?> getCapabilities() async =>
       const EngineCapabilities(
         networkSettingsApplication: true,
-        maxMasqueConnections: 6,
+        maxMasqueConnections: 16,
         l4MasqueConnections: true,
         tlsFingerprints: TlsFingerprint.values,
         automaticEndpoints: true,

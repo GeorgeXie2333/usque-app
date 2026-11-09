@@ -5658,8 +5658,8 @@ mod masque_connections_tests {
     use super::*;
 
     #[test]
-    fn counts_round_trip_and_missing_optional_field_means_one() {
-        for count in 1..=6 {
+    fn counts_round_trip_and_missing_optional_field_means_three() {
+        for count in 1..=16 {
             let profile = Profile {
                 masque_connections: count,
                 ..Default::default()
@@ -5673,13 +5673,13 @@ mod masque_connections_tests {
         }
         let mut legacy = profile_to_proto(&Profile::default());
         legacy.masque_connections = None;
-        assert_eq!(profile_from_proto(legacy).unwrap().masque_connections, 1);
-        for count in [0, 7, 256, u32::MAX] {
+        assert_eq!(profile_from_proto(legacy).unwrap().masque_connections, 3);
+        for count in [0, 17, 256, u32::MAX] {
             let mut invalid = profile_to_proto(&Profile::default());
             invalid.masque_connections = Some(count);
             assert!(profile_from_proto(invalid).is_err());
         }
-        assert_eq!(current_capabilities().max_masque_connections, 6);
+        assert_eq!(current_capabilities().max_masque_connections, 16);
         assert!(current_capabilities().l4_masque_connections);
     }
 }

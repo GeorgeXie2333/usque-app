@@ -353,7 +353,7 @@ void main() {
           endpointPresets: true,
           h3CongestionControlAlgorithms: CongestionControlAlgorithm.values,
           tlsFingerprints: TlsFingerprint.values,
-          maxMasqueConnections: 6,
+          maxMasqueConnections: 16,
         );
       app.profileIdentityStatuses = {
         UsqueProfile.defaultProfileId: const ProfileIdentityStatus(
@@ -1293,7 +1293,7 @@ void main() {
           automaticEndpoints: true,
           h3CongestionControlAlgorithms: CongestionControlAlgorithm.values,
           tlsFingerprints: TlsFingerprint.values,
-          maxMasqueConnections: 6,
+          maxMasqueConnections: 16,
         )
         ..snapshot = const EngineSnapshot(
           // The TLS profile is also pending until the next connection.
@@ -1369,7 +1369,7 @@ void main() {
           l4DnsConversion: true,
           h3CongestionControlAlgorithms: CongestionControlAlgorithm.values,
           tlsFingerprints: TlsFingerprint.values,
-          maxMasqueConnections: 6,
+          maxMasqueConnections: 16,
           l4MasqueConnections: true,
         );
       app.sharedNetwork = app.sharedNetwork.copyWith(
