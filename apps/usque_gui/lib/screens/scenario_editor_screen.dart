@@ -17,7 +17,11 @@ import '../widgets/tv_text_input.dart';
 import '../widgets/unsaved_changes_guard.dart';
 import 'chain_proxy_screen.dart';
 import 'profiles_hub_screen.dart'
-    show previewAndUseScenario, scenarioExitNames, scenarioValueLabel;
+    show
+        previewAndUseScenario,
+        scenarioEndpointLabel,
+        scenarioExitNames,
+        scenarioValueLabel;
 import 'profiles_screen.dart' show ScenarioAccountPicker;
 
 class ScenarioEditorScreen extends StatefulWidget {
@@ -83,7 +87,7 @@ class _ScenarioEditorScreenState extends State<ScenarioEditorScreen> {
         : binding;
     _draft = settings.toProfile(_accountBase);
     _endpointAccountId = _accountBase.id;
-    _name = TextEditingController(text: widget.scene?.name ?? '');
+    _name = TextEditingController(text: widget.scene?.name ?? _suggestName());
     _dirty = _savedScene == null;
     unawaited(_refreshExitNames());
   }
@@ -95,6 +99,25 @@ class _ScenarioEditorScreenState extends State<ScenarioEditorScreen> {
     _leasedGate = null;
     unawaited(_releaseGate(gate));
     super.dispose();
+  }
+
+  /// A starting name for a new scene from what sets it apart, numbered when
+  /// the library already uses it. It is only a suggestion to type over.
+  String _suggestName() {
+    final strings = app.strings;
+    final exit = _draft.chainEnabled
+        ? strings.chainSourceLabel(_draft.chainSource)
+        : 'WARP';
+    final base = '$exit · ${scenarioEndpointLabel(strings, _draft)}';
+    final taken = {
+      for (final scene in app.scenarios.catalog?.scenarios ?? const [])
+        scene.name,
+    };
+    var name = base;
+    for (var n = 2; taken.contains(name); n++) {
+      name = '$base $n';
+    }
+    return name.runes.length > 64 ? '' : name;
   }
 
   Future<void> _releaseGate(ScenarioGateLease? gate) =>

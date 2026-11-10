@@ -749,7 +749,6 @@ class _ManagedAccountRow extends StatelessWidget {
       selected: selected,
       container: true,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
         decoration: BoxDecoration(
           color: selected
               ? theme.colorScheme.primary.withValues(alpha: tokens.tint * 0.55)
@@ -761,86 +760,78 @@ class _ManagedAccountRow extends StatelessWidget {
             ),
           ),
         ),
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final compact =
-                constraints.maxWidth < 620 ||
-                MediaQuery.textScalerOf(context).scale(14) > 21;
-            // Switching is the only inline action, and a switch, not a
-            // completed state: no check mark. Under the text it starts on
-            // the text's edge.
-            final activate = selected
-                ? null
-                : TextButton.icon(
-                    key: ValueKey('profile-activate-${profile.id}'),
-                    onPressed: onActivate,
-                    style: compact
-                        ? TextButton.styleFrom(
-                            alignment: AlignmentDirectional.centerStart,
-                            padding: const EdgeInsetsDirectional.fromSTEB(
-                              0,
-                              8,
-                              12,
-                              8,
-                            ),
-                          )
-                        : null,
-                    icon: const Icon(LucideIcons.arrowLeftRight, size: 18),
-                    label: Text(strings.get('set_active')),
-                  );
-            final details = Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text(
-                  strings.accountName(profile),
-                  maxLines: compact ? 2 : 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.titleLarge,
-                ),
-                const SizedBox(height: 6),
-                Wrap(
-                  spacing: 12,
-                  runSpacing: 6,
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  children: <Widget>[
-                    _AccountIdentityLine(
-                      state: identityState,
-                      status: identityStatus,
-                      strings: strings,
-                    ),
-                    ...tags,
-                  ],
-                ),
-                if (compact && activate != null) ...<Widget>[
+        // Setting an account active is the row itself, as using a scene is;
+        // the selected row is not a target. A switch, not a completed state.
+        child: _RowTarget(
+          key: selected ? null : ValueKey('profile-activate-${profile.id}'),
+          onTap: selected ? null : onActivate,
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final compact =
+                  constraints.maxWidth < 620 ||
+                  MediaQuery.textScalerOf(context).scale(14) > 21;
+              final details = Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(
+                    strings.accountName(profile),
+                    maxLines: compact ? 2 : 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.titleLarge,
+                  ),
                   const SizedBox(height: 6),
-                  activate,
+                  Wrap(
+                    spacing: 12,
+                    runSpacing: 6,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: <Widget>[
+                      _AccountIdentityLine(
+                        state: identityState,
+                        status: identityStatus,
+                        strings: strings,
+                      ),
+                      ...tags,
+                    ],
+                  ),
                 ],
-              ],
-            );
-            return Row(
-              crossAxisAlignment: compact
-                  ? CrossAxisAlignment.start
-                  : CrossAxisAlignment.center,
-              children: <Widget>[
-                _AccountGlyphTile(
-                  icon: _accountGlyph(identityStatus),
-                  lit: selected,
-                ),
-                const SizedBox(width: 14),
-                Expanded(child: details),
-                const SizedBox(width: 12),
-                if (!compact && activate != null) ...<Widget>[
-                  activate,
-                  const SizedBox(width: 4),
+              );
+              return Row(
+                crossAxisAlignment: compact
+                    ? CrossAxisAlignment.start
+                    : CrossAxisAlignment.center,
+                children: <Widget>[
+                  _AccountGlyphTile(
+                    icon: _accountGlyph(identityStatus),
+                    lit: selected,
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(child: details),
+                  const SizedBox(width: 12),
+                  menu,
                 ],
-                menu,
-              ],
-            );
-          },
+              );
+            },
+          ),
         ),
       ),
     );
   }
+}
+
+/// A row whose whole block is its action; without one it is plain content
+/// rather than a disabled button.
+class _RowTarget extends StatelessWidget {
+  const _RowTarget({required this.onTap, required this.child, super.key});
+
+  final VoidCallback? onTap;
+  final Widget child;
+
+  static const _padding = EdgeInsets.symmetric(horizontal: 14, vertical: 16);
+
+  @override
+  Widget build(BuildContext context) => onTap == null
+      ? Padding(padding: _padding, child: child)
+      : ActionRow(padding: _padding, onTap: onTap, child: child);
 }
 
 /// One option of [ScenarioAccountPicker]. Activating it picks the option

@@ -35,8 +35,12 @@ const kScenarioJa = <String, String>{
   'scenario_pending': "保存済み・適用待ち",
   'scenario_failed': "保存済み・適用失敗",
   'scenario_unknown': "結果を確認できません",
-  'scenario_custom': "カスタム",
-  'scenario_use_custom': 'カスタムに切り替え',
+  'scenario_custom': 'シーンなし',
+  'scenario_use_custom': '既定の設定に戻す',
+  'scenario_revert': 'シーンの設定に戻す',
+  'scenario_switched': '{name} に切り替えました',
+  'undo': '元に戻す',
+  'scenario_marks_modified': '適用すると、シーン「{name}」は「変更あり」と表示されます。',
   'scenario_custom_hint':
       '選択中のシーンを解除し、エンドポイント、トランスポート、IP 優先設定、出口を Usque の既定値に戻します。その他の設定はそのままです。',
   'scenario_unsupported': "このバージョンの Usque はシーンに対応していません。アカウント管理は引き続き利用できます。",
@@ -119,8 +123,12 @@ const kScenarioKo = <String, String>{
   'scenario_pending': "저장됨 · 적용 대기 중",
   'scenario_failed': "저장됨 · 적용 실패",
   'scenario_unknown': "결과 미확인",
-  'scenario_custom': "사용자 지정",
-  'scenario_use_custom': '사용자 지정으로 전환',
+  'scenario_custom': '시나리오 없음',
+  'scenario_use_custom': '기본 설정으로 복원',
+  'scenario_revert': '시나리오 설정으로 되돌리기',
+  'scenario_switched': '{name}(으)로 전환됨',
+  'undo': '실행 취소',
+  'scenario_marks_modified': '적용하면 시나리오 “{name}”이(가) 수정됨으로 표시됩니다.',
   'scenario_custom_hint':
       '선택한 시나리오를 해제하고 엔드포인트, 전송, IP 선호 설정, 출구를 Usque 기본값으로 되돌립니다. 다른 설정은 그대로 유지됩니다.',
   'scenario_unsupported': "이 버전의 Usque는 시나리오를 지원하지 않습니다. 계정 관리는 계속 사용할 수 있습니다.",
@@ -211,8 +219,13 @@ const kScenarioEs = <String, String>{
   'scenario_pending': "Guardado; pendiente de aplicar",
   'scenario_failed': "Guardado; no se pudo aplicar",
   'scenario_unknown': "Resultado sin confirmar",
-  'scenario_custom': "Personalizado",
-  'scenario_use_custom': 'Cambiar a Personalizado',
+  'scenario_custom': 'Sin escenario',
+  'scenario_use_custom': 'Restaurar ajustes predeterminados',
+  'scenario_revert': 'Volver al escenario',
+  'scenario_switched': 'Se cambió a {name}',
+  'undo': 'Deshacer',
+  'scenario_marks_modified':
+      'Al aplicar, el escenario «{name}» aparecerá como modificado.',
   'scenario_custom_hint':
       'Quita el escenario seleccionado. El extremo, el transporte, la preferencia de IP y la salida vuelven a los valores predeterminados de Usque; los demás ajustes no cambian.',
   'scenario_unsupported':
@@ -314,8 +327,13 @@ const kScenarioPt = <String, String>{
   'scenario_pending': "Salvo; aguardando aplicação",
   'scenario_failed': "Salvo; falha ao aplicar",
   'scenario_unknown': "Resultado não confirmado",
-  'scenario_custom': "Personalizado",
-  'scenario_use_custom': 'Mudar para Personalizado',
+  'scenario_custom': 'Sem cenário',
+  'scenario_use_custom': 'Restaurar configurações padrão',
+  'scenario_revert': 'Reverter para o cenário',
+  'scenario_switched': 'Alterado para {name}',
+  'undo': 'Desfazer',
+  'scenario_marks_modified':
+      'Ao aplicar, o cenário “{name}” aparecerá como modificado.',
   'scenario_custom_hint':
       'Remove o cenário selecionado. O endpoint, o transporte, a preferência de IP e a saída voltam aos padrões do Usque; as demais configurações permanecem.',
   'scenario_unsupported':
@@ -416,8 +434,13 @@ const kScenarioFr = <String, String>{
   'scenario_pending': "Enregistré ; application en attente",
   'scenario_failed': "Enregistré ; échec de l’application",
   'scenario_unknown': "Résultat non confirmé",
-  'scenario_custom': "Personnalisé",
-  'scenario_use_custom': 'Passer en Personnalisé',
+  'scenario_custom': 'Aucun scénario',
+  'scenario_use_custom': 'Rétablir les réglages par défaut',
+  'scenario_revert': 'Revenir au scénario',
+  'scenario_switched': 'Passage à {name} effectué',
+  'undo': 'Annuler',
+  'scenario_marks_modified':
+      'Après application, le scénario « {name} » sera indiqué comme modifié.',
   'scenario_custom_hint':
       'Désélectionne le scénario. Le point de terminaison, le transport, la préférence IP et le point de sortie reprennent les valeurs par défaut d’Usque ; les autres réglages restent inchangés.',
   'scenario_unsupported':
@@ -520,8 +543,13 @@ const kScenarioNl = <String, String>{
   'scenario_pending': "Opgeslagen; wacht op toepassing",
   'scenario_failed': "Opgeslagen; toepassen mislukt",
   'scenario_unknown': "Resultaat niet bevestigd",
-  'scenario_custom': "Aangepast",
-  'scenario_use_custom': 'Overschakelen naar Aangepast',
+  'scenario_custom': 'Geen scenario',
+  'scenario_use_custom': 'Standaardinstellingen herstellen',
+  'scenario_revert': 'Terug naar scenario',
+  'scenario_switched': 'Overgeschakeld naar {name}',
+  'undo': 'Ongedaan maken',
+  'scenario_marks_modified':
+      'Na toepassen wordt het scenario “{name}” als gewijzigd weergegeven.',
   'scenario_custom_hint':
       'Heft de selectie van het scenario op. Eindpunt, transport, IP-voorkeur en uitgang gaan terug naar de standaardwaarden van Usque; andere instellingen blijven ongewijzigd.',
   'scenario_unsupported':
@@ -623,8 +651,13 @@ const kScenarioTr = <String, String>{
   'scenario_pending': "Kaydedildi; uygulanması bekleniyor",
   'scenario_failed': "Kaydedildi; uygulanamadı",
   'scenario_unknown': "Sonuç doğrulanmadı",
-  'scenario_custom': "Özel",
-  'scenario_use_custom': 'Özel’e geç',
+  'scenario_custom': 'Senaryo yok',
+  'scenario_use_custom': 'Varsayılan ayarları geri yükle',
+  'scenario_revert': 'Senaryoya geri dön',
+  'scenario_switched': '{name} senaryosuna geçildi',
+  'undo': 'Geri al',
+  'scenario_marks_modified':
+      'Uygulandığında “{name}” senaryosu değiştirildi olarak görünür.',
   'scenario_custom_hint':
       'Seçili senaryo kaldırılır. Uç nokta, aktarım, IP tercihi ve çıkış Usque varsayılanlarına döner; diğer ayarlar değişmez.',
   'scenario_unsupported':
@@ -723,8 +756,13 @@ const kScenarioRu = <String, String>{
   'scenario_pending': "Сохранён; ожидает применения",
   'scenario_failed': "Сохранён; не удалось применить",
   'scenario_unknown': "Результат не подтверждён",
-  'scenario_custom': "Пользовательский",
-  'scenario_use_custom': 'Переключиться на «Пользовательский»',
+  'scenario_custom': 'Без сценария',
+  'scenario_use_custom': 'Восстановить настройки по умолчанию',
+  'scenario_revert': 'Вернуть настройки сценария',
+  'scenario_switched': 'Выбран сценарий {name}',
+  'undo': 'Отменить',
+  'scenario_marks_modified':
+      'После применения сценарий «{name}» будет отмечен как изменённый.',
   'scenario_custom_hint':
       'Снимает выбор сценария. Конечная точка, транспорт, предпочтение IP и выход возвращаются к значениям Usque по умолчанию; остальные настройки не меняются.',
   'scenario_unsupported':
@@ -826,8 +864,13 @@ const kScenarioDe = <String, String>{
   'scenario_pending': "Gespeichert; Anwendung ausstehend",
   'scenario_failed': "Gespeichert; Anwendung fehlgeschlagen",
   'scenario_unknown': "Ergebnis nicht bestätigt",
-  'scenario_custom': "Benutzerdefiniert",
-  'scenario_use_custom': 'Zu „Benutzerdefiniert“ wechseln',
+  'scenario_custom': 'Kein Szenario',
+  'scenario_use_custom': 'Standardeinstellungen wiederherstellen',
+  'scenario_revert': 'Zum Szenario zurückkehren',
+  'scenario_switched': 'Zu {name} gewechselt',
+  'undo': 'Rückgängig',
+  'scenario_marks_modified':
+      'Nach dem Anwenden wird das Szenario „{name}“ als geändert angezeigt.',
   'scenario_custom_hint':
       'Hebt die Auswahl des Szenarios auf. Endpunkt, Transport, IP-Präferenz und Ausgang werden auf die Usque-Standardwerte zurückgesetzt; andere Einstellungen bleiben unverändert.',
   'scenario_unsupported':
@@ -930,8 +973,13 @@ const kScenarioIt = <String, String>{
   'scenario_pending': "Salvato; in attesa di applicazione",
   'scenario_failed': "Salvato; applicazione non riuscita",
   'scenario_unknown': "Risultato non confermato",
-  'scenario_custom': "Personalizzato",
-  'scenario_use_custom': 'Passa a Personalizzato',
+  'scenario_custom': 'Nessuno scenario',
+  'scenario_use_custom': 'Ripristina impostazioni predefinite',
+  'scenario_revert': 'Torna allo scenario',
+  'scenario_switched': 'Passato a {name}',
+  'undo': 'Annulla',
+  'scenario_marks_modified':
+      'Dopo l’applicazione, lo scenario “{name}” risulterà modificato.',
   'scenario_custom_hint':
       'Deseleziona lo scenario. Endpoint, trasporto, preferenza IP e uscita tornano ai valori predefiniti di Usque; le altre impostazioni restano invariate.',
   'scenario_unsupported':
@@ -1031,8 +1079,13 @@ const kScenarioPl = <String, String>{
   'scenario_pending': "Zapisano; oczekiwanie na zastosowanie",
   'scenario_failed': "Zapisano; zastosowanie nie powiodło się",
   'scenario_unknown': "Wynik niepotwierdzony",
-  'scenario_custom': "Niestandardowy",
-  'scenario_use_custom': 'Przełącz na Niestandardowy',
+  'scenario_custom': 'Brak scenariusza',
+  'scenario_use_custom': 'Przywróć ustawienia domyślne',
+  'scenario_revert': 'Wróć do scenariusza',
+  'scenario_switched': 'Przełączono na {name}',
+  'undo': 'Cofnij',
+  'scenario_marks_modified':
+      'Po zastosowaniu scenariusz „{name}” będzie oznaczony jako zmieniony.',
   'scenario_custom_hint':
       'Usuwa wybór scenariusza. Punkt końcowy, transport, preferencja IP i wyjście wracają do ustawień domyślnych Usque; pozostałe ustawienia się nie zmieniają.',
   'scenario_unsupported':

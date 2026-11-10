@@ -8,6 +8,7 @@ import 'package:usque/core/app_strings.dart';
 import 'package:usque/core/chain_strings.dart';
 import 'package:usque/models/app_models.dart';
 import 'package:usque/models/scenarios.dart';
+import 'package:usque/screens/advanced_settings_screen.dart';
 import 'package:usque/screens/profiles_hub_screen.dart';
 import 'package:usque/screens/profiles_screen.dart' show AccountsPage;
 import 'package:usque/screens/scenario_editor_screen.dart';
@@ -17,7 +18,8 @@ import 'package:usque/state/scenarios_controller.dart';
 import 'package:usque/widgets/common.dart';
 import 'package:usque/widgets/usque_dialog.dart';
 
-import 'ui_workflow_test.dart' show WorkflowEngine, pumpWorkflow, workflowHost;
+import 'ui_workflow_test.dart'
+    show WorkflowEngine, fieldWithLabel, pumpWorkflow, workflowHost;
 
 Map<String, Object?> fixture({
   String account = 'account-a',
@@ -165,7 +167,9 @@ class SceneEngine extends WorkflowEngine {
           'actual_changed_fields': actualPreviewFields,
           'preview_token': 'token-a',
           'restore': false,
-          'apply_kind': 'select',
+          // A running session by default, so a switch asks before applying;
+          // tests of the direct path set `select`.
+          'apply_kind': 'hot_traffic_policy',
           'needs_reconnect': false,
           ...previewExtra,
         },
@@ -436,7 +440,12 @@ void main() {
       expect(selected.top - card.top, lessThanOrEqualTo(24));
       expect(kill.top - selected.bottom, lessThanOrEqualTo(20));
       expect(tester.getSize(link).height, greaterThanOrEqualTo(48));
+      // With saved scenes the row opens a switcher; Profiles is its last entry.
       await tester.tap(link);
+      await tester.pumpAndSettle();
+      expect(app.section, AppSection.home);
+      expect(find.byKey(const ValueKey('home-scene-scene-a')), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('home-scene-manage')));
       await tester.pumpAndSettle();
       expect(app.section, AppSection.profiles);
       expect(find.text('Daily'), findsOneWidget);
@@ -502,6 +511,9 @@ void main() {
       await tester.ensureVisible(sceneLink);
       await tester.tap(sceneLink);
       await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('home-scene-manage')));
+      await tester.pumpAndSettle();
+      expect(app.section, AppSection.profiles);
       expect(find.byType(AccountsPage), findsNothing);
       expect(find.text('Daily'), findsOneWidget);
     },
@@ -609,18 +621,28 @@ void main() {
       app.engineCapabilities = await engine.getCapabilities();
       await app.scenarios.refresh();
       await tester.pumpAndSettle();
-      final editLabel = find.descendant(
-        of: find.bySubtype<TextButton>(),
-        matching: find.text(app.strings.get('edit')),
+      // The row is the use action; the D-pad moves on to its menu.
+      final useLabel = find.descendant(
+        of: find.byKey(const ValueKey('scenario-use-scene-a')),
+        matching: find.text('Daily'),
       );
-      Focus.of(tester.element(editLabel)).requestFocus();
+      Focus.of(tester.element(useLabel)).requestFocus();
       await tester.pump();
       await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
       await tester.pumpAndSettle();
-      final useLabel = find.descendant(
-        of: find.byKey(const ValueKey('scenario-use-scene-a')),
-        matching: find.byType(Text),
+      expect(
+        Focus.of(
+          tester.element(
+            find.descendant(
+              of: find.byKey(const ValueKey('scenario-menu-scene-a')),
+              matching: find.byType(Icon),
+            ),
+          ),
+        ).hasPrimaryFocus,
+        true,
       );
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
+      await tester.pumpAndSettle();
       expect(Focus.of(tester.element(useLabel)).hasPrimaryFocus, true);
       await tester.sendKeyEvent(LogicalKeyboardKey.gameButtonA);
       await tester.pumpAndSettle();
@@ -768,7 +790,7 @@ void main() {
       engine.extraState['applied_scenario_id'] = null;
       await app.scenarios.refresh();
       await tester.pumpAndSettle();
-      expect(running(), 'Work account · Custom');
+      expect(running(), 'Work account · No scene');
       engine.extraState['applied_scene_confirmed'] = false;
       await app.scenarios.refresh();
       await tester.pumpAndSettle();
@@ -1222,10 +1244,10 @@ void main() {
     app.engineCapabilities = await engine.getCapabilities();
     await app.scenarios.refresh();
     await tester.pumpAndSettle();
-    final use = tester.widget<TextButton>(
+    final use = tester.widget<ActionRow>(
       find.byKey(const ValueKey('scenario-use-scene-a')),
     );
-    expect(use.onPressed, isNull);
+    expect(use.onTap, isNull);
     expect(
       find.text(app.strings.get('scenario_settings_invalid')),
       findsOneWidget,
@@ -1247,10 +1269,10 @@ void main() {
     app.engineCapabilities = await engine.getCapabilities();
     await app.scenarios.refresh();
     await tester.pumpAndSettle();
-    final use = tester.widget<TextButton>(
+    final use = tester.widget<ActionRow>(
       find.byKey(const ValueKey('scenario-use-scene-a')),
     );
-    expect(use.onPressed, isNull);
+    expect(use.onTap, isNull);
     await tester.tap(find.byKey(const ValueKey('scenario-rebind-scene-a')));
     await tester.pumpAndSettle();
     final save = engine.sceneCalls.lastWhere(
@@ -1421,7 +1443,7 @@ void main() {
   });
 
   testWidgets(
-    'the status block resolves a modified selection and rows state only what differs',
+    'the selected row resolves a modified selection and rows state only what differs',
     (tester) async {
       final engine = richSceneEngine();
       final app = await pumpWorkflow(
@@ -1440,31 +1462,31 @@ void main() {
             .data,
         'Daily',
       );
-      expect(
-        tester
-            .widget<Text>(find.byKey(const ValueKey('profiles-running')))
-            .data,
-        '${app.profiles.first.name} · Daily',
-      );
-      // The state and every action that resolves it sit in the block.
+      // A connection that runs the selection needs no line of its own.
+      expect(find.byKey(const ValueKey('profiles-running')), findsNothing);
+      // The state and the two actions that resolve it sit in the row: keep
+      // the live settings in the scene, or go back to the scene's.
       final modified = tester.widget<InlineStatus>(
-        inBlock(find.byType(InlineStatus)),
+        inBlock(find.byKey(const ValueKey('profiles-scene-state'))),
       );
       expect(modified.label, app.strings.get('scenario_modified'));
       expect(modified.tone, StatusTone.warning);
-      for (final key in [
-        'scenario-update-scene-a',
-        'scenario-save-as',
-        'scenario-restore',
-        'scenario-use-custom',
-      ]) {
+      for (final key in ['scenario-update-scene-a', 'scenario-use-scene-a']) {
         expect(inBlock(find.byKey(ValueKey(key))), findsOneWidget);
       }
-      // A drifted selection can be used again; other rows always can.
       expect(
-        find.byKey(const ValueKey('scenario-use-scene-a')),
+        inBlock(find.text(app.strings.get('scenario_revert'))),
         findsOneWidget,
       );
+      // Undoing the last switch and leaving the selection belong to the
+      // list; saving a copy is the page's own create action.
+      for (final key in ['scenario-restore', 'scenario-use-custom']) {
+        expect(find.byKey(ValueKey(key)), findsOneWidget);
+        expect(inBlock(find.byKey(ValueKey(key))), findsNothing);
+      }
+      expect(find.byKey(const ValueKey('scenario-save-as')), findsNothing);
+      // No settled state offers a refresh control.
+      expect(find.byKey(const ValueKey('profiles-refresh')), findsNothing);
       expect(
         find.byKey(const ValueKey('scenario-use-scene-b')),
         findsOneWidget,
@@ -1486,7 +1508,8 @@ void main() {
       );
       expect(find.textContaining('Transport: '), findsOneWidget);
 
-      await tester.tap(find.byKey(const ValueKey('scenario-save-as')));
+      // A new scene starts from the current settings with a suggested name.
+      await tester.tap(find.byKey(const ValueKey('scenario-create')));
       await tester.pumpAndSettle();
       expect(find.byType(ScenarioEditorScreen), findsOneWidget);
       expect(
@@ -1494,14 +1517,14 @@ void main() {
             .widget<TextFormField>(find.byKey(const ValueKey('scenario-name')))
             .controller!
             .text,
-        isEmpty,
+        'WARP · ${app.strings.get('endpoint_automatic')}',
       );
       expect(engine.sceneCalls.where((r) => r['action'] == 'save'), isEmpty);
     },
   );
 
   testWidgets(
-    'Switch to Custom previews Usque defaults and clears only the selection',
+    'restoring defaults previews Usque defaults and clears only the selection',
     (tester) async {
       final engine = SceneEngine()..selected = 'scene-a';
       final app = await pumpWorkflow(
@@ -1512,13 +1535,11 @@ void main() {
       app.engineCapabilities = await engine.getCapabilities();
       await app.scenarios.refresh();
       await tester.pumpAndSettle();
+      // Leaving the selection is the list's last row, after every scene.
       final custom = find.byKey(const ValueKey('scenario-use-custom'));
       expect(
-        find.descendant(
-          of: find.byKey(const ValueKey('profiles-scene-status')),
-          matching: custom,
-        ),
-        findsOneWidget,
+        tester.getTopLeft(custom).dy,
+        greaterThan(tester.getTopLeft(find.text('Daily')).dy),
       );
       await tester.tap(custom);
       await tester.pumpAndSettle();
@@ -1565,7 +1586,7 @@ void main() {
             .data,
         app.strings.get('scenario_custom'),
       );
-      // Custom offers no action to switch to itself.
+      // Without a selection the row states that, and is no longer an action.
       expect(custom, findsNothing);
     },
   );
@@ -1584,15 +1605,8 @@ void main() {
       await tester.pumpAndSettle();
       final use = find.byKey(const ValueKey('scenario-use-scene-a'));
       expect(use, findsNothing);
-      expect(find.text(app.strings.get('edit')), findsOneWidget);
-      // The heading already says "selected", so the block adds no tag.
-      expect(
-        find.descendant(
-          of: find.byKey(const ValueKey('profiles-scene-status')),
-          matching: find.byType(InlineStatus),
-        ),
-        findsNothing,
-      );
+      // The row already says "selected", so it adds no state tag.
+      expect(find.byKey(const ValueKey('profiles-scene-state')), findsNothing);
       for (final state in [
         {'modified': true, 'apply_status': 'not_required'},
         {'modified': false, 'apply_status': 'failed'},
@@ -1603,6 +1617,161 @@ void main() {
         await tester.pumpAndSettle();
         expect(use, findsOneWidget, reason: '$state');
       }
+    },
+  );
+
+  testWidgets(
+    'a disconnected switch applies from the row at once and offers its undo',
+    (tester) async {
+      final engine = SceneEngine()
+        ..previewExtra = {'apply_kind': 'select'}
+        ..extraState = {'can_restore': true};
+      final app = await pumpWorkflow(
+        tester,
+        engine,
+        section: AppSection.profiles,
+      );
+      app.engineCapabilities = await engine.getCapabilities();
+      await app.scenarios.refresh();
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Daily'));
+      await tester.pumpAndSettle();
+      // Nothing is running and nothing needs review, so no dialog asks.
+      expect(find.byType(UsqueDialog), findsNothing);
+      final activate = engine.sceneCalls.singleWhere(
+        (r) => r['action'] == 'activate',
+      );
+      expect(activate['preview_token'], 'token-a');
+      expect(app.scenarios.catalog!.selectedId, 'scene-a');
+      expect(find.text('Switched to Daily'), findsOneWidget);
+      await tester.tap(find.text(app.strings.get('undo')));
+      await tester.pumpAndSettle();
+      expect(
+        engine.sceneCalls.where((r) => r['action'] == 'preview_restore'),
+        hasLength(1),
+      );
+    },
+  );
+
+  for (final review in <Map<String, Object?>>[
+    {'account_changed': true},
+    {'kill_switch_output_removed': true},
+    {'zero_trust_endpoint_warning': true},
+    {'apply_kind': 'cold_reconnect', 'needs_reconnect': true},
+    {'apply_kind': 'unconfirmed', 'needs_reconnect': null},
+  ]) {
+    testWidgets('a row switch still asks first when $review', (tester) async {
+      final engine = SceneEngine()
+        ..previewExtra = {'apply_kind': 'select', ...review};
+      final app = await pumpWorkflow(
+        tester,
+        engine,
+        section: AppSection.profiles,
+      );
+      app.engineCapabilities = await engine.getCapabilities();
+      await app.scenarios.refresh();
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Daily'));
+      await tester.pumpAndSettle();
+      expect(find.byType(Dialog), findsOneWidget);
+      expect(
+        engine.sceneCalls.where((r) => r['action'] == 'activate'),
+        isEmpty,
+      );
+    });
+  }
+
+  testWidgets('Home switches scenes in place through the same preview', (
+    tester,
+  ) async {
+    final engine = richSceneEngine()..extraState = {};
+    final app = await pumpWorkflow(tester, engine, section: AppSection.home);
+    app.profiles = engine.storedProfiles;
+    app.engineCapabilities = await engine.getCapabilities();
+    await app.scenarios.refresh();
+    await tester.pumpAndSettle();
+    final link = find.byKey(const ValueKey('home-scene-link'));
+    await tester.ensureVisible(link);
+    await tester.tap(link);
+    await tester.pumpAndSettle();
+    // The selected scene is marked and is not a target.
+    expect(
+      tester
+          .widget<PopupMenuItem<Object>>(
+            find.byKey(const ValueKey('home-scene-scene-a')),
+          )
+          .enabled,
+      isFalse,
+    );
+    await tester.tap(find.byKey(const ValueKey('home-scene-scene-b')));
+    await tester.pumpAndSettle();
+    expect(app.section, AppSection.home);
+    expect(find.byKey(const ValueKey('scenario-confirm-use')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('scenario-confirm-use')));
+    await tester.pumpAndSettle();
+    expect(
+      engine.sceneCalls.singleWhere((r) => r['action'] == 'activate')['id'],
+      'scene-b',
+    );
+    expect(app.section, AppSection.home);
+  });
+
+  testWidgets('editing and duplicating a scene start from its row menu', (
+    tester,
+  ) async {
+    final engine = SceneEngine();
+    final app = await pumpWorkflow(
+      tester,
+      engine,
+      section: AppSection.profiles,
+    );
+    app.engineCapabilities = await engine.getCapabilities();
+    await app.scenarios.refresh();
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('scenario-menu-scene-a')));
+    await tester.pumpAndSettle();
+    // Overwriting a scene from the menu is gone: only a modified selection
+    // offers to take the current settings.
+    expect(find.text(app.strings.get('scenario_update_current')), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('scenario-edit-scene-a')));
+    await tester.pumpAndSettle();
+    expect(find.byType(ScenarioEditorScreen), findsOneWidget);
+    expect(
+      tester
+          .widget<TextFormField>(find.byKey(const ValueKey('scenario-name')))
+          .controller!
+          .text,
+      'Daily',
+    );
+  });
+
+  testWidgets(
+    'Advanced says when an edit will leave the selected scene modified',
+    (tester) async {
+      final engine = SceneEngine()..selected = 'scene-a';
+      final app = await pumpWorkflow(tester, engine);
+      app.engineCapabilities = await engine.getCapabilities();
+      await app.scenarios.refresh();
+      await tester.pumpWidget(
+        workflowHost(app, home: AdvancedSettingsScreen(controller: app)),
+      );
+      await tester.pumpAndSettle();
+      final hint = find.byKey(const ValueKey('scene-drift-hint'));
+      // MTU is a device setting: editing it does not concern the scene.
+      final mtu = fieldWithLabel(app.strings.get('mtu'));
+      await tester.ensureVisible(mtu);
+      await tester.enterText(mtu, '1300');
+      await tester.pumpAndSettle();
+      expect(hint, findsNothing);
+      // The port belongs to the scene.
+      final port = fieldWithLabel(app.strings.get('port'));
+      await tester.ensureVisible(port);
+      await tester.enterText(port, '4443');
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<Text>(hint).data,
+        'Applying will mark the scene “Daily” as modified.',
+      );
     },
   );
 
@@ -1715,10 +1884,10 @@ void main() {
           await tester.pumpWidget(workflowHost(app, scale: 2.0));
           await tester.pumpAndSettle();
           expect(tester.takeException(), isNull);
-          final saveAs = find.byKey(const ValueKey('scenario-save-as'));
-          await tester.ensureVisible(saveAs);
+          final create = find.byKey(const ValueKey('scenario-create'));
+          await tester.ensureVisible(create);
           await tester.pumpAndSettle();
-          await tester.tap(saveAs);
+          await tester.tap(create);
           await tester.pumpAndSettle();
           expect(find.byType(ScenarioEditorScreen), findsOneWidget);
           expect(tester.takeException(), isNull);

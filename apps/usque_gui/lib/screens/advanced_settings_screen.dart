@@ -114,6 +114,22 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
     _masqueConnections.text,
   ];
   bool get _dirty => !listEquals(_values, _baseline);
+
+  /// Positions in [_values] that a scene owns: endpoint addresses, port, SNI,
+  /// transport, IP version, endpoint selection and preset.
+  static const _sceneManagedValues = {0, 1, 2, 3, 7, 11, 22, 24};
+
+  /// The selected scene, while the draft changes a setting it owns; applying
+  /// that edit leaves the scene modified.
+  String? get _driftingScene {
+    final scene = widget.controller.scenarios.catalog?.selected;
+    final values = _values;
+    if (scene == null || values.length != _baseline.length) return null;
+    return _sceneManagedValues.any((i) => values[i] != _baseline[i])
+        ? scene.name
+        : null;
+  }
+
   int get _maxMasqueConnections =>
       (widget.controller.engineCapabilities?.maxMasqueConnections ?? 0)
           .clamp(0, UsqueProfile.maxMasqueConnections)
@@ -372,6 +388,18 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
                 saving: _saving,
                 saved: _saved,
                 statusLabel: statusLabel,
+                summary: switch (_driftingScene) {
+                  final scene? when !_saving => Text(
+                    strings
+                        .get('scenario_marks_modified')
+                        .replaceAll('{name}', scene),
+                    key: const ValueKey('scene-drift-hint'),
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  _ => null,
+                },
                 onReconnect: onReconnect,
                 onRefresh: onRefresh,
                 refreshing: settings.refreshing,

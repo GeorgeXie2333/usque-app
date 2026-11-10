@@ -6,6 +6,7 @@ import 'package:usque/models/app_models.dart';
 import 'package:usque/models/network_settings.dart';
 import 'package:usque/screens/profiles_hub_screen.dart';
 import 'package:usque/state/scenarios_controller.dart';
+import 'package:usque/widgets/profiles_status.dart';
 
 import 'android_passive_observation_test.dart'
     show storedCatalog, storedSettings;
@@ -469,12 +470,9 @@ void main() {
       await app.scenarios.refresh();
       await tester.pumpAndSettle();
       expect(scenarioStateKey(app), 'scenario_applied');
-      expect(
-        tester
-            .widget<Text>(find.byKey(const ValueKey('profiles-running')))
-            .data,
-        contains('Daily'),
-      );
+      // A confirmed connection on the selection is stated by its tag alone.
+      expect(find.byKey(const ValueKey('profiles-running')), findsNothing);
+      expect(find.text(app.strings.get('scenario_applied')), findsOneWidget);
     },
   );
 
@@ -502,12 +500,8 @@ void main() {
       );
       await app.scenarios.refresh();
       await tester.pumpAndSettle();
-      expect(
-        tester
-            .widget<Text>(find.byKey(const ValueKey('profiles-running')))
-            .data,
-        'Account A · Daily',
-      );
+      expect(profilesRunningLabel(app), 'Account A · Daily');
+      expect(find.byKey(const ValueKey('profiles-running')), findsNothing);
       String? selectedAccount() => tester
           .widget<Text>(find.byKey(const ValueKey('profiles-selected-account')))
           .data;
@@ -548,12 +542,8 @@ void main() {
       await tester.pumpAndSettle();
       expect(scenarioStateKey(app), 'scenario_applied');
       expect(selectedAccount(), 'Account B');
-      expect(
-        tester
-            .widget<Text>(find.byKey(const ValueKey('profiles-running')))
-            .data,
-        'Account B · Daily',
-      );
+      expect(profilesRunningLabel(app), 'Account B · Daily');
+      expect(find.byKey(const ValueKey('profiles-running')), findsNothing);
     },
   );
 

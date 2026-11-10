@@ -822,6 +822,28 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
     return mounted;
   }
 
+  /// The pending edit, followed by its effect on the selected scene: the exit
+  /// is a setting scenes own, so applying one here leaves the scene modified.
+  Widget? _withSceneHint(ThemeData theme, Widget? summary) {
+    final scene = _app.scenarios.catalog?.selected;
+    if (_sceneDraft || !_dirty || scene == null) return summary;
+    final hint = Text(
+      _app.strings
+          .get('scenario_marks_modified')
+          .replaceAll('{name}', scene.name),
+      key: const ValueKey('scene-drift-hint'),
+      style: theme.textTheme.bodySmall?.copyWith(
+        color: theme.colorScheme.onSurfaceVariant,
+      ),
+    );
+    if (summary == null) return hint;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [summary, const SizedBox(height: 4), hint],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final strings = _app.strings;
@@ -956,35 +978,38 @@ class _CustomChainEditorState extends State<_CustomChainEditor> {
                     : snapshot.isConnected && _dirty
                     ? strings.chain('apply_reconnect')
                     : null,
-                summary: !_dirty
-                    ? null
-                    : disabling
-                    ? Text(
-                        strings.chain('pending_disable'),
-                        style: theme.textTheme.labelLarge,
-                      )
-                    : _draft.enabled && _selected != null
-                    ? Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            '${strings.chain('draft')}: ${_selected!.name}',
-                            style: theme.textTheme.labelLarge,
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            widget.source == ChainSource.protonVpn
-                                ? strings.proton('resolve_on_connect')
-                                : '${(_draft.endpointOverride ?? ChainEndpoint(_selected!.host, _selected!.port)).label} · ${_selected!.transportLabel}',
-                            style: UsqueTheme.address(
-                              context,
-                              color: theme.colorScheme.onSurfaceVariant,
+                summary: _withSceneHint(
+                  theme,
+                  !_dirty
+                      ? null
+                      : disabling
+                      ? Text(
+                          strings.chain('pending_disable'),
+                          style: theme.textTheme.labelLarge,
+                        )
+                      : _draft.enabled && _selected != null
+                      ? Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              '${strings.chain('draft')}: ${_selected!.name}',
+                              style: theme.textTheme.labelLarge,
                             ),
-                          ),
-                        ],
-                      )
-                    : null,
+                            const SizedBox(height: 2),
+                            Text(
+                              widget.source == ChainSource.protonVpn
+                                  ? strings.proton('resolve_on_connect')
+                                  : '${(_draft.endpointOverride ?? ChainEndpoint(_selected!.host, _selected!.port)).label} · ${_selected!.transportLabel}',
+                              style: UsqueTheme.address(
+                                context,
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                        )
+                      : null,
+                ),
                 onSave: canApply
                     ? () => unawaited(_apply(switchMode: _modeConflict))
                     : null,

@@ -34,8 +34,12 @@ const kScenarioZhTw = <String, String>{
   'scenario_pending': '已儲存，待套用',
   'scenario_failed': '已儲存，套用失敗',
   'scenario_unknown': '結果待確認',
-  'scenario_custom': '自訂',
-  'scenario_use_custom': '切換為自訂',
+  'scenario_custom': '未使用情境',
+  'scenario_use_custom': '還原預設設定',
+  'scenario_revert': '還原情境設定',
+  'scenario_switched': '已切換至 {name}',
+  'undo': '復原',
+  'scenario_marks_modified': '套用後，情境「{name}」將顯示為已修改。',
   'scenario_custom_hint': '取消所選情境，端點、傳輸、IP 偏好與出口還原為 Usque 預設值，其他設定保持不變。',
   'scenario_unsupported': '此版本的 Usque 不支援情境，仍可管理帳號。',
   'scenario_save_failed': '操作未能完成，請先重新整理狀態再重試。',
@@ -120,8 +124,12 @@ const kScenarioAr = <String, String>{
   'scenario_pending': 'تم الحفظ؛ بانتظار التطبيق',
   'scenario_failed': 'تم الحفظ؛ فشل التطبيق',
   'scenario_unknown': 'النتيجة غير مؤكدة',
-  'scenario_custom': 'مخصص',
-  'scenario_use_custom': 'التبديل إلى مخصص',
+  'scenario_custom': 'بلا مشهد',
+  'scenario_use_custom': 'استعادة الإعدادات الافتراضية',
+  'scenario_revert': 'العودة إلى إعدادات المشهد',
+  'scenario_switched': 'تم التبديل إلى {name}',
+  'undo': 'تراجع',
+  'scenario_marks_modified': 'بعد التطبيق سيظهر المشهد «{name}» على أنه معدّل.',
   'scenario_custom_hint':
       'يلغي تحديد المشهد. تعود نقطة النهاية والنقل وتفضيل IP والمخرج إلى إعدادات Usque الافتراضية، وتبقى الإعدادات الأخرى كما هي.',
   'scenario_unsupported':
@@ -217,8 +225,13 @@ const kScenarioFa = <String, String>{
   'scenario_pending': 'ذخیره شد؛ در انتظار اعمال',
   'scenario_failed': 'ذخیره شد؛ اعمال ناموفق بود',
   'scenario_unknown': 'نتیجه تأیید نشده است',
-  'scenario_custom': 'سفارشی',
-  'scenario_use_custom': 'تغییر به سفارشی',
+  'scenario_custom': 'بدون سناریو',
+  'scenario_use_custom': 'بازگرداندن تنظیمات پیش‌فرض',
+  'scenario_revert': 'بازگشت به تنظیمات سناریو',
+  'scenario_switched': 'به {name} تغییر یافت',
+  'undo': 'واگرد',
+  'scenario_marks_modified':
+      'پس از اعمال، سناریوی «{name}» به‌صورت تغییریافته نشان داده می‌شود.',
   'scenario_custom_hint':
       'انتخاب سناریو لغو می‌شود. نقطهٔ پایانی، انتقال، ترجیح IP و خروجی به پیش‌فرض‌های Usque برمی‌گردند و سایر تنظیمات تغییری نمی‌کنند.',
   'scenario_unsupported':
@@ -318,8 +331,13 @@ const kScenarioId = <String, String>{
   'scenario_pending': 'Disimpan; menunggu penerapan',
   'scenario_failed': 'Disimpan; penerapan gagal',
   'scenario_unknown': 'Hasil belum dikonfirmasi',
-  'scenario_custom': 'Kustom',
-  'scenario_use_custom': 'Beralih ke Kustom',
+  'scenario_custom': 'Tanpa skenario',
+  'scenario_use_custom': 'Pulihkan pengaturan default',
+  'scenario_revert': 'Kembalikan ke skenario',
+  'scenario_switched': 'Beralih ke {name}',
+  'undo': 'Urungkan',
+  'scenario_marks_modified':
+      'Setelah diterapkan, skenario “{name}” akan ditampilkan sebagai diubah.',
   'scenario_custom_hint':
       'Menghapus pilihan skenario. Endpoint, transport, preferensi IP, dan pintu keluar kembali ke default Usque; pengaturan lain tetap sama.',
   'scenario_unsupported':
@@ -420,8 +438,13 @@ const kScenarioTh = <String, String>{
   'scenario_pending': 'บันทึกแล้ว รอการนำไปใช้',
   'scenario_failed': 'บันทึกแล้ว แต่นำไปใช้ไม่สำเร็จ',
   'scenario_unknown': 'ยังไม่ยืนยันผลลัพธ์',
-  'scenario_custom': 'กำหนดเอง',
-  'scenario_use_custom': 'เปลี่ยนเป็นกำหนดเอง',
+  'scenario_custom': 'ไม่ใช้สถานการณ์',
+  'scenario_use_custom': 'คืนค่าการตั้งค่าเริ่มต้น',
+  'scenario_revert': 'กลับไปใช้การตั้งค่าของสถานการณ์',
+  'scenario_switched': 'เปลี่ยนเป็น {name} แล้ว',
+  'undo': 'เลิกทำ',
+  'scenario_marks_modified':
+      'เมื่อใช้แล้ว สถานการณ์ “{name}” จะแสดงเป็นแก้ไขแล้ว',
   'scenario_custom_hint':
       'ยกเลิกการเลือกสถานการณ์ ปลายทาง ทรานสปอร์ต ค่ากำหนด IP และทางออกจะกลับเป็นค่าเริ่มต้นของ Usque ส่วนการตั้งค่าอื่นยังคงเดิม',
   'scenario_unsupported':
@@ -521,8 +544,13 @@ const kScenarioUk = <String, String>{
   'scenario_pending': 'Збережено; очікується застосування',
   'scenario_failed': 'Збережено; не вдалося застосувати',
   'scenario_unknown': 'Результат не підтверджено',
-  'scenario_custom': 'Власні налаштування',
-  'scenario_use_custom': 'Перейти до «Власні налаштування»',
+  'scenario_custom': 'Без сценарію',
+  'scenario_use_custom': 'Відновити типові налаштування',
+  'scenario_revert': 'Повернути налаштування сценарію',
+  'scenario_switched': 'Вибрано сценарій {name}',
+  'undo': 'Скасувати',
+  'scenario_marks_modified':
+      'Після застосування сценарій «{name}» буде позначено як змінений.',
   'scenario_custom_hint':
       'Скасовує вибір сценарію. Кінцева точка, транспорт, перевага IP і вихід повертаються до типових значень Usque; інші налаштування не змінюються.',
   'scenario_unsupported':
@@ -624,8 +652,13 @@ const kScenarioVi = <String, String>{
   'scenario_pending': 'Đã lưu; chờ áp dụng',
   'scenario_failed': 'Đã lưu; áp dụng thất bại',
   'scenario_unknown': 'Chưa xác nhận kết quả',
-  'scenario_custom': 'Tùy chỉnh',
-  'scenario_use_custom': 'Chuyển sang Tùy chỉnh',
+  'scenario_custom': 'Không dùng kịch bản',
+  'scenario_use_custom': 'Khôi phục thiết lập mặc định',
+  'scenario_revert': 'Quay về thiết lập của kịch bản',
+  'scenario_switched': 'Đã chuyển sang {name}',
+  'undo': 'Hoàn tác',
+  'scenario_marks_modified':
+      'Sau khi áp dụng, kịch bản “{name}” sẽ hiển thị là đã sửa đổi.',
   'scenario_custom_hint':
       'Bỏ chọn kịch bản. Điểm cuối, truyền tải, ưu tiên IP và lối ra trở về mặc định của Usque; các thiết lập khác giữ nguyên.',
   'scenario_unsupported':
@@ -719,8 +752,12 @@ const kScenarioZhHk = <String, String>{
   'scenario_pending': '已儲存，待套用',
   'scenario_failed': '已儲存，套用失敗',
   'scenario_unknown': '結果待確認',
-  'scenario_custom': '自訂',
-  'scenario_use_custom': '切換為自訂',
+  'scenario_custom': '未使用情境',
+  'scenario_use_custom': '還原預設設定',
+  'scenario_revert': '還原情境設定',
+  'scenario_switched': '已切換至 {name}',
+  'undo': '復原',
+  'scenario_marks_modified': '套用後，情境「{name}」將顯示為已修改。',
   'scenario_custom_hint': '取消所選情境，端點、傳輸、IP 偏好及出口還原為 Usque 預設值，其他設定保持不變。',
   'scenario_unsupported': '此版本的 Usque 不支援情境，仍可管理帳戶。',
   'scenario_save_failed': '操作未能完成，請先重新整理狀態再重試。',
