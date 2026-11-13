@@ -10,6 +10,12 @@ Desktop builds start the Rust sidecar and talk to it over current-user IPC. Andr
 
 Build and test commands are in [CONTRIBUTING.md](../../CONTRIBUTING.md). Feature status is in [docs/IMPLEMENTATION.md](../../docs/IMPLEMENTATION.md).
 
+The shared [desktop plugin policy](native/desktop_plugins.cmake) disables the
+optional JVM lookup introduced by Android preferences' JNI dependency on Linux
+and Windows. Desktop preferences use their platform backends and do not require
+a JVM. The generated Flutter plugin lists remain intact; Android still builds
+and registers JNI. Linux packaging continues to reject missing ELF dependencies.
+
 Advanced network settings includes **MASQUE connections**, a manually entered
 integer from 1 to 16 (default 3) for HTTP/2/HTTP/3 CONNECT-IP and L4 TCP CONNECT.
 Applying a changed count reconnects through the normal settings transaction.
