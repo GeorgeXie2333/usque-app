@@ -110,6 +110,34 @@ class DesktopPluginTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("UsqueMissingRequiredPlugin", result.stderr)
 
+    def test_windows_install_removes_only_the_obsolete_jni_dll(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.fixture(root, "")
+            with (root / "CMakeLists.txt").open("a", encoding="utf-8") as source:
+                source.write(
+                    'usque_remove_stale_windows_jni("${CMAKE_CURRENT_BINARY_DIR}/bundle")\n'
+                )
+            result = self.configure(root, policy=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            bundle = root / "build/bundle"
+            bundle.mkdir()
+            stale = bundle / "dartjni.dll"
+            stale.write_bytes(b"old JNI fixture")
+            retained = bundle / "url_launcher_windows_plugin.dll"
+            retained.write_bytes(b"required plugin fixture")
+            # Install only inert fixture files under this test's temporary root.
+            installed = subprocess.run(  # noqa: S603
+                [CMAKE, "--install", str(root / "build"), "--component", "Runtime"],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            self.assertEqual(installed.returncode, 0, installed.stdout + installed.stderr)
+            self.assertFalse(stale.exists())
+            self.assertEqual(retained.read_bytes(), b"required plugin fixture")
+
 
 class DesktopPluginIntegrationTests(unittest.TestCase):
     def test_both_desktop_builds_use_the_shared_plugin_policy(self) -> None:
@@ -124,6 +152,10 @@ class DesktopPluginIntegrationTests(unittest.TestCase):
                     source,
                 )
                 self.assertNotIn("include(flutter/generated_plugins.cmake)", source)
+                if platform == "windows":
+                    self.assertIn(
+                        'usque_remove_stale_windows_jni("${INSTALL_BUNDLE_LIB_DIR}")', source
+                    )
 
 
 if __name__ == "__main__":

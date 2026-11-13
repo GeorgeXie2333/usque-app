@@ -15,6 +15,8 @@ optional JVM lookup introduced by Android preferences' JNI dependency on Linux
 and Windows. Desktop preferences use their platform backends and do not require
 a JVM. The generated Flutter plugin lists remain intact; Android still builds
 and registers JNI. Linux packaging continues to reject missing ELF dependencies.
+Windows bundle installation also removes a stale `dartjni.dll` left by an older
+plugin graph; the other plugin libraries keep their normal install rules.
 
 Advanced network settings includes **MASQUE connections**, a manually entered
 integer from 1 to 16 (default 3) for HTTP/2/HTTP/3 CONNECT-IP and L4 TCP CONNECT.

@@ -15,3 +15,9 @@ function(usque_add_desktop_plugins generated_plugins)
   # libraries for the platform's normal install rules and package validation.
   set(PLUGIN_BUNDLED_LIBRARIES "${PLUGIN_BUNDLED_LIBRARIES}" PARENT_SCOPE)
 endfunction()
+
+function(usque_remove_stale_windows_jni bundle_lib_dir)
+  # Windows installs into the existing runner directory. Unlike Linux's clean
+  # bundle install, it otherwise retains DLLs from a previous plugin graph.
+  install(CODE "file(REMOVE \"${bundle_lib_dir}/dartjni.dll\")" COMPONENT Runtime)
+endfunction()
