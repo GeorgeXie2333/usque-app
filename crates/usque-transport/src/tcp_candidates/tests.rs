@@ -160,6 +160,7 @@ fn cancelled_real_stack_connect_reclaims_its_buffer_reservation() {
         }
         .into(),
         resp,
+        complete_if_channel_dropped: false,
     });
     assert_eq!(metrics.snapshot().total_bytes, 32 * 1024);
     drop(reply);

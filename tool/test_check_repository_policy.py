@@ -25,6 +25,38 @@ class PullRequestTitleTests(unittest.TestCase):
 
 
 class RepositoryPolicyTests(unittest.TestCase):
+    def test_ignores_generated_desktop_flutter_plugin_documents(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for platform in ("linux", "windows"):
+                generated = (
+                    root
+                    / "apps"
+                    / "usque_gui"
+                    / platform
+                    / "flutter/ephemeral/.plugin_symlinks/jni/android/README.md"
+                )
+                generated.parent.mkdir(parents=True)
+                generated.write_text("[Pub cache source](missing.java)\n", encoding="utf-8")
+            self.assertEqual([], validate_markdown(root))
+
+    def test_still_checks_first_party_flutter_and_ephemeral_documents(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            sources = (
+                "docs/ephemeral/README.md",
+                "apps/usque_gui/windows/runner/ephemeral/README.md",
+                "apps/usque_gui/windows/flutter/README.md",
+            )
+            for source in sources:
+                path = root / source
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("[missing](missing.md)\n", encoding="utf-8")
+            errors = validate_markdown(root)
+            self.assertEqual(len(sources), len(errors))
+            for source in sources:
+                self.assertTrue(any(error.startswith(source + ":") for error in errors))
+
     def test_detects_broken_relative_markdown_link(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

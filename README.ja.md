@@ -291,7 +291,7 @@ Zero Trust は初期状態で登録時のアドレスを使用します。高度
 
 プロトコルの動作は [Diniboy1123/usque](https://github.com/Diniboy1123/usque) を参考にしています。このリポジトリは相互運用性テスト用に、そのクライアントのスナップショットを `oracle/go` に保存しています。Flutter UI と Rust エンジンは新たに実装したものです。上流の著作権表示はライセンスに残しています。
 
-本プロジェクトのソースは [MIT](LICENSE.md) ライセンスです。サードパーティのコンポーネントはそれぞれのライセンスを維持します。任意の[チェーンプロキシ](docs/CHAIN_PROXY.md)は、MPL-2.0 の OpenVPN 3 Core と Apache-2.0 の Mbed TLS を組み込みます。対応するソース、レビュー済みのパッチ、ライセンス本文は `third_party` に含まれ、アプリの VPN Gate ページからライセンス表示を確認できます。WireGuard は BoringTun 0.7.1（BSD-3-Clause）、ローカル SVG アイコンは flutter_svg 2.3.0（MIT）を使用します。これらのライセンス表示もアプリのライセンス一覧に含まれています。
+本プロジェクトのソースは [MIT](LICENSE.md) ライセンスです。サードパーティのコンポーネントはそれぞれのライセンスを維持します。任意の[チェーンプロキシ](docs/CHAIN_PROXY.md)は、MPL-2.0 の OpenVPN 3 Core と Apache-2.0 の Mbed TLS を組み込みます。対応するソース、レビュー済みのパッチ、ライセンス本文は `third_party` に含まれ、アプリの VPN Gate ページからライセンス表示を確認できます。WireGuard は BoringTun 0.7.1（BSD-3-Clause）、ローカル SVG アイコンは flutter_svg 2.3.4（MIT）を使用します。これらのライセンス表示もアプリのライセンス一覧に含まれています。
 
 独立実装の Proton SRP は Proton go-srp（MIT）を参照しています。[著作権表示とライセンス全文](apps/usque_gui/assets/licenses/proton-srp.txt)はソース、テストベクトル、アプリのライセンス一覧に保持されています。
 

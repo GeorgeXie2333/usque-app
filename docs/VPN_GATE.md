@@ -237,7 +237,7 @@ Mbed TLS authenticates the OpenVPN CA chain and configured OpenVPN certificate
 constraints, rather than assuming an HTTPS DNS SAN for a numeric VPN remote.
 Compatibility patches explicitly select CBC PKCS#7 padding and enforce TLS
 version limits. The complete patch rationale is in
-[the upstream patch record](../third_party/openvpn3-3.11.7/USQUE-PATCH.md).
+[the upstream patch record](../third_party/openvpn3-3.11.8/USQUE-PATCH.md).
 
 ## Lifecycle, cleanup and privacy
 

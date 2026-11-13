@@ -185,11 +185,13 @@ Every `unsafe` block needs a `// SAFETY:` comment that states the invariants. A 
 Userspace TCP budget or pinned stack changes also run the dependency tests;
 workspace tests do not execute dependency unit tests. On Windows, initialize
 the native environment through the Windows Rust helper before these commands.
-Both manifests resolve the same local smoltcp patch.
+Both manifests resolve the same local smoltcp patch. The integrated netstack
+suite includes the former core tests and the upstream TCP/UDP socket tests;
+throughput benchmarks and TUN examples are not executed on workstations.
 
 ```shell
 cargo test --manifest-path third_party/smoltcp-0.14.0/Cargo.toml --locked --lib
-cargo test --manifest-path third_party/ts_netstack_smoltcp_core/Cargo.toml --locked --all-targets
+cargo test --manifest-path third_party/ts_netstack_smoltcp-0.7.1/Cargo.toml --locked --lib --tests --features std,tokio
 ```
 
 Embedded OpenVPN changes additionally require the source/notice lock check and

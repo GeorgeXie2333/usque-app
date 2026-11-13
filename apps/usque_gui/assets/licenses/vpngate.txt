@@ -2,9 +2,9 @@ Usque embedded OpenVPN source and license notices
 Corresponding source, local patches and reproducible build instructions: https://github.com/GeorgeXie2333/usque-app
 OpenVPN 3 Core is used under MPL-2.0; Mbed TLS under Apache-2.0. Alternate licenses in upstream texts are reproduced as notices, not selected.
 
-openvpn3 3.11.7 (MPL-2.0)
-Source: https://codeload.github.com/OpenVPN/openvpn3/tar.gz/18edfae7e7fd8051c93bd4746ec69be91eb02dbb
-Archive SHA-256: 94df957ac9782ce077b55dc4451fc7aa087ebfaaa26962fbb3fad7596e91d97a
+openvpn3 3.11.8 (MPL-2.0)
+Source: https://codeload.github.com/OpenVPN/openvpn3/tar.gz/4f3bdef73245d4ee9e8216c5d65baccc9568f6ef
+Archive SHA-256: 522faf3f7485117423a9c398606062105c4453c11d4d5ebab45e7c209cc3a9ef
 
 --- LICENSE.md ---
 OpenVPN 3 is distributed under

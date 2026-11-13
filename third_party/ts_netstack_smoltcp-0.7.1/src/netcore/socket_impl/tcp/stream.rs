@@ -1,0 +1,186 @@
+use bytes::Bytes;
+use smoltcp::{iface::SocketHandle, socket::tcp};
+
+use crate::netcore::{
+    Netstack,
+    command::{
+        Error, Response,
+        tcp::stream::{Command as TcpStreamCommand, Response as TcpStreamResponse},
+    },
+};
+
+impl Netstack {
+    /// Process a TCP stream command.
+    #[tracing::instrument(skip_all, fields(?cmd, ?handle), level = "debug")]
+    pub(crate) fn process_tcp_stream(
+        &mut self,
+        cmd: TcpStreamCommand,
+        handle: Option<SocketHandle>,
+    ) -> Response {
+        // A cancelled/aborted owner can race a queued Close or I/O request.
+        if let Some(handle) = handle
+            && !self
+                .socket_set
+                .iter()
+                .any(|(candidate, _)| candidate == handle)
+        {
+            return Response::Error(Error::invalid_socket_state());
+        }
+        match cmd {
+            TcpStreamCommand::Connect {
+                remote_endpoint,
+                local_endpoint,
+            } => {
+                if remote_endpoint.is_ipv4() != local_endpoint.is_ipv4() {
+                    return Response::Error(Error::wrong_ip_version());
+                }
+
+                // Only occurs if we're polling a `WouldBlock`.
+                if let Some(handle) = handle {
+                    return self.check_conn(
+                        handle,
+                        TcpStreamCommand::Connect {
+                            local_endpoint,
+                            remote_endpoint,
+                        },
+                    );
+                }
+
+                let (mut sock, allocation) = match self.new_outbound_tcp_socket() {
+                    Ok(value) => value,
+                    Err(error) => return Response::Error(error),
+                };
+                let budget = self.tcp_packet_budget[usize::from(remote_endpoint.is_ipv6())];
+                assert!(sock.set_tx_ip_packet_limit(budget));
+
+                if let Err(e) = sock.connect(self.iface.context(), remote_endpoint, local_endpoint)
+                {
+                    self.release_unregistered_tcp_buffer(allocation);
+                    tracing::error!(error = %e, "tcp connect");
+                    return Response::Error(e.into());
+                }
+
+                let handle = self.socket_set.add(sock);
+                self.register_tcp_buffer_allocation(handle, allocation);
+
+                Response::WouldBlock {
+                    handle: Some(handle),
+                    command: TcpStreamCommand::Connect {
+                        local_endpoint,
+                        remote_endpoint,
+                    }
+                    .into(),
+                }
+            }
+
+            TcpStreamCommand::Send { buf } => {
+                let handle = handle.unwrap();
+                let sock = self.socket_set.get_mut::<tcp::Socket>(handle);
+
+                match sock.send_slice(&buf) {
+                    Ok(0) => Response::WouldBlock {
+                        handle: Some(handle),
+                        command: TcpStreamCommand::Send { buf }.into(),
+                    },
+                    Ok(n) => TcpStreamResponse::Sent { n }.into(),
+                    Err(tcp::SendError::InvalidState) => {
+                        tracing::error!(state = %sock.state(), "invalid socket state for send");
+                        Response::Error(Error::invalid_socket_state())
+                    }
+                }
+            }
+
+            TcpStreamCommand::Recv { max_len } => {
+                let handle = handle.unwrap();
+                let sock = self.socket_set.get_mut::<tcp::Socket>(handle);
+
+                match sock.recv(|buf| {
+                    let mut len = buf.len();
+
+                    if let Some(max_len) = max_len {
+                        len = len.min(max_len);
+                    }
+
+                    (len, Bytes::copy_from_slice(&buf[..len]))
+                }) {
+                    Ok(buf) if buf.is_empty() => Response::WouldBlock {
+                        handle: Some(handle),
+                        command: TcpStreamCommand::Recv { max_len }.into(),
+                    },
+                    Ok(buf) => TcpStreamResponse::Recv { buf }.into(),
+                    Err(tcp::RecvError::Finished) => TcpStreamResponse::Finished.into(),
+                    Err(tcp::RecvError::InvalidState) => {
+                        tracing::error!(state = %sock.state(), "invalid socket state for recv");
+                        Response::Error(Error::invalid_socket_state())
+                    }
+                }
+            }
+
+            TcpStreamCommand::Close | TcpStreamCommand::Abort => {
+                let handle = handle.unwrap();
+
+                let sock = self.socket_set.get_mut::<tcp::Socket>(handle);
+                if matches!(cmd, TcpStreamCommand::Abort) {
+                    sock.abort();
+                } else {
+                    sock.close();
+                }
+
+                if !self.pending_tcp_closes.contains(&handle) {
+                    self.pending_tcp_closes.push(handle);
+                }
+
+                Response::Ok
+            }
+        }
+    }
+
+    /// Drop all TCP sockets that have finished closing.
+    #[tracing::instrument(skip_all)]
+    pub(crate) fn drain_tcp_closes(&mut self) {
+        let pending = core::mem::take(&mut self.pending_tcp_closes);
+        for handle in pending {
+            if !self
+                .socket_set
+                .iter()
+                .any(|(candidate, _)| candidate == handle)
+            {
+                continue;
+            }
+            let state = {
+                let sock = self.socket_set.get::<tcp::Socket>(handle);
+                sock.state()
+            };
+
+            let should_remove = state == tcp::State::Closed && !self.owned_by_once_listener(handle);
+            if should_remove {
+                self.socket_set.remove(handle);
+                self.release_tcp_buffer_allocation(handle);
+            } else {
+                self.pending_tcp_closes.push(handle);
+            }
+        }
+    }
+
+    fn check_conn(&mut self, handle: SocketHandle, orig_cmd: TcpStreamCommand) -> Response {
+        let sock = self.socket_set.get_mut::<tcp::Socket>(handle);
+
+        match sock.state() {
+            tcp::State::Established => {
+                tracing::trace!("connection succeeded");
+                TcpStreamResponse::Connected { handle }.into()
+            }
+
+            tcp::State::SynReceived | tcp::State::SynSent => Response::WouldBlock {
+                handle: Some(handle),
+                command: orig_cmd.into(),
+            },
+
+            _ => {
+                tracing::warn!("connecting socket was reset or closed");
+                self.pending_tcp_closes.push(handle);
+                Response::Error(Error::ConnectionReset)
+            }
+        }
+    }
+}

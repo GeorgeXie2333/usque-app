@@ -291,7 +291,7 @@ Zero Trust는 처음에 등록된 주소를 사용합니다. 고급 네트워크
 
 프로토콜 동작은 [Diniboy1123/usque](https://github.com/Diniboy1123/usque)를 참고합니다. 이 저장소는 상호 운용성 테스트를 위해 해당 클라이언트의 스냅샷을 `oracle/go`에 보관합니다. Flutter UI와 Rust 엔진은 새로 구현한 코드입니다. 업스트림 저작권 표시는 라이선스에 유지합니다.
 
-프로젝트 소스는 [MIT](LICENSE.md) 라이선스입니다. 서드파티 구성 요소는 각자의 라이선스를 유지합니다. 선택적인 [체인 프록시](docs/CHAIN_PROXY.md)는 MPL-2.0의 OpenVPN 3 Core와 Apache-2.0의 Mbed TLS를 포함합니다. 해당 소스, 검토한 패치, 라이선스 전문은 `third_party`에 있으며, 앱의 VPN Gate 페이지에서 라이선스 고지를 확인할 수 있습니다. WireGuard는 BoringTun 0.7.1(BSD-3-Clause)을, 로컬 SVG 아이콘은 flutter_svg 2.3.0(MIT)을 사용합니다. 해당 고지는 앱의 라이선스 목록에도 포함되어 있습니다.
+프로젝트 소스는 [MIT](LICENSE.md) 라이선스입니다. 서드파티 구성 요소는 각자의 라이선스를 유지합니다. 선택적인 [체인 프록시](docs/CHAIN_PROXY.md)는 MPL-2.0의 OpenVPN 3 Core와 Apache-2.0의 Mbed TLS를 포함합니다. 해당 소스, 검토한 패치, 라이선스 전문은 `third_party`에 있으며, 앱의 VPN Gate 페이지에서 라이선스 고지를 확인할 수 있습니다. WireGuard는 BoringTun 0.7.1(BSD-3-Clause)을, 로컬 SVG 아이콘은 flutter_svg 2.3.4(MIT)을 사용합니다. 해당 고지는 앱의 라이선스 목록에도 포함되어 있습니다.
 
 독립 Proton SRP 구현은 Proton go-srp(MIT)를 참조합니다. [저작권 고지와 전체 라이선스](apps/usque_gui/assets/licenses/proton-srp.txt)는 소스, 테스트 벡터와 앱 라이선스 목록에 보존됩니다.
 

@@ -37,8 +37,8 @@ dist/.vscode/
 
 # Rust
 /target/
-/third_party/ts_netstack_smoltcp_core/target/
-/third_party/quiche-0.29.3/target/
+/third_party/ts_netstack_smoltcp-0.7.1/target/
+/third_party/quiche-0.30.1/target/
 /.toolchains
 /.wix/
 /dist/

@@ -1396,7 +1396,7 @@ impl NetworkQualitySampler {
                             h3.sample.congestion_window_bytes,
                             stale,
                         ),
-                        // quiche 0.29.3 doesn't expose current bytes in flight
+                        // quiche 0.30.1 doesn't expose current bytes in flight
                         // through its public PathStats contract.
                         bytes_in_flight: MetricValue::unsupported(),
                         send_rate_bps: observed_metric(

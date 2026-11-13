@@ -37,7 +37,7 @@ not-ready, or stale data. H2 loss, congestion window, bytes in flight, and PMTU
 are `Unsupported`. H2 PING RTT is `NotReady` before the first PONG, `Available`
 after a valid PONG, and `Stale` after its adaptive soft deadline. If the locked
 h2 build cannot provide `PingPong`, H2 RTT is explicitly `Unsupported` while the
-tunnel remains usable. The locked quiche 0.29.3 `PathStats` exposes smoothed RTT,
+tunnel remains usable. The locked quiche 0.30.1 `PathStats` exposes smoothed RTT,
 minimum RTT, variance, loss, congestion window, delivery rate, and PMTU, but not
 latest RTT or current bytes in flight. Those two fields are explicitly
 `Unsupported`; smoothed RTT is never relabeled as a latest RTT sample.
@@ -223,7 +223,7 @@ cancellation have separate counters and are never counted as successful stalls.
 
 ## H3 DPLPMTUD
 
-H3 configures quiche 0.29.3 DPLPMTUD with three attempts per probe size. The
+H3 configures quiche 0.30.1 DPLPMTUD with three attempts per probe size. The
 outer UDP payload ceiling is 1472 bytes for IPv4 and 1452 for IPv6. quiche's
 locked implementation keeps ordinary data at its conservative 1200-byte QUIC
 floor until a probe succeeds; the ceiling is used only as the optimistic probe

@@ -21,6 +21,9 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.core.content.edit
 import androidx.core.net.toUri
+import androidx.fragment.app.Fragment
+import androidx.fragment.app.FragmentFactory
+import io.flutter.embedding.android.FlutterFragment
 import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
@@ -338,6 +341,22 @@ class MainActivity : FlutterFragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         permissionCoordinator.restoreOutstandingDialog(savedInstanceState?.getString("usque_permission_dialog"))
+        val originalFactory = supportFragmentManager.fragmentFactory
+        supportFragmentManager.fragmentFactory =
+            object : FragmentFactory() {
+                override fun instantiate(
+                    classLoader: ClassLoader,
+                    className: String,
+                ): Fragment =
+                    if (className == FlutterFragment::class.java.name) {
+                        // Saved state from an older app version contains the default
+                        // Fragment class. Restore it with the same deferred startup
+                        // and owned-engine lifetime as a newly created UI.
+                        UsqueFlutterFragment()
+                    } else {
+                        originalFactory.instantiate(classLoader, className)
+                    }
+            }
         // FlutterFragmentActivity may invoke configureFlutterEngine during
         // super.onCreate; wire control + method handlers first.
         ensureEngineComponents()
@@ -450,10 +469,16 @@ class MainActivity : FlutterFragmentActivity() {
 
     override fun provideRootLayout(context: Context): FrameLayout = tvInput.createRoot(context)
 
+    override fun createFlutterFragment(): FlutterFragment {
+        // Retain the embedding's route, restoration, rendering and back-button
+        // arguments while deferring Dart startup until JNI registration finishes.
+        val configuration = super.createFlutterFragment().arguments
+        return UsqueFlutterFragment().apply { arguments = configuration }
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
-        // The default Fragment starts Dart before this hook. Register only the
-        // tracked preferences implementation, without briefly exposing the
-        // upstream background handlers through super.configureFlutterEngine.
+        // UsqueFlutterFragment supplies an unstarted engine, so the temporary
+        // upstream JNI registrations cannot be observed by running Dart code.
         AndroidUiPluginRegistration.registerWith(flutterEngine)
         tvInput.attach(flutterEngine)
         ensureEngineComponents()

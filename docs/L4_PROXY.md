@@ -262,7 +262,7 @@ Additional safe tests are `l4::actor_tests`, `l4::client_tests`, `l4::tun_tests`
 the L4 GUI tests and the vendored allocator/listener tests:
 
 ```powershell
-cargo test --manifest-path third_party/ts_netstack_smoltcp_core/Cargo.toml --lib --locked
+cargo test --manifest-path third_party/ts_netstack_smoltcp-0.7.1/Cargo.toml --locked --lib --tests --features std,tokio
 ```
 
 The [performance scenario manifest](l4-performance-scenarios.json) defines

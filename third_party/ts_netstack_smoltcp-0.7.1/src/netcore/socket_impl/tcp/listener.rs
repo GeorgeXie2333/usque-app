@@ -1,0 +1,568 @@
+use alloc::{collections::VecDeque, vec};
+use core::net::SocketAddr;
+
+use smoltcp::{iface::SocketHandle, socket::tcp};
+
+use crate::netcore::{
+    Netstack,
+    command::{
+        Error, Response,
+        tcp::listen::{Command as TcpListenCommand, Response as TcpListenResponse},
+    },
+};
+
+/// Maximum number of pending TCP closes considered "normal", after which we should log a warning.
+///
+/// A [`Netstack`] should be calling [`Netstack::drain_tcp_closes()`] at the same/higher rate than
+/// pending TCP closes are being enqueued, such that [`Netstack::pending_tcp_closes`] is not
+/// regularly growing. If the queue length exceeds this value, we're not draining the queue
+/// frequently enough, or we're not seeing sockets in the queue transitioning to the `CLOSED` state
+/// rapidly enough. Either is a problem; this value is a crude way of warning about it.
+const WARN_PENDING_CLOSES: usize = 10000;
+
+/// Opaque handle to a TCP listener.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ListenerHandle(usize);
+
+#[cfg(test)]
+mod l4_tests {
+    use super::*;
+    use crate::netcore::{Config, Request, TcpBufferMetrics, TcpBufferPolicy, TcpBufferTier};
+
+    fn bounded_stack() -> (Netstack, TcpBufferMetrics) {
+        let metrics = TcpBufferMetrics::default();
+        let config = Config {
+            tcp_listener_budgeted: true,
+            tcp_nagle_enabled: false,
+            tcp_buffer_metrics: Some(metrics.clone()),
+            tcp_buffer_policy: Some(TcpBufferPolicy {
+                preferred: TcpBufferTier {
+                    receive: 65536,
+                    transmit: 65536,
+                },
+                fallback: TcpBufferTier {
+                    receive: 16384,
+                    transmit: 16384,
+                },
+                preferred_budget: 131072,
+                total_budget: 163840,
+            }),
+            ..Config::default()
+        };
+        (
+            Netstack::new(config, smoltcp::time::Instant::from_millis(0)),
+            metrics,
+        )
+    }
+
+    #[test]
+    fn one_shot_listeners_share_the_socket_budget_and_close_reclaims_it() {
+        let (mut stack, metrics) = bounded_stack();
+        let listen = |stack: &mut Netstack, port| {
+            stack.process_tcp_listen(
+                TcpListenCommand::ListenOnce {
+                    local_endpoint: ([127, 0, 0, 1], port).into(),
+                },
+                None,
+            )
+        };
+        let Response::TcpListen(TcpListenResponse::Listening { handle: first }) =
+            listen(&mut stack, 10001)
+        else {
+            panic!("first listener");
+        };
+        let Response::TcpListen(TcpListenResponse::Listening { handle: second }) =
+            listen(&mut stack, 10002)
+        else {
+            panic!("fallback listener");
+        };
+        assert_eq!(metrics.snapshot().preferred_sockets, 1);
+        assert_eq!(metrics.snapshot().fallback_sockets, 1);
+        assert!(matches!(listen(&mut stack, 10003), Response::Error(_)));
+        assert_eq!(stack.socket_set.iter().count(), 2);
+        drop(stack.process_tcp_listen(TcpListenCommand::Close { handle: first }, None));
+        drop(stack.process_tcp_listen(TcpListenCommand::Close { handle: second }, None));
+        stack.drain_tcp_closes();
+        assert_eq!(stack.socket_set.iter().count(), 0);
+        assert_eq!(metrics.snapshot().total_bytes, 0);
+    }
+
+    #[test]
+    fn cancelled_listen_response_cannot_orphan_an_allocated_socket() {
+        let (mut stack, metrics) = bounded_stack();
+        let (sender, receiver) = crate::netcore::flume::bounded(1);
+        drop(receiver);
+        stack.process_one_cmd(Request {
+            handle: None,
+            command: TcpListenCommand::ListenOnce {
+                local_endpoint: ([127, 0, 0, 1], 10001).into(),
+            }
+            .into(),
+            resp: sender,
+            complete_if_channel_dropped: false,
+        });
+        stack.drain_tcp_closes();
+        assert!(stack.tcp_listeners.is_empty());
+        assert_eq!(metrics.snapshot().total_bytes, 0);
+    }
+
+    #[test]
+    fn accepted_owner_prevents_slot_reuse_and_late_close_cannot_abort_new_socket() {
+        let (mut stack, metrics) = bounded_stack();
+        let listen = |stack: &mut Netstack, port| {
+            let Response::TcpListen(TcpListenResponse::Listening { handle }) = stack
+                .process_tcp_listen(
+                    TcpListenCommand::ListenOnce {
+                        local_endpoint: ([127, 0, 0, 1], port).into(),
+                    },
+                    None,
+                )
+            else {
+                panic!("listener allocation");
+            };
+            handle
+        };
+        let first = listen(&mut stack, 10001);
+        let owner = stack.tcp_listeners.get_mut(&first).unwrap();
+        owner.transferred = true;
+        let old_slot = owner.current_socket_handle;
+        drop(stack.process_tcp_stream(crate::netcore::tcp::stream::Command::Close, Some(old_slot)));
+        stack.drain_tcp_closes();
+        assert_eq!(metrics.snapshot().total_bytes, 131072);
+        let second = listen(&mut stack, 10002);
+        assert_ne!(stack.tcp_listeners[&second].current_socket_handle, old_slot);
+        drop(stack.process_tcp_listen(TcpListenCommand::Close { handle: first }, None));
+        stack.drain_tcp_closes();
+        let third = listen(&mut stack, 10003);
+        drop(stack.process_tcp_listen(TcpListenCommand::Close { handle: first }, None));
+        let new_slot = stack.tcp_listeners[&third].current_socket_handle;
+        assert_eq!(
+            stack.socket_set.get::<tcp::Socket>(new_slot).state(),
+            tcp::State::Listen
+        );
+        for handle in [second, third] {
+            drop(stack.process_tcp_listen(TcpListenCommand::Close { handle }, None));
+        }
+        stack.drain_tcp_closes();
+        assert_eq!(metrics.snapshot().total_bytes, 0);
+    }
+}
+
+/// State for a particular TCP listener, supporting the abstraction of a single persistent
+/// listener object that can spin off connections by calling `accept`.
+///
+/// `smoltcp` doesn't provide a TCP listener abstraction, just plain sockets. Each one has
+/// its own state machine, which can be in the `LISTENING` state, i.e. waiting for a
+/// connection. But once it's `ESTABLISHED`, you need to create a new `LISTENING` socket in
+/// order to accept a new connection.
+pub struct TcpListenerState {
+    once: bool,
+    transferred: bool,
+    suspended: bool,
+    /// The local endpoint on which this listener is listening.
+    local_endpoint: SocketAddr,
+
+    /// Socket currently in listening state and waiting for a new connection.
+    current_socket_handle: SocketHandle,
+
+    /// Sockets which have transitioned from `LISTEN` to `SYN-RECEIVED` (half-open) and are waiting
+    /// to become `ESTABLISHED`; in other words, the socket received a `SYN` and replied with a
+    /// `SYN-ACK`, and is awaiting an `ACK` to complete the handshake.
+    ///
+    /// Note that sockets in this queue can [transition back to the `LISTEN` state if the remote
+    /// replies with a `RST` rather than an `ACK`](https://www.rfc-editor.org/rfc/rfc793#page-70).
+    /// Sockets that return to `LISTEN` should be removed from this queue/dropped (not `close()`d);
+    /// the listener has already opened a new socket in the `LISTEN` state. Sockets in this queue
+    /// can also [transition to the `CLOSE_WAIT` state if the remote half-closes their side of the
+    /// connection with a `FIN`](https://www.rfc-editor.org/info/rfc9293/#section-3.6); half-closed
+    /// sockets should be treated identically to `ESTABLISHED` sockets.
+    half_open_queue: VecDeque<SocketHandle>,
+
+    /// Sockets which have transitioned from `SYN-RECEIVED` (half-open) to `ESTABLISHED`
+    /// (full-open); in other words, the socket has received an `ACK` from the remote completing the
+    /// three-way handshake. Sockets in this queue are waiting for a call to
+    /// [`Netstack::process_tcp_listen()`] with a [`TcpListenCommand::Accept`] command, which will
+    /// dequeue a socket and return it to become a [`TcpStream`].
+    ///
+    /// [`TcpStream`]: [::ts_netstack_smoltcp_socket::tcp::stream::TcpStream]
+    accept_queue: VecDeque<SocketHandle>,
+}
+
+impl Netstack {
+    /// A transferred one-shot socket stays owned until its unique listener
+    /// token closes. Do not recycle its slot while an I/O wrapper still lives.
+    pub(crate) fn owned_by_once_listener(&self, handle: SocketHandle) -> bool {
+        self.tcp_listeners.values().any(|listener| {
+            listener.once && listener.transferred && listener.current_socket_handle == handle
+        })
+    }
+
+    /// Process a TCP listener command.
+    #[tracing::instrument(skip_all, fields(?cmd), level = "debug")]
+    pub(crate) fn process_tcp_listen(
+        &mut self,
+        cmd: TcpListenCommand,
+        handle: Option<SocketHandle>,
+    ) -> Response {
+        debug_assert!(handle.is_none());
+
+        match cmd {
+            TcpListenCommand::Listen { local_endpoint }
+            | TcpListenCommand::ListenOnce { local_endpoint } => {
+                let once = matches!(cmd, TcpListenCommand::ListenOnce { .. });
+                let (mut listener, allocation) = if self.config.tcp_listener_budgeted || once {
+                    match self.new_outbound_tcp_socket() {
+                        Ok((socket, allocation)) => (socket, Some(allocation)),
+                        Err(error) => return Response::Error(error),
+                    }
+                } else {
+                    (tcp::Socket::new(self.tcp_buffer(), self.tcp_buffer()), None)
+                };
+
+                if let Err(e) = listener.listen(local_endpoint) {
+                    if let Some(allocation) = allocation {
+                        self.release_unregistered_tcp_buffer(allocation);
+                    }
+                    return Response::Error(e.into());
+                }
+
+                let socket_handle = self.socket_set.add(listener);
+                if let Some(allocation) = allocation {
+                    self.register_tcp_buffer_allocation(socket_handle, allocation);
+                }
+
+                let listener_handle = ListenerHandle(self.next_tcp_listener_id);
+                self.next_tcp_listener_id += 1;
+
+                self.tcp_listeners.insert(
+                    listener_handle,
+                    TcpListenerState {
+                        once,
+                        transferred: false,
+                        suspended: false,
+                        current_socket_handle: socket_handle,
+                        local_endpoint,
+                        half_open_queue: Default::default(),
+                        accept_queue: Default::default(),
+                    },
+                );
+
+                TcpListenResponse::Listening {
+                    handle: listener_handle,
+                }
+                .into()
+            }
+            TcpListenCommand::Accept { handle } => {
+                let Some(listener) = self.tcp_listeners.get_mut(&handle) else {
+                    tracing::error!(?handle, "listener does not exist");
+                    return Error::missing_listener().into();
+                };
+
+                if listener.once {
+                    if listener.transferred {
+                        return Error::missing_listener().into();
+                    }
+                    let socket = self
+                        .socket_set
+                        .get_mut::<tcp::Socket>(listener.current_socket_handle);
+                    if matches!(
+                        socket.state(),
+                        tcp::State::Established | tcp::State::CloseWait
+                    ) {
+                        let Some(remote) = socket.remote_endpoint() else {
+                            return Error::invalid_socket_state().into();
+                        };
+                        listener.transferred = true;
+                        return TcpListenResponse::Accepted {
+                            handle: listener.current_socket_handle,
+                            remote: SocketAddr::new(remote.addr.into(), remote.port),
+                        }
+                        .into();
+                    }
+                    return Response::WouldBlock {
+                        handle: None,
+                        command: TcpListenCommand::Accept { handle }.into(),
+                    };
+                }
+
+                // Iterate the half-open queue, re-queueing any socket handles that are still in
+                // SYN-RECEIVED. Move any sockets in ESTABLISHED or CLOSE-WAIT to the accept queue,
+                // and close any sockets that moved back to LISTEN. All other states are unexpected.
+                listener.half_open_queue.retain(|half_open| {
+                    let sock = self.socket_set.get_mut::<tcp::Socket>(*half_open);
+                    let state = sock.state();
+                    let _span = tracing::trace_span!(
+                        "half_open_queue",
+                        accept_queue_len = listener.accept_queue.len(),
+                        pending_closes = self.pending_tcp_closes.len(),
+                        ?half_open,
+                        ?state
+                    )
+                    .entered();
+
+                    match state {
+                        tcp::State::SynReceived => {
+                            tracing::trace!("half-open socket unchanged, re-queueing");
+                            true
+                        }
+                        tcp::State::Established | tcp::State::CloseWait => {
+                            // CLOSE-WAIT indicates the peer half-closed their socket - they closed
+                            // their write half, sent a `FIN` to us, and aren't going to write to
+                            // the stream anymore. It doesn't mean the peer is dropping the stream;
+                            // it's likely waiting for some application-layer response from us that
+                            // it can read from the stream. This is common with small HTTP/1.0 or
+                            // HTTP/1.1 requests: the client completes a TCP handshake, sends a
+                            // small GET request, and immediately closes their write half of the
+                            // stream, but still expects the HTTP server to reply! Thus, we handle
+                            // CLOSE-WAIT and ESTABLISHED identically. For more information, see
+                            // https://www.rfc-editor.org/info/rfc9293/#section-3.6.1.
+                            tracing::trace!("half-open socket ready, moving to accept queue");
+                            listener.accept_queue.push_back(*half_open);
+                            false
+                        }
+                        tcp::State::Listen => {
+                            // Closing a socket that moved back to LISTEN ensures there's only a
+                            // single LISTEN socket at a time for a specific endpoint; dropping the
+                            // socket handle doesn't remove the socket from the socket set, meaning
+                            // smoltcp would have multiple LISTEN sockets open for the same
+                            // endpoint, and likely (depending on socket set order) delivers packets
+                            // to a socket the netstack isn't tracking in any of its queues. In that
+                            // state, TCP handshakes still complete and clients are able to send
+                            // their initial packet(s), because smoltcp is still tracking the
+                            // socket. However, this function does not move the socket through the
+                            // accept loop and surface data to callers, as it has no handle to the
+                            // socket in its queues.
+                            tracing::trace!("half-open socket moved to LISTEN, closing");
+                            sock.close();
+                            self.pending_tcp_closes.push(*half_open);
+                            if self.pending_tcp_closes.len() > WARN_PENDING_CLOSES {
+                                tracing::warn!("large number of pending closes");
+                            }
+                            false
+                        }
+                        _ => {
+                            tracing::warn!("half-open socket in unexpected state, dropping");
+                            false
+                        }
+                    }
+                });
+
+                // De-queue a single socket in the ESTABLISHED/CLOSE_WAIT state from the accept
+                // queue and return it to become a TcpStream.
+                while let Some(accept) = listener.accept_queue.pop_front() {
+                    let sock = self.socket_set.get_mut::<tcp::Socket>(accept);
+                    let state = sock.state();
+                    let _span = tracing::trace_span!(
+                        "accept_queue",
+                        half_open_queue_len = listener.half_open_queue.len(),
+                        accept_queue_len = listener.accept_queue.len(),
+                        pending_closes = self.pending_tcp_closes.len(),
+                        ?accept,
+                        ?state
+                    )
+                    .entered();
+
+                    if !matches!(&state, tcp::State::Established | tcp::State::CloseWait) {
+                        tracing::warn!(?state, "accept socket in unexpected state, closing");
+                        sock.close();
+                        self.pending_tcp_closes.push(accept);
+                        if self.pending_tcp_closes.len() > WARN_PENDING_CLOSES {
+                            tracing::warn!("large number of pending closes");
+                        }
+                        continue;
+                    }
+
+                    tracing::trace!("accept socket accepted, returning");
+                    let remote = sock.remote_endpoint().unwrap();
+                    return TcpListenResponse::Accepted {
+                        handle: accept,
+                        remote: SocketAddr::new(remote.addr.into(), remote.port),
+                    }
+                    .into();
+                }
+
+                tracing::trace!("accept queue empty");
+
+                Response::WouldBlock {
+                    handle: None,
+                    command: TcpListenCommand::Accept { handle }.into(),
+                }
+            }
+            TcpListenCommand::Close { handle } => {
+                let Some(listener) = self.tcp_listeners.remove(&handle) else {
+                    tracing::error!(?handle, "listener does not exist");
+                    return Error::missing_listener().into();
+                };
+
+                if (listener.once || !listener.transferred) && !listener.suspended {
+                    let sock = self
+                        .socket_set
+                        .get_mut::<tcp::Socket>(listener.current_socket_handle);
+                    if listener.once {
+                        sock.abort();
+                    } else {
+                        sock.close();
+                    }
+                    if !self
+                        .pending_tcp_closes
+                        .contains(&listener.current_socket_handle)
+                    {
+                        self.pending_tcp_closes.push(listener.current_socket_handle);
+                    }
+                }
+
+                let accept_handles = listener
+                    .half_open_queue
+                    .iter()
+                    .chain(listener.accept_queue.iter())
+                    .copied();
+                for pending_accept in accept_handles {
+                    let sock = self.socket_set.get_mut::<tcp::Socket>(pending_accept);
+                    sock.close();
+
+                    self.pending_tcp_closes.push(pending_accept);
+                }
+
+                // A one-shot abort is already Closed. Reclaim it now, even
+                // if the pipe is full or there will be no more network I/O.
+                // Unique transferred owners still protect other socket slots.
+                self.drain_tcp_closes();
+                Response::Ok
+            }
+        }
+    }
+
+    /// Attempt to accept a TCP connection for all TCP listeners.
+    #[tracing::instrument(skip_all)]
+    pub(crate) fn pump_tcp_accept(&mut self) {
+        if self.config.tcp_listener_budgeted {
+            self.pump_bounded_tcp_accept();
+            return;
+        }
+        for listener in self.tcp_listeners.values_mut() {
+            if listener.once {
+                continue;
+            }
+            let sock = self
+                .socket_set
+                .get_mut::<tcp::Socket>(listener.current_socket_handle);
+
+            let state = sock.state();
+            let _span = tracing::trace_span!(
+                "pump_one_tcp_listener",
+                current_socket = ?listener.current_socket_handle,
+                current_socket_state = %state,
+                accept_queue_len = listener.accept_queue.len(),
+                listening_on = %listener.local_endpoint,
+            )
+            .entered();
+
+            match sock.state() {
+                tcp::State::Listen => {
+                    tracing::trace!("listening");
+                    continue;
+                }
+
+                tcp::State::SynReceived => {
+                    tracing::trace!("socket pending, not yet established");
+                    listener
+                        .half_open_queue
+                        .push_back(listener.current_socket_handle);
+                }
+
+                tcp::State::Established | tcp::State::CloseWait => {
+                    tracing::trace!("connection established");
+                    listener
+                        .accept_queue
+                        .push_back(listener.current_socket_handle);
+                }
+
+                state => {
+                    tracing::warn!(
+                        current_socket = ?listener.current_socket_handle,
+                        current_socket_state = %state,
+                        half_open_queue_len = listener.half_open_queue.len(),
+                        accept_queue_len = listener.accept_queue.len(),
+                        listening_on = %listener.local_endpoint,
+                        "partially-established listening socket reset or closed");
+                    sock.close();
+                    self.pending_tcp_closes.push(listener.current_socket_handle);
+                }
+            }
+
+            // fallthrough: socket has either closed or been established -- create a new listen
+            // socket
+
+            let mut new_listener = tcp::Socket::new(
+                tcp::SocketBuffer::new(vec![0; self.config.tcp_buffer_size]),
+                tcp::SocketBuffer::new(vec![0; self.config.tcp_buffer_size]),
+            );
+
+            if let Err(e) = new_listener.listen(listener.local_endpoint) {
+                // invariant failure: the only variants for ListenError are
+                // InvalidState and Unaddressable. InvalidState isn't possible here because we just
+                // created the socket. Unaddressable only occurs if listener.local_endpoint has
+                // an unspecified (zero) port and/or address. but we're currently replacing a socket
+                // with the _same_ local_endpoint, and it clearly wasn't invalid before, so
+                // Unaddressable shouldn't be possible either. this should always succeed.
+                panic!("opening new listen socket for accept: {e}");
+            }
+
+            let socket_handle = self.socket_set.add(new_listener);
+            listener.current_socket_handle = socket_handle;
+            tracing::trace!(new_handle = ?socket_handle, "replaced active listen socket");
+        }
+    }
+
+    fn pump_bounded_tcp_accept(&mut self) {
+        let handles = self
+            .tcp_listeners
+            .keys()
+            .copied()
+            .collect::<alloc::vec::Vec<_>>();
+        for handle in handles {
+            let Some(mut listener) = self.tcp_listeners.remove(&handle) else {
+                continue;
+            };
+            if listener.once {
+                self.tcp_listeners.insert(handle, listener);
+                continue;
+            }
+            if !listener.suspended {
+                let socket = self
+                    .socket_set
+                    .get_mut::<tcp::Socket>(listener.current_socket_handle);
+                match socket.state() {
+                    tcp::State::Listen => {
+                        self.tcp_listeners.insert(handle, listener);
+                        continue;
+                    }
+                    tcp::State::SynReceived => listener
+                        .half_open_queue
+                        .push_back(listener.current_socket_handle),
+                    tcp::State::Established | tcp::State::CloseWait => listener
+                        .accept_queue
+                        .push_back(listener.current_socket_handle),
+                    _ => {
+                        socket.close();
+                        self.pending_tcp_closes.push(listener.current_socket_handle);
+                    }
+                }
+                listener.suspended = true;
+            }
+            if listener.half_open_queue.len() + listener.accept_queue.len() < 32
+                && let Ok((mut socket, allocation)) = self.new_outbound_tcp_socket()
+            {
+                if socket.listen(listener.local_endpoint).is_ok() {
+                    let socket_handle = self.socket_set.add(socket);
+                    self.register_tcp_buffer_allocation(socket_handle, allocation);
+                    listener.current_socket_handle = socket_handle;
+                    listener.suspended = false;
+                } else {
+                    self.release_unregistered_tcp_buffer(allocation);
+                }
+            }
+            self.tcp_listeners.insert(handle, listener);
+        }
+    }
+}

@@ -291,7 +291,7 @@ Use the pinned toolchains and change-scoped checks in the contribution guide. Co
 
 Protocol behavior follows [Diniboy1123/usque](https://github.com/Diniboy1123/usque). This repository keeps a snapshot of that client in `oracle/go` for interoperability tests. The Flutter UI and Rust engine are new code. Upstream copyright stays in the license.
 
-First-party source is [MIT](LICENSE.md). Third-party components keep their own licenses. The optional [chain proxy](docs/CHAIN_PROXY.md) embeds OpenVPN 3 Core under MPL-2.0 and Mbed TLS under Apache-2.0. Corresponding source, reviewed patches and license texts are included in `third_party`; the application exposes the notices from its VPN Gate page. WireGuard uses BoringTun 0.7.1 (BSD-3-Clause), and local SVG icons use flutter_svg 2.3.0 (MIT); their notices are in the app's license registry.
+First-party source is [MIT](LICENSE.md). Third-party components keep their own licenses. The optional [chain proxy](docs/CHAIN_PROXY.md) embeds OpenVPN 3 Core under MPL-2.0 and Mbed TLS under Apache-2.0. Corresponding source, reviewed patches and license texts are included in `third_party`; the application exposes the notices from its VPN Gate page. WireGuard uses BoringTun 0.7.1 (BSD-3-Clause), and local SVG icons use flutter_svg 2.3.4 (MIT); their notices are in the app's license registry.
 
 The independent Proton SRP implementation references Proton go-srp (MIT); its [copyright and full license](apps/usque_gui/assets/licenses/proton-srp.txt) are retained in source, test vectors and the app license registry.
 

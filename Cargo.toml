@@ -1,7 +1,7 @@
 [workspace]
 resolver = "2"
 # The frozen dependency keeps upstream formatting and its own test manifest.
-exclude = ["third_party/quiche-0.29.3", "third_party/ts_netstack_smoltcp_core", "third_party/smoltcp-0.14.0"]
+exclude = ["third_party/quiche-0.30.1", "third_party/ts_netstack_smoltcp-0.7.1", "third_party/smoltcp-0.14.0"]
 members = [
     "crates/usque-agent",
     "crates/usque-android",
@@ -82,7 +82,7 @@ reqwest = { version = "0.12.23", default-features = false, features = ["charset"
 # as well would also select aws-lc-rs, making Rustls' implicit provider choice
 # ambiguous and causing ClientConfig::builder() to panic at runtime.
 rustls = { version = "0.23.43", default-features = false, features = ["logging", "ring", "std", "tls12"] }
-quiche = { version = "=0.29.3", default-features = true }
+quiche = { version = "=0.30.1", default-features = true }
 security-framework = { version = "3.7.0", default-features = false }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.145"
@@ -98,7 +98,7 @@ tokio-rustls = { version = "0.26.4", default-features = false, features = ["logg
 tokio-util = { version = "0.7.16", features = ["rt"] }
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.20", features = ["env-filter", "fmt", "json"] }
-ts_netstack_smoltcp = { version = "0.4.0", features = ["std", "tokio"] }
+ts_netstack_smoltcp = { version = "=0.7.1", features = ["std", "tokio"] }
 uuid = { version = "1.18.1", features = ["serde", "v4"] }
 windows-sys = { version = "0.61.2", features = [
     "Win32_Devices_DeviceAndDriverInstallation",
@@ -138,7 +138,7 @@ windows-sys = { version = "0.61.2", features = [
     "Win32_UI_Input_KeyboardAndMouse",
     "Win32_UI_WindowsAndMessaging",
 ] }
-webpki-roots = "1.0.10"
+webpki-roots = "1.0.12"
 winresource = { version = "0.1.31", default-features = false }
 zeroize = { version = "1.8.2", features = ["derive", "serde"] }
 
@@ -164,17 +164,15 @@ debug = false
 [patch.crates-io]
 smoltcp = { path = "third_party/smoltcp-0.14.0" }
 # Keep per-path PMTUD and DATAGRAM limits consistent with ordinary packetization.
-# Also retain the independent, explicitly selected BBRv3 recovery implementation.
+# Retain the independent BBRv3 implementation and accurate PTO accounting.
 # Provenance and the narrow patch are documented in the vendored directory.
-quiche = { path = "third_party/quiche-0.29.3" }
+quiche = { path = "third_party/quiche-0.30.1" }
 
 # boring-sys 4.22.0 injects Cargo's API-unqualified Android target after the
 # NDK toolchain has selected an API-qualified target. Keep the exact upstream
 # release in-tree with only that Android build-script correction.
 boring-sys = { path = "third_party/boring-sys-4.22.0" }
 
-# 0.4.0 replays cancelled WouldBlock socket commands after their response
-# channel is gone. If the socket's queued Close ran first, smoltcp panics on
-# the stale handle. Keep the small audited patch in-tree until upstream ships
-# an equivalent release.
-ts_netstack_smoltcp_core = { path = "third_party/ts_netstack_smoltcp_core" }
+# Preserve bounded buffers, per-family packet budgets and cancellation-safe
+# socket ownership on top of upstream's integrated 0.7.1 netcore.
+ts_netstack_smoltcp = { path = "third_party/ts_netstack_smoltcp-0.7.1" }

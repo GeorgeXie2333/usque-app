@@ -634,7 +634,7 @@ The explicit clear-all-data workflow removes these objects after disconnecting.
 | --- | --- | --- |
 | [BoringTun](https://docs.rs/crate/boringtun/0.7.1) | `=0.7.1`, Rust protocol API, default features disabled | BSD-3-Clause |
 | OpenVPN 3 Core + Mbed TLS | Existing embedded native bridge; TCP and UDP | OpenVPN 3 Core used under MPL-2.0 (offered as AGPL-3.0-only or MPL-2.0); Mbed TLS used under Apache-2.0; see [native source notices](VPN_GATE.md#sources-licenses-and-validation) |
-| [flutter_svg](https://pub.dev/packages/flutter_svg/versions/2.3.0) | `2.3.0`, local SVG assets | MIT |
+| [flutter_svg](https://pub.dev/packages/flutter_svg/versions/2.3.4) | `2.3.4`, local SVG assets | MIT |
 | smoltcp | `=0.14.0`, existing stack with 16 KiB fragmentation buffer | 0BSD |
 
 Cargo and Flutter lockfiles contain transitive versions and checksums. BoringTun's

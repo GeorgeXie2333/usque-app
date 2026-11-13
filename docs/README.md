@@ -113,6 +113,8 @@ Common terms in these references:
 
 | Record | Scope / 范围 |
 | --- | --- |
+| [quiche 0.30.1 upgrade](QUICHE_UPGRADE_VALIDATION.md) | Rebased transport patches, dependency constraints, local checks and unrun platform/lab validation / 传输补丁迁移、依赖约束、本地检查与未运行的平台和隔离验证 |
+| [Dependency upgrade validation](DEPENDENCY_UPGRADE_VALIDATION.md) | Netstack, OpenVPN, trust roots and Flutter dependencies; JNI lifecycle adaptation and local checks / 网络栈、OpenVPN、根证书与 Flutter 依赖升级，JNI 生命周期适配及本地验证 |
 | [Linux implementation validation](LINUX_IMPLEMENTATION_VALIDATION.md) | Local Linux source/build checks, cross-platform regressions and explicitly unavailable native acceptance / Linux 本地源码与构建检查、跨平台回归及未运行的原生验收 |
 | [Upstream transport fixes](UPSTREAM_TRANSPORT_VALIDATION.md) | ICMP saturation and TCP packet-budget regressions, safe checks and isolated-test limits / ICMP 拥塞、TCP 包预算回归、安全检查与隔离测试边界 |
 | [Chrome ClientHello compatibility](CHROME_FINGERPRINT_VALIDATION.md) | Explicit H2/H3 WARP handshake and CONNECT-IP experiment, profile limits and validation / H2、H3 指纹握手与 CONNECT-IP 实测、指纹范围与验证 |
@@ -160,9 +162,9 @@ Usque app behavior.
 
 Third-party source and license notices remain with their components. Local
 changes are recorded separately for
-[quiche](../third_party/quiche-0.29.3/USQUE-PATCH.md),
+[quiche](../third_party/quiche-0.30.1/USQUE-PATCH.md),
 [boring-sys](../third_party/boring-sys-4.22.0/USQUE-PATCH.md),
-[smoltcp integration](../third_party/ts_netstack_smoltcp_core/PATCHES.md), and
+[smoltcp integration](../third_party/ts_netstack_smoltcp-0.7.1/PATCHES.md), and
 [Wintun provenance](../third_party/wintun-0.14.1/SOURCE.md).
 Do not rewrite frozen upstream documents as product instructions.
 

@@ -94,13 +94,14 @@ jobs:
 
       - name: Test pinned quiche recovery and BBRv3 independently
         run: |
-          cargo test --manifest-path third_party/quiche-0.29.3/Cargo.toml --locked --lib
-          cargo test --manifest-path third_party/quiche-0.29.3/Cargo.toml --locked --lib --features qlog recovery::gcongestion::bbr3::
+          cargo test --manifest-path third_party/quiche-0.30.1/Cargo.toml --locked --lib
+          cargo test --manifest-path third_party/quiche-0.30.1/Cargo.toml --locked --lib --features qlog recovery::gcongestion::bbr3::
+          cargo test --manifest-path third_party/quiche-0.30.1/Cargo.toml --locked --lib --features congestion_window_unchecked_available bbr3_and_unchecked_keep_independent_recovery
 
       - name: Test pinned userspace TCP patches independently
         run: |
           cargo test --manifest-path third_party/smoltcp-0.14.0/Cargo.toml --locked --lib
-          cargo test --manifest-path third_party/ts_netstack_smoltcp_core/Cargo.toml --locked --all-targets
+          cargo test --manifest-path third_party/ts_netstack_smoltcp-0.7.1/Cargo.toml --locked --lib --tests --features std,tokio
 
   tooling-quality:
     name: Multi-language tooling quality

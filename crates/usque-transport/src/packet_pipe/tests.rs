@@ -139,6 +139,7 @@ fn real_tcp_egress_stops_at_full_pipe_and_retains_the_next_syn() {
             }
             .into(),
             resp,
+            complete_if_channel_dropped: false,
         });
     }
     let (done, result) = std::sync::mpsc::channel();
