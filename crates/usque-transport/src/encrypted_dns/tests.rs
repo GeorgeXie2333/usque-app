@@ -1273,7 +1273,11 @@ async fn proxy_dns_failure_is_terminal_and_data_fallback_reuses_encrypted_answer
             assert!(matches!(result, Err("encrypted_failure")));
             assert!(!fallback.load(Ordering::Acquire));
         } else {
-            assert!(matches!(result, Err("tunnel_intercepted")));
+            assert!(
+                matches!(result, Err("tunnel_intercepted")),
+                "unexpected routing result: {:?}",
+                result.as_ref().err()
+            );
             assert!(fallback.load(Ordering::Acquire));
         }
         assert_eq!(harness.server.counts.queries.load(Ordering::Acquire), 2);

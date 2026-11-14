@@ -1,3 +1,7 @@
+#[cfg(test)]
+use crate::socket::DirectProtocol;
+#[cfg(test)]
+use std::net::Ipv4Addr;
 mod liveness;
 mod send_progress;
 use send_progress::{
@@ -8,7 +12,7 @@ use send_progress::{
 use std::collections::VecDeque;
 use std::future::Future;
 use std::io;
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, UdpSocket as StdUdpSocket};
+use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
@@ -49,8 +53,7 @@ use crate::pmtu::{
 };
 use crate::queue_metrics::{QueueEntry, QueueKind, QueueMetrics};
 use crate::socket::{
-    DirectEgressLease, DirectProtocol, STALE_GENERATION_REASON, SocketProtector,
-    noop_socket_protector, socket_handle,
+    DirectEgressLease, STALE_GENERATION_REASON, SocketProtector, noop_socket_protector,
 };
 use crate::telemetry::{ConnectionAttemptTelemetry, ConnectionEventType};
 use crate::udp_io::{SendDatagram, UDP_ACTOR_DRAIN_LIMIT, UdpReceivePool, is_message_too_long};
@@ -366,18 +369,10 @@ async fn prepare_udp_for_generation(
     if protector.network_generation().unwrap_or_default() != expected_generation {
         return Err(SocketPrepareError::StaleGeneration);
     }
-    let bind_address = match target {
-        SocketAddr::V4(_) => SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0),
-        SocketAddr::V6(_) => SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 0),
-    };
-    let std_socket = StdUdpSocket::bind(bind_address)?;
-    crate::udp_options::configure_quic_socket(&std_socket)?;
-    std_socket.set_nonblocking(true)?;
-    let egress_lease = protector
-        .protect_masque_endpoint_generation(
-            socket_handle(&std_socket),
+    let (std_socket, egress_lease) = protector
+        .prepare_udp(
             target,
-            DirectProtocol::Udp,
+            crate::socket::PhysicalSocketPurpose::Masque,
             expected_generation,
         )
         .await
@@ -388,6 +383,7 @@ async fn prepare_udp_for_generation(
                 SocketPrepareError::Protection(error)
             }
         })?;
+    crate::udp_options::configure_quic_socket(&std_socket)?;
     if protector.network_generation().unwrap_or_default() != expected_generation
         || egress_lease.generation() != Some(expected_generation)
     {

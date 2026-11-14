@@ -1,17 +1,17 @@
 # macOS development packaging
 
-The macOS port assembles the Flutter app, Engine, native control helper,
-four Network Extension prototypes and maintenance helper into separate Apple
-Silicon and Intel development bundles. This is development delivery, not full Windows feature
-parity. macOS Proton guest registration and its embedded verification browser
-have been removed. Existing Proton account login and Cloudflare Zero Trust
-system authentication remain available. Signed VPN activation, production
-updates, managed uninstallation and hardware acceptance remain incomplete.
+The default build now assembles the Flutter GUI, ordinary-user Engine, root
+Agent and administrator maintenance tool. It uses the [Agent/utun route](MACOS_TUN_AGENT.md)
+and requires no Apple Developer subscription. Network Extension prototypes remain
+independent and are included only when explicitly supplied to the low-level
+`package --network-prototype` command.
 
-The production update channel and Windows/Linux release workflows are unchanged.
-The generated app and manifest explicitly disable production automatic
-installation. These ad-hoc disk images are not notarized and cannot activate
-the Network Extensions.
+The native arm64 and x86_64 development bundles target macOS 13+, are ad-hoc
+signed and are not notarized. Production TUN stays disabled pending real network
+acceptance. Root service installation/update/removal requires administrator
+authorization; production automatic installation and root auto-updates remain
+disabled. Existing account login and system authentication remain available;
+macOS Proton guest registration and its embedded browser remain removed.
 
 ## Earlier published development preview
 
@@ -54,8 +54,7 @@ python3 tool/macos_package.py build --arch x86_64
 Each invocation explicitly selects Flutter/Xcode and Rust architectures, sets
 the macOS deployment target to 13.0, builds all native components, removes
 unneeded framework slices, and checks every included Mach-O file. Network
-providers use linker dead-code elimination so a DNS/filter/control process does
-not retain an unused copy of the complete VPN data plane. Staged Mach-O files
+prototype providers, when explicitly supplied, remain separate experimental components. Staged Mach-O files
 lose only debug/local symbols, with global exports checked before and after,
 then receive fresh ad-hoc signatures. An Intel
 build produced on Apple Silicon remains a cross build until run on Intel
@@ -87,11 +86,11 @@ release SBOM process.
 
 ```sh
 python3 tool/macos_package.py package \
-  --arch arm64 --version 0.3.3 --build-number 29 \
+  --arch arm64 --version 0.3.4 --build-number 30 \
   --app apps/usque_gui/build/macos/Build/Products/Release/Usque.app \
   --engine target/aarch64-apple-darwin/release/usque-engine \
-  --network-prototype build/macos-network-prototype/arm64/UsqueNetworkPrototype.app \
-  --maintenance build/macos-maintenance/arm64/usque-maintenance
+  --agent target/aarch64-apple-darwin/release/usque-agent \
+  --agent-maintenance build/macos-agent/arm64/usque-agent-maintenance
 
 python3 tool/macos_package.py inspect \
   --arch arm64 --app build/macos-development/arm64/Usque.app
@@ -102,22 +101,20 @@ applications, user configuration, Keychain items, routes, DNS or extensions.
 It rejects escaping/dangling bundle symlinks, wrong architectures, newer CPU
 baselines, non-macOS binaries and deployment requirements above macOS 13.
 
-The Engine resides in `Contents/MacOS/usque-engine`; a relative compatibility
-link in Resources preserves the Flutter launch path. This also satisfies the
-Engine's canonical bundle lookup for `Contents/Helpers/usque-macos-control`.
-Every framework, Engine, helper and provider is inspected and ad-hoc signed
-after assembly. Passing this integrity check does not demonstrate VPN safety.
-Development, disabled-production, disabled-automatic-installation
-and disabled-signed-prototype flags are checked explicitly.
-The `build` command includes maintenance. The lower-level `package` command
-permits omitting maintenance for fixtures and partial development builds, and
-records its absence in the manifest. The manifest also records macOS Proton
-guest registration as unavailable.
+The Engine resides in `Contents/MacOS/usque-engine`; a relative Resources link
+preserves the bundle launch path. Agent and maintenance binaries are under
+`Contents/Helpers`. Agent-route packages require both helpers. The installed
+service pins a root-owned Engine copy; the GUI uses that copy after installation
+and must restart after replacement. Engine/Agent receive hardened ad-hoc
+signatures without account-related entitlements. Every included Mach-O slice is
+inspected before/after stripping and signing, and the final bundle passes strict
+code-signature validation. Passing integrity checks does not demonstrate TUN safety.
 
-The maintenance helper has no configured production trust authority and rejects
-mutating commands before mounting, staging or installing anything. Its isolated
-atomic-replacement and rollback checks are described in the
-[maintenance README](../tool/macos-maintenance/README.md).
+`UsqueAgentServiceIncluded` and `UsqueNetworkPrototypeIncluded` identify the
+selected route in bundle metadata and the generated manifest. The historical
+`tool/macos-maintenance` updater is separate from the new
+`tool/macos-agent` administrator service maintenance tool. See the Agent document
+for installation, rollback, recovery and removal behavior.
 
 Running from a disk image does not enable login startup or system proxy
 changes; those operations report that the app must first be copied into

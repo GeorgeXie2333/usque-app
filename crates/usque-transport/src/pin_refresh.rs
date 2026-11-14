@@ -7,7 +7,6 @@ use bytes::{Bytes, BytesMut};
 use http::{Method, Request, Version};
 use rustls::pki_types::ServerName;
 use rustls::{ClientConfig, RootCertStore, crypto::CryptoProvider};
-use tokio::net::TcpSocket;
 use tokio::time::timeout;
 use tokio_util::task::AbortOnDropHandle;
 use usque_core::{
@@ -17,7 +16,7 @@ use usque_core::{
 };
 
 use crate::h2::{MasqueTlsIdentity, TransportError};
-use crate::socket::{DirectProtocol, LeasedIo, SocketProtector, socket_handle};
+use crate::socket::{LeasedIo, SocketProtector};
 
 const CONTROL_CONNECT_TIMEOUT: Duration = Duration::from_secs(8);
 const CONTROL_REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
@@ -89,18 +88,11 @@ async fn refresh_at_endpoint(
     request: &PreparedEndpointPinRefresh,
     protector: &dyn SocketProtector,
 ) -> Result<EndpointPinRefresh, TransportError> {
-    let socket = if endpoint.is_ipv4() {
-        TcpSocket::new_v4()
-    } else {
-        TcpSocket::new_v6()
-    }
-    .map_err(|_| refresh_cause(Code::H2TcpConnectFailed, Stage::SocketCreation))?;
     let generation = protector.network_generation().unwrap_or_default();
-    let egress_lease = protector
-        .protect_for_target_generation(
-            socket_handle(&socket),
+    let (socket, egress_lease) = protector
+        .prepare_tcp(
             endpoint,
-            DirectProtocol::Tcp,
+            crate::socket::PhysicalSocketPurpose::Control,
             generation,
         )
         .await

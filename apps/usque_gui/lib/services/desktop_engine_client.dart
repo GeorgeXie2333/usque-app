@@ -38,7 +38,29 @@ class DesktopEngineClient
         ProtonHumanVerificationClient,
         InitialIdentityClient,
         LinuxServiceClient,
+        MacosServiceClient,
         AdsRulesClient {
+  @override
+  Future<MacosServiceState> getMacosServiceState() async =>
+      MacosServiceState.fromMap(
+        await _transport.invokePlatformMethod<Map<Object?, Object?>>(
+              'getMacosServiceState',
+            ) ??
+            const {},
+      );
+  @override
+  Future<void> maintainMacosService(MacosServiceAction action) async {
+    if (!Platform.isMacOS) {
+      throw const EngineException(
+        'MACOS_SERVICE_UNAVAILABLE',
+        'macOS is required.',
+      );
+    }
+    await _transport.invokePlatformMethod<void>('maintainMacosService', {
+      'operation': action.name,
+    });
+  }
+
   @override
   Future<LinuxServiceState> getLinuxServiceState() async =>
       LinuxServiceState.fromMap(

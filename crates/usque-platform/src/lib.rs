@@ -5,6 +5,9 @@ use zeroize::Zeroizing;
 
 pub mod packet_ring;
 
+#[cfg(target_os = "macos")]
+pub mod darwin_packet;
+
 #[cfg(target_os = "linux")]
 pub mod linux_paths;
 

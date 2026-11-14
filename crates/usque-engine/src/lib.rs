@@ -96,16 +96,24 @@ mod data_plane;
 mod disconnect_cleanup;
 
 #[cfg(target_os = "macos")]
+pub mod macos_agent;
+#[cfg(target_os = "macos")]
+mod macos_agent_runtime;
+#[cfg(target_os = "macos")]
 pub mod macos_ipc;
 #[cfg(target_os = "macos")]
 pub mod macos_runtime;
 #[cfg(target_os = "macos")]
+mod macos_socket;
+#[cfg(target_os = "macos")]
 mod macos_system_proxy;
+#[cfg(target_os = "macos")]
+mod macos_tun_io;
 
 #[cfg(target_os = "linux")]
 pub mod linux_ipc;
 
-#[cfg(any(windows, target_os = "linux"))]
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 mod desktop_tunnel_plan;
 #[cfg(target_os = "linux")]
 pub mod linux_agent;
@@ -1599,6 +1607,15 @@ impl ControlService {
                 error: Some(error),
             });
         }
+        #[cfg(target_os = "macos")]
+        {
+            let orphan = data_plane.is_none();
+            drop(state);
+            drop(data_plane);
+            if orphan {
+                macos_agent::project_recovery(&mut snapshot).await;
+            }
+        }
         snapshot
     }
 
@@ -2478,6 +2495,7 @@ impl ControlService {
         #[cfg(target_os = "macos")]
         if profile.frontends.tunnel
             && !macos_runtime::provider_permitted(self.macos_provider.read().await.as_ref())
+            && !macos_agent::connection_available().await
         {
             return Err(ControlServiceError::OperatingModeUnavailable(profile.mode));
         }
@@ -2758,35 +2776,63 @@ impl ControlService {
             }
             #[cfg(target_os = "macos")]
             {
-                let portable = macos_identity
-                    .as_ref()
-                    .ok_or(ControlServiceError::InvalidStoredIdentity)?;
-                let identity = usque_core::parse_manual_warp_secret(portable)
-                    .map_err(|_| ControlServiceError::InvalidStoredIdentity)?;
-                match macos_runtime::MacVpnRuntime::start(
-                    macos_runtime::ProviderStart {
-                        provider: Arc::clone(&*self.macos_provider.read().await),
-                        vault: Arc::clone(&self.vault),
-                        cache_dir: self.cache_dir.clone(),
-                        session: self.reserve_macos_start().await?,
-                        detaching: Arc::clone(&self.macos_detaching),
-                    },
-                    &profile,
-                    &identity,
-                    selected_gate,
-                    &startup_cancel,
-                )
-                .await
-                {
-                    Ok(runtime) => {
-                        *self.macos_reserved.lock().await = None;
-                        ActiveRuntime::MacVpn(Box::new(runtime))
-                    }
-                    Err(error) => {
-                        if !startup_cancel.is_cancelled() {
-                            self.mark_connection_error(&error).await;
+                if !macos_runtime::provider_permitted(self.macos_provider.read().await.as_ref()) {
+                    match Box::pin(macos_agent_runtime::MacAgentRuntime::start(
+                        &profile,
+                        identity,
+                        Arc::clone(&pin_refresher),
+                        Arc::new(geo_policy.clone()),
+                        usque_transport::VpnGateStart {
+                            continuous,
+                            selected: selected_gate,
+                            status: Some(self.gate_status.clone()),
+                            cancellation: startup_cancel.clone(),
+                            deadline: Some(connection_deadline),
+                        },
+                        self.macos_proxy_context.clone(),
+                    ))
+                    .await
+                    {
+                        Ok(runtime) => ActiveRuntime::Vpn(Box::new(runtime)),
+                        Err(error) => {
+                            let error = macos_agent_runtime::map_error(error);
+                            if !startup_cancel.is_cancelled() {
+                                self.mark_connection_error(&error).await;
+                            }
+                            return Err(error);
                         }
-                        return Err(error);
+                    }
+                } else {
+                    let portable = macos_identity
+                        .as_ref()
+                        .ok_or(ControlServiceError::InvalidStoredIdentity)?;
+                    let identity = usque_core::parse_manual_warp_secret(portable)
+                        .map_err(|_| ControlServiceError::InvalidStoredIdentity)?;
+                    match macos_runtime::MacVpnRuntime::start(
+                        macos_runtime::ProviderStart {
+                            provider: Arc::clone(&*self.macos_provider.read().await),
+                            vault: Arc::clone(&self.vault),
+                            cache_dir: self.cache_dir.clone(),
+                            session: self.reserve_macos_start().await?,
+                            detaching: Arc::clone(&self.macos_detaching),
+                        },
+                        &profile,
+                        &identity,
+                        selected_gate,
+                        &startup_cancel,
+                    )
+                    .await
+                    {
+                        Ok(runtime) => {
+                            *self.macos_reserved.lock().await = None;
+                            ActiveRuntime::MacVpn(Box::new(runtime))
+                        }
+                        Err(error) => {
+                            if !startup_cancel.is_cancelled() {
+                                self.mark_connection_error(&error).await;
+                            }
+                            return Err(error);
+                        }
                     }
                 }
             }
@@ -3218,6 +3264,27 @@ impl ControlService {
             // Check durable ownership even if a cancelled/panicking startup
             // never reached the in-memory recovery registration.
             self.recover_macos_proxy(true).await?;
+            #[cfg(target_os = "macos")]
+            {
+                if let Err(error) = macos_agent::recover_on_explicit_disconnect().await {
+                    let error = ControlServiceError::DisconnectCleanup(error.to_string());
+                    self.disconnect_cleanup_failed
+                        .store(true, Ordering::Release);
+                    self.mark_connection_error(&error).await;
+                    self.state
+                        .lock()
+                        .await
+                        .update_safety_state(KillSwitchState::Error, LockdownState::NotSupported);
+                    return Err(error);
+                }
+                if self.disconnect_owners.lock().await.is_empty()
+                    && self.disconnect_cleanup_failed.swap(false, Ordering::AcqRel)
+                {
+                    let mut state = self.state.lock().await;
+                    state.transition(ConnectionPhase::Disconnecting)?;
+                    state.transition(ConnectionPhase::Disconnected)?;
+                }
+            }
         }
         #[cfg(all(target_os = "linux", not(test)))]
         if retry_cleanup && self.disconnect_owners.lock().await.is_empty() {
@@ -6226,7 +6293,23 @@ async fn runtime_capabilities() -> v1::Capabilities {
         capabilities.l4_tun_tcp = capabilities.vpn;
         capabilities
     }
-    #[cfg(not(all(target_os = "linux", not(test))))]
+    #[cfg(all(target_os = "macos", not(test)))]
+    {
+        let mut capabilities = current_capabilities();
+        let observed = async {
+            let agent = macos_agent::MacAgentClient::connect().await.ok()?;
+            Some(macos_agent::capability(&agent.status().await.ok()?))
+        };
+        capabilities.vpn = tokio::time::timeout(std::time::Duration::from_secs(5), observed)
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or(false);
+        capabilities.l4_tun_tcp = capabilities.vpn;
+        capabilities.platform_lockdown = capabilities.vpn;
+        capabilities
+    }
+    #[cfg(not(all(any(target_os = "linux", target_os = "macos"), not(test))))]
     current_capabilities()
 }
 

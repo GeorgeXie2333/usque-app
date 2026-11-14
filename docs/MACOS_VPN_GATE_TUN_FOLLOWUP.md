@@ -1,5 +1,7 @@
 # macOS VPN Gate and packet TUN follow-up
 
+The accepted production direction is now the [root Agent and utun route](MACOS_TUN_AGENT.md), which does not require an Apple Developer subscription. The Network Extension architecture and signed-build prerequisites below describe the separate historical experiment and existing development packages. The Agent implementation is integrated, with production TUN still gated on real-system acceptance.
+
 Validation date: 2026-10-30. Source baseline: `e098f130`.
 
 This change fixes catalogue error reporting and packet-session isolation. It

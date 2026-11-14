@@ -85,6 +85,22 @@ fn finish_runtime(runtime: tokio::runtime::Runtime, grace: std::time::Duration) 
 async fn run(
     log_shutdown: &mut Option<LogShutdownGuard>,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(target_os = "macos")]
+    {
+        let arguments = std::env::args().skip(1).collect::<Vec<_>>();
+        if arguments == ["--macos-agent-build-info"] {
+            println!(
+                "{}",
+                serde_json::json!({"version": env!("CARGO_PKG_VERSION"), "architecture": std::env::consts::ARCH, "protocol": 3})
+            );
+            return Ok(());
+        }
+        if arguments == ["--macos-agent-status"] {
+            let status = usque_engine::macos_agent::service_status().await;
+            println!("{}", status);
+            return Ok(());
+        }
+    }
     let arguments = Arguments::parse();
     let config_path = arguments.config.clone();
 

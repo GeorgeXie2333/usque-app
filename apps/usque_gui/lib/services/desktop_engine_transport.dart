@@ -661,6 +661,10 @@ String _engineExecutable() {
   if (Platform.isLinux) {
     return '${appExecutable.parent.path}/usque-engine';
   }
+  if (Platform.isMacOS) {
+    const installed = '/Library/PrivilegedHelperTools/com.usque.agent/usque-engine';
+    if (File(installed).existsSync()) return installed;
+  }
   final contents = appExecutable.parent.parent;
   return '${contents.path}${Platform.pathSeparator}Resources'
       '${Platform.pathSeparator}usque-engine';

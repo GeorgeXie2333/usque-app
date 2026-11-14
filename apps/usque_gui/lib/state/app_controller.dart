@@ -502,6 +502,22 @@ class AppController extends ChangeNotifier {
       !_disposed &&
       !hideFromRecentsBusy;
   bool get canSetHideFromRecents => canRefreshRecents && hideFromRecentsKnown;
+  bool get supportsMacosServiceMaintenance =>
+      defaultTargetPlatform == TargetPlatform.macOS &&
+      _engine is MacosServiceClient;
+  Future<MacosServiceState> getMacosServiceState() =>
+      (_engine as MacosServiceClient).getMacosServiceState();
+  Future<void> maintainMacosService(MacosServiceAction action) async {
+    if (snapshot.isConnected || snapshot.isTransitional) {
+      throw const EngineException(
+        'MACOS_AGENT_BUSY',
+        'Disconnect before service maintenance.',
+      );
+    }
+    await (_engine as MacosServiceClient).maintainMacosService(action);
+    await _refreshCapabilities();
+  }
+
   bool get supportsLinuxServiceMaintenance =>
       defaultTargetPlatform == TargetPlatform.linux &&
       _engine is LinuxServiceClient;

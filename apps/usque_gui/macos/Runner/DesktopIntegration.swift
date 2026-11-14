@@ -167,6 +167,7 @@ final class DesktopIntegration: NSObject, NSWindowDelegate, UNUserNotificationCe
   }
 
   private func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
+    if AgentMaintenanceBridge.handle(call, result: result) { return }
     let values = call.arguments as? [String: Any]
     switch call.method {
     case "getWindowVisibility": result(visible)

@@ -190,26 +190,18 @@ def macho_files(app: Path) -> list[Path]:
 
 
 def required_files(app: Path) -> list[Path]:
-    files = [
-        app / "Contents" / name
-        for name in (
-            "MacOS/Usque",
-            "MacOS/usque-engine",
-            "Resources/usque-engine",
-            "Helpers/usque-macos-control",
-            "Frameworks/App.framework/App",
-            "Frameworks/FlutterMacOS.framework/FlutterMacOS",
-        )
-    ]
-    for suffix, executable in PROVIDERS.items():
-        files.append(
-            app
-            / "Contents/Library/SystemExtensions"
-            / f"{IDENTIFIER}.{suffix}.systemextension/Contents/MacOS/{executable}"
-        )
+    with (app / "Contents/Info.plist").open("rb") as handle:
+        info = plistlib.load(handle)
+    names = ["MacOS/Usque", "MacOS/usque-engine", "Resources/usque-engine",
+             "Frameworks/App.framework/App", "Frameworks/FlutterMacOS.framework/FlutterMacOS"]
+    if info.get("UsqueAgentServiceIncluded", False):
+        names += ["Helpers/usque-agent", "Helpers/usque-agent-maintenance"]
+    if info.get("UsqueNetworkPrototypeIncluded", True):
+        names += ["Helpers/usque-macos-control"]
+        names += [f"Library/SystemExtensions/{IDENTIFIER}.{suffix}.systemextension/Contents/MacOS/{executable}" for suffix, executable in PROVIDERS.items()]
+    files = [app / "Contents" / name for name in names]
     maintenance = app / "Contents/Helpers/usque-maintenance"
-    if maintenance.exists():
-        files.append(maintenance)
+    if maintenance.exists(): files.append(maintenance)
     return files
 
 
@@ -237,7 +229,7 @@ def inspect_bundle(app: Path, architecture: str) -> list[dict]:
     executables = [
         path
         for path in required
-        if path.parent.name == "MacOS" or path.name in {"usque-maintenance", "usque-macos-control"}
+        if path.parent.name == "MacOS" or path.name in {"usque-maintenance", "usque-macos-control", "usque-agent", "usque-agent-maintenance"}
     ]
     if any(path.stat().st_mode & 0o111 != 0o111 for path in executables):
         raise ValueError("Required macOS program does not have executable permissions")
@@ -308,6 +300,8 @@ def _thin_and_sign(app: Path, architecture: str) -> None:
             arguments += ["--identifier", IDENTIFIER + ".macos-control"]
         if path.name == "usque-maintenance":
             arguments += ["--identifier", IDENTIFIER + ".macos-maintenance"]
+        if path.name in {"usque-engine", "usque-agent", "usque-agent-maintenance"}:
+            arguments += ["--options", "runtime", "--identifier", IDENTIFIER + "." + path.name]
         run([*arguments, path])
     for bundle in sorted(bundles, key=lambda path: len(path.parts), reverse=True):
         run(["codesign", "--force", "--sign", "-", "--timestamp=none", bundle])
@@ -318,12 +312,14 @@ def _thin_and_sign(app: Path, architecture: str) -> None:
 def assemble_app(
     source: Path,
     engine: Path,
-    prototype: Path,
+    prototype: Path | None,
     destination: Path,
     architecture: str,
     version: str,
     build_number: str,
     maintenance: Path | None = None,
+    agent: Path | None = None,
+    agent_maintenance: Path | None = None,
 ) -> list[dict]:
     artifact_name(version, architecture)
     if not re.fullmatch(r"[1-9][0-9]*", build_number):
@@ -331,7 +327,8 @@ def assemble_app(
     # Validate source links before copy; never dereference an external build-machine path.
     reject_obsolete_browser_artifacts(source)
     bundle_files(source)
-    bundle_files(prototype)
+    if prototype is not None:
+        bundle_files(prototype)
     inspect_macho(engine, architecture)
     shutil.copytree(source, destination, symlinks=True)
     contents = destination / "Contents"
@@ -345,14 +342,27 @@ def assemble_app(
     compatibility.symlink_to("../MacOS/usque-engine")
     helpers = contents / "Helpers"
     helpers.mkdir(exist_ok=True)
-    shutil.copy2(prototype / "Contents/MacOS/usque-macos-control", helpers / "usque-macos-control")
+    if (agent is None) != (agent_maintenance is None):
+        raise ValueError("Agent and maintenance helper must be supplied together")
+    if agent is None and prototype is None:
+        raise ValueError("Package requires its native backend")
+    for source_binary, name in [(agent, "usque-agent"), (agent_maintenance, "usque-agent-maintenance")]:
+        if source_binary is not None:
+            inspect_macho(source_binary, architecture)
+            shutil.copy2(source_binary, helpers / name)
+            (helpers / name).chmod(0o755)
+    if prototype is not None:
+        shutil.copy2(prototype / "Contents/MacOS/usque-macos-control", helpers / "usque-macos-control")
+    elif (helpers / "usque-macos-control").exists():
+        (helpers / "usque-macos-control").unlink()
     if maintenance is not None:
         inspect_macho(maintenance, architecture)
         shutil.copy2(maintenance, helpers / "usque-maintenance")
     extensions = contents / "Library/SystemExtensions"
     if extensions.exists():
         shutil.rmtree(extensions)
-    shutil.copytree(prototype / "Contents/Library/SystemExtensions", extensions, symlinks=True)
+    if prototype is not None:
+        shutil.copytree(prototype / "Contents/Library/SystemExtensions", extensions, symlinks=True)
     info_path = contents / "Info.plist"
     with info_path.open("rb") as handle:
         info = plistlib.load(handle)
@@ -364,6 +374,8 @@ def assemble_app(
         UsqueProductionCapable=False,
         UsqueSignedPrototype=False,
         UsqueAutomaticInstallationEnabled=False,
+        UsqueAgentServiceIncluded=agent is not None,
+        UsqueNetworkPrototypeIncluded=prototype is not None,
     )
     with info_path.open("wb") as handle:
         plistlib.dump(info, handle)
@@ -390,20 +402,22 @@ def development_manifest(app: Path, architecture: str, version: str, machos: lis
         "components": {
             "flutter": "included",
             "engine": "included",
-            "network_extension_prototype": "included_activation_disabled",
+            "network_extension_prototype": "included_activation_disabled" if (app / "Contents/Helpers/usque-macos-control").is_file() else "separate_experiment",
+            "root_agent": "included_release_gated" if (app / "Contents/Helpers/usque-agent").is_file() else "not_included",
             "proton_guest_registration": "unavailable_on_macos",
             "atomic_update": (
                 "helper_included_installation_disabled"
                 if (app / "Contents/Helpers/usque-maintenance").is_file()
                 else "not_included"
             ),
-            "uninstall": "manual_app_removal_user_data_retained",
+            "uninstall": "settings_authorized_agent_cleanup_then_app_removal_user_data_retained",
         },
         "validation": {
             "native_architecture_inspection": "passed",
             "codesign_integrity": "passed",
             "intel_native_execution": "not_run",
-            "signed_system_vpn": "not_run",
+            "system_utun_network_acceptance": "not_run",
+            "agent_install_upgrade_rollback_uninstall": "not_run",
             "macos_13_hardware": "not_run",
         },
         "mach_o": machos,
@@ -456,7 +470,7 @@ def spdx_inventory(manifest: dict) -> dict:
 def package(
     source: Path,
     engine: Path,
-    prototype: Path,
+    prototype: Path | None,
     output: Path,
     architecture: str,
     version: str,
@@ -464,6 +478,8 @@ def package(
     *,
     create_dmg: bool = True,
     maintenance: Path | None = None,
+    agent: Path | None = None,
+    agent_maintenance: Path | None = None,
 ) -> dict:
     name = artifact_name(version, architecture)
     output.mkdir(parents=True, exist_ok=True)
@@ -481,14 +497,18 @@ def package(
             version,
             build_number,
             maintenance=maintenance,
+            agent=agent,
+            agent_maintenance=agent_maintenance,
         )
         manifest = development_manifest(app, architecture, version, machos)
         (volume / "Applications").symlink_to("/Applications")
         (volume / "DEVELOPMENT - READ ME.txt").write_text(
             "Usque macOS development build\n\nDrag Usque.app to Applications to install.\n"
             "This ad-hoc build is not notarized. Production automatic installation is disabled.\n"
-            "The VPN extensions cannot be activated by this build. Signed device tests remain pending.\n"
-            "Signed update installation acceptance remains pending.\n",
+            "Settings provides an administrator-authorized background service installer.\n"
+            "System TUN remains disabled until real network and failure-matrix acceptance passes.\n"
+            "Administrator recovery: /Library/PrivilegedHelperTools/com.usque.agent/usque-agent --recover-state\n"
+            "Stop its launchd job before running recovery. See docs/MACOS_TUN_AGENT.md.\n",
             encoding="utf-8",
         )
         if create_dmg:
@@ -571,13 +591,13 @@ def build(architecture: str, output: Path, *, create_dmg: bool = True) -> dict:
                 "-p",
                 "usque-engine",
                 "-p",
-                "usque-macos-runtime",
+                "usque-agent",
             ],
             cwd=ROOT,
             env=env,
         )
         gui = ROOT / "apps/usque_gui"
-        run(["bash", ROOT / "tool/build_macos_maintenance.sh", architecture], cwd=ROOT, env=env)
+        run(["bash", ROOT / "tool/build_macos_agent_maintenance.sh", architecture], cwd=ROOT, env=env)
         run(["flutter", "pub", "get", "--offline", "--enforce-lockfile"], cwd=gui, env=env)
         run(
             [
@@ -594,32 +614,13 @@ def build(architecture: str, output: Path, *, create_dmg: bool = True) -> dict:
             cwd=gui,
             env=env,
         )
-        with tempfile.TemporaryDirectory(prefix="usque-native-build-") as directory:
-            run(
-                [
-                    "bash",
-                    ROOT / "tool/build_macos_network_prototype.sh",
-                    "--arch",
-                    architecture,
-                    "--output",
-                    directory,
-                    "--runtime-library",
-                    ROOT / f"target/{target}/release/libusque_macos_runtime.a",
-                ],
-                cwd=ROOT,
-                env=env,
-            )
-            return package(
-                gui / "build/macos/Build/Products/Release/Usque.app",
-                ROOT / f"target/{target}/release/usque-engine",
-                Path(directory) / "UsqueNetworkPrototype.app",
-                output,
-                architecture,
-                version,
-                build_number,
-                create_dmg=create_dmg,
-                maintenance=ROOT / f"build/macos-maintenance/{architecture}/usque-maintenance",
-            )
+        return package(
+            gui / "build/macos/Build/Products/Release/Usque.app",
+            ROOT / f"target/{target}/release/usque-engine", None,
+            output, architecture, version, build_number, create_dmg=create_dmg,
+            agent=ROOT / f"target/{target}/release/usque-agent",
+            agent_maintenance=ROOT / f"build/macos-agent/{architecture}/usque-agent-maintenance",
+        )
 
 
 def main() -> None:
@@ -635,8 +636,10 @@ def main() -> None:
         sub.add_argument("--no-dmg", action="store_true", help="Assemble/verify app only")
         if command == "package":
             sub.add_argument("--maintenance", type=Path)
-            for name in ("app", "engine", "network-prototype"):
+            for name in ("app", "engine"):
                 sub.add_argument("--" + name, type=Path, required=True)
+            for name in ("network-prototype", "agent", "agent-maintenance"):
+                sub.add_argument("--" + name, type=Path)
             sub.add_argument("--version", required=True)
             sub.add_argument("--build-number", required=True)
     arguments = parser.parse_args()
@@ -658,6 +661,8 @@ def main() -> None:
                 arguments.build_number,
                 create_dmg=not arguments.no_dmg,
                 maintenance=arguments.maintenance,
+                agent=arguments.agent,
+                agent_maintenance=arguments.agent_maintenance,
             )
         print(
             json.dumps(

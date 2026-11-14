@@ -21,6 +21,7 @@
 /* End PBXAggregateTarget section */
 
 /* Begin PBXBuildFile section */
+		8DDC1A800000000000000020 /* AgentMaintenance.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8DDC1A800000000000000021 /* AgentMaintenance.swift */; };
 		8DDC1A800000000000000009 /* NativeLocalization.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8DDC1A80000000000000000A /* NativeLocalization.swift */; };
 		8DDC1A800000000000000001 /* DesktopIntegration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8DDC1A800000000000000003 /* DesktopIntegration.swift */; };
 		8DDC1A800000000000000002 /* DesktopContracts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8DDC1A800000000000000004 /* DesktopContracts.swift */; };
@@ -64,6 +65,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		8DDC1A800000000000000021 /* AgentMaintenance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentMaintenance.swift; sourceTree = "<group>"; };
 		8DDC1A80000000000000000A /* NativeLocalization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeLocalization.swift; sourceTree = "<group>"; };
 		8DDC1A800000000000000003 /* DesktopIntegration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesktopIntegration.swift; sourceTree = "<group>"; };
 		8DDC1A800000000000000004 /* DesktopContracts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesktopContracts.swift; sourceTree = "<group>"; };
@@ -174,6 +176,7 @@
 			children = (
 				8DDC1A80000000000000000A /* NativeLocalization.swift */,
 				8DDC1A800000000000000003 /* DesktopIntegration.swift */,
+				8DDC1A800000000000000021 /* AgentMaintenance.swift */,
 				8DDC1A800000000000000004 /* DesktopContracts.swift */,
 				33CC10F02044A3C60003C045 /* AppDelegate.swift */,
 				33CC11122044BFA00003C045 /* MainFlutterWindow.swift */,
@@ -367,6 +370,7 @@
 			files = (
 				8DDC1A800000000000000009 /* NativeLocalization.swift in Sources */,
 				8DDC1A800000000000000001 /* DesktopIntegration.swift in Sources */,
+				8DDC1A800000000000000020 /* AgentMaintenance.swift in Sources */,
 				8DDC1A800000000000000002 /* DesktopContracts.swift in Sources */,
 				33CC11132044BFA00003C045 /* MainFlutterWindow.swift in Sources */,
 				33CC10F12044A3C60003C045 /* AppDelegate.swift in Sources */,

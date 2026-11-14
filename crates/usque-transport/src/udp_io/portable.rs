@@ -82,7 +82,20 @@ pub(super) fn try_send_batch(
     let raw_socket = socket2::SockRef::from(socket);
     let mut sent = 0;
     for datagram in batch.iter().take(UDP_ACTOR_DRAIN_LIMIT) {
-        match raw_socket.send_to(datagram.payload, &datagram.destination.into()) {
+        #[cfg(target_os = "macos")]
+        let result = match socket.peer_addr() {
+            Ok(peer) if crate::socket::connected_peer_matches(peer, datagram.destination) => {
+                raw_socket.send(datagram.payload)
+            }
+            Ok(_) => Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "physical UDP peer mismatch",
+            )),
+            Err(_) => raw_socket.send_to(datagram.payload, &datagram.destination.into()),
+        };
+        #[cfg(not(target_os = "macos"))]
+        let result = raw_socket.send_to(datagram.payload, &datagram.destination.into());
+        match result {
             Ok(length) if length == datagram.payload.len() => {
                 quality.record_udp_send(1);
                 sent += 1;

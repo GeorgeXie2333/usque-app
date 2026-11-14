@@ -62,6 +62,46 @@ abstract interface class LinuxServiceClient {
   Future<void> maintainLinuxService({required bool install});
 }
 
+enum MacosServiceAction { install, repair, recover, uninstall }
+
+class MacosServiceState {
+  const MacosServiceState({
+    this.installed = false,
+    this.compatible = false,
+    this.canMaintain = false,
+    this.recoveryPending = false,
+    this.protectionRetained = false,
+    this.tunAvailable = false,
+    this.releaseApproved = false,
+    this.preflightPassed = false,
+    this.version = '',
+  });
+  factory MacosServiceState.fromMap(Map<Object?, Object?> map) =>
+      MacosServiceState(
+        installed: map['installed'] == true,
+        compatible: map['compatible'] == true,
+        canMaintain: map['canMaintain'] == true,
+        recoveryPending: map['recoveryPending'] == true,
+        protectionRetained: map['protectionRetained'] == true,
+        tunAvailable: map['tunAvailable'] == true,
+        releaseApproved: map['releaseApproved'] == true,
+        preflightPassed: map['preflightPassed'] == true,
+        version: map['version'] is String ? map['version']! as String : '',
+      );
+  final bool installed,
+      compatible,
+      canMaintain,
+      recoveryPending,
+      protectionRetained;
+  final bool tunAvailable, releaseApproved, preflightPassed;
+  final String version;
+}
+
+abstract interface class MacosServiceClient {
+  Future<MacosServiceState> getMacosServiceState();
+  Future<void> maintainMacosService(MacosServiceAction action);
+}
+
 class EngineException implements Exception {
   const EngineException(this.code, this.message, {this.retryable = false});
 

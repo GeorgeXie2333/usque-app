@@ -241,6 +241,37 @@ struct PresetGenerationProtector {
 
 #[async_trait::async_trait]
 impl SocketProtector for PresetGenerationProtector {
+    fn requires_owned_sockets(&self) -> bool {
+        self.inner.requires_owned_sockets()
+    }
+    async fn prepare_tcp(
+        &self,
+        remote: SocketAddr,
+        purpose: crate::socket::PhysicalSocketPurpose,
+        generation: u64,
+    ) -> Result<
+        (
+            crate::socket::PreparedTcpSocket,
+            crate::socket::DirectEgressLease,
+        ),
+        String,
+    > {
+        if generation != self.generation {
+            return Err(crate::socket::STALE_GENERATION_REASON.into());
+        }
+        self.inner.prepare_tcp(remote, purpose, generation).await
+    }
+    async fn prepare_udp(
+        &self,
+        remote: SocketAddr,
+        purpose: crate::socket::PhysicalSocketPurpose,
+        generation: u64,
+    ) -> Result<(std::net::UdpSocket, crate::socket::DirectEgressLease), String> {
+        if generation != self.generation {
+            return Err(crate::socket::STALE_GENERATION_REASON.into());
+        }
+        self.inner.prepare_udp(remote, purpose, generation).await
+    }
     fn protect(&self, socket: crate::socket::SocketHandle) -> Result<(), String> {
         if self.inner.network_generation().unwrap_or_default() != self.generation {
             return Err(crate::socket::STALE_GENERATION_REASON.into());

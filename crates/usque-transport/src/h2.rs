@@ -1,3 +1,5 @@
+#[cfg(test)]
+use crate::socket::DirectProtocol;
 mod framing;
 use framing::H2CapsuleFramer;
 
@@ -28,7 +30,6 @@ use p256::SecretKey;
 use p256::pkcs8::EncodePrivateKey;
 use thiserror::Error;
 use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::net::TcpSocket;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 use tokio::time::{Instant, MissedTickBehavior, interval_at, timeout};
@@ -45,10 +46,7 @@ use crate::connect_ip_control::{
 };
 use crate::network_quality::NetworkQualityTelemetry;
 use crate::packet_batch::{PacketBatch, PacketBatchResult};
-use crate::socket::{
-    DirectProtocol, LeasedIo, STALE_GENERATION_REASON, SocketProtector, noop_socket_protector,
-    socket_handle,
-};
+use crate::socket::{LeasedIo, STALE_GENERATION_REASON, SocketProtector, noop_socket_protector};
 use crate::telemetry::{ConnectionAttemptTelemetry, ConnectionEventType};
 
 const CONNECT_URI: &str = "https://cloudflareaccess.com/";
@@ -573,18 +571,12 @@ pub(crate) async fn connect_h2_with_cancellation(
     cancellation: &CancellationToken,
 ) -> Result<H2Tunnel, TransportError> {
     let expected_generation = protector.network_generation().unwrap_or_default();
-    let socket = if endpoint.is_ipv4() {
-        TcpSocket::new_v4()
-    } else {
-        TcpSocket::new_v6()
-    }?;
-    let protecting = protector.protect_masque_endpoint_generation(
-        socket_handle(&socket),
+    let protecting = protector.prepare_tcp(
         endpoint,
-        DirectProtocol::Tcp,
+        crate::socket::PhysicalSocketPurpose::Masque,
         expected_generation,
     );
-    let egress_lease = tokio::select! {
+    let (socket, egress_lease) = tokio::select! {
         biased;
         _ = cancellation.cancelled() => return Err(TransportError::TunnelClosed),
         result = protecting => result,

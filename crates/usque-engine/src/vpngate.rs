@@ -285,6 +285,17 @@ impl ControlService {
                     )
                     .await
                     .map_err(crate::linux_runtime::map_error),
+                #[cfg(target_os = "macos")]
+                crate::active_runtime::ActiveRuntime::Vpn(runtime) => runtime
+                    .replace_gate(
+                        profile,
+                        selected,
+                        policy,
+                        self.gate_status.clone(),
+                        startup_cancel,
+                    )
+                    .await
+                    .map_err(crate::macos_agent_runtime::map_error),
                 #[cfg(test)]
                 crate::active_runtime::ActiveRuntime::Harness(runtime) => {
                     runtime.replace_gate(profile);

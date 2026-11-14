@@ -9,6 +9,7 @@ import '../state/app_controller.dart';
 import '../widgets/common.dart';
 import '../widgets/external_link.dart';
 import '../widgets/linux_service_section.dart';
+import '../widgets/macos_service_section.dart';
 import '../widgets/usque_dialog.dart';
 import 'about_screen.dart';
 import 'advanced_settings_screen.dart';
@@ -85,6 +86,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ContentGroup(
                   title: strings.get('connection_protection_group'),
                   children: [
+                    if (controller.supportsMacosServiceMaintenance)
+                      MacosServiceSection(controller: controller),
                     if (controller.supportsLinuxServiceMaintenance)
                       LinuxServiceSection(controller: controller),
                     ContentSection(

@@ -137,7 +137,8 @@ pub use proxy::ProxyRuntime;
 pub use queue_metrics::QueueKind;
 pub use socket::{
     DirectEgressLease, DirectProtocol, NoopSocketProtector, PhysicalNetworkAvailability,
-    PhysicalNetworkSnapshot, STALE_GENERATION_REASON, SocketHandle, SocketProtector,
+    PhysicalNetworkSnapshot, PhysicalSocketPurpose, PreparedTcpSocket, STALE_GENERATION_REASON,
+    SocketHandle, SocketProtector,
 };
 pub use socks5::Socks5Runtime;
 pub use split_dns::{SPLIT_DNS_IPV4, SPLIT_DNS_IPV6};

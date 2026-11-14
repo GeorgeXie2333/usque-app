@@ -29,7 +29,12 @@ uuid.workspace = true
 [target.'cfg(windows)'.dependencies]
 windows-sys.workspace = true
 
-[target.'cfg(target_os = "linux")'.dependencies]
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation.workspace = true
+security-framework.workspace = true
+socket2.workspace = true
+
+[target.'cfg(any(target_os = "linux", target_os = "macos"))'.dependencies]
 libc.workspace = true
 
 [build-dependencies]

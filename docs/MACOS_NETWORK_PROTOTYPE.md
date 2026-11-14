@@ -1,5 +1,7 @@
 # macOS Network Extension prototype
 
+The accepted production direction is now the [root Agent and utun route](MACOS_TUN_AGENT.md), which does not require an Apple Developer subscription. The Network Extension architecture and signed-build prerequisites below describe the separate historical experiment and existing development packages. The Agent implementation is integrated, with production TUN still gated on real-system acceptance.
+
 This is the first milestone of the macOS port, based on clean `dev`
 `948de61c25800d6c5753f6c4bd2b2db35cfffa2e`. The previous implementation at
 `dcf332a142524f8d7ba58b95655f2b9eccbb1131` remains a review-only backup; it was

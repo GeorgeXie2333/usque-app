@@ -88,6 +88,20 @@ class MacOSPackageTests(unittest.TestCase):
             with self.assertRaises(FileExistsError):
                 symlink_fixture(Path("unused"), "target")
 
+    def test_agent_package_is_independent_of_network_extension(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); app = root / "source.app"; flutter_fixture(app)
+            for name in ("engine", "agent", "maintenance"):
+                write(root / name, macho())
+            with patch.object(macos_package, "_thin_and_sign"):
+                macos_package.assemble_app(app, root / "engine", None, root / "out.app", "arm64", "0.3.4", "1",
+                    agent=root / "agent", agent_maintenance=root / "maintenance")
+            packaged = root / "out.app"
+            self.assertFalse((packaged / "Contents/Library/SystemExtensions").exists())
+            self.assertTrue((packaged / "Contents/Helpers/usque-agent").is_file())
+            (packaged / "Contents/Helpers/usque-agent").unlink()
+            with self.assertRaises(ValueError): macos_package.inspect_bundle(packaged, "arm64")
+
     def test_names_are_architecture_specific_and_reject_path_injection(self) -> None:
         self.assertEqual(
             macos_package.artifact_name("0.3.3", "arm64"), "usque-v0.3.3-macos-arm64.dmg"

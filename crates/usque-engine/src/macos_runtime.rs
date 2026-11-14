@@ -880,7 +880,12 @@ impl ControlService {
         }
         let provider = Arc::clone(&*self.macos_provider.read().await);
         if !provider_permitted(provider.as_ref()) {
-            return Err(ControlServiceError::OperatingModeUnavailable(profile.mode));
+            if !crate::macos_agent::connection_available().await {
+                return Err(ControlServiceError::OperatingModeUnavailable(profile.mode));
+            }
+            self.disconnect_locked().await?;
+            self.await_disconnect_cleanup().await?;
+            return Ok(());
         }
         let session = self.reserve_macos_start().await?;
         let broker: Arc<dyn CredentialBroker> =
@@ -919,6 +924,17 @@ impl ControlService {
         profile_id: Uuid,
         cancellation: &CancellationToken,
     ) -> Result<Option<usque_core::ConnectionSnapshot>, ControlServiceError> {
+        let agent_replace = self
+            .data_plane
+            .lock()
+            .await
+            .as_ref()
+            .is_some_and(|a| matches!(a.runtime, crate::ActiveRuntime::Vpn(_)));
+        if agent_replace {
+            return self
+                .replace_macos_agent_target(profile_id, cancellation)
+                .await;
+        }
         let replace = self
             .data_plane
             .lock()
@@ -964,6 +980,67 @@ impl ControlService {
         }
         Ok(Some(state.snapshot().clone()))
     }
+    async fn replace_macos_agent_target(
+        &self,
+        profile_id: Uuid,
+        cancellation: &CancellationToken,
+    ) -> Result<Option<usque_core::ConnectionSnapshot>, ControlServiceError> {
+        let mut profile = self
+            .config
+            .read()
+            .await
+            .runtime_profile(profile_id)
+            .ok_or(ControlServiceError::ProfileNotFound(profile_id))?;
+        self.attach_proxy_auth(&mut profile).await?;
+        if !profile.frontends.tunnel {
+            self.disconnect_locked().await?;
+            self.await_disconnect_cleanup().await?;
+            return Ok(None);
+        }
+        let identity = self.load_warp_identity(profile_id).await?;
+        let tls = usque_transport::MasqueTlsIdentity::from_warp_identity(&identity)
+            .map_err(ControlServiceError::Transport)?;
+        let refresher = Arc::new(crate::VaultEndpointPinRefresher {
+            profile_id,
+            vault: self.vault.clone(),
+            identity: tokio::sync::Mutex::new(identity),
+        });
+        let policy = Arc::new(crate::load_geo_direct_policy(&profile, &self.cache_dir)?);
+        let selected = self.prepare_gate_selection(&profile)?;
+        let mut active = self.data_plane.lock().await;
+        let active = active.as_mut().ok_or_else(|| error("runtime_missing"))?;
+        let crate::ActiveRuntime::Vpn(runtime) = &mut active.runtime else {
+            return Ok(None);
+        };
+        runtime
+            .replace_connection(
+                &profile,
+                tls,
+                refresher,
+                policy,
+                usque_transport::VpnGateStart {
+                    selected,
+                    status: Some(self.gate_status.clone()),
+                    cancellation: cancellation.clone(),
+                    ..Default::default()
+                },
+            )
+            .await
+            .map_err(crate::macos_agent_runtime::map_error)?;
+        active.profile_id = profile.id;
+        active.profile = profile.clone();
+        active.frontends = profile.frontends;
+        active.session_generation = self.next_session_generation();
+        *self.session_profile.lock().await = Some(profile);
+        let mut state = self.state.lock().await;
+        if matches!(
+            state.snapshot().phase,
+            usque_core::ConnectionPhase::Connected | usque_core::ConnectionPhase::Degraded
+        ) {
+            state.transition(usque_core::ConnectionPhase::Reconnecting)?;
+        }
+        Ok(Some(state.snapshot().clone()))
+    }
     pub async fn detach_macos_process(&self) -> Result<(), ControlServiceError> {
         self.macos_detaching
             .store(true, std::sync::atomic::Ordering::Release);
@@ -975,6 +1052,12 @@ impl ControlService {
         let mut active = self.data_plane.lock().await;
         if let Some(active) = active.as_mut()
             && let crate::ActiveRuntime::MacVpn(runtime) = &mut active.runtime
+        {
+            runtime.detach().await;
+            return Ok(());
+        }
+        if let Some(active) = active.as_mut()
+            && let crate::ActiveRuntime::Vpn(runtime) = &mut active.runtime
         {
             runtime.detach().await;
             return Ok(());
