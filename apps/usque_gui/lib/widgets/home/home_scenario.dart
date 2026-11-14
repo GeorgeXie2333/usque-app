@@ -29,6 +29,9 @@ class ScenarioHomeLink extends StatelessWidget {
       return;
     }
     final theme = Theme.of(context);
+    // A localized Home rebuild can replace this row while its menu is open.
+    // Keep the route's stable content context for the subsequent preview.
+    final previewContext = ModalRoute.of(context)?.subtreeContext ?? context;
     final box = context.findRenderObject()! as RenderBox;
     final overlay =
         Overlay.of(context).context.findRenderObject()! as RenderBox;
@@ -80,8 +83,13 @@ class ScenarioHomeLink extends StatelessWidget {
       ],
     );
     if (picked is ConnectionScenario) {
-      if (!context.mounted) return;
-      await previewAndUseScenario(context, controller, picked, direct: true);
+      if (!previewContext.mounted) return;
+      await previewAndUseScenario(
+        previewContext,
+        controller,
+        picked,
+        direct: true,
+      );
     } else if (picked == true) {
       // The source row may have been rebuilt while the menu was open.
       // Navigation is controller-owned and still uses the shell's leave guard.

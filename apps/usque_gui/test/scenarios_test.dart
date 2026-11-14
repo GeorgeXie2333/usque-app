@@ -1864,40 +1864,52 @@ void main() {
     });
   }
 
-  testWidgets('Home switches scenes in place through the same preview', (
-    tester,
-  ) async {
-    final engine = richSceneEngine()..extraState = {};
-    final app = await pumpWorkflow(tester, engine, section: AppSection.home);
-    app.profiles = engine.storedProfiles;
-    app.engineCapabilities = await engine.getCapabilities();
-    await app.scenarios.refresh();
-    await tester.pumpAndSettle();
-    final link = find.byKey(const ValueKey('home-scene-link'));
-    await tester.ensureVisible(link);
-    await tester.tap(link);
-    await tester.pumpAndSettle();
-    // The selected scene is marked and is not a target.
-    expect(
-      tester
-          .widget<PopupMenuItem<Object>>(
-            find.byKey(const ValueKey('home-scene-scene-a')),
-          )
-          .enabled,
-      isFalse,
+  for (final phone in [false, true]) {
+    testWidgets(
+      'Home switches scenes in place through the same preview (phone: $phone)',
+      (tester) async {
+        final engine = richSceneEngine()..extraState = {};
+        final app = await pumpWorkflow(
+          tester,
+          engine,
+          section: AppSection.home,
+          size: phone ? const Size(424, 924) : const Size(1280, 900),
+        );
+        if (phone) app.localePreference = LocalePreference.simplifiedChinese;
+        app.profiles = engine.storedProfiles;
+        app.engineCapabilities = await engine.getCapabilities();
+        await app.scenarios.refresh();
+        await tester.pumpAndSettle();
+        final link = find.byKey(const ValueKey('home-scene-link'));
+        await tester.ensureVisible(link);
+        await tester.tap(link);
+        await tester.pumpAndSettle();
+        // The selected scene is marked and is not a target.
+        expect(
+          tester
+              .widget<PopupMenuItem<Object>>(
+                find.byKey(const ValueKey('home-scene-scene-a')),
+              )
+              .enabled,
+          isFalse,
+        );
+        await tester.tap(find.byKey(const ValueKey('home-scene-scene-b')));
+        await tester.pumpAndSettle();
+        expect(app.section, AppSection.home);
+        expect(
+          find.byKey(const ValueKey('scenario-confirm-use')),
+          findsOneWidget,
+        );
+        await tester.tap(find.byKey(const ValueKey('scenario-confirm-use')));
+        await tester.pumpAndSettle();
+        expect(
+          engine.sceneCalls.singleWhere((r) => r['action'] == 'activate')['id'],
+          'scene-b',
+        );
+        expect(app.section, AppSection.home);
+      },
     );
-    await tester.tap(find.byKey(const ValueKey('home-scene-scene-b')));
-    await tester.pumpAndSettle();
-    expect(app.section, AppSection.home);
-    expect(find.byKey(const ValueKey('scenario-confirm-use')), findsOneWidget);
-    await tester.tap(find.byKey(const ValueKey('scenario-confirm-use')));
-    await tester.pumpAndSettle();
-    expect(
-      engine.sceneCalls.singleWhere((r) => r['action'] == 'activate')['id'],
-      'scene-b',
-    );
-    expect(app.section, AppSection.home);
-  });
+  }
 
   testWidgets('editing and duplicating a scene start from its row menu', (
     tester,
