@@ -1397,6 +1397,66 @@ async fn connect_with_policy(
     protector: Arc<dyn SocketProtector>,
     telemetry: &ConnectionTelemetry,
 ) -> Result<(MasqueTunnel, AddressFamily), TransportError> {
+    let count = profile.masque_connections;
+    if !(1..=usque_core::MAX_MASQUE_CONNECTIONS).contains(&count) {
+        return Err(TransportError::Netstack(
+            "MASQUE connection count must be 1–16".into(),
+        ));
+    }
+    let (first, family) = Box::pin(connect_single_with_policy(
+        profile,
+        identity,
+        protector.clone(),
+        telemetry,
+    ))
+    .await?;
+    if count == 1 {
+        return Ok((first, family));
+    }
+    let mut member_profile = profile.clone();
+    member_profile.masque_connections = 1;
+    member_profile.transport = match first.transport() {
+        Transport::Http3 => TransportPolicy::Http3,
+        _ => TransportPolicy::Http2,
+    };
+    let mut members = Vec::with_capacity(usize::from(count));
+    members.push(first);
+    for _ in 1..count {
+        let child = ConnectionTelemetry::with_features(
+            crate::CONNECTION_TIMELINE_CAPACITY,
+            telemetry.network_quality().features(),
+        );
+        let result = tokio::select! {
+            biased;
+            _ = telemetry.startup_cancelled() => Err(TransportError::TunnelClosed),
+            result = Box::pin(connect_single_with_policy(&member_profile, identity, protector.clone(), &child)) => result,
+        };
+        match result {
+            Ok((tunnel, _)) => members.push(tunnel),
+            Err(error) => {
+                for member in members {
+                    crate::endpoint_race::RaceConnection::shutdown(member).await;
+                }
+                return Err(error);
+            }
+        }
+    }
+    Ok((
+        MasqueTunnel::Parallel(Box::new(crate::parallel_tunnel::ParallelTunnel::new(
+            members,
+            family,
+            (identity.assigned_ipv4, identity.assigned_ipv6),
+        ))),
+        family,
+    ))
+}
+
+async fn connect_single_with_policy(
+    profile: &Profile,
+    identity: &MasqueTlsIdentity,
+    protector: Arc<dyn SocketProtector>,
+    telemetry: &ConnectionTelemetry,
+) -> Result<(MasqueTunnel, AddressFamily), TransportError> {
     if telemetry.startup_is_cancelled() {
         return Err(TransportError::TunnelClosed);
     }
@@ -3302,14 +3362,9 @@ fn schedule_h3_probe(
             None,
             None,
         );
-        connect_happy_eyeballs(
-            &profile,
-            identity.as_ref(),
-            Transport::Http3,
-            protector,
-            &telemetry,
-        )
-        .await
+        let mut probe_profile = profile;
+        probe_profile.transport = TransportPolicy::Http3;
+        connect_with_policy(&probe_profile, identity.as_ref(), protector, &telemetry).await
     })
 }
 

@@ -77,6 +77,7 @@ pub fn classify_reconfigure(previous: &Profile, next: &Profile) -> ReconfigureCl
             && previous.frontends.tunnel != next.frontends.tunnel
         || previous.transport != next.transport
         || previous.tls_fingerprint != next.tls_fingerprint
+        || previous.masque_connections != next.masque_connections
         || previous.endpoint != next.endpoint
         || previous.ip_policy != next.ip_policy
         || previous.mtu != next.mtu

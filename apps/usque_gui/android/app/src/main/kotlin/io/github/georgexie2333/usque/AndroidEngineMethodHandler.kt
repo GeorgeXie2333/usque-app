@@ -470,28 +470,7 @@ internal class AndroidEngineMethodHandler(
                         mapOf(
                             "h3_congestion_control_algorithms" to CongestionControlSettings.capabilities(native),
                             "tls_fingerprints" to TlsFingerprintSettings.capabilities(native),
-                            "connection_scenarios" to
-                                (
-                                    native?.let {
-                                        runCatching {
-                                            JSONObject(
-                                                it,
-                                            ).optBoolean("connection_scenarios")
-                                        }.getOrDefault(false)
-                                    }
-                                        ?: false
-                                ),
-                            "network_settings_application" to
-                                (
-                                    native?.let {
-                                        runCatching {
-                                            JSONObject(
-                                                it,
-                                            ).optBoolean("network_settings_application")
-                                        }.getOrDefault(false)
-                                    }
-                                        ?: false
-                                ),
+                            "max_masque_connections" to MasqueConnectionSettings.maximum(native),
                         ),
                 )
             }

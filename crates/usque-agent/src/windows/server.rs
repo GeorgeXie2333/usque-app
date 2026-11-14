@@ -140,7 +140,9 @@ struct DirectEgressKey {
     purpose: EgressPurpose,
 }
 
-const MAX_AUTOMATIC_ENDPOINT_LEASES: usize = 16;
+// Bound exact endpoint permits for active pools, recovery probes, replacements
+// and endpoint races while supporting the configured maximum connection count.
+const MAX_AUTOMATIC_ENDPOINT_LEASES: usize = 4 * usque_core::MAX_MASQUE_CONNECTIONS as usize;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum EgressPurpose {

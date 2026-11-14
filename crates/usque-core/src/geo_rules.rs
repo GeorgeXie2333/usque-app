@@ -91,16 +91,17 @@ pub fn validate_geo_direct_cache(profile: &Profile, cache_dir: &Path) -> Result<
         .map(|code| CountryCode::parse(code))
         .collect::<Result<Vec<_>, _>>()
         .map_err(|error| ConfigError::InvalidGeoDirectCountry(error.to_string()))?;
-    let classifier = GeoClassifier::load(cache_dir, &codes).map_err(|error| match error {
-        GeoError::MissingArtifact { country, .. } => {
-            ConfigError::GeoDirectCountryNotDownloaded(country.to_string())
-        }
-        GeoError::InvalidGeoIp => codes
-            .first()
-            .map(|country| ConfigError::GeoDirectCountryNotDownloaded(country.to_string()))
-            .unwrap_or_else(|| ConfigError::GeoDirectCountryNotDownloaded(String::new())),
-        other => ConfigError::GeoDirectCountryNotDownloaded(other.to_string()),
-    })?;
+    let classifier =
+        GeoClassifier::load_cached(cache_dir, &codes).map_err(|error| match error {
+            GeoError::MissingArtifact { country, .. } => {
+                ConfigError::GeoDirectCountryNotDownloaded(country.to_string())
+            }
+            GeoError::InvalidGeoIp => codes
+                .first()
+                .map(|country| ConfigError::GeoDirectCountryNotDownloaded(country.to_string()))
+                .unwrap_or_else(|| ConfigError::GeoDirectCountryNotDownloaded(String::new())),
+            other => ConfigError::GeoDirectCountryNotDownloaded(other.to_string()),
+        })?;
     if profile.frontends.tunnel && !profile.uses_encrypted_warp_dns() {
         for server in &profile.dns_servers {
             if classifier.lookup_ip(*server).is_some() {

@@ -31,6 +31,10 @@ third_party/smoltcp-0.14.0/tests/snapshots/netsim__netsim.snap whitespace=-blank
 # Keep the archived license's final blank line verbatim as well.
 third_party/smoltcp-0.14.0/LICENSE-0BSD.txt whitespace=-blank-at-eof
 
+# Preserve the two unchanged documentation lines in the published netstack crate.
+third_party/ts_netstack_smoltcp-0.7.1/README.md whitespace=-blank-at-eol
+third_party/ts_netstack_smoltcp-0.7.1/src/netsock/README.md whitespace=-blank-at-eol
+
 # The native source inventory hashes these upstream MSVC examples with CRLF.
 # Preserve their bytes when staging and checking out on any host.
 third_party/lz4-1.10.0/lib/dll/example/fullbench-dll.sln -text

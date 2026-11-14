@@ -91,7 +91,7 @@ old-path wire output can be sent after that socket becomes retiring. Normal
 wire generation explicitly selects active; only the barrier drive selects
 candidate, and the socket router rejects all retiring sends.
 
-The locked quiche 0.29.3 contract test creates a real pinned-TLS client/server
+The locked quiche 0.30.1 contract test creates a real pinned-TLS client/server
 pair entirely in memory, exchanges spare connection IDs, queues an encoded
 CONNECT-IP HTTP DATAGRAM, drains active, probes candidate, and delivers each
 wire packet to the peer. The application DATAGRAM arrives during active drain;

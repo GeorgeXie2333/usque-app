@@ -84,7 +84,8 @@ set_target_properties(${BINARY_NAME}
 
 # Generated plugin build rules, which manage building the plugins and adding
 # them to the application.
-include(flutter/generated_plugins.cmake)
+include("../native/desktop_plugins.cmake")
+usque_add_desktop_plugins("${CMAKE_CURRENT_SOURCE_DIR}/flutter/generated_plugins.cmake")
 
 
 # === Installation ===

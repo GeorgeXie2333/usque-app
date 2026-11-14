@@ -691,13 +691,13 @@ pub fn restore_interface_configuration(receipt: &MutationReceipt) -> Result<(), 
     if let Some(mtu) = previous_ipv6_mtu {
         retain_first_error(
             &mut first_error,
-            set_interface_mtu(*interface_luid, AF_INET6, *mtu),
+            mtu_restore_result(set_interface_mtu(*interface_luid, AF_INET6, *mtu)),
         );
     }
     if let Some(mtu) = previous_ipv4_mtu {
         retain_first_error(
             &mut first_error,
-            set_interface_mtu(*interface_luid, AF_INET, *mtu),
+            mtu_restore_result(set_interface_mtu(*interface_luid, AF_INET, *mtu)),
         );
     }
     first_error.map_or(Ok(()), Err)
@@ -1056,6 +1056,18 @@ fn set_interface_mtu(
             set_interface_mtu_once(interface_luid, family, mtu)
         }
         result => result,
+    }
+}
+
+/// During recovery a journaled adapter may already have been removed. Its MTU
+/// disappears together with the interface, so a missing-interface failure
+/// while restoring the previous MTU is an idempotent no-op — mirroring how
+/// address and route deletion already treat `ERROR_NOT_FOUND` /
+/// `ERROR_FILE_NOT_FOUND`. Any other Windows error still aborts recovery.
+fn mtu_restore_result(result: Result<(), NetworkError>) -> Result<(), NetworkError> {
+    match result {
+        Err(error) if error.is_interface_churn() => Ok(()),
+        other => other,
     }
 }
 
@@ -2115,6 +2127,26 @@ mod tests {
         prepare_mtu_update(&mut ipv6, AF_INET6, 1280);
         assert_eq!(ipv6.NlMtu, 1280);
         assert_eq!(ipv6.SitePrefixLength, 64);
+    }
+
+    #[test]
+    fn mtu_restore_treats_a_missing_interface_as_idempotent() {
+        assert!(mtu_restore_result(Ok(())).is_ok());
+
+        let missing = NetworkError::windows("GetIpInterfaceEntry", ERROR_NOT_FOUND);
+        assert!(mtu_restore_result(Err(missing)).is_ok());
+
+        let missing = NetworkError::windows("GetIpInterfaceEntry", ERROR_FILE_NOT_FOUND);
+        assert!(mtu_restore_result(Err(missing)).is_ok());
+
+        let other = NetworkError::windows("SetIpInterfaceEntry", ERROR_BUFFER_OVERFLOW);
+        assert!(matches!(
+            mtu_restore_result(Err(other)),
+            Err(NetworkError::Windows {
+                code: ERROR_BUFFER_OVERFLOW,
+                ..
+            })
+        ));
     }
 
     #[test]

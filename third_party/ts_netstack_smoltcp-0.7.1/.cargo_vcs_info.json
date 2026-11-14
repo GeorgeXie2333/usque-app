@@ -1,0 +1,6 @@
+{
+  "git": {
+    "sha1": "a2a56c41b1db72d50d59d71d35c6669ff9639d14"
+  },
+  "path_in_vcs": "crates/net/overlay/ts_netstack_smoltcp"
+}

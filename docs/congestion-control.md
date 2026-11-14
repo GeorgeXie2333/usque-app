@@ -68,7 +68,12 @@ The independent implementation includes Startup, Drain, ProbeBW DOWN/CRUISE/
 REFILL/UP, ProbeRTT, short/long-term congestion bounds, precautionary probing,
 ACK aggregation, app-limited sampling and conservative spurious-loss undo.
 Source and license provenance remain with the
-[pinned dependency](../third_party/quiche-0.29.3/USQUE-PATCH.md).
+[pinned dependency](../third_party/quiche-0.30.1/USQUE-PATCH.md).
+
+The quiche 0.30.1 rebase assigns the local BBRv3 Rust/C enum value 6 because
+upstream reserves 5 for its optional unchecked controller. Usque's saved names
+and protobuf values are unchanged. The application does not enable that
+unchecked controller; BBRv3 continues to use its adaptive sender and pacer.
 
 QUIC byte accounting includes congestion-controlled packet bytes. Send quantum
 and offload budget use the draft's QUIC rules; actual monotonic send timestamps

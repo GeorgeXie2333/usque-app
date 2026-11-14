@@ -3,6 +3,9 @@ use std::fs;
 use std::io::{self, Write};
 use std::net::IpAddr;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
+
+use sha2::{Digest, Sha256};
 
 use crate::country::CountryCode;
 use crate::error::{ArtifactKind, GeoError};
@@ -24,30 +27,24 @@ pub struct GeoClassifier {
 
 impl GeoClassifier {
     pub fn load(cache_dir: impl AsRef<Path>, countries: &[CountryCode]) -> Result<Self, GeoError> {
-        let cache_dir = cache_dir.as_ref();
-        let mut geoip = BTreeMap::new();
-        let mut geosite = BTreeMap::new();
-        let global_geosite = read_optional_global_geosite(cache_dir)?;
-        let global_sets = if let Some(bytes) = global_geosite.as_deref() {
-            GeoSiteSet::validate_v2ray_dat(bytes)?;
-            Some(GeoSiteSet::from_v2ray_dat_many(bytes, countries)?)
-        } else {
-            None
-        };
-        for country in countries {
-            let geoip_path = geoip_cache_path(cache_dir, country);
-            let bytes = read_required(&geoip_path, country, ArtifactKind::GeoIp)?;
-            geoip.insert(country.clone(), GeoIpSet::from_v2ray_dat(&bytes, country)?);
-            if let Some(sets) = global_sets.as_ref() {
-                if let Some(set) = sets.get(country) {
-                    geosite.insert(country.clone(), set.clone());
-                }
-            } else if let Some((bytes, geosite_path)) = read_optional_geosite(cache_dir, country)? {
-                let set = load_geosite(&bytes, &geosite_path, country)?;
-                geosite.insert(country.clone(), set);
-            }
-        }
-        Ok(Self { geoip, geosite })
+        ClassifierSources::read(cache_dir.as_ref(), countries)?.build()
+    }
+
+    /// Reuse one validated classifier when the selected artifact contents match.
+    /// Files are still read and hashed on every call: timestamps and lengths
+    /// cannot establish that cached rules remain valid after an in-place edit.
+    /// Only successful parses are cached, and no configuration or DNS decision
+    /// is cached. The single entry bounds retained memory across selections.
+    pub fn load_cached(
+        cache_dir: impl AsRef<Path>,
+        countries: &[CountryCode],
+    ) -> Result<Arc<Self>, GeoError> {
+        static CACHE: Mutex<ClassifierCache> = Mutex::new(ClassifierCache { entry: None });
+        let sources = ClassifierSources::read(cache_dir.as_ref(), countries)?;
+        CACHE
+            .lock()
+            .map_err(|_| io::Error::other("GEO classifier cache is unavailable"))?
+            .load(sources)
     }
 
     pub fn ip_matches(&self, ip: IpAddr, country: &CountryCode) -> bool {
@@ -68,6 +65,130 @@ impl GeoClassifier {
 
     pub fn has_geosite(&self, country: &CountryCode) -> bool {
         self.geosite.contains_key(country)
+    }
+}
+
+struct CountrySources {
+    country: CountryCode,
+    geoip: Vec<u8>,
+    geosite: Option<(Vec<u8>, PathBuf)>,
+}
+
+struct ClassifierSources {
+    global_geosite: Option<Vec<u8>>,
+    countries: Vec<CountrySources>,
+}
+
+impl ClassifierSources {
+    fn read(cache_dir: &Path, countries: &[CountryCode]) -> Result<Self, GeoError> {
+        let global_geosite = read_optional_global_geosite(cache_dir)?;
+        let countries = countries
+            .iter()
+            .map(|country| {
+                Ok(CountrySources {
+                    country: country.clone(),
+                    geoip: read_required(
+                        &geoip_cache_path(cache_dir, country),
+                        country,
+                        ArtifactKind::GeoIp,
+                    )?,
+                    geosite: if global_geosite.is_none() {
+                        read_optional_geosite(cache_dir, country)?
+                    } else {
+                        None
+                    },
+                })
+            })
+            .collect::<Result<_, GeoError>>()?;
+        Ok(Self {
+            global_geosite,
+            countries,
+        })
+    }
+
+    fn fingerprint(&self) -> [u8; 32] {
+        fn artifact(hash: &mut Sha256, kind: u8, bytes: &[u8]) {
+            hash.update([kind]);
+            hash.update((bytes.len() as u64).to_le_bytes());
+            hash.update(bytes);
+        }
+        let mut hash = Sha256::new();
+        if let Some(bytes) = &self.global_geosite {
+            artifact(&mut hash, 1, bytes);
+        }
+        for source in &self.countries {
+            artifact(&mut hash, 2, source.country.as_str().as_bytes());
+            artifact(&mut hash, 3, &source.geoip);
+            if let Some((bytes, path)) = &source.geosite {
+                let kind = if path.extension().is_some_and(|ext| ext == "bin") {
+                    4
+                } else {
+                    5
+                };
+                artifact(&mut hash, kind, bytes);
+            }
+        }
+        hash.finalize().into()
+    }
+
+    fn build(self) -> Result<GeoClassifier, GeoError> {
+        let mut geoip = BTreeMap::new();
+        let mut geosite = BTreeMap::new();
+        let countries = self
+            .countries
+            .iter()
+            .map(|source| source.country.clone())
+            .collect::<Vec<_>>();
+        let mut global_sets = if let Some(bytes) = self.global_geosite.as_deref() {
+            Some(GeoSiteSet::from_validated_v2ray_dat_many(
+                bytes, &countries,
+            )?)
+        } else {
+            None
+        };
+        for source in self.countries {
+            let country = source.country;
+            geoip.insert(
+                country.clone(),
+                GeoIpSet::from_v2ray_dat(&source.geoip, &country)?,
+            );
+            if let Some(sets) = global_sets.as_mut() {
+                if let Some(set) = sets.remove(&country) {
+                    geosite.insert(country, set);
+                }
+            } else if let Some((bytes, path)) = source.geosite {
+                let set = load_geosite(&bytes, &path, &country)?;
+                geosite.insert(country, set);
+            }
+        }
+        Ok(GeoClassifier { geoip, geosite })
+    }
+}
+
+struct CachedClassifier {
+    fingerprint: [u8; 32],
+    classifier: Arc<GeoClassifier>,
+}
+
+#[derive(Default)]
+struct ClassifierCache {
+    entry: Option<CachedClassifier>,
+}
+
+impl ClassifierCache {
+    fn load(&mut self, sources: ClassifierSources) -> Result<Arc<GeoClassifier>, GeoError> {
+        let fingerprint = sources.fingerprint();
+        if let Some(entry) = &self.entry
+            && entry.fingerprint == fingerprint
+        {
+            return Ok(Arc::clone(&entry.classifier));
+        }
+        let classifier = Arc::new(sources.build()?);
+        self.entry = Some(CachedClassifier {
+            fingerprint,
+            classifier: Arc::clone(&classifier),
+        });
+        Ok(classifier)
     }
 }
 
@@ -287,13 +408,134 @@ pub(crate) fn cached_geoip_countries(cache_dir: &Path) -> Result<Vec<CountryCode
 
 #[cfg(test)]
 mod tests {
-    use super::{GeoClassifier, atomic_write, geoip_cache_path, list_cached_countries};
+    use std::sync::Arc;
+
+    use prost::Message;
+
+    use super::{
+        ClassifierCache, ClassifierSources, GeoClassifier, atomic_write, geoip_cache_path,
+        geosite_cache_path, global_geosite_cache_path, list_cached_countries,
+    };
     use crate::country::CountryCode;
     use crate::error::GeoError;
     use crate::geoip::GeoIpSet;
 
     fn fixture_dat() -> &'static [u8] {
         include_bytes!("../tests/fixtures/geoip-cn.dat")
+    }
+
+    // Use a local cache so unrelated parallel tests cannot evict this entry.
+    fn cached(
+        cache: &mut ClassifierCache,
+        directory: &std::path::Path,
+        countries: &[CountryCode],
+    ) -> Result<Arc<GeoClassifier>, GeoError> {
+        cache.load(ClassifierSources::read(directory, countries)?)
+    }
+
+    #[test]
+    fn cached_classifier_reuses_only_identical_contents_and_country_selection() {
+        let directory = tempfile::tempdir().unwrap();
+        let cn = CountryCode::parse("CN").unwrap();
+        let us = CountryCode::parse("US").unwrap();
+        let mut list = crate::proto::GeoIpList::decode(fixture_dat()).unwrap();
+        let mut entry = list.entry[0].clone();
+        entry.country_code = "US".into();
+        entry.cidr[0].ip = vec![20, 0, 0, 0];
+        entry.cidr[0].prefix = 8;
+        list.entry.push(entry);
+        let bytes = list.encode_to_vec();
+        for country in [&cn, &us] {
+            atomic_write(&geoip_cache_path(directory.path(), country), &bytes).unwrap();
+        }
+        let mut cache = ClassifierCache::default();
+        let countries = std::slice::from_ref(&cn);
+        let first = cached(&mut cache, directory.path(), countries).unwrap();
+        let again = cached(&mut cache, directory.path(), countries).unwrap();
+        assert!(Arc::ptr_eq(&first, &again));
+
+        // A valid same-size edit, even with the old mtime, must replace the trie.
+        let path = geoip_cache_path(directory.path(), &cn);
+        let modified = std::fs::metadata(&path).unwrap().modified().unwrap();
+        list.entry[0].cidr[0].ip = vec![30, 0, 0, 0];
+        list.entry[0].cidr[0].prefix = 8;
+        let replacement = list.encode_to_vec();
+        assert_eq!(replacement.len(), bytes.len());
+        std::fs::write(&path, replacement).unwrap();
+        std::fs::File::options()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_times(std::fs::FileTimes::new().set_modified(modified))
+            .unwrap();
+        let changed = cached(&mut cache, directory.path(), countries).unwrap();
+        assert!(!Arc::ptr_eq(&first, &changed));
+        assert!(changed.ip_matches("30.1.2.3".parse().unwrap(), &cn));
+        assert!(!first.ip_matches("30.1.2.3".parse().unwrap(), &cn));
+
+        let selected = cached(&mut cache, directory.path(), std::slice::from_ref(&us)).unwrap();
+        assert!(!Arc::ptr_eq(&changed, &selected));
+        assert!(selected.ip_matches("20.1.2.3".parse().unwrap(), &us));
+        assert!(!selected.ip_matches("30.1.2.3".parse().unwrap(), &cn));
+
+        std::fs::write(&path, vec![0; bytes.len()]).unwrap();
+        assert!(cached(&mut cache, directory.path(), countries).is_err());
+        std::fs::remove_file(&path).unwrap();
+        assert!(matches!(
+            cached(&mut cache, directory.path(), countries),
+            Err(GeoError::MissingArtifact { .. })
+        ));
+    }
+
+    #[test]
+    fn cached_classifier_tracks_optional_rules_and_global_precedence() {
+        let directory = tempfile::tempdir().unwrap();
+        let cn = CountryCode::parse("CN").unwrap();
+        let countries = std::slice::from_ref(&cn);
+        atomic_write(&geoip_cache_path(directory.path(), &cn), fixture_dat()).unwrap();
+        let mut cache = ClassifierCache::default();
+        let ip_only = cached(&mut cache, directory.path(), countries).unwrap();
+        assert!(!ip_only.has_geosite(&cn));
+        let local = geosite_cache_path(directory.path(), &cn);
+        atomic_write(&local, b"domain:before.cn\n").unwrap();
+        let first = cached(&mut cache, directory.path(), countries).unwrap();
+        assert!(first.host_matches("before.cn", &cn));
+        atomic_write(&local, b"domain:afterx.cn\n").unwrap();
+        let changed = cached(&mut cache, directory.path(), countries).unwrap();
+        assert!(!changed.host_matches("before.cn", &cn));
+        assert!(changed.host_matches("afterx.cn", &cn));
+
+        let global = global_geosite_cache_path(directory.path());
+        let list = crate::proto::GeoSiteList {
+            entry: vec![crate::proto::GeoSite {
+                country_code: "CN".into(),
+                domain: vec![crate::proto::Domain {
+                    r#type: crate::proto::DOMAIN_DOMAIN,
+                    value: "global.cn".into(),
+                }],
+            }],
+        };
+        atomic_write(&global, &list.encode_to_vec()).unwrap();
+        let with_global = cached(&mut cache, directory.path(), countries).unwrap();
+        assert!(with_global.host_matches("global.cn", &cn));
+        assert!(!with_global.host_matches("afterx.cn", &cn));
+        atomic_write(&global, b"invalid").unwrap();
+        assert!(cached(&mut cache, directory.path(), countries).is_err());
+        atomic_write(
+            &global,
+            &crate::proto::GeoSiteList { entry: vec![] }.encode_to_vec(),
+        )
+        .unwrap();
+        assert!(cached(&mut cache, directory.path(), countries).is_err());
+        std::fs::remove_file(&global).unwrap();
+        let fallback = cached(&mut cache, directory.path(), countries).unwrap();
+        assert!(fallback.host_matches("afterx.cn", &cn));
+        std::fs::remove_file(&local).unwrap();
+        assert!(
+            !cached(&mut cache, directory.path(), countries)
+                .unwrap()
+                .has_geosite(&cn)
+        );
     }
 
     #[test]

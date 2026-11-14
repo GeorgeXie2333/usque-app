@@ -28,8 +28,8 @@ one upstream test-comment trailing space is trimmed for the whitespace gate.
 Usque also defers transient IPv6 minimum-MTU decisions in the existing bounded
 H3 batch, with cancellation cleanup, test harness support and regressions.
 Provenance, license, exact
-archive hash and removal criteria are in
-[`USQUE-PATCH.md`](../third_party/quiche-0.29.3/USQUE-PATCH.md).
+archive hash and removal criteria for the maintained 0.30.1 rebase are in
+[`USQUE-PATCH.md`](../third_party/quiche-0.30.1/USQUE-PATCH.md).
 
 No new unsafe blocks, network APIs, privileged actions, packet logging,
 telemetry fields, background tasks or unbounded queues are introduced.

@@ -50,6 +50,7 @@ mod android_tun_read_slab;
 mod packet_batch;
 mod packet_mux;
 mod packet_pipe;
+mod parallel_tunnel;
 mod path_socket;
 mod pin_refresh;
 mod pmtu;

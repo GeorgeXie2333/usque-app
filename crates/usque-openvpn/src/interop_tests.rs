@@ -377,6 +377,38 @@ async fn memory_transport_roundtrip(udp: bool) {
 }
 
 #[tokio::test]
+async fn invalid_certificate_usage_overrides_never_connect() {
+    let _serial = SERIAL.lock().await;
+    for directive in ["remote-cert-ku 0", "remote-cert-eku", "ns-cert-type server"] {
+        let config = format!("{}{}\n", profile(CA), directive);
+        let mut session = match Session::start(&config, "192.0.2.1:1194".parse().unwrap()) {
+            Err(Error::InvalidConfig) => continue,
+            Ok(session) => session,
+            Err(error) => panic!("unexpected configuration result: {error}"),
+        };
+        // SSL configuration can fail in the worker after start returns. A
+        // stopped event plus a failed worker must precede any transport or data.
+        timeout(Duration::from_secs(3), async {
+            loop {
+                match session.next_event().await.unwrap() {
+                    Event::State { name, .. } => {
+                        assert_ne!(name, "CONNECTED", "{directive}");
+                    }
+                    Event::Stopped => break,
+                    Event::Dial { .. } | Event::TransportPacket { .. } | Event::IpPacket { .. } => {
+                        panic!("{directive} must fail before requesting transport or exposing data")
+                    }
+                    _ => {}
+                }
+            }
+            assert_eq!(session.shutdown().await, Err(Error::Worker));
+        })
+        .await
+        .expect("invalid certificate usage must terminate promptly");
+    }
+}
+
+#[tokio::test]
 async fn authentication_and_ca_failures_never_publish_connected_or_ip_data() {
     let _serial = SERIAL.lock().await;
     for case in ["auth", "ca", "key_usage", "client_role"] {

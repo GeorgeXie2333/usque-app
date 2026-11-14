@@ -279,6 +279,9 @@ pub struct H3Driver {
 }
 
 impl H3Driver {
+    pub(crate) fn abort_handle(&self) -> tokio::task::AbortHandle {
+        self.task.as_ref().expect("driver is owned").abort_handle()
+    }
     pub(crate) async fn shutdown(mut self) {
         self.cancellation.cancel();
         if let Some(task) = self.task.take() {
@@ -599,8 +602,8 @@ async fn connect_h3_application(
     let features = quality.features();
     let (mut quic_config, pin_state) =
         quic_config_with_features(identity, family_ceiling, features, congestion_control)?;
-    if l4.is_some() {
-        crate::l4::Limits::platform().configure(&mut quic_config);
+    if let Some(actor) = &l4 {
+        crate::l4::Limits::platform().configure_connections(&mut quic_config, actor.connections);
     }
     #[cfg(test)]
     if let Some(actor) = &l4 {

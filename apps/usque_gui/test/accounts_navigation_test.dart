@@ -480,14 +480,14 @@ void main() {
       app.snapshot = const EngineSnapshot(phase: ConnectionPhase.connected);
       await tester.tap(_manage);
       await tester.pumpAndSettle();
-      await tester.tap(find.text(app.strings.get('set_active')));
+      await tester.tap(find.byKey(const ValueKey('profile-activate-work')));
       await tester.pumpAndSettle();
       expect(engine.accountWrites, 0);
       await tester.tap(find.text(app.strings.get('cancel')));
       await tester.pumpAndSettle();
       expect(engine.accountWrites, 0);
       engine.failSwitch = true;
-      await tester.tap(find.text(app.strings.get('set_active')));
+      await tester.tap(find.byKey(const ValueKey('profile-activate-work')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('profile-switch-confirm')));
       await tester.pumpAndSettle();
@@ -497,7 +497,7 @@ void main() {
       expect(find.text(app.lastError!), findsOneWidget);
       expect(find.byType(AccountsPage), findsOneWidget);
       engine.failSwitch = false;
-      await tester.tap(find.text(app.strings.get('set_active')));
+      await tester.tap(find.byKey(const ValueKey('profile-activate-work')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('profile-switch-confirm')));
       await tester.pumpAndSettle();
@@ -752,7 +752,9 @@ void main() {
     tester,
   ) async {
     final app = await _profiles(tester, SceneEngine());
-    await tester.tap(find.text(app.strings.get('edit')).first);
+    await tester.tap(find.byKey(const ValueKey('scenario-menu-scene-a')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('scenario-edit-scene-a')));
     await tester.pumpAndSettle();
     expect(find.byType(ScenarioEditorScreen), findsOneWidget);
     expect(find.text(app.strings.get('scenario_unsaved')), findsNothing);

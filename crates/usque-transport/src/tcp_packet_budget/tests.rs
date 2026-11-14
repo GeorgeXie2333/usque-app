@@ -239,6 +239,7 @@ async fn budget_consumer_coalesces_updates_and_cancels_a_full_command_queue() {
         handle: None,
         command: Command::ReapCancelled,
         resp: response,
+        complete_if_channel_dropped: true,
     })
     .unwrap();
     publisher.publish(None);

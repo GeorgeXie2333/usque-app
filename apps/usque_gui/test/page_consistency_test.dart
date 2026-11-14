@@ -47,14 +47,14 @@ void main() {
   ) async {
     final app = await _accounts(tester, phase: ConnectionPhase.connected);
     final body = app.strings.get('switch_account_reconnect_body');
-    await tester.tap(find.text('Set active'));
+    await tester.tap(find.byKey(const ValueKey('profile-activate-work')));
     await tester.pumpAndSettle();
     expect(find.text(body), findsOneWidget);
     await tester.tap(find.text('Cancel'));
     await tester.pumpAndSettle();
     expect(app.activeProfileId, UsqueProfile.defaultProfileId);
 
-    await tester.tap(find.text('Set active'));
+    await tester.tap(find.byKey(const ValueKey('profile-activate-work')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('profile-switch-confirm')));
     await tester.pumpAndSettle();
@@ -66,7 +66,7 @@ void main() {
   ) async {
     for (final phase in [ConnectionPhase.disconnected, ConnectionPhase.error]) {
       final app = await _accounts(tester, phase: phase);
-      await tester.tap(find.text('Set active'));
+      await tester.tap(find.byKey(const ValueKey('profile-activate-work')));
       await tester.pumpAndSettle();
       expect(
         find.text(app.strings.get('switch_account_reconnect_body')),
@@ -76,51 +76,55 @@ void main() {
     }
   });
 
-  testWidgets(
-    'wide account rows keep one inline action and label the rest in a menu',
-    (tester) async {
-      final app = await _accounts(tester, second: false);
-      // The only account is selected, so nothing is inline and delete is
-      // never an icon-only control.
-      expect(find.text('Set active'), findsNothing);
-      expect(find.text('Rename'), findsNothing);
-      expect(find.byIcon(LucideIcons.trash2), findsNothing);
-      await tester.tap(
-        find.byKey(ValueKey('profile-menu-${UsqueProfile.defaultProfileId}')),
-      );
-      await tester.pumpAndSettle();
-      expect(find.text(app.strings.get('edit_profile')), findsOneWidget);
-      final delete = tester.widget<PopupMenuItem<String>>(
-        find.byKey(
-          ValueKey('profile-menu-delete-${UsqueProfile.defaultProfileId}'),
-        ),
-      );
-      expect(delete.enabled, isFalse);
-      expect(find.text(app.strings.get('profile_required')), findsOneWidget);
-      // Delete comes last, after a divider.
-      expect(find.byType(PopupMenuDivider), findsOneWidget);
-      expect(
-        tester.getTopLeft(find.byType(PopupMenuDivider)).dy,
-        lessThan(
-          tester
-              .getTopLeft(
-                find.byKey(
-                  ValueKey(
-                    'profile-menu-delete-${UsqueProfile.defaultProfileId}',
-                  ),
+  testWidgets('wide account rows label every other action in a menu', (
+    tester,
+  ) async {
+    final app = await _accounts(tester, second: false);
+    // The only account is selected, so nothing is inline and delete is
+    // never an icon-only control.
+    expect(find.text('Set active'), findsNothing);
+    expect(find.text('Rename'), findsNothing);
+    expect(find.byIcon(LucideIcons.trash2), findsNothing);
+    await tester.tap(
+      find.byKey(ValueKey('profile-menu-${UsqueProfile.defaultProfileId}')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text(app.strings.get('edit_profile')), findsOneWidget);
+    final delete = tester.widget<PopupMenuItem<String>>(
+      find.byKey(
+        ValueKey('profile-menu-delete-${UsqueProfile.defaultProfileId}'),
+      ),
+    );
+    expect(delete.enabled, isFalse);
+    expect(find.text(app.strings.get('profile_required')), findsOneWidget);
+    // Delete comes last, after a divider.
+    expect(find.byType(PopupMenuDivider), findsOneWidget);
+    expect(
+      tester.getTopLeft(find.byType(PopupMenuDivider)).dy,
+      lessThan(
+        tester
+            .getTopLeft(
+              find.byKey(
+                ValueKey(
+                  'profile-menu-delete-${UsqueProfile.defaultProfileId}',
                 ),
-              )
-              .dy,
-        ),
-      );
-    },
-  );
+              ),
+            )
+            .dy,
+      ),
+    );
+  });
 
   testWidgets(
-    'narrow account rows keep the switch visible and label the rest in a menu',
+    'narrow account rows stay a switch target and label the rest in a menu',
     (tester) async {
       final app = await _accounts(tester, size: const Size(390, 844));
-      expect(find.text('Set active'), findsOneWidget);
+      // The row itself sets the account active; no separate button repeats it.
+      expect(
+        find.byKey(const ValueKey('profile-activate-work')),
+        findsOneWidget,
+      );
+      expect(find.text('Set active'), findsNothing);
       expect(find.text('Rename'), findsNothing);
       await tester.tap(find.byKey(const ValueKey('profile-menu-work')));
       await tester.pumpAndSettle();

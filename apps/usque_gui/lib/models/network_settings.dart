@@ -135,6 +135,7 @@ Map<String, Object?> _fields(UsqueProfile p) => {
   'vpn_gate': p.vpnGate,
   'chain_exit': p.chainExit,
   'congestion_control': p.congestionControl,
+  'masque_connections': p.masqueConnections,
   'tls_fingerprint': p.tlsFingerprint,
   'endpoint.selection': p.endpointSelection,
   'endpoint.preset_region': p.endpointPresetRegion,

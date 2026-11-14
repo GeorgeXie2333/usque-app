@@ -136,16 +136,20 @@ internal object NetworkQualityFields {
         return runCatching { sanitize(JSONObject(value)) }.getOrNull()
     }
 
+    fun capabilityObject(value: String?): JSONObject? =
+        if (value != null && value.length <= MAX_CAPABILITIES_JSON_BYTES &&
+            value.toByteArray(Charsets.UTF_8).size <= MAX_CAPABILITIES_JSON_BYTES
+        ) {
+            runCatching { JSONObject(value) }.getOrNull()
+        } else {
+            null
+        }
+
     fun capabilities(value: String?): Map<String, Boolean> {
-        val source =
-            if (value != null && value.length <= MAX_CAPABILITIES_JSON_BYTES &&
-                value.toByteArray(Charsets.UTF_8).size <= MAX_CAPABILITIES_JSON_BYTES
-            ) {
-                runCatching { JSONObject(value) }.getOrNull()
-            } else {
-                null
-            }
+        val source = capabilityObject(value)
         return listOf(
+            "network_settings_application",
+            "connection_scenarios",
             "network_quality",
             "encrypted_direct_dns",
             "encrypted_warp_dns",
@@ -154,6 +158,7 @@ internal object NetworkQualityFields {
             "l4_tcp",
             "l4_tun_tcp",
             "l4_dns_conversion",
+            "l4_masque_connections",
             "vpn_gate_tcp",
             "vpn_gate_pool_favorites",
             "vpn_gate_epoch_requests",

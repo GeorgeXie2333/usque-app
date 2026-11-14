@@ -276,7 +276,9 @@ void main() {
     }
   });
 
-  testWidgets('account rows never activate on a label tap', (tester) async {
+  testWidgets('an account row sets its account active from the row itself', (
+    tester,
+  ) async {
     final app = AppController(WorkflowEngine())
       ..section = AppSection.profiles
       ..localePreference = LocalePreference.english;
@@ -289,12 +291,13 @@ void main() {
     };
     await tester.pumpWidget(workflowHost(app));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Work'));
+    // The selected row is not a target; any other row is, label included.
+    await tester.tap(find.text(app.strings.accountName(active)).last);
     await tester.pump();
     expect(app.activeProfileId, active.id);
-    final activate = find.widgetWithText(TextButton, 'Set active');
-    await tester.ensureVisible(activate);
-    await tester.tap(activate);
+    expect(find.widgetWithText(TextButton, 'Set active'), findsNothing);
+    await tester.ensureVisible(find.text('Work'));
+    await tester.tap(find.text('Work'));
     await tester.pumpAndSettle();
     expect(app.activeProfileId, 'work');
     expect(find.byType(Panel), findsNothing);

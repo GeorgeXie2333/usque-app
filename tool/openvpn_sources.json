@@ -1,11 +1,11 @@
 [
   {
     "name": "openvpn3",
-    "directory": "third_party/openvpn3-3.11.7",
-    "url": "https://codeload.github.com/OpenVPN/openvpn3/tar.gz/18edfae7e7fd8051c93bd4746ec69be91eb02dbb",
-    "sha256": "94df957ac9782ce077b55dc4451fc7aa087ebfaaa26962fbb3fad7596e91d97a",
+    "directory": "third_party/openvpn3-3.11.8",
+    "url": "https://codeload.github.com/OpenVPN/openvpn3/tar.gz/4f3bdef73245d4ee9e8216c5d65baccc9568f6ef",
+    "sha256": "522faf3f7485117423a9c398606062105c4453c11d4d5ebab45e7c209cc3a9ef",
     "files": 563,
-    "version": "3.11.7",
+    "version": "3.11.8",
     "license": "MPL-2.0",
     "patches": [
       {
@@ -20,13 +20,8 @@
       },
       {
         "path": "openvpn/mbedtls/ssl/sslctx.hpp",
-        "upstream_sha256": "d3f8ec39f9b25ccfe9d8d194859ccc401f9c8da4234bd77ffe6eb91db7af7604",
-        "sha256": "a39dca7989e347fb93916f2baae04d67e9e28779a2855062a85f069de33c0fc7"
-      },
-      {
-        "path": "openvpn/transport/dco.hpp",
-        "upstream_sha256": "17adc99f12574e3bc4f594199124e3901b59079406862b19e78ae5cd6935c7f4",
-        "sha256": "eb4325ec972c58c534971cfadca605384b26917cb1ea42a891fc7bd1429805db"
+        "upstream_sha256": "fc4f42e03a3d7ae1da1e0454fd962deef6fc2dfbf5153e016ae11c3b84265bbd",
+        "sha256": "e9d88f801dbf2134d86fa961d14eb346ec45a38b56874a0ddc5d59d0c1a04cb3"
       },
       {
         "path": "openvpn/ssl/mssparms.hpp",
@@ -37,6 +32,11 @@
         "path": "openvpn/ssl/proto.hpp",
         "upstream_sha256": "f36354f3ff93b11b17217b906189a7f97f5ac5770c6fbae1dff903de66a38bdf",
         "sha256": "9ee4bcf2952d9a5dd54b9adc12ac54fe22c7c1926aca1925c73fd782b463d5b0"
+      },
+      {
+        "path": "openvpn/transport/dco.hpp",
+        "upstream_sha256": "17adc99f12574e3bc4f594199124e3901b59079406862b19e78ae5cd6935c7f4",
+        "sha256": "eb4325ec972c58c534971cfadca605384b26917cb1ea42a891fc7bd1429805db"
       }
     ]
   },

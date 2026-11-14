@@ -1,3 +1,5 @@
+import com.android.build.api.variant.LibraryAndroidComponentsExtension
+
 allprojects {
     repositories {
         google()
@@ -17,6 +19,21 @@ subprojects {
 }
 subprojects {
     project.evaluationDependsOn(":app")
+}
+
+subprojects {
+    if (name == "jni") {
+        pluginManager.withPlugin("com.android.library") {
+            extensions.configure<LibraryAndroidComponentsExtension> {
+                // The preferences JNI plugin inherits Flutter's older NDK by
+                // default. Keep its native build on Usque's pinned toolchain.
+                finalizeDsl {
+                    it.ndkVersion = "29.0.14206865"
+                    it.externalNativeBuild.cmake.version = "3.22.1"
+                }
+            }
+        }
+    }
 }
 
 tasks.register<Delete>("clean") {

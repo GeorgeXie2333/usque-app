@@ -36,6 +36,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
   late final TextEditingController _port;
   late final TextEditingController _sni;
   late final TextEditingController _mtu;
+  late final TextEditingController _masqueConnections;
   late final TextEditingController _dnsV4;
   late final TextEditingController _dnsV6;
   late TransportPolicy _transport;
@@ -67,10 +68,10 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
   List<Object> _baseline = [];
   late String _editingAccountId;
   final _fieldKeys = List.generate(
-    7,
+    8,
     (_) => GlobalKey<FormFieldState<String>>(),
   );
-  final _focus = List.generate(9, (_) => FocusNode());
+  final _focus = List.generate(10, (_) => FocusNode());
 
   List<Object> get _values => [
     _usingPreset ||
@@ -110,8 +111,33 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
     _endpointSelection,
     _warpDns,
     _usingPreset ? _presetRegion.name : '',
+    _masqueConnections.text,
   ];
   bool get _dirty => !listEquals(_values, _baseline);
+
+  /// Positions in [_values] that a scene owns: endpoint addresses, port, SNI,
+  /// transport, IP version, endpoint selection and preset.
+  static const _sceneManagedValues = {0, 1, 2, 3, 7, 11, 22, 24};
+
+  /// The selected scene, while the draft changes a setting it owns; applying
+  /// that edit leaves the scene modified.
+  String? get _driftingScene {
+    final scene = widget.controller.scenarios.catalog?.selected;
+    final values = _values;
+    if (scene == null || values.length != _baseline.length) return null;
+    return _sceneManagedValues.any((i) => values[i] != _baseline[i])
+        ? scene.name
+        : null;
+  }
+
+  int get _maxMasqueConnections =>
+      (widget.controller.engineCapabilities?.maxMasqueConnections ?? 0)
+          .clamp(0, UsqueProfile.maxMasqueConnections)
+          .toInt();
+  bool get _masqueConnectionsSupported =>
+      _maxMasqueConnections >= UsqueProfile.defaultMasqueConnections &&
+      (_dataPlane != DataPlaneMode.l4Proxy ||
+          (widget.controller.engineCapabilities?.l4MasqueConnections ?? false));
   void _edited() {
     if (_loading || _saving) return;
     setState(() {
@@ -228,6 +254,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
     _port = TextEditingController();
     _sni = TextEditingController();
     _mtu = TextEditingController();
+    _masqueConnections = TextEditingController();
     _dnsV4 = TextEditingController();
     _dnsV6 = TextEditingController();
     _load(widget.controller.activeProfile);
@@ -241,6 +268,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
     _port.text = profile.endpointPort.toString();
     _sni.text = profile.sni;
     _mtu.text = profile.mtu.toString();
+    _masqueConnections.text = profile.masqueConnections.toString();
     _dnsV4.text = profile.dnsIpv4;
     _dnsV6.text = profile.dnsIpv6;
     _transport = profile.transport;
@@ -273,6 +301,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
       _port,
       _sni,
       _mtu,
+      _masqueConnections,
       _dnsV4,
       _dnsV6,
     ]) {
@@ -359,6 +388,18 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
                 saving: _saving,
                 saved: _saved,
                 statusLabel: statusLabel,
+                summary: switch (_driftingScene) {
+                  final scene? when !_saving => Text(
+                    strings
+                        .get('scenario_marks_modified')
+                        .replaceAll('{name}', scene),
+                    key: const ValueKey('scene-drift-hint'),
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  _ => null,
+                },
                 onReconnect: onReconnect,
                 onRefresh: onRefresh,
                 refreshing: settings.refreshing,
@@ -905,6 +946,41 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
                   : null,
             ),
           ),
+          const SizedBox(height: 16),
+          KeyedSubtree(
+            key: const ValueKey('masque-connections'),
+            child: tvTextFormField(
+              key: _fieldKeys[7],
+              focusNode: _focus[9],
+              enabled: !_saving && _masqueConnectionsSupported,
+              controller: _masqueConnections,
+              onChanged: (_) => _edited(),
+              keyboardType: TextInputType.number,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+              decoration: InputDecoration(
+                labelText: strings.get('masque_connections'),
+              ),
+              validator: (value) {
+                if (!_masqueConnectionsSupported) return null;
+                final count = int.tryParse(value?.trim() ?? '');
+                return count == null ||
+                        count < 1 ||
+                        count > _maxMasqueConnections
+                    ? '1–$_maxMasqueConnections'
+                    : null;
+              },
+            ),
+          ),
+          const SizedBox(height: 8),
+          HintText(
+            strings
+                .get(
+                  _masqueConnectionsSupported
+                      ? 'masque_connections_help'
+                      : 'masque_connections_unsupported',
+                )
+                .replaceAll('{max}', _maxMasqueConnections.toString()),
+          ),
         ],
       );
     },
@@ -973,7 +1049,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
       );
       bool focusField(int index) {
         if (!(_fieldKeys[index].currentState?.hasError ?? false)) return false;
-        _focus[index].requestFocus();
+        _focus[index == 7 ? 9 : index].requestFocus();
         unawaited(Scrollable.ensureVisible(_fieldKeys[index].currentContext!));
         return true;
       }
@@ -982,7 +1058,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
       if (focusField(4) || focusField(5)) return;
       if (_warpDnsKey.currentState?.focusFirstError() ?? false) return;
       if (_directDnsKey.currentState?.focusFirstError() ?? false) return;
-      for (final index in const [0, 1, 2, 3, 6]) {
+      for (final index in const [0, 1, 2, 3, 6, 7]) {
         if (focusField(index)) return;
       }
       return;
@@ -1027,6 +1103,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
       'endpoint.selection',
       'warp_dns',
       'endpoint.preset_region',
+      'masque_connections',
     ];
     final changedFields = <String>{
       for (var i = 0; i < paths.length; i++)
@@ -1046,6 +1123,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
         transport: _transport,
         dataPlane: _dataPlane,
         congestionControl: _congestionControl,
+        masqueConnections: int.parse(_masqueConnections.text),
         tlsFingerprint: _tlsFingerprint,
         ipPolicy: _ipPolicy,
         endpointSelection: endpointIpsManaged

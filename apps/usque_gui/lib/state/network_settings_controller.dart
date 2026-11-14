@@ -142,7 +142,7 @@ class NetworkSettingsController extends ChangeNotifier {
       final attempt = _saveAttempts.remove(operation);
       // The in-flight save keeps this record even after a newer snapshot
       // replaces the acknowledgement and before its own reply arrives.
-      if (attempt != null) attempt.acknowledged = true;
+      attempt?.acknowledge();
     }
   }
 
@@ -236,7 +236,8 @@ class NetworkSettingsController extends ChangeNotifier {
   Future<bool> save(UsqueProfile values, List<String> fields) {
     final generation = _dataGeneration;
     final requestedFields = List<String>.of(fields);
-    return enqueue(() async {
+    final completion = Completer<bool>();
+    final pending = enqueue(() async {
       if (_resetting || generation != _dataGeneration) return false;
       if (!supported) {
         try {
@@ -254,7 +255,7 @@ class NetworkSettingsController extends ChangeNotifier {
         return false;
       }
       final operationId = _operationId();
-      final attempt = _SaveAttempt();
+      final attempt = _SaveAttempt(completion);
       _saveAttempts[operationId] = attempt;
       saveError = null;
       invalidBypassDomainEntry = null;
@@ -286,7 +287,7 @@ class NetworkSettingsController extends ChangeNotifier {
         // newer events have superseded the snapshot it carries. Never roll
         // the current configuration or engine epoch back to that snapshot.
         if (result.operationId == operationId && result.persisted == true) {
-          attempt.acknowledged = true;
+          attempt.acknowledge();
           _saveAttempts.remove(operationId);
         }
         accept(result);
@@ -329,6 +330,20 @@ class NetworkSettingsController extends ChangeNotifier {
         _notify();
       }
     });
+    // A matching durable event can finish the page's save before the RPC reply.
+    // Keep the RPC in the submission queue until it settles, so later writes
+    // and connection operations cannot overtake it. Its errors stay observed.
+    unawaited(
+      pending.then<void>(
+        (saved) {
+          if (!completion.isCompleted) completion.complete(saved);
+        },
+        onError: (Object error, StackTrace stack) {
+          if (!completion.isCompleted) completion.completeError(error, stack);
+        },
+      ),
+    );
+    return completion.future;
   }
 
   void suspendForReset() {
@@ -471,8 +486,16 @@ class NetworkSettingsController extends ChangeNotifier {
 }
 
 class _SaveAttempt {
+  _SaveAttempt(this.completion);
+
+  final Completer<bool> completion;
   bool acknowledged = false;
   bool unconfirmed = false;
+
+  void acknowledge() {
+    acknowledged = true;
+    if (!completion.isCompleted) completion.complete(true);
+  }
 }
 
 String _operationId() {

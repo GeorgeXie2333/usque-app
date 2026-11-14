@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+    <title>ts_netstack_smoltcp</title>
+    <link rel="stylesheet" href="assets/index.css"/>
+    <script type="module">
+        const count = document.querySelector('#count');
+
+        setInterval(async () => {
+            const resp = await fetch('/count', {
+                method: 'POST',
+            });
+
+            const body = await resp.json();
+            count.innerHTML = body['count'].toString();
+        }, 1000);
+    </script>
+</head>
+
+<body>
+<main>
+    <div>
+        <h1><code>ts_netstack_smoltcp</code></h1>
+
+        <p>
+            This page was served by <a href="https://docs.rs/axum"><code>axum</code></a> over
+            <code>ts_netstack_smoltcp</code>.
+        </p>
+
+        <span>
+            Count: <span id="count"></span>
+        </span>
+    </div>
+
+    <img src="assets/Tailscale_icon_reversed.png" id="ts_logo"/>
+</main>
+</body>
+</html>

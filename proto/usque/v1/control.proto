@@ -233,6 +233,7 @@ message Profile {
   WarpDnsSettings warp_dns = 24;
   RoutingSettings routing = 25;
   TlsFingerprint tls_fingerprint = 26;
+  optional uint32 masque_connections = 27;
 }
 
 message RoutingSettings {
@@ -546,6 +547,8 @@ message Capabilities {
   bool proton_server_switching = 53;
   bool connection_scenarios = 54;
   bool vpn_gate_epoch_requests = 55;
+  uint32 max_masque_connections = 56;
+  bool l4_masque_connections = 57;
 }
 
 message FrontendStatus {

@@ -55,7 +55,8 @@ add_subdirectory("runner")
 
 # Generated plugin build rules, which manage building the plugins and adding
 # them to the application.
-include(flutter/generated_plugins.cmake)
+include("../native/desktop_plugins.cmake")
+usque_add_desktop_plugins("${CMAKE_CURRENT_SOURCE_DIR}/flutter/generated_plugins.cmake")
 
 
 # === Installation ===
@@ -71,6 +72,8 @@ endif()
 
 set(INSTALL_BUNDLE_DATA_DIR "${CMAKE_INSTALL_PREFIX}/data")
 set(INSTALL_BUNDLE_LIB_DIR "${CMAKE_INSTALL_PREFIX}")
+
+usque_remove_stale_windows_jni("${INSTALL_BUNDLE_LIB_DIR}")
 
 install(TARGETS ${BINARY_NAME} RUNTIME DESTINATION "${CMAKE_INSTALL_PREFIX}"
   COMPONENT Runtime)

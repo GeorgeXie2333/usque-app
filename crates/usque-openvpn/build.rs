@@ -65,7 +65,7 @@ fn main() {
     }
     println!("cargo:rerun-if-changed=native");
     for path in [
-        "openvpn3-3.11.7",
+        "openvpn3-3.11.8",
         "mbedtls-3.6.7",
         "asio-1.30.2",
         "lz4-1.10.0",

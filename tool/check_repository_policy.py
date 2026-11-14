@@ -36,6 +36,13 @@ MARKDOWN_EXCLUDES = {
     "oracle",
     "third_party",
 }
+# Flutter creates plugin junctions into the external Pub cache here. These
+# ignored build products are not first-party documentation. Keep this scoped
+# to the two generated desktop paths, not every directory named "ephemeral".
+GENERATED_FLUTTER_DIRECTORIES = {
+    ("apps", "usque_gui", "linux", "flutter", "ephemeral"),
+    ("apps", "usque_gui", "windows", "flutter", "ephemeral"),
+}
 PLACEHOLDERS = (
     "[INSERT CONTACT METHOD]",
     "TODO: add security contact",
@@ -71,6 +78,7 @@ def _markdown_files(root: Path) -> list[Path]:
         path
         for path in root.rglob("*.md")
         if not any(part in MARKDOWN_EXCLUDES for part in path.relative_to(root).parts)
+        and path.relative_to(root).parts[:5] not in GENERATED_FLUTTER_DIRECTORIES
     )
 
 

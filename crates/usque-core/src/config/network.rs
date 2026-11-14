@@ -21,6 +21,8 @@ pub struct SharedNetworkSettings {
     pub data_plane: DataPlaneMode,
     #[serde(default)]
     pub congestion_control: CongestionControlAlgorithm,
+    #[serde(default = "super::default_masque_connections")]
+    pub masque_connections: u8,
     pub endpoint: EndpointSettings,
     pub ip_policy: IpPolicy,
     pub mtu: u16,
@@ -70,6 +72,7 @@ impl SharedNetworkSettings {
             tls_fingerprint: profile.tls_fingerprint,
             data_plane: profile.data_plane,
             congestion_control: profile.congestion_control,
+            masque_connections: profile.masque_connections,
             endpoint: profile.endpoint.clone(),
             ip_policy: profile.ip_policy,
             mtu: profile.mtu,
@@ -111,6 +114,7 @@ impl SharedNetworkSettings {
             tls_fingerprint: self.tls_fingerprint,
             data_plane: self.data_plane,
             congestion_control: self.congestion_control,
+            masque_connections: self.masque_connections,
             endpoint,
             ip_policy: self.ip_policy,
             mtu: self.mtu,

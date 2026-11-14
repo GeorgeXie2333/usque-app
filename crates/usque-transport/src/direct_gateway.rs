@@ -1520,6 +1520,7 @@ mod tests {
                 handle: None,
                 command: command.into(),
                 resp,
+                complete_if_channel_dropped: false,
             });
             reply.try_recv().unwrap()
         };

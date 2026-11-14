@@ -226,10 +226,23 @@ fun registerRustAndroidBuild(
         rootProject.file("../../../Cargo.lock"),
         rootProject.file("../../../rust-toolchain.toml"),
         rootProject.fileTree("../../../crates") {
-            include("**/*.rs", "**/Cargo.toml")
+            include(
+                "**/*.rs",
+                "**/Cargo.toml",
+                "**/CMakeLists.txt",
+                "**/*.c",
+                "**/*.cc",
+                "**/*.cpp",
+                "**/*.h",
+                "**/*.hpp",
+            )
         },
         rootProject.fileTree("../../../third_party/boring-sys-4.22.0"),
-        rootProject.fileTree("../../../third_party/ts_netstack_smoltcp_core"),
+        rootProject.fileTree("../../../third_party/ts_netstack_smoltcp-0.7.1"),
+        rootProject.fileTree("../../../third_party/smoltcp-0.14.0"),
+        rootProject.fileTree("../../../third_party/quiche-0.30.1"),
+        rootProject.fileTree("../../../third_party/openvpn3-3.11.8"),
+        rootProject.file("../../../tool/openvpn_sources.json"),
     )
     outputs.dir(file("src/main/jniLibs"))
     inputs.property("rustAbiFilter", rustAbiFilter)

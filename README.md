@@ -297,6 +297,7 @@ changed by this background validation. Development packages are not notarized.
 | Port / SNI | `443` / `speed.cloudflare.com` |
 | Transport | Auto: HTTP/3, then HTTP/2 |
 | HTTP/3 congestion control | `cubic`; BBRv2, experimental BBRv3, and `reno` are selectable |
+| MASQUE connections | `3`; manually configurable from `1` to `16` for HTTP/2 and HTTP/3 / L4 |
 | QUIC UDP receive buffer | [2 MiB target](docs/UDP_RECEIVE_BUFFER.md) on Windows/Android for H3 and L4; actual capacity is OS-dependent |
 | TUN MTU | `1280` |
 | Fallback DNS | `1.1.1.1`, `2606:4700:4700::1111` |
@@ -311,6 +312,8 @@ changed by this background validation. Development packages are not notarized.
 Proxy address and port edits are drafts until applied. Proxy DNS uses the current exit by default: configure [WARP DNS](docs/WARP_DNS.md) in Advanced settings or the final DNS in the chain configuration. The Proxy page has no DNS settings; a proxy DNS choice saved by an older version keeps working.
 
 Advanced settings reset loads defaults into the draft; it does not apply them immediately.
+
+In **Advanced network settings → MASQUE connections**, enter **1–16** (default **3**), then **Apply changes**. A changed count reconnects the session. Separate flows use different MASQUE connections; each flow stays on one connection. The setting applies to HTTP/2/HTTP/3 CONNECT-IP and L4 (HTTP/3 TCP CONNECT). See [connection behavior](docs/NETWORK_SETTINGS.md#parallel-masque-connections).
 
 In Advanced network settings, Automatic selection races eligible account endpoints; Custom keeps manual addresses. Port and SNI remain editable. See [automatic endpoints](docs/NETWORK_SETTINGS.md#automatic-endpoints--自动选择端点).
 
@@ -340,7 +343,7 @@ Use the pinned toolchains and change-scoped checks in the contribution guide. Co
 
 Protocol behavior follows [Diniboy1123/usque](https://github.com/Diniboy1123/usque). This repository keeps a snapshot of that client in `oracle/go` for interoperability tests. The Flutter UI and Rust engine are new code. Upstream copyright stays in the license.
 
-First-party source is [MIT](LICENSE.md). Third-party components keep their own licenses. The optional [chain proxy](docs/CHAIN_PROXY.md) embeds OpenVPN 3 Core under MPL-2.0 and Mbed TLS under Apache-2.0. Corresponding source, reviewed patches and license texts are included in `third_party`; the application exposes the notices from its VPN Gate page. WireGuard uses BoringTun 0.7.1 (BSD-3-Clause), and local SVG icons use flutter_svg 2.3.0 (MIT); their notices are in the app's license registry.
+First-party source is [MIT](LICENSE.md). Third-party components keep their own licenses. The optional [chain proxy](docs/CHAIN_PROXY.md) embeds OpenVPN 3 Core under MPL-2.0 and Mbed TLS under Apache-2.0. Corresponding source, reviewed patches and license texts are included in `third_party`; the application exposes the notices from its VPN Gate page. WireGuard uses BoringTun 0.7.1 (BSD-3-Clause), and local SVG icons use flutter_svg 2.3.4 (MIT); their notices are in the app's license registry.
 
 The independent Proton SRP implementation references Proton go-srp (MIT); its [copyright and full license](apps/usque_gui/assets/licenses/proton-srp.txt) are retained in source, test vectors and the app license registry.
 

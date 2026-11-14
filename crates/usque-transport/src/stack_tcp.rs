@@ -568,6 +568,7 @@ mod tests {
                 }
                 .into(),
                 resp,
+                complete_if_channel_dropped: false,
             });
             let Response::TcpListen(tcp::listen::Response::Listening { handle: listener }) =
                 reply.recv().unwrap()
@@ -687,6 +688,7 @@ mod tests {
                 }
                 .into(),
                 resp,
+                complete_if_channel_dropped: false,
             });
             let Response::TcpListen(tcp::listen::Response::Listening { handle }) =
                 result.try_recv().unwrap()

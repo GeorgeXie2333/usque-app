@@ -164,6 +164,8 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeCap
             "automatic_pmtu": engine_ready() && usque_transport::PRODUCTION_NETWORK_FEATURES.automatic_pmtu,
             "h3_congestion_control_algorithms": if engine_ready() { usque_core::CongestionControlAlgorithm::ALL.to_vec() } else { Vec::new() },
             "tls_fingerprints": if engine_ready() { usque_core::TlsFingerprint::ALL.to_vec() } else { Vec::new() },
+            "max_masque_connections": if engine_ready() { usque_core::MAX_MASQUE_CONNECTIONS } else { 0 },
+            "l4_masque_connections": engine_ready(),
         })
         .to_string();
         environment
@@ -1124,6 +1126,8 @@ struct AndroidProfile {
     congestion_control: usque_core::CongestionControlAlgorithm,
     #[serde(default)]
     tls_fingerprint: usque_core::TlsFingerprint,
+    #[serde(default = "usque_core::config::default_masque_connections")]
+    masque_connections: u8,
     ip_policy: String,
     endpoint_v4: String,
     endpoint_v6: String,
@@ -1340,6 +1344,7 @@ fn android_profile_to_core(source: AndroidProfile) -> Result<Profile, String> {
         transport,
         congestion_control: source.congestion_control,
         tls_fingerprint: source.tls_fingerprint,
+        masque_connections: source.masque_connections,
         endpoint: EndpointSettings {
             ipv4: parse_value(&source.endpoint_v4, "endpoint IPv4")?,
             ipv6: parse_value(&source.endpoint_v6, "endpoint IPv6")?,
@@ -2241,6 +2246,7 @@ fn android_profile_value(
         },
         "congestion_control": profile.congestion_control,
         "tls_fingerprint": profile.tls_fingerprint,
+        "masque_connections": profile.masque_connections,
         "data_plane": profile.data_plane,
         "disable_quic": profile.disable_quic,
         "ip_policy": match profile.ip_policy {

@@ -4,7 +4,7 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.content.SharedPreferences
 
-/** Only the preferences plugin sees this context; its handlers already run off the UI thread. */
+/** Only the preferences plugin sees this context; its delegates dispatch disk work to IO. */
 internal class TrackedPreferencesContext(
     context: Context,
 ) : ContextWrapper(context) {
@@ -61,7 +61,7 @@ internal class TrackedPreferencesEditor(
     override fun commit(): Boolean = delegate.commit()
 
     override fun apply() {
-        // The plugin's synchronous handler must not release its lease while
+        // The plugin's suspend call must not release its lease while
         // SharedPreferences still has an untracked disk write queued.
         delegate.commit()
     }
