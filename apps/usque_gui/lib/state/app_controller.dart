@@ -191,6 +191,18 @@ class AppController extends ChangeNotifier {
        quality = qualityController ?? NetworkQualityController(engine),
        networkSettings = NetworkSettingsController(engine) {
     scenarios = ScenariosController((command) {
+      if (!profileWritesAllowed &&
+          !const {
+            'list',
+            'preview',
+            'preview_restore',
+            'preview_reset',
+          }.contains(command['action'])) {
+        throw const EngineException(
+          'SCENARIO_CANCELLED',
+          'The scene operation was retired.',
+        );
+      }
       final generation = _dataGeneration;
       return networkSettings.enqueue(() {
         if (_disposed || _clearing || generation != _dataGeneration) {
@@ -440,6 +452,11 @@ class AppController extends ChangeNotifier {
   bool _disposed = false;
   int _connectionIntent = 0;
   Future<void>? _exitCleanup;
+  final Set<Completer<void>> _pendingOperations = {};
+
+  /// Close write admission before Quit drains work, including open dialogs.
+  bool get profileWritesAllowed =>
+      !_disposed && !_clearing && _exitCleanup == null;
   int _updateOperationGeneration = 0;
   UpdateDownloadCancellation? _updateCancellation;
 
@@ -1721,6 +1738,9 @@ class AppController extends ChangeNotifier {
     _connectionIntent++;
     await _onboardingPreferenceWrites;
     await LinuxPreferencesStore.flushPending();
+    // Some accepted account writes (for example identity changes) run outside
+    // the settings queue. New operations are fenced while these settle.
+    await Future.wait(_pendingOperations.map((operation) => operation.future));
     // Account and network edits share a queue above the Engine's RPC queue.
     // Drain already queued edits before the final stop can overtake them.
     await flushProfileWrites();
@@ -1840,9 +1860,9 @@ class AppController extends ChangeNotifier {
     required String username,
     required String password,
   }) async {
-    if (_clearing || _disposed) return false;
-    final success = await networkSettings.enqueue(
-      () => _run(() async {
+    if (!profileWritesAllowed) return false;
+    final success = await _run(
+      () => networkSettings.enqueue(() async {
         try {
           await _engine.updateProxyAuth(
             activeProfileId,
@@ -1860,7 +1880,8 @@ class AppController extends ChangeNotifier {
           await networkSettings.refresh();
           await refreshSnapshot();
         }
-      }, affectsConnection: false),
+      }),
+      affectsConnection: false,
     );
     if (success) {
       lastNotice = username.isEmpty
@@ -2659,7 +2680,9 @@ class AppController extends ChangeNotifier {
     int? connectionIntent,
     bool allowDuringClear = false,
   }) async {
-    if (_clearing && !allowDuringClear) return false;
+    if (_exitCleanup != null || (_clearing && !allowDuringClear)) return false;
+    final completion = Completer<void>();
+    _pendingOperations.add(completion);
     final generation = _dataGeneration;
     _activeOperations += 1;
     busy = true;
@@ -2704,6 +2727,8 @@ class AppController extends ChangeNotifier {
       }
       return false;
     } finally {
+      _pendingOperations.remove(completion);
+      completion.complete();
       if (generation == _dataGeneration) _activeOperations -= 1;
       busy = _activeOperations > 0;
       _notifyListeners();
@@ -2865,7 +2890,7 @@ class AppController extends ChangeNotifier {
       _run(_engine.openAlwaysOnVpnSettings, affectsConnection: false);
 
   void addProfile(String name) {
-    if (_clearing) return;
+    if (!profileWritesAllowed) return;
     final normalized = name.trim();
     if (normalized.isEmpty || normalized.runes.length > 64) {
       return;
@@ -3058,7 +3083,7 @@ class AppController extends ChangeNotifier {
   }
 
   void renameProfile(String id, String name) {
-    if (_clearing) return;
+    if (!profileWritesAllowed) return;
     if (!profiles.any((profile) => profile.id == id)) {
       return;
     }
@@ -3090,7 +3115,7 @@ class AppController extends ChangeNotifier {
     UsqueProfile updated, {
     List<String>? changedFields,
   }) async {
-    if (updated.id != activeProfileId) return Future.value(false);
+    if (!profileWritesAllowed || updated.id != activeProfileId) return false;
     if (identityStatus(updated.id).provider == IdentityProvider.zeroTrust &&
         (changedFields ?? networkSettingsChangedFields(activeProfile, updated))
             .any(
@@ -3158,6 +3183,9 @@ class AppController extends ChangeNotifier {
         return false;
       }
     }
+    // Capability checks and rule preparation may have awaited while Quit
+    // closed admission. No prepared save may enter the queue after its drain.
+    if (!profileWritesAllowed) return false;
     final saved = await networkSettings.save(updated, fields);
     if (saved && !_disposed && generation == _dataGeneration) {
       if (activeProfile.routing.adsEnabled) {
@@ -3170,7 +3198,7 @@ class AppController extends ChangeNotifier {
   }
 
   void setActiveProfile(String id) {
-    if (_clearing) return;
+    if (!profileWritesAllowed) return;
     if (profiles.any((profile) => profile.id == id)) {
       _connectionIntent++;
       activeProfileId = id;
@@ -3186,7 +3214,7 @@ class AppController extends ChangeNotifier {
   }
 
   bool deleteProfile(String id) {
-    if (_clearing) return false;
+    if (!profileWritesAllowed) return false;
     if (profiles.length == 1) {
       return false;
     }
@@ -3219,6 +3247,7 @@ class AppController extends ChangeNotifier {
     Future<void> Function() mutation, {
     required void Function() optimistic,
   }) {
+    if (!profileWritesAllowed) return Future.value(false);
     final generation = _dataGeneration;
     _pendingAccountViews.add(optimistic);
     return networkSettings.enqueue(() async {
