@@ -48,6 +48,48 @@ hardware. None of the isolated results establishes physical-egress safety.
 | Extension update and uninstall | Application transaction leaves extensions/user data separate; manual app removal preserves user data | Extension approval/restart orchestration and managed uninstall remain pending |
 | Signed production distribution | Development packages are explicitly ad-hoc and not notarized | Developer ID, notarization, Gatekeeper distribution and full two-architecture acceptance pending |
 
+## PR #147 integration and Quit write admission (2026-11-14)
+
+The local candidate `87d0145454a5060d3f3e4ae199fc98b79e75f39d` integrates
+upstream `dev` at `22d821b5` into PR #147. The scene documentation keeps the
+upstream Profiles list and scene-switcher behavior alongside the macOS guidance.
+
+Quit now closes admission to account, network and scene writes, drains operations
+already accepted before Quit, and then requests confirmed Engine cleanup. An open
+account rename dialog disables Save and keyboard submission during cleanup and
+recovers if cleanup fails. Regression fixtures cover queued identity and proxy
+credential changes as well as attempted writes during Quit.
+
+The merged Flutter suite also exposed Home menu callbacks losing their row context
+during a rebuild. Profiles navigation uses the controller, and scene preview uses
+the stable route context while retaining route and stale-session guards. Desktop
+and phone regressions exercise preview and actual scene activation after a rebuild.
+
+Validation used Apple Silicon macOS, Xcode 27.2 and pinned Flutter 3.44.7:
+
+| Command/check | Result |
+| --- | --- |
+| `cargo test --workspace --all-targets --locked --offline` (`CARGO_BUILD_JOBS=2`) | 2,114 passed, 3 ignored, no failures |
+| `flutter test --no-pub --exclude-tags golden --concurrency=4` | 1,671 passed, 10 skipped, no failures |
+| `flutter test --no-pub test/macos_quit_test.dart` | 11 passed |
+| `flutter test --no-pub test/scenarios_test.dart` | 96 passed |
+| `python -m unittest discover -s tool -p 'test_*.py' -v` | 380 cases, 23 skipped, no failures/errors |
+| `pwsh -NoProfile -File tool/check_source.ps1` | Passed: strict workspace Clippy, formatting, Flutter analysis, Kotlin ktlint, Ruff, PowerShell and protobuf |
+| Native desktop, network and maintenance contracts | 8 desktop groups, network contracts and 13 maintenance groups passed |
+| `flutter pub get --enforce-lockfile` followed by `flutter build macos --debug --no-pub` | Apple Silicon Debug build passed |
+| Repository policy and whitespace checks | Passed |
+
+On this newly configured workstation, dependencies were first fetched before
+Xcode initialization. Repeating the locked dependency fetch after initialization
+regenerated the Swift Package Manager plugin package and resolved missing native
+plugin modules; no tracked project or dependency-lock change was needed.
+
+These checks did not launch the app, access real accounts or change host network
+settings. Interactive Keychain, proxy authorization, tray/window behavior,
+real-service acceptance, Intel execution and signed distribution remain untested.
+Existing VPN and protection capability gates remain unchanged. No installer or
+release was published.
+
 ## Upstream development synchronization (2026-11-07)
 
 The macOS `dev` branch integrates upstream `dev` at
