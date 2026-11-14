@@ -79,10 +79,12 @@ class ScenarioHomeLink extends StatelessWidget {
         ),
       ],
     );
-    if (!context.mounted) return;
     if (picked is ConnectionScenario) {
+      if (!context.mounted) return;
       await previewAndUseScenario(context, controller, picked, direct: true);
     } else if (picked == true) {
+      // The source row may have been rebuilt while the menu was open.
+      // Navigation is controller-owned and still uses the shell's leave guard.
       controller.openProfiles();
     }
   }
