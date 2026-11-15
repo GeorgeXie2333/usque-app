@@ -129,7 +129,15 @@ The next real-network run can use a contributor's disposable Mac or a remote
 Mac with console recovery. The ignored test
 `macos::utun::tests::disposable_mac_real_utun_descriptor_handoff` creates
 one unconfigured utun, passes its descriptor using the production IPC code and
-checks its lifetime after the last close. On that disposable Mac, compile
+checks its lifetime after the last close. To run this test on separate GitHub-hosted
+Apple Silicon and Intel runners, dispatch the Build workflow:
+
+```sh
+gh workflow run build.yml --ref feat/macos -f macos_utun=true
+```
+
+Both **Real utun** jobs must show the named test passing. The socket pair used
+for this test lives in one process. For a disposable Mac with console access, compile
 `cargo test --locked --offline -p usque-agent --lib --no-run` as an ordinary
 user. Run the resulting trusted test binary as administrator with
 `USQUE_DISPOSABLE_MAC=1` and `--ignored --exact` plus the full test name.
