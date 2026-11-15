@@ -96,7 +96,7 @@ async fn refresh_at_endpoint(
             generation,
         )
         .await
-        .map_err(TransportError::SocketProtection)?;
+        .map_err(|reason| crate::socket::SocketPrepareError::from(reason).into_transport_error())?;
     if protector.network_generation().unwrap_or_default() != generation {
         drop(socket);
         drop(egress_lease);

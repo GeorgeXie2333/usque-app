@@ -53,12 +53,14 @@ impl DesktopProfileCipher {
         // ProfileCipher is synchronous and used by the existing atomic storage
         // transaction. A dedicated thread owns the async keyring runtime so it
         // never nests block_on inside the Engine's Tokio runtime.
+        #[cfg(target_os = "macos")]
+        let interactive = usque_platform::macos_keychain::interaction_allowed();
         let key = std::thread::spawn(move || {
             let runtime = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()
                 .map_err(|_| failure("keyring_unavailable"))?;
-            let result = runtime.block_on(async move {
+            let load = async move {
                 if let Some(key) = vault
                     .get(KEY_ID, SecretRecord::ChainEncryptionKey)
                     .await
@@ -89,7 +91,10 @@ impl DesktopProfileCipher {
                     return Err(failure("keyring_key_changed"));
                 }
                 Ok(key)
-            });
+            };
+            #[cfg(target_os = "macos")]
+            let load = usque_platform::macos_keychain::INTERACTIVE.scope(interactive, load);
+            let result = runtime.block_on(load);
             runtime.shutdown_timeout(std::time::Duration::from_secs(1));
             result
         })

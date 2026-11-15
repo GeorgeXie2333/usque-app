@@ -160,6 +160,10 @@ pub struct ControlServiceState {
     #[cfg(target_os = "macos")]
     macos_proxy_context: macos_system_proxy::Context,
     #[cfg(target_os = "macos")]
+    macos_agent_install: PathBuf,
+    #[cfg(target_os = "macos")]
+    macos_probe_cache: macos_agent::ProbeCache,
+    #[cfg(target_os = "macos")]
     macos_detaching: Arc<std::sync::atomic::AtomicBool>,
     disconnect_cleanup: Mutex<Option<tokio::task::JoinHandle<Result<(), ControlServiceError>>>>,
     disconnect_owners: Arc<Mutex<std::collections::VecDeque<disconnect_cleanup::ShutdownOwner>>>,
@@ -351,6 +355,18 @@ struct VaultEndpointPinRefresher {
 #[async_trait::async_trait]
 impl EndpointPinRefresher for VaultEndpointPinRefresher {
     async fn refresh(
+        &self,
+        protector: Arc<dyn usque_transport::SocketProtector>,
+    ) -> Result<MasqueTlsIdentity, TransportError> {
+        let refresh = self.refresh_and_persist(protector);
+        #[cfg(target_os = "macos")]
+        let refresh = usque_platform::macos_keychain::without_interaction(refresh);
+        refresh.await
+    }
+}
+
+impl VaultEndpointPinRefresher {
+    async fn refresh_and_persist(
         &self,
         protector: Arc<dyn usque_transport::SocketProtector>,
     ) -> Result<MasqueTlsIdentity, TransportError> {
@@ -557,6 +573,18 @@ impl ControlService {
                 macos_provider: RwLock::new(Arc::new(macos_runtime::UnavailableProvider)),
                 #[cfg(target_os = "macos")]
                 macos_reserved: Mutex::new(None),
+                #[cfg(target_os = "macos")]
+                macos_probe_cache: Default::default(),
+                #[cfg(target_os = "macos")]
+                macos_agent_install: {
+                    // Unit tests use temporary profiles and must never recover
+                    // an actual installed service on the developer's Mac.
+                    #[cfg(test)]
+                    let path = profile_dir.join("agent-install-fixture");
+                    #[cfg(not(test))]
+                    let path = PathBuf::from(macos_agent::INSTALL_DIRECTORY);
+                    path
+                },
                 #[cfg(target_os = "macos")]
                 macos_proxy_recovery_error: Mutex::new(None),
                 #[cfg(target_os = "macos")]
@@ -907,7 +935,7 @@ impl ControlService {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, windows))]
     async fn test_fail_system_proxy_after_detach(&self) {
         let mut data_plane = self.data_plane.lock().await;
         if let Some(active) = data_plane.as_mut()
@@ -958,7 +986,8 @@ impl ControlService {
     pub async fn reap_pending_identity_deletions(&self) -> Result<(), ControlServiceError> {
         let _identity_lease = self.identity_execution_lease().await?;
         let _mutation = self.mutation_lock.lock().await;
-        self.recover_pending_identity_replacements_locked().await?;
+        self.recover_pending_identity_replacements_locked(None)
+            .await?;
         self.reap_pending_identity_deletions_locked().await
     }
 
@@ -1140,13 +1169,23 @@ impl ControlService {
             }
             control_request::Payload::Connect(request) => {
                 let id = parse_profile_id(&request.profile_id)?;
-                #[cfg(target_os = "macos")]
-                self.retry_macos_proxy_recovery().await?;
-                let snapshot = if request.continuous {
-                    self.connect_continuously(id).await?
-                } else {
-                    self.connect(id).await?
+                let connect = async {
+                    #[cfg(target_os = "macos")]
+                    if !request.background {
+                        self.retry_macos_proxy_recovery().await?;
+                    } else if let Some(error) = *self.macos_proxy_recovery_error.lock().await {
+                        return Err(ControlServiceError::MacSystemProxy(error));
+                    }
+                    if request.continuous {
+                        self.connect_continuously(id).await
+                    } else {
+                        self.connect(id).await
+                    }
                 };
+                #[cfg(target_os = "macos")]
+                let connect =
+                    usque_platform::macos_keychain::INTERACTIVE.scope(!request.background, connect);
+                let snapshot = connect.await?;
                 Ok(control_response::Payload::Status(Box::new(
                     self.snapshot_with_quality_to_proto(&snapshot),
                 )))
@@ -1161,7 +1200,11 @@ impl ControlService {
             }
             control_request::Payload::GetInitialIdentityState(request) => {
                 let profile_id = parse_profile_id(&request.profile_id)?;
-                let state = self.get_initial_identity_state(profile_id).await?;
+                let state = self.get_initial_identity_state(profile_id);
+                #[cfg(target_os = "macos")]
+                let state = usque_platform::macos_keychain::INTERACTIVE
+                    .scope(request.allow_keychain_interaction, state);
+                let state = state.await?;
                 Ok(control_response::Payload::InitialIdentityState(state))
             }
             control_request::Payload::CreateProfileWithIdentity(request) => {
@@ -1613,7 +1656,12 @@ impl ControlService {
             drop(state);
             drop(data_plane);
             if orphan {
-                macos_agent::project_recovery(&mut snapshot).await;
+                macos_agent::project_recovery(
+                    &mut snapshot,
+                    &self.macos_agent_install,
+                    &self.macos_probe_cache,
+                )
+                .await;
             }
         }
         snapshot
@@ -2376,6 +2424,7 @@ impl ControlService {
         if let Some(error) = *self.macos_proxy_recovery_error.lock().await {
             return Err(ControlServiceError::MacSystemProxy(error));
         }
+        #[cfg(not(target_os = "macos"))]
         let connection_started = tokio::time::Instant::now();
         self.ensure_gate_supervisor().await;
         let cleanup_result = tokio::select! {
@@ -2442,6 +2491,17 @@ impl ControlService {
             }
         }
 
+        #[cfg(target_os = "macos")]
+        if self
+            .config
+            .read()
+            .await
+            .pending_identity_replacements
+            .contains_key(&profile_id)
+        {
+            self.recover_pending_identity_replacements_locked(Some(profile_id))
+                .await?;
+        }
         let mut profile = {
             let config = self.config.read().await;
             if config.zero_trust_endpoint_needs_reauthentication(profile_id) {
@@ -2461,8 +2521,7 @@ impl ControlService {
             profile = session.clone();
         }
         self.attach_proxy_auth(&mut profile).await?;
-        let connection_deadline =
-            connection_started + usque_core::endpoint_connection_budget(&profile);
+
         let continuous = self.continuous_requested(profile_id).await;
         self.gate_status.send_replace(Default::default());
         {
@@ -2669,6 +2728,12 @@ impl ControlService {
         let session_generation = self.next_session_generation();
         // Continuous startup owns its cancellation token while doing network work.
         // Release the mutation lock so settings and stop remain responsive.
+        // On macOS the user may be approving access to an existing account.
+        // Start the endpoint budget after local credentials are ready.
+        #[cfg(target_os = "macos")]
+        let connection_started = tokio::time::Instant::now();
+        let connection_deadline =
+            connection_started + usque_core::endpoint_connection_budget(&profile);
         let reacquire_startup_lock = startup_lock.is_some();
         drop(startup_lock);
         #[cfg(target_os = "linux")]
@@ -3266,8 +3331,11 @@ impl ControlService {
             self.recover_macos_proxy(true).await?;
             #[cfg(target_os = "macos")]
             {
-                if let Err(error) = macos_agent::recover_on_explicit_disconnect().await {
-                    let error = ControlServiceError::DisconnectCleanup(error.to_string());
+                self.macos_probe_cache.invalidate().await;
+                if let Err(error) =
+                    macos_agent::recover_on_explicit_disconnect(&self.macos_agent_install).await
+                {
+                    let error = ControlServiceError::MacAgentRecovery(error);
                     self.disconnect_cleanup_failed
                         .store(true, Ordering::Release);
                     self.mark_connection_error(&error).await;
@@ -4121,6 +4189,13 @@ impl ControlService {
     }
 
     async fn profile_catalog(&self) -> v1::ProfileList {
+        let catalog = self.read_profile_catalog();
+        #[cfg(target_os = "macos")]
+        let catalog = usque_platform::macos_keychain::without_interaction(catalog);
+        catalog.await
+    }
+
+    async fn read_profile_catalog(&self) -> v1::ProfileList {
         let config = self.config.read().await.clone();
         let mut catalog = profile_list_to_proto(&config);
         let cleanup_pending = !config.pending_identity_deletions.is_empty()
@@ -4140,6 +4215,9 @@ impl ControlService {
                 Ok(metadata) => {
                     self.load_warp_identity_with_metadata(account.id, Some(metadata))
                         .await
+                }
+                Err(error @ ControlServiceError::Vault(VaultError::InteractionRequired)) => {
+                    Err(error)
                 }
                 Err(_) => self.load_warp_identity(account.id).await,
             };
@@ -4168,6 +4246,12 @@ impl ControlService {
                 }
                 Err(ControlServiceError::MissingCredential(_)) => (
                     v1::ProfileIdentityState::Missing,
+                    v1::LicenseState::Unknown,
+                    String::new(),
+                    boundary_provider.clone().unwrap_or_default(),
+                ),
+                Err(ControlServiceError::Vault(VaultError::InteractionRequired)) => (
+                    v1::ProfileIdentityState::Locked,
                     v1::LicenseState::Unknown,
                     String::new(),
                     boundary_provider.clone().unwrap_or_default(),
@@ -4262,27 +4346,7 @@ impl ControlService {
         ));
         records.push((SecretRecord::IdentityMetadata, identity.to_metadata_json()?));
 
-        for (record, value) in records {
-            if let Err(error) = self.vault.put(profile_id, record, &value).await {
-                let _ = self.vault.delete_identity(profile_id).await;
-                return Err(error.into());
-            }
-        }
-        if manual_secret.is_none()
-            && let Err(error) = self
-                .vault
-                .delete(profile_id, SecretRecord::WarpSecret)
-                .await
-        {
-            let _ = self.vault.delete_identity(profile_id).await;
-            return Err(error.into());
-        }
-        if identity.license().is_none()
-            && let Err(error) = self.vault.delete(profile_id, SecretRecord::License).await
-        {
-            let _ = self.vault.delete_identity(profile_id).await;
-            return Err(error.into());
-        }
+        self.vault.replace_identity(profile_id, records).await?;
         Ok(())
     }
 
@@ -4508,7 +4572,6 @@ impl ControlService {
     }
 
     async fn attach_proxy_auth(&self, profile: &mut Profile) -> Result<(), ControlServiceError> {
-        self.migrate_shared_proxy_password().await?;
         profile.proxy.normalize_auth();
         match profile.proxy.listener_auth_username() {
             None => {
@@ -4516,10 +4579,17 @@ impl ControlService {
                 Ok(())
             }
             Some(_) => {
-                let password = self
+                let mut password = self
                     .vault
                     .get(SHARED_NETWORK_SECRET_ID, SecretRecord::ProxyPassword)
                     .await?;
+                if password.is_none() {
+                    self.migrate_shared_proxy_password().await?;
+                    password = self
+                        .vault
+                        .get(SHARED_NETWORK_SECRET_ID, SecretRecord::ProxyPassword)
+                        .await?;
+                }
                 let Some(password) = password.filter(|value| !value.is_empty()) else {
                     return Err(ControlServiceError::InvalidProxyAuth(
                         ConfigError::ProxyAuthRequiresPassword.to_string(),
@@ -4990,6 +5060,7 @@ impl ControlService {
     /// The journal remains durable until the old identity has been restored.
     async fn recover_pending_identity_replacements_locked(
         &self,
+        only_profile: Option<Uuid>,
     ) -> Result<(), ControlServiceError> {
         let snapshot = self.config.read().await.clone();
         if snapshot.pending_identity_replacements.is_empty() {
@@ -4999,6 +5070,9 @@ impl ControlService {
         let mut completed = Vec::new();
         let mut first_error = None;
         for (profile_id, replacement) in &snapshot.pending_identity_replacements {
+            if only_profile.is_some_and(|id| id != *profile_id) {
+                continue;
+            }
             if !replacement.armed {
                 completed.push((*profile_id, replacement.backup_identity_id));
                 continue;
@@ -5239,6 +5313,9 @@ pub enum ControlServiceError {
     #[error("{0}")]
     MacSystemProxy(#[from] macos_system_proxy::Error),
     #[cfg(target_os = "macos")]
+    #[error("macOS background service could not confirm network cleanup: {0}")]
+    MacAgentRecovery(std::io::Error),
+    #[cfg(target_os = "macos")]
     #[error(
         "VPN protection is retained; disconnect it before starting a temporary VPN Gate WARP session"
     )]
@@ -5383,6 +5460,8 @@ impl ControlServiceError {
             #[cfg(target_os = "macos")]
             Self::MacSystemProxy(error) => (error.code(), error.retryable()),
             #[cfg(target_os = "macos")]
+            Self::MacAgentRecovery(_) => ("MACOS_AGENT_RECOVERY_UNCONFIRMED", true),
+            #[cfg(target_os = "macos")]
             Self::MacWarpConnectionRequired => ("MACOS_WARP_CONNECTION_REQUIRED", true),
             #[cfg(target_os = "linux")]
             Self::LinuxPlatform { retryable, .. } => ("LINUX_PLATFORM_FAILED", *retryable),
@@ -5423,6 +5502,9 @@ impl ControlServiceError {
                 ("ZERO_TRUST_REGISTRATION_FAILED", true)
             }
             Self::Registration(_) => ("REGISTRATION_FAILED", true),
+            Self::Vault(VaultError::InteractionRequired) => {
+                ("MACOS_KEYCHAIN_ACCESS_REQUIRED", false)
+            }
             Self::Vault(VaultError::Unavailable(_)) => ("SECURE_STORAGE_FAILED", true),
             Self::Vault(_) => ("SECURE_STORAGE_FAILED", false),
             Self::Persistence(_) | Self::PersistenceWorker(_) => ("PERSISTENCE_FAILED", true),
@@ -5470,6 +5552,9 @@ fn connection_error_wire_code(code: ErrorCode) -> String {
         ErrorCode::WindowsRecoveryTimeout => "WINDOWS_RECOVERY_TIMEOUT".to_owned(),
         ErrorCode::WindowsRecoveryConflict => "WINDOWS_RECOVERY_CONFLICT".to_owned(),
         ErrorCode::WindowsRecoveryUnsupported => "WINDOWS_RECOVERY_UNSUPPORTED".to_owned(),
+        ErrorCode::MacosProxyAgentRequired => "MACOS_PROXY_AGENT_REQUIRED".to_owned(),
+        ErrorCode::MacosKeychainAccessRequired => "MACOS_KEYCHAIN_ACCESS_REQUIRED".to_owned(),
+        ErrorCode::MacosAgentRecoveryUnconfirmed => "MACOS_AGENT_RECOVERY_UNCONFIRMED".to_owned(),
         // Preserve the pre-existing wire spelling for every other error.
         code => format!("{code:?}").to_ascii_uppercase(),
     }
@@ -5502,7 +5587,13 @@ fn connection_error_for(error: &ControlServiceError) -> ConnectionError {
         | ControlServiceError::OperatingModeUnavailable(_) => ErrorCode::TransportUnavailable,
         ControlServiceError::PlatformVpn(_) => ErrorCode::PlatformSetupFailed,
         #[cfg(target_os = "macos")]
+        ControlServiceError::MacSystemProxy(macos_system_proxy::Error::AgentRequired) => {
+            ErrorCode::MacosProxyAgentRequired
+        }
+        #[cfg(target_os = "macos")]
         ControlServiceError::MacSystemProxy(_) => ErrorCode::PlatformSetupFailed,
+        #[cfg(target_os = "macos")]
+        ControlServiceError::MacAgentRecovery(_) => ErrorCode::MacosAgentRecoveryUnconfirmed,
         #[cfg(target_os = "linux")]
         ControlServiceError::LinuxPlatform { .. } => ErrorCode::PlatformSetupFailed,
         ControlServiceError::PlatformRecoveryPending { .. } => ErrorCode::WindowsRecoveryFailed,
@@ -5520,6 +5611,9 @@ fn connection_error_for(error: &ControlServiceError) -> ConnectionError {
             | TransportError::InvalidPrivateKey
             | TransportError::InvalidEndpointPin,
         ) => ErrorCode::AuthenticationFailed,
+        ControlServiceError::Vault(VaultError::InteractionRequired) => {
+            ErrorCode::MacosKeychainAccessRequired
+        }
         ControlServiceError::Vault(_) => ErrorCode::MissingCredential,
         _ => ErrorCode::Internal,
     };
@@ -6298,13 +6392,16 @@ async fn runtime_capabilities() -> v1::Capabilities {
         let mut capabilities = current_capabilities();
         let observed = async {
             let agent = macos_agent::MacAgentClient::connect().await.ok()?;
-            Some(macos_agent::capability(&agent.status().await.ok()?))
+            agent.status().await.ok()
         };
-        capabilities.vpn = tokio::time::timeout(std::time::Duration::from_secs(5), observed)
+        let status = tokio::time::timeout(std::time::Duration::from_secs(5), observed)
             .await
             .ok()
-            .flatten()
-            .unwrap_or(false);
+            .flatten();
+        capabilities.system_proxy = status
+            .as_ref()
+            .is_some_and(|s| s.system_proxy_supported && !s.system_proxy_recovery_pending);
+        capabilities.vpn = status.as_ref().is_some_and(macos_agent::capability);
         capabilities.l4_tun_tcp = capabilities.vpn;
         capabilities.platform_lockdown = capabilities.vpn;
         capabilities
@@ -7400,6 +7497,8 @@ mod tests {
     #[derive(Default)]
     pub(super) struct MemoryVault {
         records: Mutex<HashMap<(Uuid, SecretRecord), Vec<u8>>>,
+        #[cfg(target_os = "macos")]
+        requires_approval: bool,
     }
 
     #[async_trait]
@@ -7422,6 +7521,10 @@ mod tests {
             profile_id: Uuid,
             record: SecretRecord,
         ) -> Result<Option<Zeroizing<Vec<u8>>>, VaultError> {
+            #[cfg(target_os = "macos")]
+            if self.requires_approval && !usque_platform::macos_keychain::interaction_allowed() {
+                return Err(VaultError::InteractionRequired);
+            }
             Ok(self
                 .records
                 .lock()
@@ -7476,6 +7579,49 @@ mod tests {
             consumer_license_presentation(ConsumerEntitlement::Free),
             (v1::LicenseState::Free, "Free".to_owned())
         );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[tokio::test]
+    async fn profile_catalog_exposes_locked_identity_and_authorization_can_be_retried() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = ControlService::open_with_vault(
+            ConfigStore::new(dir.path().join("config.json")),
+            Arc::new(MemoryVault {
+                requires_approval: true,
+                ..Default::default()
+            }),
+        )
+        .unwrap();
+        let id = service.config_snapshot().await.profiles[0].id;
+        let identity = test_identity(IdentityProvider::Consumer, None);
+        service.persist_identity(id, &identity, None).await.unwrap();
+        for _ in 0..2 {
+            assert_eq!(
+                service.profile_catalog().await.identity_statuses[0].state,
+                v1::ProfileIdentityState::Locked as i32
+            );
+        }
+        let check = |allow_keychain_interaction| {
+            service.handle_payload(control_request::Payload::GetInitialIdentityState(
+                v1::GetInitialIdentityStateRequest {
+                    profile_id: id.to_string(),
+                    allow_keychain_interaction,
+                },
+            ))
+        };
+        let Err(quiet_error) = check(false).await else {
+            panic!("expected locked keychain");
+        };
+        assert_eq!(
+            quiet_error.as_structured_error().code,
+            "MACOS_KEYCHAIN_ACCESS_REQUIRED"
+        );
+        assert!(
+            matches!(check(true).await, Ok(control_response::Payload::InitialIdentityState(state))
+            if state.phase == v1::InitialIdentityPhase::Completed as i32)
+        );
+        assert!(service.load_warp_identity(id).await.is_ok());
     }
 
     #[tokio::test]
@@ -8210,6 +8356,7 @@ mod tests {
                 control_request::Payload::Connect(v1::ConnectRequest {
                     continuous: false,
                     profile_id: profile_id.to_string(),
+                    ..Default::default()
                 }),
             ))
             .await;
@@ -8325,6 +8472,7 @@ mod tests {
                 control_request::Payload::Connect(v1::ConnectRequest {
                     continuous: false,
                     profile_id: profile_id.to_string(),
+                    ..Default::default()
                 }),
             ))
             .await;
@@ -8356,6 +8504,7 @@ mod tests {
                 control_request::Payload::Connect(v1::ConnectRequest {
                     continuous: false,
                     profile_id: profile_id.to_string(),
+                    ..Default::default()
                 }),
             ))
             .await;
@@ -8683,6 +8832,7 @@ mod tests {
                 control_request::Payload::Connect(v1::ConnectRequest {
                     continuous: false,
                     profile_id: profile.id.to_string(),
+                    ..Default::default()
                 }),
             ))
             .await;
@@ -8887,6 +9037,7 @@ mod tests {
                 control_request::Payload::Connect(v1::ConnectRequest {
                     continuous: false,
                     profile_id: profile.id.to_string(),
+                    ..Default::default()
                 }),
             ))
             .await;
@@ -10423,7 +10574,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn reconfigure_active_profile_keeps_custom_masque_for_socks_http_and_tunnel_flips() {
+    async fn reconfigure_active_profile_keeps_custom_masque_for_supported_hot_changes() {
         let directory = tempfile::tempdir().unwrap();
         let service = ControlService::open_with_vault(
             ConfigStore::new(directory.path().join("config.json")),
@@ -10492,6 +10643,14 @@ mod tests {
                 )),
             ))
             .await;
+        if usque_core::reconfigure::platform_class(usque_core::ReconfigureClass::HotTunnelAttach)
+            == usque_core::ReconfigureClass::ColdReconnect
+        {
+            // This fixture has no identity for a fresh MASQUE connection.
+            assert_eq!(detach_response.error.unwrap().code, "MISSING_CREDENTIAL");
+            assert!(service.test_harness_counts().await.is_none());
+            return;
+        }
         assert!(
             detach_response.error.is_none(),
             "{:?}",
@@ -10552,6 +10711,7 @@ mod tests {
         assert!(service.test_harness_counts().await.is_none());
     }
 
+    #[cfg(windows)]
     #[tokio::test]
     async fn detach_keeps_proxy_profile_if_system_proxy_reapply_fails() {
         let directory = tempfile::tempdir().unwrap();
@@ -10747,6 +10907,7 @@ mod tests {
         );
     }
 
+    #[cfg(windows)]
     #[tokio::test]
     async fn failed_custom_vpn_attach_restores_the_standalone_proxy_or_stops_on_rollback_failure() {
         for rollback_fails in [false, true] {

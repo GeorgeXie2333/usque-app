@@ -91,7 +91,8 @@ final class DesktopIntegration: NSObject, NSWindowDelegate, UNUserNotificationCe
     cancelZeroTrustLogin()
     channel.invokeMethod("trayCommand", arguments: "disconnectAndExit") { [weak self] value in
       guard let self else { return }
-      self.finishQuit(identifier, success: DesktopQuitState.cleanupCompleted(value))
+      let serviceMessage = (value as? [String: Any])?["service_recovery_message"] as? String
+      self.finishQuit(identifier, success: DesktopQuitState.cleanupCompleted(value), serviceMessage: serviceMessage)
     }
     // Leave time for preference flushes plus the shared 120-second macOS Stop
     // request. A timeout cancels quitting and keeps the protection guard.
@@ -101,15 +102,20 @@ final class DesktopIntegration: NSObject, NSWindowDelegate, UNUserNotificationCe
     return .terminateLater
   }
 
-  private func finishQuit(_ identifier: UUID, success: Bool) {
+  private func finishQuit(_ identifier: UUID, success: Bool, serviceMessage: String? = nil) {
     guard quit.finish(identifier, success: success) else { return }
     NSApp.reply(toApplicationShouldTerminate: success)
     if !success {
       showWindow()
       let alert = NSAlert()
-      alert.messageText = tray.quitFailed
+      alert.messageText = serviceMessage ?? tray.quitFailed
       alert.addButton(withTitle: text("OK"))
-      if let window { alert.beginSheetModal(for:window) }
+      if serviceMessage != nil { alert.addButton(withTitle: tray.settings) }
+      if let window {
+        alert.beginSheetModal(for: window) { [weak self] response in
+          if response == .alertSecondButtonReturn { self?.openSettings() }
+        }
+      }
     }
   }
 
@@ -317,17 +323,7 @@ final class DesktopIntegration: NSObject, NSWindowDelegate, UNUserNotificationCe
 
   private func updateStatusItem() {
     guard let statusItem else { return }
-    let symbol: String
-    switch tray.badge {
-    case "connected": symbol = "checkmark.shield.fill"
-    case "warning": symbol = "exclamationmark.shield.fill"
-    case "error": symbol = "xmark.shield.fill"
-    case "busy": symbol = "arrow.triangle.2.circlepath"
-    default: symbol = "shield.lefthalf.filled"
-    }
-    let image = NSImage(systemSymbolName: symbol, accessibilityDescription: "Usque")
-    image?.isTemplate = true
-    statusItem.button?.image = image
+    statusItem.button?.image = tray.menuBarImage(appIcon: NSApp.applicationIconImage)
     statusItem.button?.toolTip = "Usque — \(tray.status)"
     statusItem.button?.setAccessibilityValue(tray.status)
     let menu = NSMenu()

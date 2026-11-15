@@ -1,5 +1,5 @@
 //! Physical socket ownership and network epochs for the unprivileged Engine.
-use crate::macos_agent::{MacAgentClient, verify_socket};
+use crate::macos_agent::{AgentFailure, MacAgentClient, verify_socket};
 use async_trait::async_trait;
 use std::{
     io,
@@ -24,22 +24,19 @@ struct Lease {
     agent: MacAgentClient,
     fence: p::MacosFence,
     id: u64,
+    runtime: tokio::runtime::Handle,
 }
 impl Drop for Lease {
     fn drop(&mut self) {
         let (agent, fence, id) = (self.agent.clone(), self.fence.clone(), self.id);
-        if let Ok(runtime) = tokio::runtime::Handle::try_current() {
-            runtime.spawn(async move {
-                let _ = agent
-                    .empty(Operation::ReleaseSocket(p::MacosReleaseSocket {
-                        fence: Some(fence),
-                        lease_id: id,
-                    }))
-                    .await;
-            });
-        }
-        // Without a runtime the ownership channel closes when its last owner
-        // exits; the daemon then revokes the entire session's egress.
+        self.runtime.spawn(async move {
+            let _ = agent
+                .empty(Operation::ReleaseSocket(p::MacosReleaseSocket {
+                    fence: Some(fence),
+                    lease_id: id,
+                }))
+                .await;
+        });
     }
 }
 impl MacSocketProtector {
@@ -114,27 +111,31 @@ impl MacSocketProtector {
             }
             PhysicalSocketPurpose::Control => p::MacosSocketPurpose::Control,
         };
-        let (info, fd) = self
-            .agent
-            .descriptor(
-                Operation::CreateSocket(p::MacosSocketRequest {
-                    fence: Some(self.fence.clone()),
+        let agent = self.agent.clone();
+        let fence = self.fence.clone();
+        // Cancelling a candidate cannot cancel a request already sent to the Agent.
+        // Keep receiving its reply and own the lease before returning it to the caller.
+        let (info, fd, lease) = tokio::spawn(async move {
+            let (info, fd) = agent
+                .descriptor(Operation::CreateSocket(p::MacosSocketRequest {
+                    fence: Some(fence.clone()),
                     remote_endpoint: remote.to_string(),
                     protocol: protocol.into(),
                     purpose: purpose as i32,
-                }),
-                &self.fence,
-            )
-            .await
-            .map_err(|e| e.to_string())?;
-        let lease = DirectEgressLease::hold_for_generation(
-            Lease {
-                agent: self.agent.clone(),
-                fence: self.fence.clone(),
+                }))
+                .await
+                .map_err(socket_setup_error)?;
+            let lease = Lease {
+                agent,
+                fence,
                 id: info.lease_id,
-            },
-            generation,
-        );
+                runtime: tokio::runtime::Handle::current(),
+            };
+            Ok::<_, String>((info, fd, lease))
+        })
+        .await
+        .map_err(|error| error.to_string())??;
+        let lease = DirectEgressLease::hold_for_generation(lease, generation);
         verify_socket(&fd, &info, remote, protocol).map_err(|e| e.to_string())?;
         let local = info
             .local_endpoint
@@ -146,6 +147,18 @@ impl MacSocketProtector {
         Ok((fd, lease, local))
     }
 }
+fn socket_setup_error(error: io::Error) -> String {
+    match error
+        .get_ref()
+        .and_then(|e| e.downcast_ref::<AgentFailure>())
+    {
+        Some(AgentFailure(p::MacosFailure::EndpointUnreachable)) => {
+            usque_transport::ENDPOINT_UNREACHABLE_REASON.into()
+        }
+        _ => format!("macOS socket setup failed: {error}"),
+    }
+}
+
 fn snapshot(network: &p::PhysicalNetworkInfo) -> PhysicalNetworkSnapshot {
     let mask = network
         .interfaces
@@ -255,5 +268,28 @@ impl SocketProtector for MacSocketProtector {
             ))
             .await
             .map_err(|e| e.to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_a_typed_endpoint_failure_allows_another_candidate() {
+        let retry = usque_transport::ENDPOINT_UNREACHABLE_REASON;
+        assert_eq!(
+            socket_setup_error(io::Error::other(AgentFailure(
+                p::MacosFailure::EndpointUnreachable
+            ))),
+            retry
+        );
+        for error in [
+            io::Error::other(AgentFailure(p::MacosFailure::RecoveryIncomplete)),
+            io::Error::other(AgentFailure(p::MacosFailure::OwnershipConflict)),
+            io::Error::new(io::ErrorKind::PermissionDenied, retry),
+        ] {
+            assert_ne!(socket_setup_error(error), retry);
+        }
     }
 }

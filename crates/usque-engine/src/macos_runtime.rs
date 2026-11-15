@@ -109,23 +109,7 @@ pub(crate) struct EngineCredentialBroker {
     proton: Option<(Uuid, Arc<dyn usque_core::proton_vpn::LeasePersistence>)>,
 }
 impl EngineCredentialBroker {
-    fn validate(&self, session: &SessionKey, profile_id: Uuid) -> Result<(), String> {
-        if self.profile_id != profile_id
-            || self
-                .current
-                .lock()
-                .map_err(|_| "credential_broker_unavailable")?
-                .as_ref()
-                != Some(session)
-        {
-            return Err("stale_credential_session".into());
-        }
-        Ok(())
-    }
-}
-#[async_trait]
-impl CredentialBroker for EngineCredentialBroker {
-    async fn persist_pin(
+    async fn persist_refreshed_pin(
         &self,
         session: &SessionKey,
         profile_id: Uuid,
@@ -225,6 +209,35 @@ impl CredentialBroker for EngineCredentialBroker {
             profile_id,
             revision: Uuid::new_v4(),
         })
+    }
+
+    fn validate(&self, session: &SessionKey, profile_id: Uuid) -> Result<(), String> {
+        if self.profile_id != profile_id
+            || self
+                .current
+                .lock()
+                .map_err(|_| "credential_broker_unavailable")?
+                .as_ref()
+                != Some(session)
+        {
+            return Err("stale_credential_session".into());
+        }
+        Ok(())
+    }
+}
+#[async_trait]
+impl CredentialBroker for EngineCredentialBroker {
+    async fn persist_pin(
+        &self,
+        session: &SessionKey,
+        profile_id: Uuid,
+        previous: &WarpIdentity,
+        next: &WarpIdentity,
+    ) -> Result<PersistenceAck, String> {
+        usque_platform::macos_keychain::without_interaction(
+            self.persist_refreshed_pin(session, profile_id, previous, next),
+        )
+        .await
     }
     fn proton_persistence(
         &self,
@@ -919,29 +932,21 @@ impl ControlService {
         *self.session_congestion_control.lock().await = None;
         Ok(())
     }
+    async fn has_macos_tun_owner(&self) -> bool {
+        self.data_plane.lock().await.as_ref().is_some_and(|active| {
+            matches!(
+                active.runtime,
+                crate::ActiveRuntime::Vpn(_) | crate::ActiveRuntime::MacVpn(_)
+            )
+        })
+    }
+
     pub(crate) async fn replace_macos_target(
         &self,
         profile_id: Uuid,
         cancellation: &CancellationToken,
     ) -> Result<Option<usque_core::ConnectionSnapshot>, ControlServiceError> {
-        let agent_replace = self
-            .data_plane
-            .lock()
-            .await
-            .as_ref()
-            .is_some_and(|a| matches!(a.runtime, crate::ActiveRuntime::Vpn(_)));
-        if agent_replace {
-            return self
-                .replace_macos_agent_target(profile_id, cancellation)
-                .await;
-        }
-        let replace = self
-            .data_plane
-            .lock()
-            .await
-            .as_ref()
-            .is_some_and(|active| matches!(active.runtime, crate::ActiveRuntime::MacVpn(_)));
-        if !replace {
+        if !self.has_macos_tun_owner().await {
             return Ok(None);
         }
         let mut profile = self
@@ -958,80 +963,61 @@ impl ControlService {
             self.await_disconnect_cleanup().await?;
             return Ok(None);
         }
-        let identity = self.load_warp_identity(profile_id).await?;
-        let selected = self.prepare_gate_selection(&profile)?;
-        let mut active = self.data_plane.lock().await;
-        let active = active.as_mut().ok_or_else(|| error("runtime_missing"))?;
-        let crate::ActiveRuntime::MacVpn(runtime) = &mut active.runtime else {
-            return Ok(None);
-        };
-        runtime
-            .replace(&profile, &identity, selected, cancellation)
-            .await?;
-        active.profile_id = profile.id;
-        active.profile = profile.clone();
-        active.frontends = profile.frontends;
-        let mut state = self.state.lock().await;
-        if matches!(
-            state.snapshot().phase,
-            usque_core::ConnectionPhase::Connected | usque_core::ConnectionPhase::Degraded
-        ) {
-            state.transition(usque_core::ConnectionPhase::Reconnecting)?;
-        }
-        Ok(Some(state.snapshot().clone()))
+        self.reconnect_protected_chain(&profile, cancellation).await
     }
-    async fn replace_macos_agent_target(
+
+    /// Both native backends replace a TUN session under its existing protection.
+    /// Use the actual requested settings, which can differ from the saved draft.
+    pub(crate) async fn reconnect_protected_chain(
         &self,
-        profile_id: Uuid,
+        target: &Profile,
         cancellation: &CancellationToken,
     ) -> Result<Option<usque_core::ConnectionSnapshot>, ControlServiceError> {
-        let mut profile = self
-            .config
-            .read()
-            .await
-            .runtime_profile(profile_id)
-            .ok_or(ControlServiceError::ProfileNotFound(profile_id))?;
-        self.attach_proxy_auth(&mut profile).await?;
-        if !profile.frontends.tunnel {
-            self.disconnect_locked().await?;
-            self.await_disconnect_cleanup().await?;
+        if !target.frontends.tunnel || !self.has_macos_tun_owner().await {
             return Ok(None);
         }
-        let identity = self.load_warp_identity(profile_id).await?;
-        let tls = usque_transport::MasqueTlsIdentity::from_warp_identity(&identity)
-            .map_err(ControlServiceError::Transport)?;
-        let refresher = Arc::new(crate::VaultEndpointPinRefresher {
-            profile_id,
-            vault: self.vault.clone(),
-            identity: tokio::sync::Mutex::new(identity),
-        });
-        let policy = Arc::new(crate::load_geo_direct_policy(&profile, &self.cache_dir)?);
-        let selected = self.prepare_gate_selection(&profile)?;
+        let identity = self.load_warp_identity(target.id).await?;
+        let selected = self.prepare_gate_selection(target)?;
         let mut active = self.data_plane.lock().await;
         let active = active.as_mut().ok_or_else(|| error("runtime_missing"))?;
-        let crate::ActiveRuntime::Vpn(runtime) = &mut active.runtime else {
-            return Ok(None);
-        };
-        runtime
-            .replace_connection(
-                &profile,
-                tls,
-                refresher,
-                policy,
-                usque_transport::VpnGateStart {
-                    selected,
-                    status: Some(self.gate_status.clone()),
-                    cancellation: cancellation.clone(),
-                    ..Default::default()
-                },
-            )
-            .await
-            .map_err(crate::macos_agent_runtime::map_error)?;
-        active.profile_id = profile.id;
-        active.profile = profile.clone();
-        active.frontends = profile.frontends;
-        active.session_generation = self.next_session_generation();
-        *self.session_profile.lock().await = Some(profile);
+        match &mut active.runtime {
+            crate::ActiveRuntime::MacVpn(runtime) => {
+                runtime
+                    .replace(target, &identity, selected, cancellation)
+                    .await?;
+            }
+            crate::ActiveRuntime::Vpn(runtime) => {
+                let tls = usque_transport::MasqueTlsIdentity::from_warp_identity(&identity)
+                    .map_err(ControlServiceError::Transport)?;
+                let refresher = Arc::new(crate::VaultEndpointPinRefresher {
+                    profile_id: target.id,
+                    vault: self.vault.clone(),
+                    identity: tokio::sync::Mutex::new(identity),
+                });
+                let policy = Arc::new(crate::load_geo_direct_policy(target, &self.cache_dir)?);
+                runtime
+                    .replace_connection(
+                        target,
+                        tls,
+                        refresher,
+                        policy,
+                        usque_transport::VpnGateStart {
+                            selected,
+                            status: Some(self.gate_status.clone()),
+                            cancellation: cancellation.clone(),
+                            ..Default::default()
+                        },
+                    )
+                    .await
+                    .map_err(crate::macos_agent_runtime::map_error)?;
+                active.session_generation = self.next_session_generation();
+            }
+            _ => return Err(error("macos_tun_owner_changed")),
+        }
+        active.profile_id = target.id;
+        active.profile = target.clone();
+        active.frontends = target.frontends;
+        *self.session_profile.lock().await = Some(target.clone());
         let mut state = self.state.lock().await;
         if matches!(
             state.snapshot().phase,

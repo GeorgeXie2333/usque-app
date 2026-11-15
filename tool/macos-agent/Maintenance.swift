@@ -10,6 +10,7 @@ enum AgentOperation: String { case install, repair, recover, uninstall }
 protocol AgentMaintenanceBackend {
   func prepare() throws
   func stopAndRecover() throws
+  func stopAndRecoverPrepared() throws
   func activate() throws
   func rollback() throws
   func finish() throws
@@ -21,7 +22,7 @@ func maintainAgent(_ operation: AgentOperation, backend: AgentMaintenanceBackend
   case .install, .repair:
     try backend.prepare()
     do {
-      try backend.stopAndRecover()
+      try backend.stopAndRecoverPrepared()
       try backend.activate()
       try backend.finish()
     } catch {
@@ -55,10 +56,21 @@ func checkRootPath(_ url: URL, directory: Bool) throws {
     guard acl_get_entry(acl, Int32(ACL_FIRST_ENTRY.rawValue), &entry) != 0 else { throw fail() }
   } else if errno != ENOENT && errno != ENOTSUP { throw fail() }
 }
+func createDirectoryIfMissing(_ url: URL, mode: mode_t) throws -> Bool {
+  // Publish exact permissions without changing the process-wide umask or
+  // modifying any pre-existing directory (including system ancestors).
+  guard mkdir(url.path, 0o700) == 0 else {
+    if errno == EEXIST { return false }
+    throw fail()
+  }
+  let fd = open(url.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+  guard fd >= 0 else { throw fail() }; defer { close(fd) }
+  guard fchmod(fd, mode) == 0, fsync(fd) == 0 else { throw fail() }
+  return true
+}
 private func ensureRootDirectory(_ url: URL, mode: mode_t) throws {
   if url.path != "/" { try ensureRootDirectory(url.deletingLastPathComponent(), mode: 0o755) }
-  let created = mkdir(url.path, mode) == 0
-  if !created && errno != EEXIST { throw fail() }
+  let created = try createDirectoryIfMissing(url, mode: mode)
   try checkRootPath(url, directory: true)
   if created { try syncDirectory(url.deletingLastPathComponent()) }
 }
@@ -115,13 +127,18 @@ private func removeDurably(_ url: URL) throws {
 private func durable(_ data: Data, at url: URL, mode: mode_t = 0o600) throws {
   try checkRootPath(url.deletingLastPathComponent(), directory: true)
   let temporary = url.deletingLastPathComponent().appendingPathComponent(".write-\(UUID().uuidString)")
-  let fd = open(temporary.path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, mode)
+  defer { try? fm.removeItem(at: temporary) }
+  try writeNewFile(data, to: temporary, mode: mode)
+  guard rename(temporary.path, url.path) == 0 else { throw fail() }
+  try syncDirectory(url.deletingLastPathComponent())
+}
+func writeNewFile(_ data: Data, to url: URL, mode: mode_t) throws {
+  let fd = open(url.path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0o600)
   guard fd >= 0 else { throw fail() }
   let file = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
-  defer { try? file.close(); try? fm.removeItem(at: temporary) }
+  defer { try? file.close() }
   try file.write(contentsOf: data)
-  guard fcntl(fd, F_FULLFSYNC) == 0, rename(temporary.path, url.path) == 0 else { throw fail() }
-  try syncDirectory(url.deletingLastPathComponent())
+  guard fchmod(fd, mode) == 0, fcntl(fd, F_FULLFSYNC) == 0 else { throw fail() }
 }
 private func hash(_ url: URL) throws -> String {
   let fd = open(url.path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK)
@@ -250,16 +267,42 @@ final class NativeAgentMaintenance: AgentMaintenanceBackend {
       try save(evidence)
     } catch { try rollback(); throw error }
   }
-  func stopAndRecover() throws {
+  func stopAndRecover() throws { try stopAndRecover(initializingCandidate: false) }
+  func stopAndRecoverPrepared() throws {
+    let evidence = try load()
+    guard evidence.phase == .prepared, try identity(next) == evidence.candidate else { throw fail() }
+    if let old = evidence.previous {
+      guard try identity(agentRoot) == old else { throw fail() }
+    } else {
+      guard !fm.fileExists(atPath: agentRoot.path) else { throw fail() }
+    }
+    try stopAndRecover(initializingCandidate: false, preparedAgent: next.appendingPathComponent("usque-agent"))
+  }
+  private func stopAndRecover(initializingCandidate: Bool, preparedAgent: URL? = nil) throws {
     if (try? agentCommand("/bin/launchctl", ["print", "system/com.usque.agent"])) != nil {
       try agentCommand("/bin/launchctl", ["bootout", "system/com.usque.agent"])
     }
     if fm.fileExists(atPath: agentRoot.path) {
-      try checkRootPath(agentRoot.appendingPathComponent("usque-agent"), directory: false)
+      let installed = agentRoot.appendingPathComponent("usque-agent")
+      try checkRootPath(installed, directory: false)
+      // Older installations may have their own journal schema. Give them
+      // one attempt. A verified staged fix can then recover the same records
+      // under the Agent's exclusive service lock, before replacing anything.
+      if preparedAgent != nil,
+        (try? agentCommand(installed.path, ["--recover-state"])) != nil { return }
+      let recoveringAgent = preparedAgent ?? installed
       let deadline = Date().addingTimeInterval(15)
       while true {
-        do { try agentCommand(agentRoot.appendingPathComponent("usque-agent").path, ["--recover-state"]); break }
-        catch { if Date() >= deadline { throw AgentMaintenanceError.recoveryIncomplete }; Thread.sleep(forTimeInterval: 0.1) }
+        do { try agentCommand(recoveringAgent.path, ["--recover-state"]); break }
+        catch {
+          if Date() >= deadline { throw AgentMaintenanceError.recoveryIncomplete }
+          // After publishing a candidate, a crash can precede journal migration.
+          // The initializer only accepts clean evidence or a new record.
+          if initializingCandidate {
+            _ = try? agentCommand(installed.path, ["--initialize-state"])
+          }
+          Thread.sleep(forTimeInterval: 0.1)
+        }
       }
     }
   }
@@ -286,12 +329,16 @@ final class NativeAgentMaintenance: AgentMaintenanceBackend {
     try restart()
     evidence.phase = .activated; try save(evidence)
   }
-  func restart() throws {
-    guard fm.fileExists(atPath: daemonPlist.path), fm.fileExists(atPath: agentRoot.path) else { return }
+  private func startDaemonIfInstalled() throws -> Bool {
+    guard fm.fileExists(atPath: daemonPlist.path), fm.fileExists(atPath: agentRoot.path) else { return false }
     try checkRootPath(daemonPlist, directory: false)
     if (try? agentCommand("/bin/launchctl", ["print", "system/com.usque.agent"])) == nil {
       try agentCommand("/bin/launchctl", ["bootstrap", "system", daemonPlist.path])
     }
+    return true
+  }
+  func restart() throws {
+    guard try startDaemonIfInstalled() else { return }
     let deadline = Date().addingTimeInterval(15)
     while true {
       if (try? agentCommand(agentRoot.appendingPathComponent("usque-agent").path, ["--readiness"])) != nil { break }
@@ -315,21 +362,18 @@ final class NativeAgentMaintenance: AgentMaintenanceBackend {
       else { guard !fm.fileExists(atPath: agentRoot.path) else { throw fail() } }
       try removeDurably(next); try removeDurably(journal); return
     }
-    if [.prepared, .initializing].contains(evidence.phase) && evidence.previous == nil && fm.fileExists(atPath: agentRoot.path) {
-      guard try identity(agentRoot) == evidence.candidate else { throw fail() }
-      try agentCommand(agentRoot.appendingPathComponent("usque-agent").path, ["--initialize-state"])
-    }
+    let initializingCandidate = [.prepared, .initializing].contains(evidence.phase)
     if fm.fileExists(atPath: previous.path) {
       guard try identity(previous) == evidence.previous else { throw fail() }
       if fm.fileExists(atPath: agentRoot.path) {
         guard try identity(agentRoot) == evidence.candidate else { throw fail() }
-        try stopAndRecover()
+        try stopAndRecover(initializingCandidate: initializingCandidate)
         try removeDurably(agentRoot)
       }
       try moveDurably(previous, agentRoot)
     } else if evidence.previous == nil && fm.fileExists(atPath: agentRoot.path) {
       guard try identity(agentRoot) == evidence.candidate else { throw fail() }
-      try stopAndRecover(); try removeDurably(agentRoot)
+      try stopAndRecover(initializingCandidate: initializingCandidate); try removeDurably(agentRoot)
     } else if let old = evidence.previous { guard try identity(agentRoot) == old else { throw fail() } }
     if fm.fileExists(atPath: next.path) { guard try identity(next) == evidence.candidate else { throw fail() }; try removeDurably(next) }
     let actualPlist: Data?
@@ -339,11 +383,22 @@ final class NativeAgentMaintenance: AgentMaintenanceBackend {
       if let old = evidence.previousPlist { try durable(old, at: daemonPlist, mode: 0o644) }
       else { try removeDurably(daemonPlist) }
     }
-    try restart()
+    // A failed prepare/repair may leave the original service installed with
+    // its original network journals still pending. Restore its availability
+    // so the next repair can stage a fixed Agent. This is installer rollback,
+    // not evidence that the network is clean.
+    if evidence.phase == .prepared { _ = try startDaemonIfInstalled() }
+    else { try restart() }
     try removeDurably(journal)
   }
   func uninstall() throws {
-    if fm.fileExists(atPath: agentRoot.path) { _ = try identity(agentRoot); try removeDurably(agentRoot) }
+    if fm.fileExists(atPath: agentRoot.path) {
+      _ = try identity(agentRoot)
+      // stopAndRecover has acknowledged restoration. Publish proof before
+      // deleting the only executable a stale Engine could otherwise query.
+      try durable(Data("usque-clean-uninstall-v1\n".utf8), at: agentRoot.appendingPathExtension("clean-uninstall"), mode: 0o644)
+      try removeDurably(agentRoot)
+    }
     if fm.fileExists(atPath: daemonPlist.path) { try checkRootPath(daemonPlist, directory: false); try removeDurably(daemonPlist) }
     // Clean recovery evidence remains root-owned. User profiles and Keychain
     // records belong to the ordinary user and are never removed here.

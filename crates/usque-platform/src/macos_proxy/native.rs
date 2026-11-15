@@ -71,7 +71,7 @@ impl Drop for Preferences {
     }
 }
 #[derive(Default)]
-pub(super) struct NativeBackend {
+pub struct NativeBackend {
     authorization: Mutex<Option<Authorization>>,
 }
 struct NativeService {
@@ -430,5 +430,28 @@ mod tests {
             ))
             .unwrap()
         );
+    }
+}
+
+#[cfg(test)]
+mod host_observation {
+    use super::*;
+    #[test]
+    #[ignore = "requires readable macOS network services; read-only host observation"]
+    fn reads_current_services_and_constructs_a_loopback_proxy_plan_without_writing() {
+        let name = CFString::new("Usque read-only acceptance");
+        // SAFETY: this Create-rule object stays live while inspecting services.
+        let prefs = Owned::new(unsafe {
+            SCPreferencesCreate(ptr::null(), name.as_concrete_TypeRef(), ptr::null())
+        })
+        .unwrap();
+        let services: Vec<_> = read_services(prefs.0)
+            .unwrap()
+            .into_iter()
+            .map(|s| s.service)
+            .collect();
+        let journal = Journal::capture(&services, "[::1]:8080".parse().unwrap()).unwrap();
+        journal.validate().unwrap();
+        assert!(!journal.observations.is_empty());
     }
 }

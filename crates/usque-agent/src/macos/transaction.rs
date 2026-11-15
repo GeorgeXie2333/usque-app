@@ -373,6 +373,18 @@ impl<S: Store, B: Backend> Coordinator<S, B> {
                 continue;
             }
             if let Err(error) = self.backend.restore_and_verify(fence, record.step) {
+                if record.step == Step::Routes {
+                    // DNS receipts are independent and record each verified service.
+                    // Keep the route transaction pending and the guard in place.
+                    // An explicit retry will finish the normal reverse order.
+                    if let Err(dns_error) = self.backend.restore_and_verify(fence, Step::Dns) {
+                        self.failed();
+                        return Err(io::Error::new(
+                            error.kind(),
+                            format!("route recovery: {error}; DNS recovery: {dns_error}"),
+                        ));
+                    }
+                }
                 self.failed();
                 return Err(error);
             }

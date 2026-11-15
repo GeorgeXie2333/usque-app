@@ -24,9 +24,20 @@ use uuid::Uuid;
 
 pub const SOCKET_PATH: &str = "/Library/PrivilegedHelperTools/com.usque.agent/control.sock";
 pub const ENGINE_PATH: &str = "/Library/PrivilegedHelperTools/com.usque.agent/usque-engine";
+pub(super) const INSTALL_DIRECTORY: &str = "/Library/PrivilegedHelperTools/com.usque.agent";
 pub const PROTOCOL_VERSION: u32 = 1;
 pub const RELEASE_APPROVED: bool = false;
 
+/// Also recorded in each signed Mach-O so cross-built packages can verify
+/// both helpers without executing them or relying on a mutable bundle plist.
+#[used]
+// SAFETY: this dedicated read-only Mach-O section contains one boolean byte.
+#[unsafe(link_section = "__TEXT,__usque_tun")]
+pub static TEST_TUN_ENABLED: bool = cfg!(feature = "macos-test-tun");
+
+#[derive(Debug, thiserror::Error)]
+#[error("macOS Agent: {0:?}")]
+pub(super) struct AgentFailure(pub p::MacosFailure);
 struct Connection {
     socket: UnixStream,
     peer: darwin_fd::PeerIdentity,
@@ -64,8 +75,8 @@ fn no_acl(file: &fs::File) -> io::Result<()> {
     }
     Err(invalid())
 }
-fn trusted_socket() -> io::Result<()> {
-    for parent in Path::new(SOCKET_PATH).ancestors().skip(1) {
+fn trusted_parents(path: &Path) -> io::Result<()> {
+    for parent in path.ancestors().skip(1) {
         let directory = fs::OpenOptions::new()
             .read(true)
             .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
@@ -76,13 +87,43 @@ fn trusted_socket() -> io::Result<()> {
             return Err(invalid());
         }
     }
+    Ok(())
+}
+fn trusted_socket() -> io::Result<()> {
+    trusted_parents(Path::new(SOCKET_PATH))?;
     let metadata = fs::symlink_metadata(SOCKET_PATH)?;
     if !metadata.file_type().is_socket() || metadata.uid() != 0 {
         return Err(invalid());
     }
     Ok(())
 }
+fn idle_proxy_stream(stream: &UnixStream) -> bool {
+    let mut fd = libc::pollfd {
+        fd: stream.as_raw_fd(),
+        events: libc::POLLIN,
+        revents: 0,
+    };
+    loop {
+        // SAFETY: read-only, zero-timeout observation of the owned stream.
+        match unsafe { libc::poll(&mut fd, 1, 0) } {
+            -1 if io::Error::last_os_error().kind() == io::ErrorKind::Interrupted => continue,
+            n => return n == 0,
+        }
+    }
+}
 impl MacAgentClient {
+    /// The dedicated proxy stream is silent between requests. Any readable
+    /// byte or EOF on an idle stream means that its lease can no longer be trusted.
+    pub(super) fn proxy_stream_alive(&self) -> bool {
+        let guard = match self.connection.try_lock() {
+            Ok(guard) => guard,
+            Err(std::sync::TryLockError::WouldBlock) => return true,
+            Err(_) => return false,
+        };
+        guard
+            .as_ref()
+            .is_some_and(|connection| idle_proxy_stream(&connection.socket))
+    }
     pub async fn connect() -> io::Result<Self> {
         tokio::task::spawn_blocking(|| {
             trusted_socket()?;
@@ -111,6 +152,14 @@ impl MacAgentClient {
             let result = (|| {
                 let connection = guard.as_mut().ok_or_else(invalid)?;
                 connection.sequence = connection.sequence.checked_add(1).ok_or_else(invalid)?;
+                let dialing = matches!(operation, Operation::CreateSocket(_));
+                let descriptor_fence = match &operation {
+                    Operation::CreateSocket(request) => {
+                        Some(request.fence.clone().ok_or_else(invalid)?)
+                    }
+                    Operation::OpenTun(fence) => Some(fence.clone()),
+                    _ => None,
+                };
                 let request = p::AgentRequest {
                     request_id: Uuid::new_v4().to_string(),
                     protocol_version: 3,
@@ -139,23 +188,34 @@ impl MacAgentClient {
                     }
                     let failure =
                         p::MacosFailure::try_from(response.failure).map_err(|_| invalid())?;
-                    return Err(io::Error::other(format!(
-                        "macOS Agent: {}",
-                        failure.as_str_name()
-                    )));
+                    if dialing && failure == p::MacosFailure::EndpointUnreachable {
+                        // The Agent confirmed that this attempt's permit was revoked.
+                        // The owner still needs this stream for the next endpoint or Disconnect.
+                        return Ok(Err(AgentFailure(failure)));
+                    }
+                    return Err(io::Error::other(AgentFailure(failure)));
                 }
                 let payload = response.payload.ok_or_else(invalid)?;
-                if matches!(payload, Payload::Descriptor(_)) != frame.descriptor.is_some() {
-                    return Err(invalid());
+                match (
+                    descriptor_fence.as_ref(),
+                    &payload,
+                    frame.descriptor.is_some(),
+                ) {
+                    (Some(fence), Payload::Descriptor(info), true)
+                        if info.fence.as_ref() == Some(fence)
+                            && info.interface_index != 0
+                            && (info.lease_id != 0) == dialing => {}
+                    (None, Payload::Status(_) | Payload::Empty(_), false) => {}
+                    _ => return Err(invalid()),
                 }
-                Ok((payload, frame.descriptor))
+                Ok(Ok((payload, frame.descriptor)))
             })();
             if result.is_err()
                 && let Some(old) = guard.take()
             {
                 let _ = old.socket.shutdown(Shutdown::Both);
             }
-            result
+            result?.map_err(io::Error::other)
         })
         .await
         .map_err(io::Error::other)?
@@ -182,14 +242,9 @@ impl MacAgentClient {
     pub async fn descriptor(
         &self,
         operation: Operation,
-        fence: &p::MacosFence,
     ) -> io::Result<(p::MacosDescriptor, OwnedFd)> {
         match self.request(operation).await? {
-            (Payload::Descriptor(info), Some(fd))
-                if info.fence.as_ref() == Some(fence) && info.interface_index != 0 =>
-            {
-                Ok((info, fd))
-            }
+            (Payload::Descriptor(info), Some(fd)) => Ok((info, fd)),
             _ => Err(invalid()),
         }
     }
@@ -208,22 +263,25 @@ impl MacAgentClient {
     }
 }
 
+fn builds_allow_tun(status: &p::MacosPlatformStatus) -> bool {
+    (RELEASE_APPROVED && status.release_approved) || (TEST_TUN_ENABLED && status.test_tun_enabled)
+}
 pub fn capability(status: &p::MacosPlatformStatus) -> bool {
-    RELEASE_APPROVED
-        && status.release_approved
+    builds_allow_tun(status)
         && status.protocol_version == PROTOCOL_VERSION
         && status.agent_version == env!("CARGO_PKG_VERSION")
         && status.architecture == std::env::consts::ARCH
         && status.preflight_passed
         && !status.recovery_pending
+        && !status.system_proxy_recovery_pending
         && status.failure == 0
 }
 
 /// A retained transaction has a distinct guarded-resume path. It never makes
 /// the ordinary fresh-connect capability true while recovery is outstanding.
 pub fn resumable(status: &p::MacosPlatformStatus) -> bool {
-    RELEASE_APPROVED
-        && status.release_approved
+    builds_allow_tun(status)
+        && !status.system_proxy_recovery_pending
         && status.resumable
         && status.protection_retained
         && status.fence.is_some()
@@ -246,9 +304,13 @@ pub async fn connection_available() -> bool {
 trait RecoveryClient: Sync {
     async fn recovery_status(&self) -> io::Result<p::MacosPlatformStatus>;
     async fn disconnect_fence(&self, fence: p::MacosFence) -> io::Result<()>;
+    async fn recover_proxy(&self) -> io::Result<()>;
 }
 #[async_trait::async_trait]
 impl RecoveryClient for MacAgentClient {
+    async fn recover_proxy(&self) -> io::Result<()> {
+        self.empty(Operation::RecoverProxy(p::Empty {})).await
+    }
     async fn recovery_status(&self) -> io::Result<p::MacosPlatformStatus> {
         self.status().await
     }
@@ -263,12 +325,22 @@ async fn recover_explicit(
     let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
     loop {
         let status = client.recovery_status().await?;
-        if status.phase == p::AgentPhase::Clean as i32
-            && !status.recovery_pending
-            && status.failure == 0
-            && status.fence.is_none()
-        {
+        if status.system_proxy_recovery_pending {
+            client.recover_proxy().await?;
+            if tokio::time::Instant::now() >= deadline {
+                return Err(invalid());
+            }
+            continue;
+        }
+        if clean(&status) {
             return Ok(());
+        }
+        if status.system_proxy_active && status.fence.is_none() {
+            if tokio::time::Instant::now() >= deadline {
+                return Err(invalid());
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            continue;
         }
         let fence = status.fence.as_ref().ok_or_else(invalid)?;
         // An interrupted Resume can commit its successor before the runtime
@@ -324,15 +396,111 @@ pub async fn confirm_retained_protection(expected: &p::MacosFence) -> io::Result
 pub async fn disconnect_retained(fence: p::MacosFence) -> io::Result<()> {
     recover_explicit(&MacAgentClient::connect().await?, Some(&fence)).await
 }
-/// Called only by explicit Disconnect/Quit, including failed startup with no
-/// in-memory runtime. Startup, error handling and Engine loss never call this.
-pub async fn recover_on_explicit_disconnect() -> io::Result<()> {
-    match fs::symlink_metadata(ENGINE_PATH) {
+fn clean(status: &p::MacosPlatformStatus) -> bool {
+    !status.system_proxy_recovery_pending
+        && !status.system_proxy_active
+        && status.phase == p::AgentPhase::Clean as i32
+        && !status.recovery_pending
+        && !status.protection_retained
+        && status.failure == 0
+        && status.fence.is_none()
+}
+/// The bundled Engine can outlive installation of the pinned Engine. Only
+/// the latter is allowed to ask the Agent whether there is anything to clean.
+pub async fn check_clean() -> io::Result<()> {
+    if clean(&MacAgentClient::connect().await?.status().await?) {
+        Ok(())
+    } else {
+        Err(invalid())
+    }
+}
+pub(super) async fn recover_on_explicit_disconnect(install: &Path) -> io::Result<()> {
+    recover_from(install, &std::env::current_exe()?).await
+}
+pub(super) async fn recover_from(install: &Path, running: &Path) -> io::Result<()> {
+    match fs::symlink_metadata(install) {
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
         Err(error) => return Err(error),
+        Ok(m) if !m.is_dir() => return Err(invalid()),
         Ok(_) => (),
     }
-    recover_explicit(&MacAgentClient::connect().await?, None).await
+    let engine = install.join("usque-engine");
+    if running == engine
+        && let Ok(client) = MacAgentClient::connect().await
+        && recover_explicit(&client, None).await.is_ok()
+    {
+        return Ok(());
+    }
+    // A still-running bundled Engine has no Agent privileges. Delegate a
+    // read-only clean check, never someone else's Disconnect. The child's
+    // exit code is the acknowledgement; missing, incompatible or retained
+    // service state cannot succeed. Production always uses fixed root paths.
+    verify_probe(&engine)?;
+    run_clean_probe(&engine).await
+}
+/// A stale Engine cannot authenticate after replacement. For a known lease,
+/// a missing socket alone cannot prove that the proxy was restored.
+pub(super) async fn confirm_proxy_cleanup(install: &Path) -> io::Result<()> {
+    match fs::symlink_metadata(install) {
+        Ok(directory) if directory.is_dir() => {
+            let pinned = install.join("usque-engine");
+            verify_probe(&pinned)?;
+            run_clean_probe(&pinned).await
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            use std::io::Read;
+            let marker = trusted_file(&install.with_added_extension("clean-uninstall"))?;
+            let mut contents = Vec::new();
+            marker.take(64).read_to_end(&mut contents)?;
+            if contents == b"usque-clean-uninstall-v1\n" {
+                Ok(())
+            } else {
+                Err(invalid())
+            }
+        }
+        Err(error) => Err(error),
+        Ok(_) => Err(invalid()),
+    }
+}
+fn verify_probe(engine: &Path) -> io::Result<()> {
+    trusted_file(engine).map(drop)
+}
+fn trusted_file(engine: &Path) -> io::Result<fs::File> {
+    trusted_parents(engine)?;
+    let file = fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK)
+        .open(engine)?;
+    let m = file.metadata()?;
+    if !m.is_file() || m.uid() != 0 || m.nlink() != 1 || m.mode() & 0o022 != 0 {
+        return Err(invalid());
+    }
+    no_acl(&file)?;
+    Ok(file)
+}
+async fn run_clean_probe(engine: &Path) -> io::Result<()> {
+    use std::process::Stdio;
+    let mut child = {
+        let _serial = darwin_fd::DESCRIPTOR_EXEC_LOCK
+            .lock()
+            .map_err(|_| invalid())?;
+        tokio::process::Command::new(engine)
+            .arg("--macos-agent-check-clean")
+            .env_clear()
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .kill_on_drop(true)
+            .spawn()?
+    };
+    let status = tokio::time::timeout(Duration::from_secs(12), child.wait()).await??;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(io::Error::other(
+            "background service cleanup could not be confirmed",
+        ))
+    }
 }
 
 pub fn verify_utun(fd: &OwnedFd, info: &p::MacosDescriptor) -> io::Result<()> {
@@ -449,28 +617,78 @@ pub fn verify_socket(
 
 /// Read-only projection for an Engine restarted without an in-memory owner.
 /// The installed service remains authoritative until explicit recovery.
-pub async fn project_recovery(snapshot: &mut usque_core::ConnectionSnapshot) {
-    if fs::symlink_metadata(ENGINE_PATH).is_err() {
-        return;
+#[derive(Default)]
+pub(super) struct ProbeCache(tokio::sync::Mutex<Option<ProbeSample>>);
+
+struct ProbeSample {
+    engine: (u64, u64),
+    socket: (u64, u64),
+    checked: tokio::time::Instant,
+    clean: bool,
+}
+impl ProbeCache {
+    // Event subscribers may poll once a second. Share only their displayed
+    // observation, never the acknowledgement of an explicit Disconnect/Quit.
+    async fn observe(&self, engine: &Path) -> bool {
+        let mut last = self.0.lock().await;
+        let identity = |path: &Path| fs::symlink_metadata(path).map(|m| (m.dev(), m.ino()));
+        let (Ok(bin), Ok(sock)) = (
+            identity(engine),
+            identity(&engine.with_file_name("control.sock")),
+        ) else {
+            *last = None;
+            return false;
+        };
+        if let Some(s) = last.as_ref()
+            && s.engine == bin
+            && s.socket == sock
+            && s.checked.elapsed() < Duration::from_secs(5)
+        {
+            return s.clean;
+        }
+        let clean = verify_probe(engine).is_ok() && run_clean_probe(engine).await.is_ok();
+        *last = Some(ProbeSample {
+            engine: bin,
+            socket: sock,
+            checked: tokio::time::Instant::now(),
+            clean,
+        });
+        clean
     }
-    let status = tokio::time::timeout(Duration::from_secs(2), async {
-        MacAgentClient::connect().await?.status().await
-    })
-    .await
-    .map_err(io::Error::other)
-    .and_then(|s| s);
-    project_observation(snapshot, status.as_ref().ok());
+    pub(super) async fn invalidate(&self) {
+        *self.0.lock().await = None;
+    }
+}
+pub(super) async fn project_recovery(
+    snapshot: &mut usque_core::ConnectionSnapshot,
+    install: &Path,
+    cache: &ProbeCache,
+) {
+    match fs::symlink_metadata(install) {
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return,
+        Err(_) => {
+            project_observation(snapshot, None);
+            return;
+        }
+        Ok(_) => (),
+    }
+    let engine = install.join("usque-engine");
+    if std::env::current_exe().ok().as_deref() == Some(engine.as_path())
+        && let Ok(Ok(status)) = tokio::time::timeout(Duration::from_secs(2), async {
+            MacAgentClient::connect().await?.status().await
+        })
+        .await
+    {
+        project_observation(snapshot, Some(&status));
+    } else if !cache.observe(&engine).await {
+        project_observation(snapshot, None);
+    }
 }
 fn project_observation(
     snapshot: &mut usque_core::ConnectionSnapshot,
     status: Option<&p::MacosPlatformStatus>,
 ) {
-    if status.is_some_and(|s| {
-        s.phase == p::AgentPhase::Clean as i32
-            && !s.recovery_pending
-            && s.failure == 0
-            && s.fence.is_none()
-    }) {
+    if status.is_some_and(clean) {
         return;
     }
     snapshot.phase = usque_core::ConnectionPhase::Error;
@@ -480,7 +698,7 @@ fn project_observation(
         usque_core::KillSwitchState::Error
     };
     snapshot.error = Some(usque_core::ConnectionError {
-        code: usque_core::ErrorCode::TransportUnavailable,
+        code: usque_core::ErrorCode::MacosAgentRecoveryUnconfirmed,
         message:
             "macOS network recovery is incomplete; disconnect or restore the background service"
                 .into(),
@@ -493,28 +711,92 @@ pub async fn service_status() -> serde_json::Value {
     let result = async { MacAgentClient::connect().await?.status().await }.await;
     match result {
         Ok(status) => {
-            serde_json::json!({"installed": true, "compatible": true, "version": status.agent_version,
+            serde_json::json!({"installed": true, "compatible": status.system_proxy_supported && status.test_tun_enabled == TEST_TUN_ENABLED, "systemProxySupported": status.system_proxy_supported, "version": status.agent_version,
             "architecture": status.architecture, "preflightPassed": status.preflight_passed,
-            "recoveryPending": status.recovery_pending, "protectionRetained": status.protection_retained,
+            "recoveryPending": status.recovery_pending || status.system_proxy_recovery_pending, "protectionRetained": status.protection_retained,
+            "testTunEnabled": TEST_TUN_ENABLED && status.test_tun_enabled,
             "tunAvailable": capability(&status), "releaseApproved": status.release_approved && RELEASE_APPROVED,
             "phase": status.phase, "failure": status.failure})
         }
         Err(_) => {
-            serde_json::json!({"installed": std::path::Path::new(ENGINE_PATH).is_file(), "compatible": false,
-            "recoveryPending": true, "tunAvailable": false, "failure": "service_unavailable"})
+            let present = !matches!(fs::symlink_metadata(INSTALL_DIRECTORY), Err(e) if e.kind() == io::ErrorKind::NotFound);
+            serde_json::json!({"installed": present, "compatible": false,
+            "recoveryPending": present, "tunAvailable": false, "failure": "service_unavailable"})
         }
     }
 }
 
 #[cfg(test)]
+mod request_tests;
+#[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn quiet_proxy_stream_distinguishes_an_idle_owner_from_agent_exit() {
+        let (socket, daemon) = UnixStream::pair().unwrap();
+        assert!(idle_proxy_stream(&socket));
+        drop(daemon);
+        assert!(!idle_proxy_stream(&socket));
+        assert!(!clean(&p::MacosPlatformStatus {
+            phase: p::AgentPhase::Clean as i32,
+            system_proxy_active: true,
+            ..Default::default()
+        }));
+    }
+    #[tokio::test]
+    async fn a_known_proxy_lease_cannot_accept_an_absent_socket_or_user_written_uninstall_proof() {
+        let dir = tempfile::tempdir().unwrap();
+        let install = dir.path().join("com.usque.agent");
+        assert!(confirm_proxy_cleanup(&install).await.is_err());
+        fs::write(
+            install.with_added_extension("clean-uninstall"),
+            b"usque-clean-uninstall-v1\n",
+        )
+        .unwrap();
+        assert!(confirm_proxy_cleanup(&install).await.is_err());
+        fs::create_dir(&install).unwrap();
+        assert!(confirm_proxy_cleanup(&install).await.is_err());
+    }
+    #[tokio::test]
+    async fn quit_after_service_install_requires_clean_proof_from_the_pinned_engine() {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = tempfile::tempdir().unwrap();
+        let install = tmp.path().join("agent");
+        let pinned = install.join("usque-engine");
+        let running = tmp.path().join("bundle-engine");
+        assert!(
+            recover_from(&install, &running).await.is_ok(),
+            "absent service"
+        );
+        fs::create_dir(&install).unwrap();
+        assert!(
+            recover_from(&install, &running).await.is_err(),
+            "partial install is not clean"
+        );
+        for (code, expected) in [(1, false), (0, true)] {
+            fs::write(&pinned, format!("#!/bin/sh\n[ \"$#\" = 1 ] && [ \"$1\" = --macos-agent-check-clean ] || exit 42\nexit {code}\n")).unwrap();
+            fs::set_permissions(&pinned, fs::Permissions::from_mode(0o700)).unwrap();
+            assert!(
+                recover_from(&install, &running).await.is_err(),
+                "user-writable executable is not a trusted probe"
+            );
+            assert_eq!(run_clean_probe(&pinned).await.is_ok(), expected);
+        }
+        fs::set_permissions(&pinned, fs::Permissions::from_mode(0o600)).unwrap();
+        assert!(
+            run_clean_probe(&pinned).await.is_err(),
+            "unexecutable Engine"
+        );
+    }
     struct FakeRecovery {
         status: p::MacosPlatformStatus,
         disconnected: Mutex<Vec<p::MacosFence>>,
     }
     #[async_trait::async_trait]
     impl RecoveryClient for FakeRecovery {
+        async fn recover_proxy(&self) -> io::Result<()> {
+            Err(invalid())
+        }
         async fn recovery_status(&self) -> io::Result<p::MacosPlatformStatus> {
             Ok(self.status.clone())
         }
@@ -635,6 +917,32 @@ mod tests {
             architecture: std::env::consts::ARCH.into(),
             ..Default::default()
         };
+        assert!(!capability(&status));
+    }
+    #[test]
+    fn test_tun_requires_matching_builds_and_a_healthy_agent() {
+        let mut status = p::MacosPlatformStatus {
+            test_tun_enabled: true,
+            preflight_passed: true,
+            protocol_version: PROTOCOL_VERSION,
+            agent_version: env!("CARGO_PKG_VERSION").into(),
+            architecture: std::env::consts::ARCH.into(),
+            ..Default::default()
+        };
+        assert_eq!(capability(&status), cfg!(feature = "macos-test-tun"));
+        status.preflight_passed = false;
+        assert!(!capability(&status));
+        status.preflight_passed = true;
+        status.system_proxy_recovery_pending = true;
+        assert!(!capability(&status));
+        status.system_proxy_recovery_pending = false;
+        status.recovery_pending = true;
+        assert!(!capability(&status));
+        status.recovery_pending = false;
+        status.test_tun_enabled = false;
+        assert!(!capability(&status));
+        status.test_tun_enabled = true;
+        status.protocol_version += 1;
         assert!(!capability(&status));
     }
     #[test]

@@ -3232,9 +3232,12 @@ name = "usque-platform"
 version = "0.3.4"
 dependencies = [
  "async-trait",
+ "core-foundation",
  "libc",
  "libloading 0.9.0",
  "security-framework",
+ "serde",
+ "sha2",
  "tempfile",
  "thiserror",
  "tokio",

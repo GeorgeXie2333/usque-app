@@ -15,7 +15,18 @@ use usque_transport::{
 };
 
 pub(crate) fn map_error(error: io::Error) -> crate::ControlServiceError {
+    log_tun_failure("runtime", &error);
     crate::ControlServiceError::PlatformVpn(error.to_string())
+}
+pub(super) fn log_tun_failure(stage: &'static str, error: &io::Error) {
+    let cause = error.get_ref();
+    let agent_failure = cause
+        .and_then(|e| e.downcast_ref::<macos_agent::AgentFailure>())
+        .map(|e| e.0.as_str_name());
+    let transport_failure = cause
+        .and_then(|e| e.downcast_ref::<usque_transport::TransportError>())
+        .map(|e| e.failure(None, None).code.as_str());
+    tracing::warn!(stage, kind = ?error.kind(), os_error = error.raw_os_error(), agent_failure, transport_failure, "macOS TUN operation failed");
 }
 pub(crate) struct MacAgentRuntime {
     tunnel: DataPlaneRuntime,
@@ -134,6 +145,10 @@ impl MacAgentRuntime {
                 Operation::Prepare(configure)
             })
             .await?;
+        tracing::info!(
+            resumed = resume,
+            "macOS TUN Agent prepared the physical egress"
+        );
         let protector = MacSocketProtector::new(agent.clone(), fence.clone(), &physical, control)?;
         let cancel = gate.cancellation.child_token();
         gate.cancellation = cancel.clone();
@@ -160,17 +175,22 @@ impl MacAgentRuntime {
                         _ = tick.tick() => {}
                     }
                     match agent.status().await {
-                        Ok(status) if protector.observe(&status) => {}
-                        _ => {
-                            failure.send_replace(Some(
-                                "macOS Agent or physical network changed; recovery required".into(),
-                            ));
-                            cancel.cancel();
-                            protector.invalidate();
-                            agent.abandon().await;
-                            break;
-                        }
+                        Ok(status) if protector.observe(&status) => continue,
+                        Ok(status) => tracing::warn!(
+                            agent_phase = status.phase,
+                            agent_failure = status.failure,
+                            recovery_pending = status.recovery_pending,
+                            "macOS TUN lost its Agent session or network generation"
+                        ),
+                        Err(error) => log_tun_failure("agent_status", &error),
                     }
+                    failure.send_replace(Some(
+                        "macOS Agent or physical network changed; recovery required".into(),
+                    ));
+                    cancel.cancel();
+                    protector.invalidate();
+                    agent.abandon().await;
+                    break;
                 }
             }))
         };
@@ -184,6 +204,7 @@ impl MacAgentRuntime {
         ))
         .await
         .map_err(io::Error::other)?;
+        tracing::info!("macOS TUN remote data plane prepared");
         apply_final_network(&mut plan, &tunnel.network_parameters());
         let ready = async {
             agent
@@ -192,9 +213,8 @@ impl MacAgentRuntime {
                     plan: Some(plan),
                 }))
                 .await?;
-            let (descriptor, fd) = agent
-                .descriptor(Operation::OpenTun(fence.clone()), &fence)
-                .await?;
+            tracing::info!("macOS TUN Agent applied the interface, DNS and routes");
+            let (descriptor, fd) = agent.descriptor(Operation::OpenTun(fence.clone())).await?;
             macos_agent::verify_utun(&fd, &descriptor)?;
             let packets = crate::macos_tun_io::spawn(
                 tunnel.attach_tun().map_err(io::Error::other)?,
@@ -232,6 +252,7 @@ impl MacAgentRuntime {
         };
         runtime.replace_system_proxy(profile).await?;
         owner.1 = false;
+        tracing::info!("macOS TUN data plane active");
         Ok(runtime)
     }
     pub fn target_committed(&self) -> bool {
@@ -278,6 +299,7 @@ impl MacAgentRuntime {
         self.failure
             .borrow()
             .clone()
+            .or_else(|| self.proxy.as_ref().and_then(|proxy| proxy.failure()))
             .or_else(|| self.tunnel.failure())
     }
     pub fn update_traffic_policy(&mut self, disabled: bool) -> io::Result<()> {
@@ -329,7 +351,7 @@ impl MacAgentRuntime {
         Ok(())
     }
     pub fn system_proxy_active(&self) -> bool {
-        self.proxy.is_some()
+        self.proxy.as_ref().is_some_and(|proxy| proxy.active())
     }
     /// Mark intentional teardown before shared frontends can close TunPacketIo.
     /// A cancelled pump then exits normally instead of abandoning ownership
@@ -490,4 +512,32 @@ fn apply_final_network(
             .collect()
     };
     plan.defer_network_configuration = false;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn macos_tun_diagnostics_record_codes_without_private_error_text() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = dir.path().join("config.json");
+        let writer = crate::logging::LogWriterFactory::open(&config).unwrap();
+        let subscriber = tracing_subscriber::fmt()
+            .json()
+            .with_writer(writer.clone())
+            .finish();
+        tracing::subscriber::with_default(subscriber, || {
+            map_error(io::Error::other(macos_agent::AgentFailure(
+                p::MacosFailure::RecoveryIncomplete,
+            )));
+            map_error(io::Error::other("private-test-endpoint.example"));
+        });
+        writer.flush(Duration::from_secs(5)).unwrap();
+        let log =
+            std::fs::read_to_string(crate::logging::log_directory(&config).join("engine.jsonl"))
+                .unwrap_or_default();
+        assert!(log.contains("MACOS_FAILURE_RECOVERY_INCOMPLETE"));
+        assert!(!log.contains("private-test-endpoint.example"));
+    }
 }

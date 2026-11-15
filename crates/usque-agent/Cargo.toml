@@ -8,6 +8,9 @@ license.workspace = true
 repository.workspace = true
 build = "build.rs"
 
+[features]
+macos-test-tun = []
+
 [dependencies]
 async-trait.workspace = true
 bytes.workspace = true

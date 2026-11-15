@@ -689,7 +689,7 @@ class _ManagedAccountRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final tokens = UsqueTokens.of(context);
-    final ready = identityState == ProfileIdentityState.ready;
+    final ready = identityState.canConnect;
     final tags = <Widget>[
       // A saved choice, not a confirmed connection: brand, no check.
       if (selected)
@@ -946,11 +946,11 @@ class _AccountIdentityLine extends StatelessWidget {
   Widget build(BuildContext context) {
     if (state != ProfileIdentityState.ready) {
       return InlineStatus(
-        label: strings.get(
-          state == ProfileIdentityState.missing
-              ? 'identity_missing'
-              : 'identity_invalid',
-        ),
+        label: strings.get(switch (state) {
+          ProfileIdentityState.missing => 'identity_missing',
+          ProfileIdentityState.locked => 'macos_keychain_locked',
+          _ => 'identity_invalid',
+        }),
         tone: StatusTone.warning,
       );
     }

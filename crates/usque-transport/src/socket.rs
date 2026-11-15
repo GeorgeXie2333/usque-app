@@ -43,6 +43,40 @@ impl PhysicalNetworkSnapshot {
 /// Stable reason returned when exact-generation socket setup races a network
 /// change. Callers may retry only by taking a fresh generation snapshot.
 pub const STALE_GENERATION_REASON: &str = "stale_generation";
+/// An authorized physical connect failed and its unpublished permit was revoked.
+pub const ENDPOINT_UNREACHABLE_REASON: &str = "physical_endpoint_unreachable";
+
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum SocketPrepareError {
+    #[error("stale_generation")]
+    StaleGeneration,
+    #[error("socket preparation failed: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("socket protection failed: {0}")]
+    Protection(String),
+}
+
+impl From<String> for SocketPrepareError {
+    fn from(reason: String) -> Self {
+        match reason.as_str() {
+            STALE_GENERATION_REASON => Self::StaleGeneration,
+            ENDPOINT_UNREACHABLE_REASON => {
+                Self::Io(std::io::Error::other("physical endpoint connect failed"))
+            }
+            _ => Self::Protection(reason),
+        }
+    }
+}
+
+impl SocketPrepareError {
+    pub(crate) fn into_transport_error(self) -> crate::TransportError {
+        match self {
+            Self::StaleGeneration => crate::TransportError::UnderlyingNetworkChanged,
+            Self::Io(error) => crate::TransportError::Io(error),
+            Self::Protection(error) => crate::TransportError::SocketProtection(error),
+        }
+    }
+}
 
 /// Platform-neutral representation of a socket before it connects to a
 /// MASQUE endpoint.

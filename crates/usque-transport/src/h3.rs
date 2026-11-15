@@ -11,7 +11,6 @@ use send_progress::{
 
 use std::collections::VecDeque;
 use std::future::Future;
-use std::io;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -21,7 +20,6 @@ use std::time::{Duration, Instant as StdInstant};
 use boring::ssl::{SslContextBuilder, SslMethod};
 use bytes::Bytes;
 use quiche::h3::NameValue;
-use thiserror::Error;
 use tokio::net::UdpSocket;
 use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::{mpsc, oneshot, watch};
@@ -53,7 +51,7 @@ use crate::pmtu::{
 };
 use crate::queue_metrics::{QueueEntry, QueueKind, QueueMetrics};
 use crate::socket::{
-    DirectEgressLease, STALE_GENERATION_REASON, SocketProtector, noop_socket_protector,
+    DirectEgressLease, SocketPrepareError, SocketProtector, noop_socket_protector,
 };
 use crate::telemetry::{ConnectionAttemptTelemetry, ConnectionEventType};
 use crate::udp_io::{SendDatagram, UDP_ACTOR_DRAIN_LIMIT, UdpReceivePool, is_message_too_long};
@@ -326,26 +324,6 @@ struct PreparedPathSocket {
     egress_lease: DirectEgressLease,
 }
 
-#[derive(Debug, Error)]
-enum SocketPrepareError {
-    #[error("stale_generation")]
-    StaleGeneration,
-    #[error("socket preparation failed: {0}")]
-    Io(#[from] io::Error),
-    #[error("socket protection failed: {0}")]
-    Protection(String),
-}
-
-impl SocketPrepareError {
-    fn into_transport_error(self) -> TransportError {
-        match self {
-            Self::StaleGeneration => TransportError::UnderlyingNetworkChanged,
-            Self::Io(error) => TransportError::Io(error),
-            Self::Protection(error) => TransportError::SocketProtection(error),
-        }
-    }
-}
-
 async fn prepare_initial_udp_socket(
     target: SocketAddr,
     protector: &dyn SocketProtector,
@@ -376,13 +354,7 @@ async fn prepare_udp_for_generation(
             expected_generation,
         )
         .await
-        .map_err(|error| {
-            if error == STALE_GENERATION_REASON {
-                SocketPrepareError::StaleGeneration
-            } else {
-                SocketPrepareError::Protection(error)
-            }
-        })?;
+        .map_err(SocketPrepareError::from)?;
     crate::udp_options::configure_quic_socket(&std_socket)?;
     if protector.network_generation().unwrap_or_default() != expected_generation
         || egress_lease.generation() != Some(expected_generation)

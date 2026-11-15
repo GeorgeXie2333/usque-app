@@ -1,12 +1,10 @@
-//! Owned per-service macOS HTTP proxy settings with encrypted crash recovery.
-//! Only bounded scalar ownership observations enter the encrypted journal. PAC
-//! contents are hashed inside the native boundary; SOCKS settings, exclusion
-//! lists and credential fields are retained as native objects without export.
-use serde::{Deserialize, Serialize};
+//! Agent-owned system proxy leases and migration of older user-encrypted recovery records.
+use crate::macos_agent::{AgentFailure, MacAgentClient};
+#[cfg(test)]
+use std::{collections::BTreeMap, io::Write};
 use std::{
-    collections::{BTreeMap, BTreeSet},
     fs::{self, File, OpenOptions},
-    io::{Read, Write},
+    io::Read,
     net::SocketAddr,
     os::{
         fd::AsRawFd,
@@ -16,104 +14,33 @@ use std::{
     sync::{Arc, Mutex},
 };
 use usque_core::chain_exit::store::ProfileCipher;
+use usque_ipc::agent_v1::{self as p, macos_agent_request::Operation};
 use uuid::Uuid;
+#[cfg(test)]
 use zeroize::Zeroizing;
 
-mod native;
+pub use usque_platform::macos_proxy::Error;
+use usque_platform::macos_proxy::{Backend, Journal, NativeBackend, Result};
+#[cfg(test)]
+use usque_platform::macos_proxy::{Change, Edit, Service, Value, Values};
 const JOURNAL_ID: Uuid = Uuid::from_bytes([
     0x61, 0x40, 0x1b, 0x21, 0x73, 0xc7, 0x4f, 0x64, 0x9a, 0xc3, 0x82, 0xb0, 0x17, 0x12, 0xd6, 0x6c,
 ]);
 const MAX_JOURNAL_BYTES: u64 = 512 * 1024;
-const MAX_SERVICES: usize = 256;
-const KEYS: [&str; 8] = [
-    "HTTPEnable",
-    "HTTPProxy",
-    "HTTPPort",
-    "HTTPSEnable",
-    "HTTPSProxy",
-    "HTTPSPort",
-    "ProxyAutoConfigEnable",
-    "ProxyAutoDiscoveryEnable",
-];
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
-pub enum Error {
-    #[error("copy Usque to Applications and open that copy before enabling system integration")]
-    InstallRequired,
-    #[error("macOS system proxy authorization was cancelled; retry to request permission again")]
-    PermissionCancelled,
-    #[error("macOS system proxy authorization is required; retry to request permission")]
-    PermissionRequired,
-    #[error("macOS system proxy preferences are busy or changed; retry")]
-    Conflict,
-    #[error("macOS system proxy recovery could not be verified; its encrypted journal is retained")]
-    RecoveryPending,
-    #[error("macOS system proxy requires an enabled physical network service")]
-    NoServices,
-    #[error("macOS system proxy requires a loopback HTTP listener")]
-    InvalidListener,
-    #[error("macOS system proxy configuration is unavailable")]
-    Unavailable,
-}
-impl Error {
-    pub(crate) fn code(self) -> &'static str {
-        match self {
-            Self::InstallRequired => "MACOS_INSTALL_REQUIRED",
-            Self::PermissionCancelled => "SYSTEM_PROXY_PERMISSION_CANCELLED",
-            Self::PermissionRequired => "SYSTEM_PROXY_PERMISSION_REQUIRED",
-            Self::Conflict => "SYSTEM_PROXY_CONFLICT",
-            Self::RecoveryPending => "SYSTEM_PROXY_RECOVERY_PENDING",
-            Self::NoServices => "SYSTEM_PROXY_NO_NETWORK_SERVICE",
-            Self::InvalidListener => "SYSTEM_PROXY_INVALID_LISTENER",
-            Self::Unavailable => "SYSTEM_PROXY_UNAVAILABLE",
-        }
-    }
-    pub(crate) fn retryable(self) -> bool {
-        self != Self::InvalidListener
-    }
-}
-type Result<T> = std::result::Result<T, Error>;
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-enum Value {
-    Text(String),
-    Integer(i64),
-    Boolean(bool),
-}
-type Values = BTreeMap<String, Value>;
-#[derive(Clone)]
-struct Service {
-    id: String,
-    eligible: bool,
-    values: Values,
-    pac_fingerprint: String,
-}
-#[derive(Clone)]
-struct Patch {
-    service: String,
-    key: String,
-    before: Option<Value>,
-    after: Option<Value>,
-}
-type Edit<'a> = dyn FnMut(&[Service]) -> Result<Vec<Patch>> + 'a;
-trait Backend: Send + Sync {
-    /// Hold the native preferences lock across observation, durable intent,
-    /// compare-and-set, commit and apply. A cancelled prompt occurs before edit.
-    fn transaction(&self, interactive: bool, edit: &mut Edit<'_>) -> Result<()>;
-}
-
 #[derive(Clone)]
 pub(crate) struct Context {
     path: PathBuf,
     cipher: Arc<dyn ProfileCipher>,
     backend: Arc<dyn Backend>,
+    pending_lease: Arc<Mutex<Option<Uuid>>>,
 }
 impl Context {
     pub(crate) fn new(directory: &Path, cipher: Arc<dyn ProfileCipher>) -> Self {
         Self {
             path: directory.join("macos-system-proxy-v1.sealed"),
             cipher,
-            backend: Arc::new(native::NativeBackend::default()),
+            backend: Arc::new(NativeBackend::default()),
+            pending_lease: Default::default(),
         }
     }
     /// A failed start can have committed preferences before native apply or
@@ -121,6 +48,10 @@ impl Context {
     /// no live guard was returned. Treat an unreadable path as pending too.
     pub(crate) fn recovery_pending(&self) -> bool {
         self.path.try_exists().unwrap_or(true)
+            || self
+                .pending_lease
+                .lock()
+                .map_or(true, |lease| lease.is_some())
     }
     pub(crate) async fn start(&self, listener: SocketAddr) -> Result<MacSystemProxyGuard> {
         if !listener.ip().is_loopback() || listener.port() == 0 {
@@ -142,62 +73,122 @@ impl Context {
         if volume.f_flags & libc::MNT_RDONLY as u32 != 0 {
             return Err(Error::InstallRequired);
         }
-        let context = self.clone();
-        let transaction = tokio::task::spawn_blocking(move || {
-            Transaction::start(context.path, context.cipher, context.backend, listener)
-        })
-        .await
-        .map_err(|_| Error::Unavailable)??;
-        Ok(MacSystemProxyGuard {
-            transaction: Arc::new(Mutex::new(transaction)),
-        })
+        // Drain an older Engine's user-encrypted intent before handing ownership
+        // to the root service. No new user-authorized transaction is created.
+        self.recover(false).await?;
+        let client = MacAgentClient::connect()
+            .await
+            .map_err(|_| Error::AgentRequired)?;
+        let status = client.status().await.map_err(|_| Error::AgentRequired)?;
+        if status.system_proxy_recovery_pending {
+            client
+                .empty(Operation::RecoverProxy(p::Empty {}))
+                .await
+                .map_err(|_| Error::RecoveryPending)?;
+        }
+        if !status.system_proxy_supported {
+            return Err(Error::AgentRequired);
+        }
+        let lease = Uuid::new_v4();
+        let request = Operation::AcquireProxy(p::MacosProxyListener {
+            lease: lease.to_string(),
+            loopback_ip: listener.ip().to_string(),
+            port: listener.port().into(),
+        });
+        if let Err(error) = client.empty(request).await {
+            if let Some(failure) = error
+                .get_ref()
+                .and_then(|e| e.downcast_ref::<AgentFailure>())
+            {
+                return Err(match failure.0 {
+                    p::MacosFailure::Busy | p::MacosFailure::OwnershipConflict => Error::Conflict,
+                    p::MacosFailure::ProxyNoService => Error::NoServices,
+                    p::MacosFailure::Journal | p::MacosFailure::RecoveryIncomplete => {
+                        *self
+                            .pending_lease
+                            .lock()
+                            .map_err(|_| Error::RecoveryPending)? = Some(lease);
+                        Error::RecoveryPending
+                    }
+                    _ => Error::Unavailable,
+                });
+            }
+            *self
+                .pending_lease
+                .lock()
+                .map_err(|_| Error::RecoveryPending)? = Some(lease);
+            self.recover(false).await?;
+            return Err(Error::Unavailable);
+        }
+        Ok(MacSystemProxyGuard { client, lease })
     }
     pub(crate) async fn recover(&self, interactive: bool) -> Result<()> {
+        let lease = *self
+            .pending_lease
+            .lock()
+            .map_err(|_| Error::RecoveryPending)?;
+        if let Some(lease) = lease {
+            release_on_new_connection(lease).await?;
+            let mut pending = self
+                .pending_lease
+                .lock()
+                .map_err(|_| Error::RecoveryPending)?;
+            if *pending == Some(lease) {
+                *pending = None;
+            }
+        }
         if !self.path.try_exists().map_err(|_| Error::RecoveryPending)? {
             return Ok(());
         }
         let context = self.clone();
         tokio::task::spawn_blocking(move || {
-            let mut transaction = Transaction::open(context.path, context.cipher, context.backend)?;
-            // Startup passes false. Only an explicit retry may acquire rights;
-            // a live Engine can reuse the authorization from its connection.
-            transaction.restore(interactive)
+            usque_platform::macos_keychain::INTERACTIVE.sync_scope(interactive, || {
+                let mut transaction =
+                    Transaction::open(context.path, context.cipher, context.backend)?;
+                transaction.restore(interactive)
+            })
         })
         .await
         .map_err(|_| Error::RecoveryPending)?
     }
+}
+async fn release_on_new_connection(lease: Uuid) -> Result<()> {
+    if let Ok(client) = MacAgentClient::connect().await
+        && client.empty(release_request(lease)).await.is_ok()
+    {
+        return Ok(());
+    }
+    crate::macos_agent::confirm_proxy_cleanup(Path::new(crate::macos_agent::INSTALL_DIRECTORY))
+        .await
+        .map_err(|_| Error::RecoveryPending)
+}
+fn release_request(lease: Uuid) -> Operation {
+    Operation::ReleaseProxy(p::MacosProxyRelease {
+        lease: lease.to_string(),
+    })
 }
 pub(crate) struct MacSystemProxyGuard {
-    transaction: Arc<Mutex<Transaction>>,
+    client: MacAgentClient,
+    lease: Uuid,
 }
 impl MacSystemProxyGuard {
-    pub(crate) async fn shutdown(&mut self, interactive: bool) -> Result<()> {
-        let transaction = Arc::clone(&self.transaction);
-        tokio::task::spawn_blocking(move || {
-            transaction
-                .lock()
-                .map_err(|_| Error::RecoveryPending)?
-                .restore(interactive)
-        })
-        .await
-        .map_err(|_| Error::RecoveryPending)?
+    pub fn active(&self) -> bool {
+        self.client.proxy_stream_alive()
     }
-}
-#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
-struct Change {
-    service: String,
-    key: String,
-    before: Option<Value>,
-    applied: Value,
-}
-#[derive(Serialize, Deserialize)]
-struct Journal {
-    version: u32,
-    changes: Vec<Change>,
-    // All group members are observed, including members already equal to the
-    // target. Such observations never cause no-op native mutations.
-    observations: Vec<Change>,
-    pac_fingerprints: BTreeMap<String, String>,
+    pub fn failure(&self) -> Option<String> {
+        (!self.active()).then(|| "macOS system proxy service disconnected".into())
+    }
+    pub(crate) async fn shutdown(&mut self, _interactive: bool) -> Result<()> {
+        if self
+            .client
+            .empty(release_request(self.lease))
+            .await
+            .is_err()
+        {
+            release_on_new_connection(self.lease).await?;
+        }
+        Ok(())
+    }
 }
 struct Transaction {
     path: PathBuf,
@@ -254,6 +245,7 @@ impl Transaction {
         result.load()?;
         Ok(result)
     }
+    #[cfg(test)]
     fn start(
         path: PathBuf,
         cipher: Arc<dyn ProfileCipher>,
@@ -266,57 +258,10 @@ impl Transaction {
         let mut result = Self::open(path, cipher, backend)?;
         result.restore(true)?;
         let backend = Arc::clone(&result.backend);
-        let desired = desired(listener);
         backend.transaction(true, &mut |services| {
-            let eligible: Vec<_> = services.iter().filter(|service| service.eligible).collect();
-            if eligible.is_empty() {
-                return Err(Error::NoServices);
-            }
-            if services.len() > MAX_SERVICES {
-                return Err(Error::Unavailable);
-            }
-            let observations: Vec<_> = eligible
-                .iter()
-                .flat_map(|service| {
-                    desired.iter().map(move |(key, value)| Change {
-                        service: service.id.clone(),
-                        key: key.clone(),
-                        before: service.values.get(key).cloned(),
-                        applied: value.clone(),
-                    })
-                })
-                .collect();
-            let changes = observations
-                .iter()
-                .filter(|observation| observation.before.as_ref() != Some(&observation.applied))
-                .cloned()
-                .collect();
-            let pac_fingerprints = eligible
-                .iter()
-                .map(|service| (service.id.clone(), service.pac_fingerprint.clone()))
-                .collect();
-            result.journal = Some(Journal {
-                version: 2,
-                changes,
-                observations,
-                pac_fingerprints,
-            });
-            // Durable encrypted intent is completed before the native backend
-            // receives any patch, including before its first staged mutation.
+            result.journal = Some(Journal::capture(services, listener)?);
             result.persist()?;
-            Ok(result
-                .journal
-                .as_ref()
-                .unwrap()
-                .changes
-                .iter()
-                .map(|change| Patch {
-                    service: change.service.clone(),
-                    key: change.key.clone(),
-                    before: change.before.clone(),
-                    after: Some(change.applied.clone()),
-                })
-                .collect())
+            Ok(result.journal.as_ref().unwrap().apply_patches())
         })?;
         Ok(result)
     }
@@ -351,45 +296,11 @@ impl Transaction {
             .map_err(|_| Error::RecoveryPending)?;
         let journal: Journal =
             serde_json::from_slice(&plaintext).map_err(|_| Error::RecoveryPending)?;
-        let mut identities = BTreeSet::new();
-        let mut observed = BTreeSet::new();
-        if journal.version != 2
-            || journal.changes.len() > MAX_SERVICES * KEYS.len()
-            || journal.observations.len() > MAX_SERVICES * KEYS.len()
-            || journal.pac_fingerprints.len() > MAX_SERVICES
-            || journal.observations.iter().any(|observation| {
-                !valid_observation(observation)
-                    || !observed.insert((observation.service.clone(), observation.key.clone()))
-            })
-            || journal.changes.iter().any(|change| {
-                !valid_observation(change)
-                    || change.before.as_ref() == Some(&change.applied)
-                    || !identities.insert((change.service.clone(), change.key.clone()))
-                    || !journal.observations.contains(change)
-            })
-            || journal
-                .pac_fingerprints
-                .iter()
-                .any(|(service, fingerprint)| {
-                    !valid_service_id(service)
-                        || fingerprint.len() != 64
-                        || !fingerprint.bytes().all(|byte| byte.is_ascii_hexdigit())
-                        || KEYS
-                            .iter()
-                            .any(|key| !observed.contains(&(service.clone(), (*key).into())))
-                })
-            || journal
-                .observations
-                .iter()
-                .any(|observation| !journal.pac_fingerprints.contains_key(&observation.service))
-        {
-            // Older incomplete per-key journals are retained: without the
-            // complete observations they cannot prove ownership of a group.
-            return Err(Error::RecoveryPending);
-        }
+        journal.validate()?;
         self.journal = Some(journal);
         Ok(())
     }
+    #[cfg(test)]
     fn persist(&self) -> Result<()> {
         let plaintext = Zeroizing::new(
             serde_json::to_vec(self.journal.as_ref().ok_or(Error::RecoveryPending)?)
@@ -428,52 +339,7 @@ impl Transaction {
             return Ok(());
         };
         self.backend.transaction(interactive, &mut |services| {
-            Ok(journal
-                .changes
-                .iter()
-                .filter_map(|change| {
-                    let service = services
-                        .iter()
-                        .find(|service| service.id == change.service)?;
-                    let current = service.values.get(&change.key);
-                    let group: &[&str] = match change.key.as_str() {
-                        "HTTPEnable" | "HTTPProxy" | "HTTPPort" => {
-                            &["HTTPEnable", "HTTPProxy", "HTTPPort"]
-                        }
-                        "HTTPSEnable" | "HTTPSProxy" | "HTTPSPort" => {
-                            &["HTTPSEnable", "HTTPSProxy", "HTTPSPort"]
-                        }
-                        _ => &[],
-                    };
-                    // A partial native apply may leave a mixture of our
-                    // before/applied values. Any other group member indicates
-                    // a later owner, whose endpoint AND enable flag must stay.
-                    if group.iter().any(|key| {
-                        let observation = journal.observations.iter().find(|observation| {
-                            observation.service == change.service && observation.key == *key
-                        });
-                        observation.is_none_or(|observation| {
-                            let current = service.values.get(*key);
-                            current != observation.before.as_ref()
-                                && current != Some(&observation.applied)
-                        })
-                    }) {
-                        return None;
-                    }
-                    if change.key == "ProxyAutoConfigEnable"
-                        && journal.pac_fingerprints.get(&change.service)
-                            != Some(&service.pac_fingerprint)
-                    {
-                        return None;
-                    }
-                    (current == Some(&change.applied)).then(|| Patch {
-                        service: change.service.clone(),
-                        key: change.key.clone(),
-                        before: current.cloned(),
-                        after: change.before.clone(),
-                    })
-                })
-                .collect())
+            Ok(journal.restore_patches(services))
         })?;
         fs::remove_file(&self.path).map_err(|_| Error::RecoveryPending)?;
         File::open(self.path.parent().ok_or(Error::RecoveryPending)?)
@@ -486,51 +352,6 @@ impl Transaction {
 impl Drop for Transaction {
     fn drop(&mut self) {
         let _ = self.restore(false);
-    }
-}
-fn valid_observation(change: &Change) -> bool {
-    valid_service_id(&change.service)
-        && KEYS.contains(&change.key.as_str())
-        && valid_value(&change.key, &change.applied)
-        && change
-            .before
-            .as_ref()
-            .is_none_or(|value| valid_value(&change.key, value))
-}
-fn desired(listener: SocketAddr) -> Values {
-    let host = Value::Text(listener.ip().to_string());
-    let port = Value::Integer(i64::from(listener.port()));
-    [
-        ("HTTPEnable", Value::Integer(1)),
-        ("HTTPProxy", host.clone()),
-        ("HTTPPort", port.clone()),
-        ("HTTPSEnable", Value::Integer(1)),
-        ("HTTPSProxy", host),
-        ("HTTPSPort", port),
-        ("ProxyAutoConfigEnable", Value::Integer(0)),
-        ("ProxyAutoDiscoveryEnable", Value::Integer(0)),
-    ]
-    .into_iter()
-    .map(|(key, value)| (key.into(), value))
-    .collect()
-}
-fn valid_service_id(value: &str) -> bool {
-    !value.is_empty()
-        && value.len() <= 256
-        && value.is_ascii()
-        && !value.chars().any(char::is_control)
-}
-fn valid_value(key: &str, value: &Value) -> bool {
-    match (key, value) {
-        ("HTTPProxy" | "HTTPSProxy", Value::Text(text)) => {
-            text.len() <= 4096 && !text.chars().any(char::is_control)
-        }
-        ("HTTPPort" | "HTTPSPort", Value::Integer(value)) => (0..=65535).contains(value),
-        (
-            "HTTPEnable" | "HTTPSEnable" | "ProxyAutoConfigEnable" | "ProxyAutoDiscoveryEnable",
-            Value::Integer(0 | 1) | Value::Boolean(_),
-        ) => true,
-        _ => false,
     }
 }
 fn effective_uid() -> u32 {

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:usque/core/app_strings.dart';
 import 'package:usque/core/user_facing_errors.dart';
 import 'package:usque/models/app_models.dart';
@@ -29,8 +30,88 @@ class _FailingConnection extends FakeEngineClient {
   Future<EngineSnapshot> retry() async => throw error;
 }
 
+class _LockedAccountEngine extends FakeEngineClient {
+  @override
+  Future<ProfileCatalog> importLegacyProfiles(
+    List<UsqueProfile> profiles,
+    String activeProfileId,
+  ) async {
+    final catalog = await super.importLegacyProfiles(profiles, activeProfileId);
+    if (calls.contains('connect')) return catalog;
+    return ProfileCatalog(
+      profiles: catalog.profiles,
+      activeProfileId: catalog.activeProfileId,
+      identityStates: {catalog.activeProfileId: ProfileIdentityState.locked},
+    );
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  test(
+    'startup skips the locked account and a manual connection refreshes its status',
+    () async {
+      SharedPreferences.setMockInitialValues({'onboarding_complete': true});
+      final engine = _LockedAccountEngine()
+        ..legacyProfilesImported = true
+        ..storedProfiles = [
+          UsqueProfile.defaultProfile().copyWith(autoConnect: true),
+        ];
+      final controller = AppController(engine);
+      addTearDown(controller.dispose);
+      await controller.initialize();
+      expect(
+        controller.identityState(controller.activeProfileId),
+        ProfileIdentityState.locked,
+      );
+      expect(engine.calls, isNot(contains('connect')));
+      await controller.connectOrDisconnect();
+      await Future<void>.delayed(Duration.zero);
+      expect(engine.calls.where((action) => action == 'connect'), hasLength(1));
+      expect(
+        controller.identityState(controller.activeProfileId),
+        ProfileIdentityState.ready,
+      );
+    },
+  );
+
+  test(
+    'a locked account permits manual connection and explains authorization',
+    () {
+      expect(ProfileIdentityState.locked.canConnect, isTrue);
+      expect(ProfileIdentityState.missing.canConnect, isFalse);
+      expect(ProfileIdentityState.invalid.canConnect, isFalse);
+      final strings = AppStrings(LocalePreference.simplifiedChinese);
+      final message = userFacingError(
+        strings,
+        const EngineException('MACOS_KEYCHAIN_ACCESS_REQUIRED', _privateError),
+      );
+      expect(message, contains('钥匙串'));
+      expect(message, isNot(contains(_privateError)));
+    },
+  );
+
+  test(
+    'missing macOS system proxy service explains installation and restart',
+    () {
+      for (final locale in [
+        LocalePreference.english,
+        LocalePreference.simplifiedChinese,
+        LocalePreference.traditionalChineseHongKong,
+        LocalePreference.traditionalChineseTaiwan,
+      ]) {
+        final strings = AppStrings(locale);
+        final message = userFacingError(
+          strings,
+          const EngineException('MACOS_PROXY_AGENT_REQUIRED', _privateError),
+        );
+        expect(message, strings.get('macos_proxy_agent_required'));
+        expect(message, contains('Usque'));
+        expect(message, isNot(contains(_privateError)));
+      }
+    },
+  );
 
   test(
     'macOS protected bootstrap refusal explains the retry without secrets',

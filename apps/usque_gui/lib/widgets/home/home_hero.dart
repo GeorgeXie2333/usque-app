@@ -38,9 +38,9 @@ _HeroView _heroView(AppController controller) => (
   canAct: controller.connectionActionEnabled,
   errorCode: controller.snapshot.errorCode,
   profileName: controller.strings.accountName(controller.activeProfile),
-  identityReady:
-      controller.identityState(controller.activeProfileId) ==
-      ProfileIdentityState.ready,
+  identityReady: controller
+      .identityState(controller.activeProfileId)
+      .canConnect,
   chainEnabled: controller.activeProfile.chainEnabled,
   chainStage: controller.snapshot.chainExit.stage,
   gateStage: controller.snapshot.vpnGate.stage,
@@ -258,7 +258,7 @@ class HomeConnectionHero extends StatelessWidget {
       return;
     }
     final profile = controller.activeProfile;
-    if (controller.identityState(profile.id) != ProfileIdentityState.ready) {
+    if (!controller.identityState(profile.id).canConnect) {
       final repaired = await showProfileIdentityDialog(
         context,
         controller: controller,

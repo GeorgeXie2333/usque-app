@@ -13,6 +13,48 @@ pub struct PhysicalSocket {
     revoked: AtomicBool,
     pub permit: Permit,
 }
+
+/// Set exclusively at connect(2). The Agent discards this error if revoking
+/// the unpublished socket's permit fails.
+#[derive(Debug, thiserror::Error)]
+#[error("physical endpoint connect failed: {0}")]
+pub(super) struct EndpointConnectFailure(pub(super) io::Error);
+
+pub(super) fn endpoint_connect_error(error: io::Error) -> io::Error {
+    match error.raw_os_error() {
+        Some(
+            libc::EHOSTUNREACH
+            | libc::EHOSTDOWN
+            | libc::ENETUNREACH
+            | libc::ECONNREFUSED
+            | libc::ECONNRESET
+            | libc::ECONNABORTED
+            | libc::ETIMEDOUT,
+        ) => io::Error::new(error.kind(), EndpointConnectFailure(error)),
+        _ => error,
+    }
+}
+fn bind_interface(socket: &Socket, ipv4: bool, index: u32) -> io::Result<()> {
+    let (level, option) = if ipv4 {
+        (libc::IPPROTO_IP, libc::IP_BOUND_IF)
+    } else {
+        (libc::IPPROTO_IPV6, libc::IPV6_BOUND_IF)
+    };
+    // SAFETY: the kernel copies a u32 interface index from live storage.
+    if unsafe {
+        libc::setsockopt(
+            socket.as_raw_fd(),
+            level,
+            option,
+            (&index as *const u32).cast(),
+            std::mem::size_of::<u32>() as _,
+        )
+    } != 0
+    {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
+}
 impl PhysicalSocket {
     pub fn create(network: &Network, remote: SocketAddr, protocol: u8) -> io::Result<Self> {
         // SAFETY: read process credential before allocating anything.
@@ -58,24 +100,7 @@ impl PhysicalSocket {
             if remote.is_ipv6() {
                 socket.set_only_v6(true)?;
             }
-            let (level, option) = if remote.is_ipv4() {
-                (libc::IPPROTO_IP, libc::IP_BOUND_IF)
-            } else {
-                (libc::IPPROTO_IPV6, libc::IPV6_BOUND_IF)
-            };
-            // SAFETY: the kernel copies a u32 interface index from live storage.
-            if unsafe {
-                libc::setsockopt(
-                    socket.as_raw_fd(),
-                    level,
-                    option,
-                    (&path.index as *const u32).cast(),
-                    std::mem::size_of::<u32>() as _,
-                )
-            } != 0
-            {
-                return Err(io::Error::last_os_error());
-            }
+            bind_interface(&socket, remote.is_ipv4(), path.index)?;
             let mut local = SocketAddr::new(source, 0);
             if let SocketAddr::V6(address) = &mut local
                 && address.ip().is_unicast_link_local()
@@ -125,7 +150,7 @@ impl PhysicalSocket {
             Err(e) if self.permit.protocol == 6 && e.raw_os_error() == Some(libc::EINPROGRESS) => {
                 Ok(())
             }
-            Err(e) => Err(e),
+            Err(e) => Err(endpoint_connect_error(e)),
         }
     }
     pub fn duplicate(&self) -> io::Result<OwnedFd> {
@@ -158,6 +183,45 @@ mod tests {
             .err()
             .unwrap();
         assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+    }
+    #[test]
+    fn darwin_interface_bound_sockets_reach_only_loopback_test_peers_in_both_families() {
+        use std::{
+            io::{Read, Write},
+            net::{TcpListener, TcpStream, UdpSocket},
+            time::Duration,
+        };
+        // SAFETY: a static, NUL-terminated interface name; no network mutation.
+        let index = unsafe { libc::if_nametoindex(c"lo0".as_ptr()) };
+        assert_ne!(index, 0);
+        for (ip, domain) in [("127.0.0.1:0", Domain::IPV4), ("[::1]:0", Domain::IPV6)] {
+            let addr: SocketAddr = ip.parse().unwrap();
+            let udp = UdpSocket::bind(addr).unwrap();
+            udp.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+            let socket = Socket::new(domain, Type::DGRAM, Some(Protocol::UDP)).unwrap();
+            bind_interface(&socket, addr.is_ipv4(), index).unwrap();
+            socket.connect(&udp.local_addr().unwrap().into()).unwrap();
+            socket.send(b"udp").unwrap();
+            let mut payload = [0; 3];
+            let (n, source) = udp.recv_from(&mut payload).unwrap();
+            assert!(source.ip().is_loopback());
+            assert_eq!(&payload[..n], b"udp");
+            let tcp = TcpListener::bind(addr).unwrap();
+            let socket = Socket::new(domain, Type::STREAM, Some(Protocol::TCP)).unwrap();
+            bind_interface(&socket, addr.is_ipv4(), index).unwrap();
+            socket
+                .connect_timeout(&tcp.local_addr().unwrap().into(), Duration::from_secs(2))
+                .unwrap();
+            let mut client = TcpStream::from(socket);
+            client.write_all(b"tcp").unwrap();
+            let (mut accepted, source) = tcp.accept().unwrap();
+            assert!(source.ip().is_loopback());
+            accepted
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+            accepted.read_exact(&mut payload).unwrap();
+            assert_eq!(&payload, b"tcp");
+        }
     }
     fn loopback(protocol: u8) -> (PhysicalSocket, OwnedFd) {
         let remote = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();

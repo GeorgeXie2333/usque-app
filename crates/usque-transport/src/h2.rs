@@ -46,7 +46,7 @@ use crate::connect_ip_control::{
 };
 use crate::network_quality::NetworkQualityTelemetry;
 use crate::packet_batch::{PacketBatch, PacketBatchResult};
-use crate::socket::{LeasedIo, STALE_GENERATION_REASON, SocketProtector, noop_socket_protector};
+use crate::socket::{LeasedIo, SocketPrepareError, SocketProtector, noop_socket_protector};
 use crate::telemetry::{ConnectionAttemptTelemetry, ConnectionEventType};
 
 const CONNECT_URI: &str = "https://cloudflareaccess.com/";
@@ -581,13 +581,7 @@ pub(crate) async fn connect_h2_with_cancellation(
         _ = cancellation.cancelled() => return Err(TransportError::TunnelClosed),
         result = protecting => result,
     }
-    .map_err(|error| {
-        if error == STALE_GENERATION_REASON {
-            TransportError::UnderlyingNetworkChanged
-        } else {
-            TransportError::SocketProtection(error)
-        }
-    })?;
+    .map_err(|reason| SocketPrepareError::from(reason).into_transport_error())?;
     if protector.network_generation().unwrap_or_default() != expected_generation
         || egress_lease.generation() != Some(expected_generation)
     {
@@ -1721,6 +1715,70 @@ mod tests {
             "2606:4700:110:8f13::2".parse().unwrap(),
         )
         .unwrap()
+    }
+
+    #[tokio::test]
+    async fn endpoint_race_survives_an_unreachable_agent_socket_for_both_carriers() {
+        use crate::socket::{PhysicalSocketPurpose, PreparedTcpSocket};
+
+        struct FailedSetup(&'static str);
+        #[async_trait::async_trait]
+        impl SocketProtector for FailedSetup {
+            fn protect(&self, _: SocketHandle) -> Result<(), String> {
+                panic!("test must only use Agent-prepared sockets")
+            }
+            async fn prepare_tcp(
+                &self,
+                _: SocketAddr,
+                _: PhysicalSocketPurpose,
+                _: u64,
+            ) -> Result<(PreparedTcpSocket, DirectEgressLease), String> {
+                Err(self.0.into())
+            }
+            async fn prepare_udp(
+                &self,
+                _: SocketAddr,
+                _: PhysicalSocketPurpose,
+                _: u64,
+            ) -> Result<(std::net::UdpSocket, DirectEgressLease), String> {
+                Err(self.0.into())
+            }
+        }
+        let endpoint: SocketAddr = "[::1]:443".parse().unwrap();
+        let identity = loopback_identity();
+        for (reason, retry) in [
+            (crate::ENDPOINT_UNREACHABLE_REASON, true),
+            ("denied", false),
+        ] {
+            let h2 = connect_h2_with_protector(
+                endpoint,
+                "localhost",
+                &identity,
+                &FailedSetup(reason),
+                None,
+            )
+            .await
+            .err()
+            .unwrap();
+            let h3 = crate::h3::connect_h3_with_protector(
+                endpoint,
+                "localhost",
+                &identity,
+                crate::h3::H3ConnectSettings {
+                    inner_mtu: 1280,
+                    congestion_control: Default::default(),
+                },
+                Arc::new(FailedSetup(reason)),
+                None,
+            )
+            .await
+            .err()
+            .unwrap();
+            for error in [h2, h3] {
+                let mut candidates = crate::endpoint_race::CandidateFailures::default();
+                assert_eq!(candidates.record(error).is_ok(), retry, "{reason}");
+            }
+        }
     }
 
     #[tokio::test]

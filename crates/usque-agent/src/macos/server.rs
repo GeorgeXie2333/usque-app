@@ -3,13 +3,14 @@
 use super::{
     auth::CallerPolicy,
     backend::NativeBackend,
-    journal::JournalStore,
+    journal::{JournalStore, SecureStore},
+    system_proxy::{Receipt, SystemProxy},
     transaction::{Coordinator, Fence, Owner, Phase, Store},
 };
 use std::{
     fs, io,
     os::{
-        fd::OwnedFd,
+        fd::{AsRawFd, OwnedFd},
         unix::{
             fs::{FileTypeExt, MetadataExt, PermissionsExt},
             net::{UnixListener, UnixStream},
@@ -33,6 +34,7 @@ use usque_ipc::{
 use uuid::Uuid;
 type State = Coordinator<JournalStore, NativeBackend>;
 struct Service {
+    proxy: Option<SystemProxy>,
     state: Option<State>,
     failure: p::MacosFailure,
     owner_connection: Option<Uuid>,
@@ -112,12 +114,53 @@ pub fn validate_only() -> io::Result<()> {
     require_root()?;
     let _single = super::journal::service_lock()?;
     CallerPolicy::load()?;
+    SystemProxy::open()?;
     open_state().map(|_| ())
 }
 pub fn recover_for_maintenance() -> io::Result<()> {
     require_root()?;
+    let marker = Path::new(PROXY_INITIALIZATION_PATH);
+    let receipt = Path::new(super::system_proxy::PATH);
+    // The incumbent's own validator checks all records its version requires.
+    // Run before taking the exclusive lock, which its validator also needs.
+    let legacy = validated_pre_proxy_install(marker, receipt, || {
+        use super::command::{self, NativeRunner, Program};
+        command::checked(
+            &mut NativeRunner,
+            Program::InstalledAgent,
+            &command::arguments(&["--validate-only"]),
+            None,
+        )
+        .map(|_| ())
+    })?;
     let _single = super::journal::service_lock()?;
+    if !legacy || !proxy_records_absent(marker, receipt)? {
+        SystemProxy::open()?
+            .restore()
+            .map_err(|_| io::Error::other("system proxy recovery incomplete"))?;
+    }
     open_state()?.recover_as_administrator()
+}
+fn proxy_records_absent(marker: &Path, receipt: &Path) -> io::Result<bool> {
+    for file in [marker, receipt] {
+        match fs::symlink_metadata(file) {
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error),
+            Ok(_) => return Ok(false),
+        }
+    }
+    Ok(true)
+}
+fn validated_pre_proxy_install(
+    marker: &Path,
+    receipt: &Path,
+    validate: impl FnOnce() -> io::Result<()>,
+) -> io::Result<bool> {
+    if !proxy_records_absent(marker, receipt)? {
+        return Ok(false);
+    }
+    validate()?;
+    Ok(true)
 }
 /// Only the authorized installer may create the initial pair of clean records.
 /// Existing records must be readable and clean; corrupt/missing recovery
@@ -133,6 +176,8 @@ impl super::journal::Evidence for Initialization {
     }
 }
 const INITIALIZATION_PATH: &str = "/Library/Application Support/Usque/Agent/initialization.json";
+const PROXY_INITIALIZATION_PATH: &str =
+    "/Library/Application Support/Usque/Agent/system-proxy-initialization.json";
 pub fn initialize_state() -> io::Result<()> {
     require_root()?;
     let _single = super::journal::service_lock()?;
@@ -154,6 +199,21 @@ pub fn initialize_state() -> io::Result<()> {
     )?;
     initialize_clean(&mut state, initialized)?;
     initialize_clean(&mut native, initialized)?;
+    let mut marker = SecureStore::<Initialization>::open_root(PROXY_INITIALIZATION_PATH)?;
+    let proxy_initialized = match marker.load() {
+        Ok(Some(record)) if record.complete => true,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => false,
+        _ => {
+            return Err(io::Error::other(
+                "invalid system proxy initialization evidence",
+            ));
+        }
+    };
+    initialize_clean(
+        &mut SecureStore::<Receipt>::open_root(super::system_proxy::PATH)?,
+        proxy_initialized,
+    )?;
+    marker.save_value(Some(&Initialization { complete: true }))?;
     intent.save_value(Some(&Initialization { complete: true }))
 }
 fn initialize_clean<T: super::journal::Evidence>(
@@ -209,6 +269,9 @@ pub fn readiness() -> io::Result<()> {
     };
     if response.failure != 0
         || status.failure != 0
+        || status.system_proxy_active
+        || !status.system_proxy_supported
+        || status.system_proxy_recovery_pending
         || status.recovery_pending
         || status.phase != p::AgentPhase::Clean as i32
         || status.protocol_version != super::MACOS_PROTOCOL_VERSION
@@ -246,6 +309,10 @@ impl Service {
             agent_version: env!("CARGO_PKG_VERSION").into(),
             architecture: std::env::consts::ARCH.into(),
             release_approved: super::RELEASE_APPROVED,
+            test_tun_enabled: super::TEST_TUN_ENABLED,
+            system_proxy_active: self.proxy.as_ref().is_some_and(|proxy| proxy.active()),
+            system_proxy_supported: self.proxy.is_some() && self.state.is_some(),
+            system_proxy_recovery_pending: self.proxy.as_mut().is_none_or(|proxy| proxy.pending()),
             failure: self.failure as i32,
             ..Default::default()
         };
@@ -349,28 +416,46 @@ impl Service {
         if self.state.is_none() {
             return Err(p::MacosFailure::RecoveryIncomplete);
         }
+        if matches!(&operation, Op::Prepare(_) | Op::Resume(_)) {
+            if !super::RELEASE_APPROVED && !super::TEST_TUN_ENABLED {
+                return Err(p::MacosFailure::ReleaseGated);
+            }
+            if self.proxy.as_mut().is_none_or(|proxy| proxy.pending()) {
+                return Err(p::MacosFailure::RecoveryIncomplete);
+            }
+        }
         let parse = |f: Option<p::MacosFence>| -> Result<Fence, p::MacosFailure> {
             f.ok_or(p::MacosFailure::Protocol)?
                 .try_into()
                 .map_err(|_| p::MacosFailure::Protocol)
         };
         match operation {
+            Op::AcquireProxy(request) => self
+                .proxy
+                .as_mut()
+                .ok_or(p::MacosFailure::Journal)?
+                .acquire(owner, connection, request)?,
+            Op::ReleaseProxy(request) => {
+                let lease = super::system_proxy::lease_id(&request.lease)?;
+                self.proxy
+                    .as_mut()
+                    .ok_or(p::MacosFailure::Journal)?
+                    .release(owner, connection, Some(lease))?;
+            }
+            Op::RecoverProxy(_) => self
+                .proxy
+                .as_mut()
+                .ok_or(p::MacosFailure::Journal)?
+                .release(owner, connection, None)?,
             Op::Prepare(value) => {
-                if !super::RELEASE_APPROVED {
-                    return Err(p::MacosFailure::ReleaseGated);
-                }
                 let fence = parse(value.fence)?;
                 if fence.network != self.network_generation {
                     return Err(p::MacosFailure::StaleFence);
                 }
-                let plan: crate::plan::ValidatedTunnelPlan = value
-                    .plan
-                    .ok_or(p::MacosFailure::Protocol)?
-                    .try_into()
-                    .map_err(|_| p::MacosFailure::Protocol)?;
-                if !plan.defer_network_configuration {
-                    return Err(p::MacosFailure::Protocol);
-                }
+                let plan = crate::plan::ValidatedTunnelPlan::from_macos_prepare(
+                    value.plan.ok_or(p::MacosFailure::Protocol)?,
+                )
+                .map_err(|_| p::MacosFailure::Protocol)?;
                 let state = self.state.as_mut().unwrap();
                 if state.state().is_some() || self.owner_connection.is_some() {
                     return Err(p::MacosFailure::Busy);
@@ -518,9 +603,6 @@ impl Service {
                 self.owner_connection = None;
             }
             Op::Resume(value) => {
-                if !super::RELEASE_APPROVED {
-                    return Err(p::MacosFailure::ReleaseGated);
-                }
                 if self.owner_connection.is_some() {
                     return Err(p::MacosFailure::Busy);
                 }
@@ -530,14 +612,10 @@ impl Service {
                 if fence.network != self.network_generation {
                     return Err(p::MacosFailure::StaleFence);
                 }
-                let plan: crate::plan::ValidatedTunnelPlan = next
-                    .plan
-                    .ok_or(p::MacosFailure::Protocol)?
-                    .try_into()
-                    .map_err(|_| p::MacosFailure::Protocol)?;
-                if !plan.defer_network_configuration {
-                    return Err(p::MacosFailure::Protocol);
-                }
+                let plan = crate::plan::ValidatedTunnelPlan::from_macos_prepare(
+                    next.plan.ok_or(p::MacosFailure::Protocol)?,
+                )
+                .map_err(|_| p::MacosFailure::Protocol)?;
                 let state = self.state.as_mut().unwrap();
                 let kill_switch = plan.kill_switch;
                 state.backend_mut().set_plan(plan).map_err(map_error)?;
@@ -578,6 +656,9 @@ impl Service {
         }
     }
     fn lost(&mut self, connection: Uuid) {
+        if let Some(proxy) = self.proxy.as_mut() {
+            proxy.lost(connection);
+        }
         if self.owner_connection != Some(connection) {
             return;
         }
@@ -593,12 +674,35 @@ impl Service {
     }
 }
 fn map_error(error: io::Error) -> p::MacosFailure {
+    if let Some(dial) = error
+        .get_ref()
+        .and_then(|e| e.downcast_ref::<super::socket::EndpointConnectFailure>())
+    {
+        tracing::debug!(
+            os_error = dial.0.raw_os_error(),
+            "physical endpoint connect failed"
+        );
+        return p::MacosFailure::EndpointUnreachable;
+    }
     match error.kind() {
         io::ErrorKind::Unsupported => p::MacosFailure::PfIncompatible,
         io::ErrorKind::PermissionDenied => p::MacosFailure::OwnershipConflict,
         io::ErrorKind::InvalidData => p::MacosFailure::Journal,
         io::ErrorKind::NetworkUnreachable => p::MacosFailure::NetworkChanged,
         _ => p::MacosFailure::RecoveryIncomplete,
+    }
+}
+fn readable(stream: &UnixStream, millis: i32) -> io::Result<bool> {
+    let mut fd = libc::pollfd {
+        fd: stream.as_raw_fd(),
+        events: libc::POLLIN,
+        revents: 0,
+    };
+    // SAFETY: poll only observes one live stream and writes its revents.
+    match unsafe { libc::poll(&mut fd, 1, millis) } {
+        -1 if io::Error::last_os_error().kind() == io::ErrorKind::Interrupted => Ok(false),
+        -1 => Err(io::Error::last_os_error()),
+        count => Ok(count != 0),
     }
 }
 fn serve_connection(
@@ -623,6 +727,18 @@ fn serve_connection(
     };
     let mut sequence = 0;
     while !stopping.load(Ordering::Acquire) {
+        // A quiet proxy connection may outlive the frame timeout (including
+        // sleep). Poll for the first byte/EOF while still bounding partial frames.
+        if service
+            .lock()
+            .map_err(|_| denied())?
+            .proxy
+            .as_ref()
+            .is_some_and(|p| p.owns(connection))
+            && !readable(&stream, 500)?
+        {
+            continue;
+        }
         let frame = darwin_fd::receive_frame(&stream, peer)?;
         if frame.descriptor.is_some() {
             return Err(denied());
@@ -676,16 +792,30 @@ fn serve_connection(
 pub fn serve(stopping: Arc<AtomicBool>) -> io::Result<()> {
     require_root()?;
     let _single = super::journal::service_lock()?;
+    // Invalidate the previous clean-uninstall proof before accepting any lease.
+    let marker = Path::new(super::INSTALL_DIRECTORY).with_added_extension("clean-uninstall");
+    super::journal::verify_root_parents(&marker)?;
+    match fs::remove_file(&marker) {
+        Ok(()) => fs::File::open(marker.parent().ok_or_else(denied)?)?.sync_all()?,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => (),
+        Err(error) => return Err(error),
+    }
     let policy = Arc::new(CallerPolicy::load()?);
     let state = open_state();
+    let mut proxy = SystemProxy::open().ok();
+    if let Some(proxy) = proxy.as_mut() {
+        let _ = proxy.restore(); // Retain failed evidence for explicit recovery.
+    }
     let mut service = match state {
         Ok(state) => Service {
+            proxy,
             network_generation: state.state().map(|t| t.fence.network).unwrap_or(1),
             state: Some(state),
             failure: p::MacosFailure::Unspecified,
             owner_connection: None,
         },
         Err(_) => Service {
+            proxy,
             network_generation: 1,
             state: None,
             failure: p::MacosFailure::Journal,
@@ -793,6 +923,33 @@ pub fn serve(stopping: Arc<AtomicBool>) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn only_endpoint_connect_errors_are_retryable_after_socket_setup() {
+        use super::super::socket::endpoint_connect_error;
+        for errno in [
+            libc::EHOSTUNREACH,
+            libc::EHOSTDOWN,
+            libc::ENETUNREACH,
+            libc::ECONNREFUSED,
+            libc::ETIMEDOUT,
+        ] {
+            assert_eq!(
+                map_error(endpoint_connect_error(io::Error::from_raw_os_error(errno))),
+                p::MacosFailure::EndpointUnreachable,
+            );
+            // The same errno during an Agent check or permit rollback is fatal.
+            assert_ne!(
+                map_error(io::Error::from_raw_os_error(errno)),
+                p::MacosFailure::EndpointUnreachable
+            );
+        }
+        assert_eq!(
+            map_error(endpoint_connect_error(io::Error::from_raw_os_error(
+                libc::EPERM
+            ))),
+            p::MacosFailure::OwnershipConflict,
+        );
+    }
     #[test]
     fn request_ids_are_bounded_and_never_replay_a_mutation() {
         let mut seen = 0;
@@ -924,5 +1081,25 @@ mod tests {
         fs::write(&path, b"corrupt").unwrap();
         assert!(initialize_clean(&mut store, false).is_err());
         assert_eq!(fs::read(&path).unwrap(), b"corrupt");
+    }
+    #[test]
+    fn only_a_validated_pre_proxy_install_can_recover_without_proxy_records() {
+        let dir = tempfile::tempdir().unwrap();
+        let marker = dir.path().join("marker.json");
+        let receipt = dir.path().join("proxy.json");
+        let legacy = || Ok(());
+        let damaged_install = || Err(io::Error::other("required proxy receipt missing"));
+        assert!(validated_pre_proxy_install(&marker, &receipt, legacy).unwrap());
+        assert!(validated_pre_proxy_install(&marker, &receipt, damaged_install).is_err());
+        fs::write(&marker, b"existing").unwrap();
+        assert!(
+            !validated_pre_proxy_install(&marker, &receipt, || panic!("must restore proxy"))
+                .unwrap()
+        );
+        fs::remove_file(&marker).unwrap();
+        std::os::unix::fs::symlink(dir.path().join("missing"), &receipt).unwrap();
+        assert!(
+            !validated_pre_proxy_install(&marker, &receipt, || panic!("dangling receipt")).unwrap()
+        );
     }
 }

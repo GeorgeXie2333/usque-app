@@ -125,7 +125,10 @@ impl ControlService {
             let cipher = self.chain_cipher.clone().ok_or_else(|| {
                 ControlServiceError::FeatureUnavailable("chain credential storage is unavailable")
             })?;
-            let result = tokio::task::spawn_blocking(move || {
+            #[cfg(target_os = "macos")]
+            let interactive =
+                request.action != "list" && usque_platform::macos_keychain::interaction_allowed();
+            let work = move || {
                 let _transaction = store.lock_exclusive()?;
                 let latest = store.load_or_default()?;
                 retained.extend(usque_core::scenarios::retained_chain_profiles(&latest));
@@ -143,9 +146,11 @@ impl ControlService {
                     request,
                     &retained,
                 ))
-            })
-            .await
-            .map_err(|_| {
+            };
+            #[cfg(target_os = "macos")]
+            let work =
+                move || usque_platform::macos_keychain::INTERACTIVE.sync_scope(interactive, work);
+            let result = tokio::task::spawn_blocking(work).await.map_err(|_| {
                 ControlServiceError::InvalidRequest("Chain storage worker failed".into())
             })??;
             Ok(v1::ChainProfileResponse {

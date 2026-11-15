@@ -15,6 +15,7 @@ pub mod resources;
 pub mod routes;
 pub mod server;
 pub mod socket;
+mod system_proxy;
 pub mod transaction;
 pub mod utun;
 
@@ -29,3 +30,10 @@ pub const MACOS_PROTOCOL_VERSION: u32 = 1;
 // Change only with source-bound external acceptance on both architectures.
 // No environment variable, GUI preference or install manifest can override it.
 pub const RELEASE_APPROVED: bool = false;
+
+/// Also recorded in each signed Mach-O so cross-built packages can verify
+/// both helpers without executing them or relying on a mutable bundle plist.
+#[used]
+// SAFETY: this dedicated read-only Mach-O section contains one boolean byte.
+#[unsafe(link_section = "__TEXT,__usque_tun")]
+pub static TEST_TUN_ENABLED: bool = cfg!(feature = "macos-test-tun");

@@ -8,6 +8,7 @@ license.workspace = true
 repository.workspace = true
 
 [features]
+macos-test-tun = []
 default = ["wireguard"]
 wireguard = ["usque-transport/wireguard"]
 

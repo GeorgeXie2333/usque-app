@@ -527,6 +527,13 @@ impl ActiveRuntime {
 
     pub(crate) fn failure(&self) -> Option<String> {
         match self {
+            #[cfg(target_os = "macos")]
+            Self::Proxy(runtime) => runtime
+                .system_proxy
+                .as_ref()
+                .and_then(|proxy| proxy.failure())
+                .or_else(|| runtime.runtime.failure()),
+            #[cfg(not(target_os = "macos"))]
             Self::Proxy(runtime) => runtime.runtime.failure(),
             #[cfg(target_os = "macos")]
             Self::MacVpn(runtime) => runtime.failure(),
@@ -568,7 +575,14 @@ impl ActiveRuntime {
                 runtime.runtime.socks5_listeners(),
                 runtime.runtime.http_listeners(),
                 {
-                    #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
+                    #[cfg(target_os = "macos")]
+                    {
+                        runtime
+                            .system_proxy
+                            .as_ref()
+                            .is_some_and(|proxy| proxy.active())
+                    }
+                    #[cfg(any(windows, target_os = "linux"))]
                     {
                         runtime.system_proxy.is_some()
                     }

@@ -159,6 +159,24 @@ impl TryFrom<agent_v1::TunnelPlan> for ValidatedTunnelPlan {
     type Error = PlanError;
 
     fn try_from(value: agent_v1::TunnelPlan) -> Result<Self, Self::Error> {
+        Self::decode(value, Self::validate)
+    }
+}
+
+impl ValidatedTunnelPlan {
+    /// Darwin applies interface addresses only after the remote data plane is ready.
+    #[cfg(target_os = "macos")]
+    pub(crate) fn from_macos_prepare(value: agent_v1::TunnelPlan) -> Result<Self, PlanError> {
+        if !value.defer_network_configuration {
+            return Err(PlanError::MissingAssignment);
+        }
+        Self::decode(value, Self::validate_network_fields)
+    }
+
+    fn decode(
+        value: agent_v1::TunnelPlan,
+        validate: fn(&Self) -> Result<(), PlanError>,
+    ) -> Result<Self, PlanError> {
         let profile_id =
             Uuid::parse_str(value.profile_id.trim()).map_err(|_| PlanError::ProfileId)?;
         let endpoint =
@@ -267,7 +285,7 @@ impl TryFrom<agent_v1::TunnelPlan> for ValidatedTunnelPlan {
                 .map(preset_policy_from_proto)
                 .transpose()?,
         };
-        plan.validate()?;
+        validate(&plan)?;
         Ok(plan)
     }
 }
@@ -318,6 +336,10 @@ impl ValidatedTunnelPlan {
         if self.defer_network_configuration && !self.vpn_chain {
             return Err(PlanError::MissingAssignment);
         }
+        self.validate_network_fields()
+    }
+
+    pub(crate) fn validate_network_fields(&self) -> Result<(), PlanError> {
         if !(MIN_MTU..=MAX_MTU).contains(&self.mtu) {
             return Err(PlanError::Mtu(u32::from(self.mtu)));
         }

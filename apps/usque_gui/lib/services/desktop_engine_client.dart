@@ -39,6 +39,7 @@ class DesktopEngineClient
         InitialIdentityClient,
         LinuxServiceClient,
         MacosServiceClient,
+        MacosKeychainClient,
         AdsRulesClient {
   @override
   Future<MacosServiceState> getMacosServiceState() async =>
@@ -160,13 +161,20 @@ class DesktopEngineClient
   });
 
   @override
-  Future<InitialIdentityState> getInitialIdentityState(String profileId) =>
-      _serialized(() async {
-        final payload = ControlPayloadWriter()..string(1, profileId);
-        return _requireInitialIdentityState(
-          await _request(50, payload.takeBytes()),
-        );
-      });
+  Future<InitialIdentityState> getInitialIdentityState(
+    String profileId, {
+    bool allowKeychainInteraction = false,
+  }) => _serialized(() async {
+    final payload = ControlPayloadWriter()..string(1, profileId);
+    if (allowKeychainInteraction) payload.boolean(2, true);
+    return _requireInitialIdentityState(
+      await _request(
+        50,
+        payload.takeBytes(),
+        timeout: allowKeychainInteraction ? identityRegistrationTimeout : null,
+      ),
+    );
+  });
 
   InitialIdentityState _requireInitialIdentityState(ControlResponse response) =>
       response.initialIdentityState ??
@@ -679,11 +687,15 @@ class DesktopEngineClient
   Future<void> openAlwaysOnVpnSettings() async {}
 
   @override
-  Future<EngineSnapshot> connect(UsqueProfile profile) {
+  Future<EngineSnapshot> connect(
+    UsqueProfile profile, {
+    bool background = false,
+  }) {
     final intent = ++_connectionIntent;
     return _serialized(() async {
       final payload = ControlPayloadWriter()..string(1, profile.id);
       if (_continuousConnection) payload.boolean(2, true);
+      if (background) payload.boolean(3, true);
       final response = await _connectionRequest(
         12,
         payload.takeBytes(),
@@ -1094,6 +1106,7 @@ class DesktopEngineClient
     int payloadField,
     Uint8List payload, {
     int? connectionIntent,
+    Duration? timeout,
   }) async {
     _checkConnectionIntent(connectionIntent);
     if (_transport.isDisposed) {
@@ -1117,14 +1130,15 @@ class DesktopEngineClient
       payload: payload,
     );
 
+    final deadline = timeout ?? _timeoutFor(payloadField);
     Object? lastError;
     for (var attempt = 0; attempt < 20; attempt++) {
       _checkConnectionIntent(connectionIntent);
       Uint8List responseFrame;
       try {
         responseFrame = await _transport
-            .exchangeFrame(frame, timeout: _timeoutFor(payloadField))
-            .timeout(_timeoutFor(payloadField));
+            .exchangeFrame(frame, timeout: deadline)
+            .timeout(deadline);
       } on TimeoutException {
         // Once a frame has reached the Engine it may still be executing.
         // Retrying a mutating request could start a second registration or

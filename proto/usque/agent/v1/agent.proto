@@ -779,6 +779,14 @@ message MacosResume {
   MacosConfigure next = 2;
 }
 
+// No configuration dictionary or preference path is accepted from the Engine.
+message MacosProxyListener {
+  string lease = 1;
+  string loopback_ip = 2;
+  uint32 port = 3;
+}
+message MacosProxyRelease { string lease = 1; }
+
 message MacosAgentRequest {
   // Strictly increasing per authenticated stream; bounded replay tracking.
   uint64 sequence = 1;
@@ -794,6 +802,9 @@ message MacosAgentRequest {
     MacosResume resume = 18;
     MacosEndpointCandidates set_endpoint_candidates = 19;
     MacosFence suspend = 20;
+    MacosProxyListener acquire_proxy = 21;
+    MacosProxyRelease release_proxy = 22;
+    Empty recover_proxy = 23;
   }
 }
 enum MacosFailure {
@@ -810,6 +821,9 @@ enum MacosFailure {
   MACOS_FAILURE_RELEASE_GATED = 10;
   MACOS_FAILURE_NETWORK_CHANGED = 11;
   MACOS_FAILURE_IO = 12;
+  MACOS_FAILURE_PROXY_NO_SERVICE = 13;
+  // The physical connect failed and its unpublished egress permit was revoked.
+  MACOS_FAILURE_ENDPOINT_UNREACHABLE = 14;
 }
 message MacosPlatformStatus {
   uint32 protocol_version = 1;
@@ -825,6 +839,11 @@ message MacosPlatformStatus {
   PhysicalNetworkInfo physical_network = 11;
   bool resumable = 12;
   repeated string control_api_candidates = 13;
+  bool system_proxy_supported = 14;
+  bool system_proxy_recovery_pending = 15;
+  bool system_proxy_active = 16;
+  // Developer package opt-in, independent of production acceptance.
+  bool test_tun_enabled = 17;
 }
 message MacosDescriptor {
   MacosFence fence = 1;

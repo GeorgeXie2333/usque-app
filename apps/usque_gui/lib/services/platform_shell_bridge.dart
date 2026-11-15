@@ -10,6 +10,7 @@ import '../models/app_models.dart';
 import '../state/app_controller.dart';
 import '../state/connection_notice_tracker.dart';
 import '../widgets/common.dart';
+import 'engine_client.dart';
 
 class PlatformShellBridge {
   PlatformShellBridge(this._controller) {
@@ -92,7 +93,16 @@ class PlatformShellBridge {
           await _controller.connectOrDisconnect();
         }
       case 'disconnectAndExit':
-        await _controller.disconnectForExit();
+        try {
+          await _controller.disconnectForExit();
+        } on EngineException catch (e) {
+          if (e.code != 'MACOS_AGENT_RECOVERY_UNCONFIRMED') rethrow;
+          return <String, Object>{
+            'cleanup_complete': false,
+            'service_recovery_message':
+                _controller.strings.get('macos_agent_quit_failed'),
+          };
+        }
         return const <String, Object>{'cleanup_complete': true};
       case 'toggleTunnel':
         if (_controller.nativeNetworkActionsAllowed) {

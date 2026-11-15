@@ -505,8 +505,14 @@ class AppController extends ChangeNotifier {
   bool get supportsMacosServiceMaintenance =>
       defaultTargetPlatform == TargetPlatform.macOS &&
       _engine is MacosServiceClient;
-  Future<MacosServiceState> getMacosServiceState() =>
-      (_engine as MacosServiceClient).getMacosServiceState();
+  Future<MacosServiceState> getMacosServiceState() async {
+    final state = await (_engine as MacosServiceClient).getMacosServiceState();
+    if (state.cleanupConfirmed &&
+        lastError == strings.get('macos_agent_quit_failed')) {
+      clearError();
+    }
+    return state;
+  }
   Future<void> maintainMacosService(MacosServiceAction action) async {
     if (snapshot.isConnected || snapshot.isTransitional) {
       throw const EngineException(
@@ -562,7 +568,16 @@ class AppController extends ChangeNotifier {
     final becameConnected = !_snapshot.isConnected && value.isConnected;
     _snapshot = value;
     if (value.isConnected && _lastErrorFromConnection) lastError = null;
-    if (becameConnected && initialized) unawaited(maintainAdsRules());
+    if (becameConnected && initialized) {
+      unawaited(maintainAdsRules());
+      if (identityState(activeProfileId) == ProfileIdentityState.locked) {
+        unawaited(
+          _refreshProfileCatalog()
+              .then((_) => _notifyListeners())
+              .catchError((Object _) {}),
+        );
+      }
+    }
     if (value.phase == ConnectionPhase.error &&
         (value.errorCode != null || value.warning?.isNotEmpty == true)) {
       _setConnectionError(
@@ -1000,7 +1015,7 @@ class AppController extends ChangeNotifier {
       if (!_startupAutoConnectChecked) {
         _startupAutoConnectChecked = true;
         if (intent == _connectionIntent && _shouldAutoConnectOnStart()) {
-          await connectOrDisconnect();
+          await connectOrDisconnect(background: true);
         }
       }
     } on Object {
@@ -1197,7 +1212,7 @@ class AppController extends ChangeNotifier {
     try {
       return await _run(() async {
             if (_disposed || generation != _dataGeneration || _clearing) return;
-            if (!await refreshInitialIdentityState()) return;
+            if (!await _checkInitialIdentityForUserAction()) return;
             if (initialIdentityState?.phase == InitialIdentityPhase.pending) {
               return;
             }
@@ -1454,9 +1469,18 @@ class AppController extends ChangeNotifier {
     return work;
   }
 
+  Future<bool> _checkInitialIdentityForUserAction() async {
+    if (defaultTargetPlatform == TargetPlatform.macOS &&
+        _engine is MacosKeychainClient) {
+      await _initialIdentityRefresh;
+      return _readInitialIdentityState(allowKeychainInteraction: true);
+    }
+    return refreshInitialIdentityState();
+  }
+
   Future<bool> resumeInitialIdentityState() async {
     if (_disposed || _clearing || busy || _onboardingSubmitting) return false;
-    if (!await refreshInitialIdentityState()) return false;
+    if (!await _checkInitialIdentityForUserAction()) return false;
     final state = initialIdentityState;
     final engine = _engine;
     if (state == null ||
@@ -1486,7 +1510,9 @@ class AppController extends ChangeNotifier {
     }, affectsConnection: false);
   }
 
-  Future<bool> _readInitialIdentityState() async {
+  Future<bool> _readInitialIdentityState({
+    bool allowKeychainInteraction = false,
+  }) async {
     final engine = _engine;
     if (_disposed || _clearing || onboardingComplete) return false;
     if (engine is! InitialIdentityClient) {
@@ -1497,8 +1523,14 @@ class AppController extends ChangeNotifier {
     final generation = _dataGeneration;
     final profileId = _onboardingProfileId ?? activeProfileId;
     try {
-      final state = await (engine as InitialIdentityClient)
-          .getInitialIdentityState(profileId);
+      final state = allowKeychainInteraction && engine is MacosKeychainClient
+          ? await (engine as MacosKeychainClient).getInitialIdentityState(
+              profileId,
+              allowKeychainInteraction: true,
+            )
+          : await (engine as InitialIdentityClient).getInitialIdentityState(
+              profileId,
+            );
       if (_disposed || generation != _dataGeneration || _clearing) return false;
       _acceptInitialIdentityState(state, profileId);
       if (state.phase == InitialIdentityPhase.completed) {
@@ -1569,7 +1601,12 @@ class AppController extends ChangeNotifier {
       lastError = unsupported
           ? strings.get('onboarding_unavailable')
           : userFacingError(strings, error);
-      if (!unsupported) _scheduleOnboardingPoll();
+      if (error is EngineException &&
+          error.code == 'MACOS_KEYCHAIN_ACCESS_REQUIRED') {
+        _onboardingPollTimer?.cancel();
+      } else if (!unsupported) {
+        _scheduleOnboardingPoll();
+      }
       _notifyListeners();
       return false;
     }
@@ -1650,7 +1687,7 @@ class AppController extends ChangeNotifier {
     }
   }
 
-  Future<void> connectOrDisconnect() async {
+  Future<void> connectOrDisconnect({bool background = false}) async {
     if (!connectionActionEnabled) return;
     final intent = ++_connectionIntent;
     if (snapshot.isConnected || snapshot.isTransitional) {
@@ -1691,14 +1728,23 @@ class AppController extends ChangeNotifier {
           );
         }
         if (intent != _connectionIntent) return;
-        if (identityState(activeProfile.id) != ProfileIdentityState.ready) {
+        if (!identityState(activeProfile.id).canConnect) {
           throw const EngineException(
             'IDENTITY_SETUP_REQUIRED',
             'This profile needs a valid Consumer WARP identity before it can connect.',
           );
         }
         _requireDataPlaneCapability(activeProfile);
-        final next = await _engine.connect(activeProfile);
+        final engine = _engine;
+        final next =
+            background &&
+                defaultTargetPlatform == TargetPlatform.macOS &&
+                engine is MacosKeychainClient
+            ? await (engine as MacosKeychainClient).connect(
+                activeProfile,
+                background: true,
+              )
+            : await engine.connect(activeProfile);
         if (intent == _connectionIntent) snapshot = next;
       }),
       connectionIntent: intent,

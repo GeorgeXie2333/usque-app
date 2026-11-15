@@ -103,6 +103,27 @@ void main() {
   });
 
   testWidgets(
+    'Quit identifies unconfirmed Agent cleanup without acknowledging success',
+    (tester) async {
+      final engine = _CleanupEngine();
+      final app = AppController(engine);
+      await app.initialize();
+      final bridge = PlatformShellBridge(app);
+      addTearDown(() { bridge.dispose(); app.dispose(); });
+      final quitting = _requestQuit(tester);
+      await tester.pump();
+      engine.attempts.single.completeError(
+        const EngineException('MACOS_AGENT_RECOVERY_UNCONFIRMED', 'private detail'),
+      );
+      expect(await quitting, {
+        'cleanup_complete': false,
+        'service_recovery_message': app.strings.get('macos_agent_quit_failed'),
+      });
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.macOS),
+  );
+
+  testWidgets(
     'Quit waits for cleanup even with a disconnected cached snapshot',
     (tester) async {
       final engine = _CleanupEngine();

@@ -207,10 +207,13 @@ pub fn verify_active(runner: &mut impl Runner, anchor: &str, intended: &str) -> 
     Ok(())
 }
 pub fn replace(runner: &mut impl Runner, anchor: &str, rules: &str) -> io::Result<()> {
+    // Receipts store trimmed readback. Darwin's pfctl input grammar requires
+    // a newline after the final rule, including on retries from a receipt.
+    let input = format!("{}\n", rules.trim_end());
     pf(
         runner,
         &["-o", "none", "-R", "-a", anchor, "-f", "-"],
-        Some(rules),
+        Some(&input),
     )?;
     if read(runner, anchor)? != rules.trim() {
         return Err(io::Error::other(
@@ -323,5 +326,35 @@ mod tests {
         let parsed =
             canonical(&mut command::NativeRunner, &anchor(Uuid::new_v4()), &input).unwrap();
         assert!(parsed.contains("block drop quick inet6 all"));
+
+        // Reparse the exact bytes that replace() would send to the kernel.
+        // The runner below only ever invokes the system parser with -n.
+        struct ParseOnly(String);
+        impl Runner for ParseOnly {
+            fn run(
+                &mut self,
+                _: Program,
+                args: &[String],
+                input: Option<&str>,
+            ) -> io::Result<command::Output> {
+                if input.is_some() {
+                    let mut parse_args = command::arguments(&["-n", "-v"]);
+                    parse_args.extend_from_slice(args);
+                    let parsed = command::NativeRunner.run(Program::Pfctl, &parse_args, input)?;
+                    self.0 = parsed.stdout.trim().to_owned();
+                    Ok(parsed)
+                } else {
+                    assert_eq!(args.last().map(String::as_str), Some("-sr"));
+                    Ok(command::Output {
+                        pid: 1,
+                        stdout: self.0.clone(),
+                        stderr: String::new(),
+                        success: true,
+                    })
+                }
+            }
+        }
+        let mut parser = ParseOnly(String::new());
+        replace(&mut parser, &anchor(Uuid::new_v4()), &parsed).unwrap();
     }
 }

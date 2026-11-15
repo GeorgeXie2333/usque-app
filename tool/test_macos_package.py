@@ -13,9 +13,18 @@ from unittest.mock import patch
 import macos_package
 
 
-def macho(architecture="arm64", *, minimum=0x000D0000, subtype=None, target_platform=1):
+def macho(architecture="arm64", *, minimum=0x000D0000, subtype=None, target_platform=1, test_tun=False):
     cpu, default_subtype = macos_package.ARCHITECTURES[architecture]
     command = struct.pack("<6I", 0x32, 24, target_platform, minimum, 0x001B0000, 0)
+    commands = 1
+    payload = b""
+    if test_tun:
+        # Native __TEXT section shared by the Engine and Agent test builds.
+        pos = 32 + len(command) + 72 + 80
+        command += struct.pack("<II16sQQQQIIII", 0x19, 152, b"__TEXT", 0, pos+1, 0, pos+1, 5, 5, 1, 0)
+        command += struct.pack("<16s16sQQ8I", b"__usque_tun", b"__TEXT", pos, 1, pos, 0, 0, 0, 0, 0, 0, 0)
+        commands += 1
+        payload = b"\x01"
     return (
         struct.pack(
             "<8I",
@@ -23,12 +32,12 @@ def macho(architecture="arm64", *, minimum=0x000D0000, subtype=None, target_plat
             cpu,
             default_subtype if subtype is None else subtype,
             2,
-            1,
+            commands,
             len(command),
             0,
             0,
         )
-        + command
+        + command + payload
     )
 
 
@@ -101,6 +110,28 @@ class MacOSPackageTests(unittest.TestCase):
             self.assertTrue((packaged / "Contents/Helpers/usque-agent").is_file())
             (packaged / "Contents/Helpers/usque-agent").unlink()
             with self.assertRaises(ValueError): macos_package.inspect_bundle(packaged, "arm64")
+
+    def test_tun_test_package_requires_two_opted_in_helpers_and_reports_pending_acceptance(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            gui = root / "gui.app"
+            flutter_fixture(gui)
+            engine, agent, maintenance = (root / p for p in ("engine", "agent", "maintenance"))
+            write(engine, macho(test_tun=True))
+            write(agent, macho())
+            write(maintenance, macho())
+            def assemble():
+                return macos_package.package(gui, engine, None, root / "out", "arm64", "0.3.4", "1",
+                    agent=agent, agent_maintenance=maintenance, create_dmg=False)
+            with patch.object(macos_package, "_thin_and_sign"):
+                with self.assertRaisesRegex(ValueError, "TUN"):
+                    assemble()
+                write(agent, macho(test_tun=True))
+                manifest = assemble()
+            self.assertEqual(manifest["components"]["root_agent"], "included_tun_test_enabled")
+            self.assertFalse(manifest["production_capable"])
+            self.assertEqual(manifest["validation"]["system_utun_network_acceptance"], "not_run")
+            self.assertTrue((root / "out/usque-v0.3.4-macos-arm64-tun-test.manifest.json").is_file())
 
     def test_names_are_architecture_specific_and_reject_path_injection(self) -> None:
         self.assertEqual(
@@ -452,26 +483,29 @@ class MacOSPackageTests(unittest.TestCase):
             operations = []
 
             def tool(arguments, **_):
-                if arguments[0] == "hdiutil":
-                    operations.append(arguments[1])
-                    if arguments[1] == "create":
-                        self.assertEqual(arguments[arguments.index("-format") + 1], "ULMO")
-                        volume = Path(arguments[arguments.index("-srcfolder") + 1])
-                        self.assertEqual(
-                            (volume / "Applications").readlink(), Path("/Applications")
-                        )
-                        self.assertTrue((volume / "Usque.app").is_dir())
-                        Path(arguments[-1]).write_bytes(b"new image")
-                    else:
-                        raise subprocess.CalledProcessError(1, arguments)
+                if arguments[:4] == ["diskutil", "image", "create", "from"] and arguments[-1] == "--help":
+                    return "--volumeName" if modern else ""
+                if arguments[:2] == ["hdiutil", "verify"]:
+                    operations.append("verify")
+                    raise subprocess.CalledProcessError(1, arguments)
+                if arguments[0] in ("hdiutil", "diskutil"):
+                    operations.append(arguments[0])
+                    flag = "--format" if modern else "-format"
+                    self.assertEqual(arguments[arguments.index(flag) + 1], "ULMO")
+                    volume = Path(arguments[-2] if modern else arguments[arguments.index("-srcfolder") + 1])
+                    self.assertEqual((volume / "Applications").readlink(), Path("/Applications"))
+                    self.assertTrue((volume / "Usque.app").is_dir())
+                    Path(arguments[-1]).write_bytes(b"new image")
                 return ""
 
-            with patch.object(macos_package, "run", side_effect=tool):
-                with self.assertRaises(subprocess.CalledProcessError):
-                    macos_package.package(source, engine, prototype, output, "arm64", "0.3.3", "29")
-            self.assertEqual(operations, ["create", "verify"])
-            self.assertEqual(previous.read_bytes(), b"previous image")
-            self.assertFalse((output / "Usque.app").exists())
+            for modern in (False, True):
+                with self.subTest(modern=modern), patch.object(macos_package, "run", side_effect=tool):
+                    operations.clear()
+                    with self.assertRaises(subprocess.CalledProcessError):
+                        macos_package.package(source, engine, prototype, output, "arm64", "0.3.3", "29")
+                    self.assertEqual(operations, ["diskutil" if modern else "hdiutil", "verify"])
+                    self.assertEqual(previous.read_bytes(), b"previous image")
+                    self.assertFalse((output / "Usque.app").exists())
 
 
 if __name__ == "__main__":

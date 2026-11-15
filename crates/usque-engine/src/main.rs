@@ -91,13 +91,17 @@ async fn run(
         if arguments == ["--macos-agent-build-info"] {
             println!(
                 "{}",
-                serde_json::json!({"version": env!("CARGO_PKG_VERSION"), "architecture": std::env::consts::ARCH, "protocol": 3})
+                serde_json::json!({"version": env!("CARGO_PKG_VERSION"), "architecture": std::env::consts::ARCH, "protocol": 3, "test_tun_enabled": usque_engine::macos_agent::TEST_TUN_ENABLED})
             );
             return Ok(());
         }
         if arguments == ["--macos-agent-status"] {
             let status = usque_engine::macos_agent::service_status().await;
             println!("{}", status);
+            return Ok(());
+        }
+        if arguments == ["--macos-agent-check-clean"] {
+            usque_engine::macos_agent::check_clean().await?;
             return Ok(());
         }
     }
@@ -213,12 +217,18 @@ async fn run(
     }
 
     #[cfg(not(target_os = "linux"))]
-    if let Err(error) = service.migrate_shared_proxy_password().await {
-        warn!(%error, "shared proxy-password migration will be retried later");
-    }
-    #[cfg(not(target_os = "linux"))]
-    if let Err(error) = service.reap_pending_identity_deletions().await {
-        warn!(%error, "deferred secure identity cleanup will be retried later");
+    {
+        let maintenance = async {
+            if let Err(error) = service.migrate_shared_proxy_password().await {
+                warn!(%error, "shared proxy-password migration will be retried later");
+            }
+            if let Err(error) = service.reap_pending_identity_deletions().await {
+                warn!(%error, "deferred secure identity cleanup will be retried later");
+            }
+        };
+        #[cfg(target_os = "macos")]
+        let maintenance = usque_platform::macos_keychain::without_interaction(maintenance);
+        maintenance.await;
     }
     let config = service.config_snapshot().await;
     info!(

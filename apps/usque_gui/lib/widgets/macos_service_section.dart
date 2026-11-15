@@ -20,12 +20,13 @@ class _MacosServiceSectionState extends State<MacosServiceSection> {
     _refresh();
   }
 
-  Future<void> _refresh() async {
+  Future<void> _refresh({bool actionFailed = false}) async {
     try {
       final state = await widget.controller.getMacosServiceState();
       if (mounted) {
         setState(() {
           _state = state;
+          _failed = actionFailed;
         });
       }
     } on Object {
@@ -46,8 +47,7 @@ class _MacosServiceSectionState extends State<MacosServiceSection> {
       }
       await _refresh();
     } on Object {
-      if (mounted) setState(() => _failed = true);
-      await _refresh();
+      await _refresh(actionFailed: true);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -88,9 +88,12 @@ class _MacosServiceSectionState extends State<MacosServiceSection> {
               Text(strings.get('macos_service_recovery')),
             if (state.tunAvailable)
               Text(strings.get('macos_service_ready'))
-            else if (!state.releaseApproved)
+            else if (!state.releaseApproved && !state.testTunBuild)
               Text(strings.get('macos_service_gated'))
-            else if (!state.preflightPassed)
+            else if (state.installed &&
+                state.compatible &&
+                !state.recoveryPending &&
+                !state.preflightPassed)
               Text(strings.get('macos_service_preflight')),
           ],
           if (_failed) Text(strings.get('macos_service_failed')),

@@ -643,8 +643,6 @@ impl ControlService {
         class: ReconfigureClass,
         intent: u64,
     ) -> Result<(), ControlServiceError> {
-        #[cfg(all(target_os = "linux", not(test)))]
-        let class = usque_core::reconfigure::platform_class(class);
         let prepared = if matches!(
             class,
             ReconfigureClass::HotTrafficPolicy
@@ -663,7 +661,7 @@ impl ControlService {
             ReconfigureClass::HotTunnelAttach => self.hot_tunnel_attach(target).await?,
             ReconfigureClass::HotVpnGate => self.hot_replace_gate(target).await?,
             ReconfigureClass::ColdReconnect => {
-                #[cfg(any(windows, target_os = "linux"))]
+                #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
                 {
                     let cancellation = self.gate_startup_cancel.lock().await.clone();
                     if Box::pin(self.reconnect_protected_chain(target, &cancellation))

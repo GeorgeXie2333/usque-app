@@ -5,6 +5,7 @@ use uuid::Uuid;
 
 struct FakeRunner {
     path: PathBuf,
+    foreign_ipv6_host: bool,
     rules: String,
     fail_load: bool,
     fail_enable: bool,
@@ -12,11 +13,25 @@ struct FakeRunner {
     loads: usize,
 }
 impl Runner for FakeRunner {
-    fn run(&mut self, _: Program, args: &[String], input: Option<&str>) -> io::Result<Output> {
+    fn run(
+        &mut self,
+        program: Program,
+        args: &[String],
+        input: Option<&str>,
+    ) -> io::Result<Output> {
         let mut stdout = String::new();
         let mut stderr = String::new();
         let mut success = true;
-        if args.iter().any(|a| a == "-n") {
+        if matches!(program, Program::Netstat) {
+            stdout =
+                "Routing tables\n\nInternet6:\nDestination Gateway Flags Netif Expire\n".into();
+            if self.foreign_ipv6_host {
+                stdout.push_str("fd00::1 en0 UHS en0\n");
+            }
+        } else if matches!(program, Program::Route) {
+            assert_eq!(args[1], "get", "foreign routes must never be mutated");
+            stderr = "route: writing to routing socket: not in table\n".into();
+        } else if args.iter().any(|a| a == "-n") {
             stdout = input.unwrap().trim().into();
         } else if let Some(input) = input {
             let evidence: serde_json::Value =
@@ -92,6 +107,7 @@ fn fixture() -> (tempfile::TempDir, NativeBackend<FakeRunner>, Fence) {
         receipts: None,
         runner: FakeRunner {
             path,
+            foreign_ipv6_host: false,
             rules: String::new(),
             fail_load: false,
             fail_enable: false,
@@ -118,6 +134,95 @@ fn fixture() -> (tempfile::TempDir, NativeBackend<FakeRunner>, Fence) {
             network: 1,
         },
     )
+}
+#[test]
+fn a_route_conflict_does_not_strand_independent_receipts() {
+    let (_dir, mut backend, fence) = fixture();
+    backend.apply_and_verify(fence, Step::Protection).unwrap();
+    let receipts = backend.receipts.as_mut().unwrap();
+    receipts.interface = Some(InterfaceReceipt {
+        name: "utun6".into(),
+        index: 16,
+        addresses: vec![],
+        restored: false,
+    });
+    receipts.routes = ["0.0.0.0/1", "fd00::1/128", "8000::/1"]
+        .map(|destination| RouteReceipt {
+            destination: destination.parse().unwrap(),
+            interface: "utun6".into(),
+            interface_index: 16,
+            restored: false,
+        })
+        .to_vec();
+    backend.save().unwrap();
+    backend.runner.foreign_ipv6_host = true;
+    assert!(backend.restore_and_verify(fence, Step::Routes).is_err());
+    let saved = backend.store.load().unwrap().unwrap();
+    assert_eq!(
+        saved.routes.iter().map(|r| r.restored).collect::<Vec<_>>(),
+        [true, false, true]
+    );
+    assert!(!saved.pf.unwrap().restored);
+    backend.runner.foreign_ipv6_host = false;
+    backend.restore_and_verify(fence, Step::Routes).unwrap();
+    assert!(
+        backend
+            .store
+            .load()
+            .unwrap()
+            .unwrap()
+            .routes
+            .iter()
+            .all(|r| r.restored)
+    );
+}
+#[test]
+fn a_dns_conflict_leaves_only_that_service_pending() {
+    let (_dir, mut backend, fence) = fixture();
+    backend.apply_and_verify(fence, Step::Protection).unwrap();
+    backend.receipts.as_mut().unwrap().dns = (1..=3)
+        .map(|id| DnsReceipt {
+            service: Uuid::from_u128(id),
+            before: None,
+            applied: vec![1],
+            restored: false,
+        })
+        .collect();
+    backend.save().unwrap();
+    let conflict = Uuid::from_u128(2);
+    assert!(
+        backend
+            .restore_dns_with(|r| {
+                if r.service == conflict {
+                    Err(io::Error::other("DNS ownership conflict"))
+                } else {
+                    Ok(())
+                }
+            })
+            .is_err()
+    );
+    let saved = backend.store.load().unwrap().unwrap();
+    assert_eq!(
+        saved.dns.iter().map(|r| r.restored).collect::<Vec<_>>(),
+        [true, false, true]
+    );
+    assert!(saved.pf.is_some());
+    backend
+        .restore_dns_with(|r| {
+            assert_eq!(r.service, conflict);
+            Ok(())
+        })
+        .unwrap();
+    assert!(
+        backend
+            .store
+            .load()
+            .unwrap()
+            .unwrap()
+            .dns
+            .iter()
+            .all(|r| r.restored)
+    );
 }
 #[test]
 fn pf_intents_survive_an_uncertain_native_apply_and_can_be_restored() {
@@ -151,11 +256,71 @@ fn persistence_failure_stops_further_mutations() {
     assert_eq!(backend.runner.loads, 0);
 }
 #[test]
+fn ordinary_warp_stages_and_finalizes_without_a_chain() {
+    let (_dir, mut backend, _) = fixture();
+    let final_wire = usque_ipc::agent_v1::TunnelPlan {
+        profile_id: Uuid::new_v4().to_string(),
+        endpoint: "192.0.2.2:443".into(),
+        control_api_candidates: vec!["192.0.2.3:443".into()],
+        assigned_ipv4: "172.16.0.2/32".into(),
+        dns_servers: vec!["198.18.0.1".into()],
+        mtu: 1280,
+        split_dns: true,
+        ..Default::default()
+    };
+    let mut prepare = final_wire.clone();
+    prepare.defer_network_configuration = true;
+    assert!(ValidatedTunnelPlan::try_from(prepare.clone()).is_err());
+    assert!(ValidatedTunnelPlan::from_macos_prepare(final_wire.clone()).is_err());
+    let plan = ValidatedTunnelPlan::from_macos_prepare(prepare).unwrap();
+    assert!(!plan.vpn_chain);
+    backend.set_plan(plan).unwrap();
+    let mut changed = final_wire.clone();
+    changed.kill_switch = true;
+    assert!(backend.finalize_plan(changed.try_into().unwrap()).is_err());
+    backend
+        .finalize_plan(final_wire.try_into().unwrap())
+        .unwrap();
+    assert_eq!(backend.runner.loads, 0);
+}
+
+#[test]
 fn ordinary_empty_recovery_needs_no_network_mutation() {
     let (_dir, mut backend, fence) = fixture();
     backend.quiesce_and_revoke_egress(fence).unwrap();
     backend.restore_and_verify(fence, Step::Protection).unwrap();
     assert_eq!(backend.runner.loads, 0);
+}
+
+#[test]
+fn legacy_rejected_first_pf_load_recovers_without_touching_the_firewall() {
+    let (_dir, mut backend, fence) = fixture();
+    backend.runner.fail_load = true;
+    assert!(backend.apply_and_verify(fence, Step::Protection).is_err());
+    // A parser rejection left the dedicated kernel anchor empty. Reopen the
+    // persisted intent as a restarted Agent, without a network plan or leases.
+    backend.runner.rules.clear();
+    backend.network = None;
+    backend.receipts = backend.store.load().unwrap();
+    let attempts = backend.runner.loads;
+    backend.quiesce_and_revoke_egress(fence).unwrap();
+    backend.restore_and_verify(fence, Step::Protection).unwrap();
+    assert_eq!(backend.runner.loads, attempts);
+    assert!(backend.store.load().unwrap().is_none());
+    assert!(!backend.runner.reference);
+}
+
+#[test]
+fn legacy_first_pf_intent_does_not_authorize_removing_foreign_rules() {
+    let (_dir, mut backend, fence) = fixture();
+    backend.runner.fail_load = true;
+    assert!(backend.apply_and_verify(fence, Step::Protection).is_err());
+    backend.runner.rules = "block in all".into();
+    let attempts = backend.runner.loads;
+    assert!(backend.quiesce_and_revoke_egress(fence).is_err());
+    assert!(backend.restore_and_verify(fence, Step::Protection).is_err());
+    assert_eq!(backend.runner.loads, attempts);
+    assert!(backend.store.load().unwrap().is_some());
 }
 
 #[test]

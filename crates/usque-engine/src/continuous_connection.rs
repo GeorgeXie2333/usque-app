@@ -170,6 +170,8 @@ impl ControlService {
                 }
                 state.snapshot().clone()
             };
+            #[cfg(target_os = "macos")]
+            let mut interactive = usque_platform::macos_keychain::interaction_allowed();
             let task = tokio::spawn(async move {
                 if let Some(retiring) = retiring {
                     let _ = retiring.await;
@@ -179,15 +181,15 @@ impl ControlService {
                         return;
                     };
                     let service = ControlService { inner };
-                    let result = {
-                        let mutation = tokio::select! {
-                            biased;
-                            _ = worker_cancel.cancelled() => return,
-                            guard = service.mutation_lock.clone().lock_owned() => guard,
-                        };
-                        if worker_cancel.is_cancelled() {
-                            return;
-                        }
+                    let mutation = tokio::select! {
+                        biased;
+                        _ = worker_cancel.cancelled() => return,
+                        guard = service.mutation_lock.clone().lock_owned() => guard,
+                    };
+                    if worker_cancel.is_cancelled() {
+                        return;
+                    }
+                    let attempt = async {
                         if new_connection {
                             service.reset_proton_selection();
                             new_connection = false;
@@ -226,6 +228,10 @@ impl ControlService {
                             Err(error) => Err(error),
                         }
                     };
+                    #[cfg(target_os = "macos")]
+                    let attempt = usque_platform::macos_keychain::INTERACTIVE
+                        .scope(std::mem::take(&mut interactive), attempt);
+                    let result = attempt.await;
                     if worker_cancel.is_cancelled() {
                         return;
                     }

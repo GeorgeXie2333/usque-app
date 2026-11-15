@@ -52,7 +52,10 @@ String userFacingFailure(
   final recovery = strings.windowsRecoveryError(code, details: details);
   if (recovery != null) return recovery;
   final key = switch (code) {
+    'MACOS_PROXY_AGENT_REQUIRED' => 'macos_proxy_agent_required',
+    'MACOS_KEYCHAIN_ACCESS_REQUIRED' => 'macos_keychain_permission',
     'MACOS_INSTALL_REQUIRED' => 'macos_install_required',
+    'MACOS_AGENT_RECOVERY_UNCONFIRMED' => 'macos_agent_quit_failed',
     'MACOS_LOGIN_APPROVAL_REQUIRED' => 'macos_login_approval',
     'MACOS_LOGIN_ITEM_FAILED' => 'macos_login_failed',
     'MACOS_WARP_CONNECTION_REQUIRED' => 'macos_warp_connection_required',

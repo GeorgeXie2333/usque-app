@@ -211,6 +211,29 @@ fn another_user_stale_network_or_reused_pid_cannot_disconnect_or_commit() {
 }
 
 #[test]
+fn route_conflict_still_restores_dns_without_releasing_protection() {
+    let (mut c, e, owner, fence) = setup();
+    c.prepare(owner, fence, true).unwrap();
+    c.configure(owner, fence).unwrap();
+    c.commit(owner, fence).unwrap();
+    e.borrow_mut().events.clear();
+    e.borrow_mut().fail_restore = Some(Step::Routes);
+    assert!(c.disconnect(owner, fence).is_err());
+    assert_eq!(c.state().unwrap().phase, Phase::RecoveryRequired);
+    let restored: Vec<_> = e
+        .borrow()
+        .events
+        .iter()
+        .filter(|s| s.starts_with("restore"))
+        .cloned()
+        .collect();
+    assert_eq!(restored, ["restore Routes", "restore Dns"]);
+    e.borrow_mut().fail_restore = None;
+    c.recover_as_administrator().unwrap();
+    assert!(c.state().is_none());
+}
+
+#[test]
 fn failed_restore_does_not_remove_guard_and_can_be_retried_explicitly() {
     let (mut c, e, owner, fence) = setup();
     c.prepare(owner, fence, true).unwrap();

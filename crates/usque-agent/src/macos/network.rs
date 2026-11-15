@@ -243,6 +243,7 @@ fn parse_path(
 }
 #[link(name = "SystemConfiguration", kind = "framework")]
 unsafe extern "C" {
+    fn SCError() -> std::ffi::c_int;
     fn SCDynamicStoreCreate(
         allocator: *const std::ffi::c_void,
         name: CFStringRef,
@@ -253,6 +254,16 @@ unsafe extern "C" {
         store: *const std::ffi::c_void,
         key: CFStringRef,
     ) -> *const std::ffi::c_void;
+}
+fn missing_store_value(status: std::ffi::c_int) -> io::Result<Option<Dictionary>> {
+    const SC_STATUS_NO_KEY: std::ffi::c_int = 1004;
+    if status == SC_STATUS_NO_KEY {
+        Ok(None)
+    } else {
+        Err(io::Error::other(format!(
+            "SystemConfiguration read failed with status {status}"
+        )))
+    }
 }
 struct DynamicStore(CFType);
 impl DynamicStore {
@@ -279,7 +290,8 @@ impl DynamicStore {
         let raw =
             unsafe { SCDynamicStoreCopyValue(self.0.as_CFTypeRef(), key.as_concrete_TypeRef()) };
         if raw.is_null() {
-            return Ok(None);
+            // SAFETY: SCError reads the last SystemConfiguration status on this thread.
+            return missing_store_value(unsafe { SCError() });
         }
         // SAFETY: successful Copy transferred one reference.
         let value = unsafe { CFType::wrap_under_create_rule(raw) };
@@ -383,6 +395,13 @@ pub fn snapshot_with_original(original: &[super::resources::DnsReceipt]) -> io::
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn only_a_missing_key_proves_the_dynamic_dns_value_is_absent() {
+        assert!(missing_store_value(1004).unwrap().is_none());
+        for status in [0, 1001, 1003, 2001] {
+            assert!(missing_store_value(status).is_err(), "status {status}");
+        }
+    }
     fn dict(pairs: &[(&str, &str)]) -> Dictionary {
         Dictionary::from_CFType_pairs(
             &pairs

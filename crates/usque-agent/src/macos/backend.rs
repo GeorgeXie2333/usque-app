@@ -75,7 +75,7 @@ impl<R: Runner> NativeBackend<R> {
     }
     pub fn set_plan(&mut self, plan: ValidatedTunnelPlan) -> io::Result<()> {
         self.require_certain()?;
-        plan.validate().map_err(io::Error::other)?;
+        plan.validate_network_fields().map_err(io::Error::other)?;
         // Rule-selected DIRECT flows use protected sockets. A global bypass
         // route cannot implement domain policy and is deliberately refused.
         if !plan.split_exclusions.is_empty() {
@@ -314,6 +314,26 @@ impl<R: Runner> NativeBackend<R> {
             return Err(error);
         }
         Ok(())
+    }
+    fn restore_dns_with(
+        &mut self,
+        mut restore: impl FnMut(&DnsReceipt) -> io::Result<()>,
+    ) -> io::Result<()> {
+        let count = self.receipts.as_ref().ok_or_else(unavailable)?.dns.len();
+        let mut first_error = None;
+        for index in (0..count).rev() {
+            let receipt = &self.receipts.as_ref().unwrap().dns[index];
+            if receipt.restored {
+                continue;
+            }
+            if let Err(error) = restore(receipt) {
+                first_error.get_or_insert(error);
+                continue;
+            }
+            self.receipts.as_mut().unwrap().dns[index].restored = true;
+            self.save()?;
+        }
+        first_error.map_or(Ok(()), Err)
     }
     fn update_permits(&mut self) -> io::Result<()> {
         let permits = self
@@ -609,6 +629,21 @@ impl<R: Runner> Backend for NativeBackend<R> {
             }
             return Ok(());
         }
+        // An initial load rejected by pfctl leaves only its write-ahead
+        // intent. No egress was published. Confirm the original empty anchor
+        // before treating revocation as complete, including after a restart.
+        if let Some(pf) = &receipts.pf
+            && !pf.enable_intended
+            && pf.previous_rules.as_deref() == Some("")
+            && receipts.interface.is_none()
+            && receipts.dns.is_empty()
+            && receipts.routes.is_empty()
+            && self.device.is_none()
+            && self.leases.is_empty()
+            && firewall::read(&mut self.runner, &pf.anchor)?.is_empty()
+        {
+            return Ok(());
+        }
         self.replace_permits(&[])?;
         self.leases.clear();
         self.active = false;
@@ -626,28 +661,28 @@ impl<R: Runner> Backend for NativeBackend<R> {
         let same_boot = receipts.boot == (self.boot)()?;
         match step {
             Step::Routes => {
+                let mut first_error = None;
                 for index in (0..receipts.routes.len()).rev() {
                     let receipt = &self.receipts.as_ref().unwrap().routes[index];
                     if receipt.restored {
                         continue;
                     }
-                    if same_boot {
-                        routes::apply(&mut self.runner, receipt, true)?;
+                    if same_boot && let Err(error) = routes::apply(&mut self.runner, receipt, true)
+                    {
+                        // Each prefix has its own ownership proof. Retain this receipt
+                        // and the guard while restoring the remaining prefixes.
+                        first_error.get_or_insert(error);
+                        continue;
                     }
                     self.receipts.as_mut().unwrap().routes[index].restored = true;
                     self.save()?;
                 }
+                if let Some(error) = first_error {
+                    return Err(error);
+                }
             }
             Step::Dns => {
-                for index in (0..receipts.dns.len()).rev() {
-                    let receipt = &self.receipts.as_ref().unwrap().dns[index];
-                    if receipt.restored {
-                        continue;
-                    }
-                    dns::apply(receipt, true)?;
-                    self.receipts.as_mut().unwrap().dns[index].restored = true;
-                    self.save()?;
-                }
+                self.restore_dns_with(|r| dns::apply(r, true))?;
             }
             Step::Utun => {
                 let interface = receipts.interface.clone();
@@ -722,11 +757,17 @@ impl<R: Runner> Backend for NativeBackend<R> {
                     }
                     // Persist empty as the intended ruleset before removing it.
                     let saved = self.receipts.as_mut().unwrap().pf.as_mut().unwrap();
-                    saved.previous_rules = Some(observed);
+                    saved.previous_rules = Some(observed.clone());
                     saved.intended_rules = String::new();
                     saved.removal_intended = true;
                     self.save()?;
-                    firewall::replace(&mut self.runner, &pf.anchor, "")?;
+                    let current = firewall::read(&mut self.runner, &pf.anchor)?;
+                    if !current.is_empty() {
+                        if current != observed {
+                            return Err(io::Error::other("PF ownership changed during recovery"));
+                        }
+                        firewall::replace(&mut self.runner, &pf.anchor, "")?;
+                    }
                     if same_boot && let Some(reference) = &pf.reference {
                         super::pf_reference::release(&mut self.runner, reference)?;
                     }

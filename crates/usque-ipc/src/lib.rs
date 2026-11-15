@@ -573,6 +573,7 @@ mod tests {
         let connect = v1::ConnectRequest {
             profile_id: "p".into(),
             continuous: true,
+            ..Default::default()
         };
         assert_eq!(connect.encode_to_vec(), [10, 1, b'p', 16, 1]);
         assert_eq!(

@@ -225,6 +225,10 @@ void main() {
       final proxy = find.byKey(const ValueKey('home-system-proxy-switch'));
       expect(tester.widget<Switch>(tunnel).value, isFalse);
       expect(tester.widget<Switch>(tunnel).onChanged, isNull);
+      expect(
+        find.text(app.strings.get('macos_output_unavailable')),
+        findsOneWidget,
+      );
       expect(tester.widget<Switch>(proxy).onChanged, isNotNull);
       await tester.ensureVisible(tunnel);
       await tester.tap(tunnel);

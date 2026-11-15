@@ -27,7 +27,9 @@ pub enum ReconfigureClass {
 /// Apply native platform constraints to a logical reconfiguration plan. Keep
 /// preview and execution consistent even in tests without native networking.
 pub fn platform_class(class: ReconfigureClass) -> ReconfigureClass {
-    if cfg!(target_os = "linux") && class == ReconfigureClass::HotTunnelAttach {
+    if cfg!(any(target_os = "linux", target_os = "macos"))
+        && class == ReconfigureClass::HotTunnelAttach
+    {
         ReconfigureClass::ColdReconnect
     } else {
         class

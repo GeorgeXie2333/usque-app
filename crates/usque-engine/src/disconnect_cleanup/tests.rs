@@ -15,6 +15,28 @@ fn service() -> (tempfile::TempDir, ControlService) {
 
 #[cfg(target_os = "macos")]
 #[tokio::test]
+async fn incomplete_install_blocks_quit_with_an_actionable_error_and_allows_retry() {
+    let (_dir, service) = service();
+    std::fs::create_dir(&service.macos_agent_install).unwrap();
+    let error = service.disconnect_confirmed().await.unwrap_err();
+    assert_eq!(
+        error.as_structured_error().code,
+        "MACOS_AGENT_RECOVERY_UNCONFIRMED"
+    );
+    let snapshot = service.status_snapshot().await;
+    assert_eq!(snapshot.phase, ConnectionPhase::Error);
+    assert_eq!(
+        crate::snapshot_to_proto(&snapshot).error.unwrap().code,
+        "MACOS_AGENT_RECOVERY_UNCONFIRMED"
+    );
+    std::fs::remove_dir(&service.macos_agent_install).unwrap();
+    let cleared = service.disconnect_confirmed().await.unwrap();
+    assert_eq!(cleared.phase, ConnectionPhase::Disconnected);
+    assert!(cleared.error.is_none());
+}
+
+#[cfg(target_os = "macos")]
+#[tokio::test]
 async fn macos_disconnect_rpc_waits_for_cleanup_and_returns_failure_until_owner_is_recovered() {
     use usque_ipc::v1::{self, control_request, control_response};
 

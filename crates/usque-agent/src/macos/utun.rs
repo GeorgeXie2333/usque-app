@@ -145,6 +145,55 @@ mod tests {
         }
     }
     #[test]
+    #[ignore = "disposable Mac only: creates one unconfigured system utun"]
+    fn disposable_mac_real_utun_descriptor_handoff() {
+        use std::{
+            os::unix::net::UnixStream,
+            time::{Duration, Instant},
+        };
+        use usque_ipc::darwin_fd::{peer_identity, receive_frame, send_frame};
+        assert_eq!(std::env::var("USQUE_DISPOSABLE_MAC").as_deref(), Ok("1"));
+        let (agent, engine) = UnixStream::pair().unwrap();
+        engine
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        let peer = peer_identity(&engine).unwrap();
+        let device = Utun::create().unwrap();
+        let name = std::ffi::CString::new(device.name()).unwrap();
+        let index = device.index();
+        send_frame(&agent, &[0, 0, 0, 1, 1], Some(&device)).unwrap();
+        let received = receive_frame(&engine, peer).unwrap().descriptor.unwrap();
+        drop(device);
+        // SAFETY: the name is terminated and the received descriptor is live.
+        assert_eq!(unsafe { libc::if_nametoindex(name.as_ptr()) }, index);
+        let mut actual = [0u8; libc::IFNAMSIZ];
+        let mut len = actual.len() as libc::socklen_t;
+        assert_eq!(
+            // SAFETY: UTUN_OPT_IFNAME writes at most len bytes to the provided buffer.
+            unsafe {
+                libc::getsockopt(
+                    received.as_raw_fd(),
+                    libc::SYSPROTO_CONTROL,
+                    2,
+                    actual.as_mut_ptr().cast(),
+                    &mut len,
+                )
+            },
+            0
+        );
+        assert_eq!(&actual[..len as usize], name.as_bytes_with_nul());
+        drop(received);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        // SAFETY: querying the recorded name never changes an interface.
+        while unsafe { libc::if_nametoindex(name.as_ptr()) } == index {
+            assert!(
+                Instant::now() < deadline,
+                "interface remained after final descriptor close"
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+    #[test]
     fn unprivileged_allocation_is_denied_without_opening_a_control_socket() {
         // SAFETY: geteuid only reads the current process UID.
         if unsafe { libc::geteuid() } == 0 {

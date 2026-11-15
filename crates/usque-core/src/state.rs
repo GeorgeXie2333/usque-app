@@ -208,6 +208,9 @@ pub enum ErrorCode {
     WindowsRecoveryTimeout,
     WindowsRecoveryConflict,
     WindowsRecoveryUnsupported,
+    MacosAgentRecoveryUnconfirmed,
+    MacosProxyAgentRequired,
+    MacosKeychainAccessRequired,
 }
 
 #[derive(Debug, Clone, Default)]

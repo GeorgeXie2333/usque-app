@@ -1,4 +1,4 @@
-import CoreGraphics
+import AppKit
 import Foundation
 
 /// The same state and command names used by the Windows and Linux shells.
@@ -56,6 +56,30 @@ struct DesktopTrayState {
 
   var canToggleTunnel: Bool { outputsEnabled && (tunnel || tunnelAvailable) }
   var canToggleSystemProxy: Bool { outputsEnabled && (systemProxy || systemProxyAvailable) }
+
+  func menuBarImage(appIcon: NSImage) -> NSImage {
+    let color: NSColor?
+    switch badge {
+    case "connected": color = .systemGreen
+    case "busy": color = .systemBlue
+    case "warning": color = .systemYellow
+    case "error": color = .systemRed
+    default: color = nil
+    }
+    return NSImage(size: NSSize(width: 18, height: 18), flipped: false) { bounds in
+      appIcon.draw(in: bounds)
+      if let color {
+        let dot = NSBezierPath(ovalIn: NSRect(x: bounds.maxX - 6.5, y: bounds.minY + 0.5,
+                                              width: 6, height: 6))
+        color.setFill()
+        dot.fill()
+        NSColor.white.setStroke()
+        dot.lineWidth = 1
+        dot.stroke()
+      }
+      return true
+    }
+  }
 }
 
 /// A late result from an earlier quit attempt must never finish a later one.
@@ -161,6 +185,16 @@ struct DesktopZeroTrustSession {
     team = nil
     callback = nil
     failure = nil
+  }
+}
+
+func matchesInstalledMacosService(root: URL, contents: URL) -> Bool {
+  // Same-version test packages can ship a new Agent with an identical Engine.
+  let files = [("usque-engine", "MacOS/usque-engine"), ("usque-agent", "Helpers/usque-agent")]
+  return files.allSatisfy { name, relative in
+    let installed = root.appendingPathComponent(name).path
+    return FileManager.default.isExecutableFile(atPath: installed)
+      && FileManager.default.contentsEqual(atPath: installed, andPath: contents.appendingPathComponent(relative).path)
   }
 }
 

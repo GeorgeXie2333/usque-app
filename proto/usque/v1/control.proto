@@ -124,6 +124,7 @@ enum ProfileIdentityState {
   PROFILE_IDENTITY_STATE_READY = 1;
   PROFILE_IDENTITY_STATE_MISSING = 2;
   PROFILE_IDENTITY_STATE_INVALID = 3;
+  PROFILE_IDENTITY_STATE_LOCKED = 4;
 }
 
 enum ConnectionPhase {
@@ -716,6 +717,7 @@ message ListProfilesRequest {
 message ConnectRequest {
   string profile_id = 1;
   bool continuous = 2;
+  bool background = 3;
 }
 message DisconnectRequest {}
 message RetryRequest {
@@ -1171,6 +1173,7 @@ message InitialIdentityRequest {
 }
 message GetInitialIdentityStateRequest {
   string profile_id = 1;
+  bool allow_keychain_interaction = 2;
 }
 enum InitialIdentityPhase {
   INITIAL_IDENTITY_PHASE_UNSPECIFIED = 0;

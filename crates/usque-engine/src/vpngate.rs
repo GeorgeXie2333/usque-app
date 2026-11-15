@@ -652,6 +652,9 @@ impl ControlService {
         &self,
         profile: &usque_core::Profile,
     ) -> Result<Option<(ServerSummary, PreparedProfile)>, ControlServiceError> {
+        if !profile.chain_enabled() {
+            return Ok(None);
+        }
         self.validate_chain_selection(profile)?;
         #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
         if profile.custom_chain().is_some() {
@@ -684,9 +687,6 @@ impl ControlService {
                 .map_err(ControlServiceError::configuration)?;
             }
             return Ok(selected);
-        }
-        if !profile.chain_enabled() {
-            return Ok(None);
         }
         let selection = profile
             .vpn_gate

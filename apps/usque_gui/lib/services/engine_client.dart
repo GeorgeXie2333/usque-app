@@ -30,6 +30,17 @@ abstract interface class InitialIdentityClient {
   Future<InitialIdentityState> getInitialIdentityState(String profileId);
 }
 
+abstract interface class MacosKeychainClient {
+  Future<EngineSnapshot> connect(
+    UsqueProfile profile, {
+    bool background = false,
+  });
+  Future<InitialIdentityState> getInitialIdentityState(
+    String profileId, {
+    bool allowKeychainInteraction = false,
+  });
+}
+
 abstract interface class OnboardingPermissionsClient {
   Future<OnboardingPermissionState> getOnboardingPermissions();
   Future<OnboardingPermissionState> prepareOnboardingPermissions();
@@ -71,8 +82,10 @@ class MacosServiceState {
     this.canMaintain = false,
     this.recoveryPending = false,
     this.protectionRetained = false,
+    this.cleanupConfirmed = false,
     this.tunAvailable = false,
     this.releaseApproved = false,
+    this.testTunBuild = false,
     this.preflightPassed = false,
     this.version = '',
   });
@@ -83,8 +96,10 @@ class MacosServiceState {
         canMaintain: map['canMaintain'] == true,
         recoveryPending: map['recoveryPending'] == true,
         protectionRetained: map['protectionRetained'] == true,
+        cleanupConfirmed: map['cleanupConfirmed'] == true,
         tunAvailable: map['tunAvailable'] == true,
         releaseApproved: map['releaseApproved'] == true,
+        testTunBuild: map['testTunBuild'] == true,
         preflightPassed: map['preflightPassed'] == true,
         version: map['version'] is String ? map['version']! as String : '',
       );
@@ -92,8 +107,9 @@ class MacosServiceState {
       compatible,
       canMaintain,
       recoveryPending,
-      protectionRetained;
-  final bool tunAvailable, releaseApproved, preflightPassed;
+      protectionRetained,
+      cleanupConfirmed;
+  final bool tunAvailable, releaseApproved, testTunBuild, preflightPassed;
   final String version;
 }
 

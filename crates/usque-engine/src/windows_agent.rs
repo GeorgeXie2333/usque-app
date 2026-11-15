@@ -5635,6 +5635,7 @@ mod tests {
                     usque_ipc::v1::ConnectRequest {
                         continuous: false,
                         profile_id: profile_id.to_string(),
+                        ..Default::default()
                     },
                 )),
             })

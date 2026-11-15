@@ -1,4 +1,4 @@
-import CoreGraphics
+import AppKit
 import Foundation
 
 @main
@@ -12,7 +12,29 @@ enum DesktopContractMain {
     try nativeLanguageResolution()
     try nativeLocalizedCopy()
     try nativeMenuCoverage()
-    print("8 macOS desktop contract groups passed")
+    try trayArtwork()
+    try installedServiceIdentity()
+    print("10 macOS desktop contract groups passed")
+  }
+
+  private static func installedServiceIdentity() throws {
+    let fm = FileManager.default
+    let folder = fm.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let root = folder.appendingPathComponent("installed")
+    let contents = folder.appendingPathComponent("Contents")
+    defer { try? fm.removeItem(at: folder) }
+    for directory in [root, contents.appendingPathComponent("MacOS"), contents.appendingPathComponent("Helpers")] {
+      try fm.createDirectory(at: directory, withIntermediateDirectories: true)
+    }
+    for (relative, name) in [("MacOS/usque-engine", "usque-engine"), ("Helpers/usque-agent", "usque-agent")] {
+      let file = root.appendingPathComponent(name)
+      try Data(name.utf8).write(to: file)
+      try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: file.path)
+      try fm.copyItem(at: file, to: contents.appendingPathComponent(relative))
+    }
+    try require(matchesInstalledMacosService(root: root, contents: contents), "matching installed service rejected")
+    try Data("old agent".utf8).write(to: root.appendingPathComponent("usque-agent"))
+    try require(!matchesInstalledMacosService(root: root, contents: contents), "same Engine masked a stale installed Agent")
   }
 
   private static func require(_ condition: @autoclosure () -> Bool, _ description: String) throws {
@@ -90,6 +112,47 @@ enum DesktopContractMain {
     try require(selected.canToggleTunnel, "selected unavailable output cannot be disabled")
     selected.outputsEnabled = false
     try require(!selected.canToggleTunnel && !selected.canToggleSystemProxy, "busy outputs can mutate")
+  }
+
+  private static func trayArtwork() throws {
+    let runner = URL(fileURLWithPath: CommandLine.arguments[1])
+      .deletingLastPathComponent().deletingLastPathComponent()
+    guard let logo = NSImage(contentsOf: runner.appendingPathComponent(
+      "Assets.xcassets/AppIcon.appiconset/app_icon_64.png")) else {
+      throw NSError(domain: "DesktopContract", code: 3)
+    }
+    let size = NSSize(width: 18, height: 18)
+    for scale in [1, 2] {
+      let pixels = 18 * scale
+      func render(_ image: NSImage) -> Data {
+        let context = CGContext(data: nil, width: pixels, height: pixels, bitsPerComponent: 8,
+          bytesPerRow: pixels * 4, space: CGColorSpaceCreateDeviceRGB(),
+          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        context.scaleBy(x: CGFloat(scale), y: CGFloat(scale))
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
+        image.draw(in: NSRect(origin: .zero, size: size))
+        NSGraphicsContext.restoreGraphicsState()
+        return Data(bytes: context.data!, count: pixels * pixels * 4)
+      }
+      let original = render(logo)
+      var appearances = Set<Data>()
+      for badge in ["idle", "busy", "connected", "warning", "error"] {
+        var state = DesktopTrayState()
+        state.badge = badge
+        let image = state.menuBarImage(appIcon: logo)
+        let artwork = render(image)
+        try require(image.size == size && !image.isTemplate, "tray lost its size or brand colors")
+        for row in 0..<pixels {
+          let start = row * pixels * 4
+          let leftHalf = start..<(start + pixels / 2 * 4)
+          try require(artwork[leftHalf] == original[leftHalf], "tray badge replaced the Usque artwork")
+        }
+        if badge == "idle" { try require(artwork == original, "idle tray changed the Usque icon") }
+        appearances.insert(artwork)
+      }
+      try require(appearances.count == 5, "tray states should remain visually distinct")
+    }
   }
 
   private static func quitAcknowledgements() throws {

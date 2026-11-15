@@ -63,7 +63,10 @@ async fn spawn_with(
                 result = async { match outbound.as_ref() { Some(packet) => write_packet(&device, packet).await, None => std::future::pending().await } }, if outbound.is_some() => { result?; outbound = None; },
             }
         }}.await;
-        if result.is_err() && !cancel.is_cancelled() {
+        if let Err(error) = result
+            && !cancel.is_cancelled()
+        {
+            crate::macos_agent_runtime::log_tun_failure("packet_io", &error);
             failure.send_replace(Some(
                 "macOS packet transport failed; recovery is required".into(),
             ));
@@ -187,6 +190,48 @@ mod tests {
                 .await
                 .ok_or(TransportError::TunnelClosed)
         }
+    }
+    #[tokio::test]
+    async fn both_families_cross_the_running_packet_pump_in_both_directions() {
+        let (fd, peer) = UnixDatagram::pair().unwrap();
+        fd.set_nonblocking(true).unwrap();
+        peer.set_nonblocking(true).unwrap();
+        let peer = tokio::net::UnixDatagram::from_std(peer).unwrap();
+        let (upload, mut received) = tokio::sync::mpsc::channel(1);
+        let (sender, download) = tokio::sync::mpsc::channel(1);
+        let cancel = CancellationToken::new();
+        let (failure, observed) = watch::channel(None);
+        let pump = spawn_with(
+            Queue { upload, download },
+            fd.into(),
+            cancel.clone(),
+            failure,
+        )
+        .await
+        .unwrap();
+        tokio::time::timeout(Duration::from_secs(2), async {
+            for (family, size) in [(2u32, 20usize), (30, 40)] {
+                let mut packet = vec![0u8; size];
+                if family == 2 {
+                    packet[0] = 0x45;
+                    packet[3] = 20;
+                } else {
+                    packet[0] = 0x60;
+                }
+                let wire = [family.to_be_bytes().as_slice(), packet.as_slice()].concat();
+                peer.send(&wire).await.unwrap();
+                assert_eq!(received.recv().await.unwrap().as_ref(), packet);
+                sender.send(Bytes::from(packet)).await.unwrap();
+                let mut reply = [0; 64];
+                let length = peer.recv(&mut reply).await.unwrap();
+                assert_eq!(&reply[..length], wire);
+            }
+        })
+        .await
+        .unwrap();
+        cancel.cancel();
+        pump.await.unwrap();
+        assert!(observed.borrow().is_none());
     }
     #[tokio::test]
     async fn invalid_frame_revokes_pump_and_reports_failure_without_forwarding() {

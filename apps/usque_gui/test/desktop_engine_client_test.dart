@@ -1216,6 +1216,33 @@ void main() {
       },
     );
 
+    test('only automatic connect sets the background keychain flag', () async {
+      final seen = <Uint8List>[];
+      final client = DesktopEngineClient.forTest(
+        transport: DesktopEngineTransport.forTest(
+          exchange: (request) async {
+            seen.add(request);
+            return _statusResponse('1');
+          },
+          requestIdFactory: () => '1',
+        ),
+      );
+      addTearDown(client.dispose);
+      for (final background in [true, false]) {
+        await client.connect(_goldenProfile, background: background);
+        final payload = ControlPayloadWriter()..string(1, _goldenProfile.id);
+        if (background) payload.boolean(3, true);
+        expect(
+          seen.last,
+          const ControlCodec().buildRequestFrame(
+            requestId: '1',
+            payloadField: 12,
+            payload: payload.takeBytes(),
+          ),
+        );
+      }
+    });
+
     test('retry encodes control request payload field 14', () async {
       Uint8List? seen;
       final client = DesktopEngineClient.forTest(

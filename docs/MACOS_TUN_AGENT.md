@@ -9,7 +9,15 @@ subscription or disabling SIP. Account credentials remain in the user's Keychain
 **Production TUN is release-gated.** The implementation and isolated checks do
 not establish real network safety. The user has no disposable macOS environment
 or external observer; all unavailable real-system acceptance is explicitly
-`not_run`. Both Engine and Agent retain `RELEASE_APPROVED = false`. Ordinary
+`not_run`. To build the opt-in TUN test DMGs, run
+`python3 tool/macos_package.py build --arch arm64 --test-tun` or use
+`--arch x86_64`. Packages are written under `build/macos-tun-test/<arch>/`
+with a `-tun-test.dmg` suffix. Install or update the bundled background service,
+then quit and reopen Usque. A matching Engine and Agent, network preflight and
+clean recovery state enable the TUN switch in Home and Proxy. Both helpers embed
+the test flag at compile time. Ordinary builds omit the opt-in.
+
+Both Engine and Agent retain `RELEASE_APPROVED = false`. Ordinary
 proxy mode and service inspection remain available. The independent
 [Network Extension experiment](MACOS_NETWORK_PROTOTYPE.md) is preserved and is
 not built or installed by the default Agent package.
@@ -84,6 +92,54 @@ without editing `/etc/resolv.conf`. Original physical resolver evidence is kept
 for controlled bootstrap; a retained session uses persisted numeric control
 candidates rather than recursively invoking system DNS.
 
+## System proxy and mihomo comparison
+
+| macOS operation | FlClash / mihomo source | Usque implementation |
+| --- | --- | --- |
+| System proxy | FlClash enumerates enabled services and calls Apple's `networksetup` for HTTP, HTTPS, SOCKS and bypass domains. Stop disables proxies and clears the bypass list. [Proxy commands](https://github.com/chen08209/FlClash/blob/be84736605527034689c95bf27828ff27d912c5e/plugins/proxy/lib/src/macos_proxy.dart) | The Engine sends a loopback IP, port and lease ID to the installed Agent. The Agent changes HTTP/HTTPS on eligible physical services and temporarily disables PAC/WPAD. The SOCKS configuration and bypass list retain their native values. |
+| Authorization | The proxy command runner starts the system executable directly. FlClash's separate TUN setup authorizes a root-owned core executable, restricted to the admin group. [Command runner](https://github.com/chen08209/FlClash/blob/be84736605527034689c95bf27828ff27d912c5e/plugins/proxy/lib/src/proxy_command.dart) · [Core authorization](https://github.com/chen08209/FlClash/blob/be84736605527034689c95bf27828ff27d912c5e/lib/common/system.dart) | Installation and updates authorize a root LaunchDaemon. Its per-request audit token and code identity checks also cover proxy leases. Normal connections use SystemConfiguration without creating an Authorization Services handle. |
+| TUN and egress | Upstream mihomo's sing-tun listener manages the device, routing and interface monitoring. Its Darwin dialer binds outbound sockets with `IP_BOUND_IF` and `IPV6_BOUND_IF`. [Listener](https://github.com/MetaCubeX/mihomo/blob/184857ce21a3e4ef48c6829265c00aedfd87792b/listener/sing_tun/server.go) · [Darwin dialer](https://github.com/MetaCubeX/mihomo/blob/184857ce21a3e4ef48c6829265c00aedfd87792b/component/dialer/bind_darwin.go) | The root Agent owns utun, generation-scoped physical sockets, DNS, routes and PF. An ordinary-user Engine receives descriptors and runs the shared data plane. Public TUN remains gated on observed network behavior. |
+
+A proxy lease survives a quiet IPC stream. Engine exit closes the stream and
+the Agent attempts restoration. The Agent reloads its receipt after restart;
+an Engine observing a closed stream reports the lost proxy. Each receipt is
+stored in a root-only file with mode 0600 before preference writes. It records
+owned scalar values and PAC fingerprints. The Engine's old encrypted journal
+stays in its user's profile. No account secret is exchanged. An interrupted
+write, unreadable receipt or unsuccessful restoration prevents a clean
+acknowledgement. Successful uninstallation publishes a root-owned cleanup receipt
+for an Engine whose proxy stream was lost. The next Agent invalidates that
+receipt before accepting connections. A competing HTTP/HTTPS endpoint is preserved, including when
+restoring PAC/WPAD would supersede that endpoint.
+
+**Testing on a Mac with limited storage.** Tests exercise the production packet
+pump over a Unix datagram pair and use real IPv4/IPv6 TCP and UDP peers on
+`lo0` for Darwin interface binding. The optional host probe below only reads
+SystemConfiguration services and constructs a proxy plan in memory. No VM or
+system TUN is needed for these checks. The [local validation record](MACOS_PROXY_AGENT_VALIDATION.json) lists the exercised cases, remaining device tests and package identities.
+
+```sh
+cargo test --offline --locked -p usque-agent macos::
+cargo test --offline --locked -p usque-engine macos_
+cargo test --offline --locked -p usque-ipc darwin_fd
+cargo test --offline --locked -p usque-platform reads_current_services_and_constructs -- --ignored
+```
+
+The next real-network run can use a contributor's disposable Mac or a remote
+Mac with console recovery. The ignored test
+`macos::utun::tests::disposable_mac_real_utun_descriptor_handoff` creates
+one unconfigured utun, passes its descriptor using the production IPC code and
+checks its lifetime after the last close. On that disposable Mac, compile
+`cargo test --locked --offline -p usque-agent --lib --no-run` as an ordinary
+user. Run the resulting trusted test binary as administrator with
+`USQUE_DISPOSABLE_MAC=1` and `--ignored --exact` plus the full test name.
+This stage requires no change to release gates. For end-to-end acceptance,
+capture on its test gateway as well as at a
+controlled destination. Compare direct and proxied IPv4/IPv6 TCP/UDP probes,
+then interrupt the Engine and Agent, check for unexpected physical packets and
+verify DNS, routes, PF and proxy restoration. Record the OS, architecture and
+package hash for each run. A loopback test cannot observe physical egress.
+
 ## Installation and administrator recovery
 
 Build the matching architecture using [packaging instructions](MACOS_DEVELOPMENT_PACKAGING.md),
@@ -92,6 +148,25 @@ background service**. Install/update invokes system administrator authorization.
 Restart the GUI after installation/replacement so it launches the pinned Engine.
 Daily connections use the installed service without another authorization prompt.
 Service mutations are disabled while the GUI owns an active connection.
+
+If a previous development build cannot quit after installing the service,
+the administrator command may have created the installation directory and
+Engine with mode `0700`. The GUI then cannot confirm the service's cleanup.
+Use the corrected package's **Repair / update** operation. If the old window
+is still open and prevents replacing the app, an administrator can uninstall
+the old service with the existing installed app's maintenance tool:
+
+```sh
+sudo /Applications/Usque.app/Contents/Helpers/usque-agent-maintenance uninstall
+```
+
+Wait for a successful result, retry **Disconnect and Exit**, replace the app,
+and reinstall the service from Settings. Uninstall first recovers Agent-owned
+network settings and preserves user accounts. If recovery fails, keep the
+service and recovery records for diagnosis. An inaccessible pre-existing
+`/Library/PrivilegedHelperTools` parent requires administrator inspection;
+repair does not change permissions on existing system directories. Production
+TUN stays disabled in these development packages after service installation.
 
 Root-owned locations:
 
@@ -106,7 +181,10 @@ sudo /Applications/Usque.app/Contents/Helpers/usque-agent-maintenance recover
 ```
 
 The maintenance tool stops the daemon, runs the Agent's root-only
-`--recover-state`, verifies cleanup and restarts the service. The same fixed
+`--recover-state`, verifies cleanup and restarts the service. If the installed
+Agent cannot recover its journal, open the updated app and choose **Settings →
+macOS background service → Repair / update**. Repair can run the verified
+staged Agent against the existing records before it activates the update. The same fixed
 entry point accepts `install`, `repair` and `uninstall`; all require explicit
 administrator execution. It accepts no arbitrary command, network rules or
 recovery path. Uninstall first requires successful network recovery and retains

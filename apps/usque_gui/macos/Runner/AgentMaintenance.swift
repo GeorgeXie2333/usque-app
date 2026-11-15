@@ -7,17 +7,39 @@ import Foundation
 /// account credential or arbitrary launchd label is accepted from Dart.
 enum AgentMaintenanceBridge {
   private static let root = "/Library/PrivilegedHelperTools/com.usque.agent"
+  private static func matchesBundledService() -> Bool {
+    matchesInstalledMacosService(root: URL(fileURLWithPath: root),
+      contents: Bundle.main.bundleURL.appendingPathComponent("Contents"))
+  }
   static func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) -> Bool {
+    if call.method == "macosUseInstalledEngine" {
+      DispatchQueue.global(qos: .userInitiated).async {
+        let matches = matchesBundledService()
+        DispatchQueue.main.async { result(matches) }
+      }
+      return true
+    }
     guard ["getMacosServiceState", "maintainMacosService"].contains(call.method) else { return false }
     if call.method == "getMacosServiceState" {
       DispatchQueue.global(qos: .utility).async {
         let helper = Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/usque-agent-maintenance")
-        let installed = FileManager.default.isExecutableFile(atPath: root + "/usque-engine")
+        // An older installation can be root-only due to its umask. Its
+        // directory is visible even when its Engine cannot be traversed.
+        var rootInfo = stat()
+        let installed = lstat(root, &rootInfo) == 0 || errno != ENOENT
         var state: [String: Any] = ["installed": installed, "compatible": false, "canMaintain": FileManager.default.isExecutableFile(atPath: helper.path), "recoveryPending": installed, "tunAvailable": false]
-        if installed, let data = try? run(root + "/usque-engine", ["--macos-agent-status"]),
+        if installed, FileManager.default.isExecutableFile(atPath: root + "/usque-engine"),
+          let data = try? run(root + "/usque-engine", ["--macos-agent-status"]),
           let observed = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
           state.merge(observed) { _, new in new }
+          if !matchesBundledService() {
+            state["compatible"] = false
+            state["tunAvailable"] = false
+          } else if state["compatible"] as? Bool == true && state["recoveryPending"] as? Bool == false {
+            state["cleanupConfirmed"] = (try? run(root + "/usque-engine", ["--macos-agent-check-clean"])) != nil
+          }
         }
+        state["testTunBuild"] = Bundle.main.object(forInfoDictionaryKey: "UsqueTestTunEnabled") as? Bool ?? false
         let response = state
         DispatchQueue.main.async { result(response) }
       }
@@ -55,6 +77,14 @@ enum AgentMaintenanceBridge {
           command += "\"$task_stage/Contents/Helpers/usque-agent-maintenance\" " + shellQuote(operation)
           let script = "do shell script " + appleQuote(command) + " with administrator privileges"
           _ = try run("/usr/bin/osascript", ["-e", script], timeout: 180)
+          if operation == "install" || operation == "repair" {
+            // Root readiness cannot prove the GUI user can launch the pinned
+            // Engine and authenticate. Check that exact path before success.
+            let data = try run(root + "/usque-engine", ["--macos-agent-status"])
+            guard matchesBundledService(), let status = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              status["compatible"] as? Bool == true, status["recoveryPending"] as? Bool == false
+            else { throw NSError(domain: "UsqueAgent", code: 4) }
+          }
           DispatchQueue.main.async { result(nil) }
         } catch {
           DispatchQueue.main.async { result(FlutterError(code: "MACOS_AGENT_MAINTENANCE_FAILED", message: "Service maintenance was cancelled or recovery is incomplete. Retry the action.", details: nil)) }
@@ -76,7 +106,9 @@ enum AgentMaintenanceBridge {
     if task.isRunning { task.terminate() }
     guard !task.isRunning || Date() < deadline else { throw NSError(domain: "UsqueAgent", code: 1) }
     task.waitUntilExit()
-    guard task.terminationStatus == 0, let data = try pipe.fileHandleForReading.read(upToCount: 65537), data.count <= 65536 else { throw NSError(domain: "UsqueAgent", code: 2) }
+    guard task.terminationStatus == 0 else { throw NSError(domain: "UsqueAgent", code: 2) }
+    let data = try pipe.fileHandleForReading.read(upToCount: 65537) ?? Data()
+    guard data.count <= 65536 else { throw NSError(domain: "UsqueAgent", code: 2) }
     return data
   }
 }

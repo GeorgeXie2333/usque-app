@@ -54,6 +54,14 @@ pub fn equivalent(a: Option<&[u8]>, b: Option<&[u8]>) -> io::Result<bool> {
         _ => Ok(false),
     }
 }
+fn active_equivalent(published: Option<&[u8]>, target: Option<&[u8]>) -> io::Result<bool> {
+    // configd can omit Setup:/.../DNS entirely for an empty preferences
+    // dictionary. Keep the exact representation for disk ownership checks.
+    match (published, target) {
+        (None, Some(value)) | (Some(value), None) => Ok(decode(value)?.is_empty()),
+        _ => equivalent(published, target),
+    }
+}
 fn patch(original: Option<&[u8]>, servers: &[IpAddr]) -> io::Result<Vec<u8>> {
     if servers.is_empty()
         || servers.len() > 8
@@ -303,7 +311,7 @@ pub fn apply(receipt: &DnsReceipt, restore: bool) -> io::Result<()> {
     // already at target after a crash; then wait for configd's active Setup.
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
     loop {
-        if equivalent(
+        if active_equivalent(
             super::network::setup_dns(receipt.service)?.as_deref(),
             target,
         )? {
@@ -321,6 +329,27 @@ pub fn apply(receipt: &DnsReceipt, restore: bool) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn configd_can_unpublish_an_empty_restored_dns_dictionary() {
+        let empty = encode(&Dictionary::from_CFType_pairs(&[])).unwrap();
+        let tunnel = patch(None, &["198.18.0.1".parse().unwrap()]).unwrap();
+        let search = encode(&Dictionary::from_CFType_pairs(&[(
+            CFString::new("SearchDomains"),
+            CFArray::from_CFTypes(&[CFString::new("example.test")]).as_CFType(),
+        )]))
+        .unwrap();
+        assert!(active_equivalent(None, Some(&empty)).unwrap());
+        assert!(active_equivalent(Some(&empty), None).unwrap());
+        assert!(
+            !equivalent(None, Some(&empty)).unwrap(),
+            "keep the original disk representation"
+        );
+        for meaningful in [&tunnel, &search] {
+            assert!(!active_equivalent(None, Some(meaningful)).unwrap());
+            assert!(!active_equivalent(Some(meaningful), Some(&empty)).unwrap());
+        }
+        assert!(active_equivalent(None, Some(b"broken")).is_err());
+    }
     #[test]
     fn replacing_servers_preserves_unrelated_dns_settings_and_original_evidence() {
         let before = Dictionary::from_CFType_pairs(&[(

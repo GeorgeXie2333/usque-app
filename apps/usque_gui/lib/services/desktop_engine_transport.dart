@@ -399,6 +399,11 @@ class DesktopEngineTransport {
 
   Future<void> _startEngine() async {
     var executable = _engineExecutable();
+    if (Platform.isMacOS &&
+        !(kDebugMode && (Platform.environment['USQUE_ENGINE_PATH'] ?? '').trim().isNotEmpty) &&
+        await _nativeTransport.invokeMethod<bool>('macosUseInstalledEngine') == true) {
+      executable = '/Library/PrivilegedHelperTools/com.usque.agent/usque-engine';
+    }
     if (Platform.isLinux && !kDebugMode) {
       executable =
           await _nativeTransport.invokeMethod<String>(
@@ -660,10 +665,6 @@ String _engineExecutable() {
   }
   if (Platform.isLinux) {
     return '${appExecutable.parent.path}/usque-engine';
-  }
-  if (Platform.isMacOS) {
-    const installed = '/Library/PrivilegedHelperTools/com.usque.agent/usque-engine';
-    if (File(installed).existsSync()) return installed;
   }
   final contents = appExecutable.parent.parent;
   return '${contents.path}${Platform.pathSeparator}Resources'

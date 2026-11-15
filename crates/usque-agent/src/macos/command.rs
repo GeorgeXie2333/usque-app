@@ -12,14 +12,18 @@ pub use usque_ipc::darwin_fd::DESCRIPTOR_EXEC_LOCK;
 pub enum Program {
     Pfctl,
     Route,
+    Netstat,
     Ifconfig,
+    InstalledAgent,
 }
 impl Program {
     fn path(self) -> &'static str {
         match self {
             Self::Pfctl => "/sbin/pfctl",
             Self::Route => "/sbin/route",
+            Self::Netstat => "/usr/sbin/netstat",
             Self::Ifconfig => "/sbin/ifconfig",
+            Self::InstalledAgent => "/Library/PrivilegedHelperTools/com.usque.agent/usque-agent",
         }
     }
 }

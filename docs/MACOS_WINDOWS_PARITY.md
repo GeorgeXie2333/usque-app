@@ -32,7 +32,7 @@ hardware. None of the isolated results establishes physical-egress safety.
 | Account bootstrap protection | Existing connected WARP runtime can be reused; VPN Gate may create a listener-free base WARP runtime while retaining saved chain settings | Directory requests stay inside WARP; no direct physical-network catalogue fallback; active/retained VPN and pending recovery still block bootstrap |
 | Credentials and configuration | User Engine owns Keychain and encrypted chain storage; bounded zeroizing cache reuses unlocked records across connection changes; dedicated secret transfer and durable refresh acknowledgement | Injected Keychain and in-memory test vault; no host credentials read or replaced by tests |
 | Connection scenes | Shared save/select/preview/apply workflow, account and chain binding, stale-session fencing and uncertain-write settlement enabled on macOS | Backend and macOS widget regressions; scene activation does not bypass output capabilities or pending proxy recovery |
-| System proxy | Per-service SystemConfiguration transaction, Engine-lifetime network authorization reuse, silent rights preflight on cleanup, encrypted ownership journal, compare-and-restore; pending recovery blocks new sessions and key deletion | Fake preferences/authorization/failure injection; real authorization cancellation and crash recovery pending; newly created services require reapply |
+| System proxy | Authenticated Agent lease, noninteractive per-service SystemConfiguration transaction, root-owned receipt, compare-and-restore and migration of encrypted Engine evidence | Fake preferences/authorization/failure injection; real authorization cancellation and crash recovery pending; newly created services require reapply |
 | Continuous desktop events | Authenticated per-user Unix control/events sockets; bounded, fragmented/coalesced frame decoder | Engine and Dart tests; hidden-window event loop is implemented |
 | Tray/background controls | Native menu bar status, connect/disconnect, VPN/proxy actions, hidden-window updates, explicit disconnect-and-quit | Native contract/type checks; real tray interaction pending |
 | Output availability | Home, Proxy, tray and shortcuts honor Engine VPN/proxy capabilities; unavailable saved outputs can still be turned off; Settings explains unavailable VPN protection | Headless capability/refresh contracts; unsigned VPN stays disabled |
@@ -226,7 +226,7 @@ or published.
 | Connection scenarios | macOS uses shared save/select/preview/apply, account/chain binding, stale-session and uncertain-write settlement. Activation waits for proxy recovery. Unavailable outputs remain unavailable. |
 | Keyboard and Settings | Cmd+1–4, Cmd+S and Cmd+, retain the corresponding shared actions. Native Settings uses the same unsaved-change guard. Native connection/output commands are disabled during dialogs and unsaved/saving edits, and checked again when received. |
 | Menu bar, background and quit | Home and menu bar share connection availability, retaining cancellation while connecting. macOS Disconnect now acknowledges completed cleanup. A disconnected cached snapshot cannot skip Engine cleanup; empty or non-completed replies cannot approve Quit. Pending Quit blocks new connection/output actions. Failure keeps the window and retry path. Native window/Dock/multi-display interaction remains `not_run`. |
-| Keychain and proxy authorization | Existing bounded successful-read cache and process-local authorization remain unchanged. A failed startup rollback registers the encrypted journal before stopping its listener; final-activation failure retains its runtime and guard. Hot-update cleanup also recovers a journal without a live guard. Stop retries authorization and Clear All cannot delete recovery keys first. Actual permission dialogs, locked/managed Keychain behavior and host restoration remain `not_run`. |
+| Keychain and proxy authorization | The successful-read cache is per process. Before the Agent proxy migration, the Engine also held the network authorization. A failed startup rollback registers the encrypted journal before stopping its listener; final-activation failure retains its runtime and guard. Hot-update cleanup also recovers a journal without a live guard. Stop retries authorization and Clear All cannot delete recovery keys first. Actual permission dialogs, locked/managed Keychain behavior and host restoration remain `not_run`. |
 | VPN Gate directory | Reuse a connected base WARP or automatically create a temporary WARP runtime without proxy listeners. Saved chain/output settings stay intact. Active or retained system-VPN ownership and pending proxy cleanup block a new temporary runtime. Cached preparation, listing, favorites and removal remain offline. Live directory/node service acceptance is `not_run`. |
 | Chain exits and account login | Shared HTTP/SOCKS, OpenVPN, WireGuard, VPN Gate, existing Proton account login and Zero Trust entry points remain subject to their existing capability/prerequisite checks. Real authentication, traffic, DNS and system authentication acceptance are `not_run`. Proton guest registration and its bundled browser have been removed from macOS. |
 
@@ -277,53 +277,44 @@ their original results and package identities.
 
 ## Keychain access
 
-The macOS vault retains successfully read credentials in zeroizing memory for
-the Engine lifetime, shared by its clones. Connecting, disconnecting and
-reconnecting can reuse those records without repeating the same native Keychain
-read. The cache holds at most 256 records of at most 2,560 bytes each; eviction
-and the last owner's exit drop and zeroize the values. Debug output omits both
-credentials and account identifiers.
+The Engine stores each WARP account in one login Keychain item. The private
+key, token, endpoint information and optional fields share that item's access
+decision. The Engine keeps recently unlocked accounts in bounded, zeroizing
+memory until eviction or exit. The optional local proxy password and the
+encryption key for chain profiles have independent lifetimes.
 
-Explicit writes and deletes invalidate the cached record before native access,
-including failures. Writes still reach Keychain and subsequent reads still verify
-the stored value before caching it. Missing records, failed/cancelled reads and
-invalid sizes are not cached. Native operations and cache changes run under the
-same blocking-worker lock, including when an async caller is cancelled.
+Startup, account-list refreshes and automatic connection attempts use
+noninteractive Keychain access. The account list shows when macOS requires
+authorization. Selecting Connect or explicitly checking initial account setup
+allows the user to approve access. Rejecting a request leaves the account
+available for a later manual retry.
 
-The first read of each item, a new Engine, eviction, updates or a locked Keychain
-can still require macOS approval. This does not change Keychain ACLs, unlock the
-login Keychain automatically or grant another application access. Already loaded
-credentials remain usable for this Engine session, as with active transport
-credentials; external Keychain edits are observed after cache invalidation or
-Engine restart. Real Keychain password dialogs remain device-pending; tests use
-only a synthetic injected store.
+An older build stored each field in a separate item under the same service
+name. During migration macOS can therefore show several identically named
+dialogs. The Engine keeps individually approved fields for this session and
+retires old items only after reading back the complete replacement. A failed
+read leaves the originals intact. Changes to an ad-hoc signed Engine or a locked
+login keychain can require authorization for the packed item on a later run.
+
+The regression tests use synthetic account records. The native UI-policy test
+checks the Security framework setting and restores it without opening a
+keychain. Interactive testing with an existing user's ACLs remains pending.
 
 ## System-proxy authorization
 
-Enabling the system proxy can require the macOS administrator dialog. Engine
-requests `system.services.systemconfiguration.network`, the right checked by
-[Apple's SCHelper](https://github.com/apple-oss-distributions/configd/blob/main/SystemConfiguration.fproj/helper/SCHelper_server.c),
-and retains that process-local authorization across disconnect, reconnect and
-recovery. It no longer requests the unrelated broad `system.preferences` right
-or discards its authorization after each connection. Passwords and authorization
-external forms are never stored or passed to another Usque process.
+The installed Agent applies the ordinary-user Engine's loopback HTTP listener to
+eligible services. Installing or replacing the Agent requires administrator
+approval. Connect, reconnect, explicit disconnect and crash recovery use the
+authenticated service socket without an interactive authorization request.
+Existing per-user encrypted recovery records are restored through the legacy
+path before acquiring the first Agent lease. Explicit recovery of an old record
+can still request its original network authorization.
 
-Cleanup checks the network right without allowing interaction before opening an
-authorized preferences session. If the check fails, the encrypted recovery journal
-remains for an explicit retry. A fresh Engine's background recovery creates no
-authorization reference. This does not bypass macOS policy: the first enable,
-Engine restart, expired/revoked rights or managed-device policy can require new
-approval. SCHelper performs its own checks at lock/commit/apply, so a concurrent
-policy change after preflight remains subject to macOS behavior.
-
-The regression fixtures cover one authorization across connect/disconnect/reconnect,
-cancellation/retry, revoked-right preflight and shared context lifetime. They do not
-display a real password dialog or change host network preferences. Actual dialog
-counts, long-running sessions, cancellation and crash recovery remain device-pending.
+See the [macOS Agent implementation and acceptance notes](MACOS_TUN_AGENT.md#system-proxy-and-mihomo-comparison) for ownership, upgrade instructions and upstream sources.
 
 ## PR #147 follow-up (2026-11-01)
 
-Explicit Disconnect/exit retries can renew an expired system-proxy authorization.
+In development builds before the Agent proxy migration, explicit Disconnect/exit retries could renew an expired system-proxy authorization.
 The first cleanup attempt, startup recovery and process detach remain
 noninteractive; cancelling an explicit retry retains the same encrypted journal
 and exact transaction for another retry. Disabling the system-proxy output from

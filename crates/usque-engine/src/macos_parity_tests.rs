@@ -439,6 +439,7 @@ async fn unsigned_system_vpn_is_refused_before_starting_any_chain_runtime() {
                 v1::ConnectRequest {
                     profile_id: profile.id.to_string(),
                     continuous: false,
+                    ..Default::default()
                 },
             )))
             .await;

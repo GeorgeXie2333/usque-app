@@ -40,6 +40,61 @@ class ServiceEngine extends FakeEngineClient implements MacosServiceClient {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   testWidgets(
+    'refresh after external recovery clears stale errors only with clean proof',
+    (tester) async {
+      final engine = ServiceEngine()
+        ..state = const MacosServiceState(
+          installed: true,
+          compatible: true,
+          canMaintain: true,
+          recoveryPending: true,
+        )
+        ..cancelFirst = true;
+      final app = AppController(engine)
+        ..localePreference = LocalePreference.english;
+      addTearDown(app.dispose);
+      final oldError = app.strings.get('macos_agent_quit_failed');
+      app.lastError = oldError;
+      await tester.pumpWidget(
+        workflowHost(
+          app,
+          home: Scaffold(body: MacosServiceSection(controller: app)),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('macos-service-install')));
+      await tester.pumpAndSettle();
+      final oldAction = find.text(
+        'The operation did not complete. You can retry.',
+      );
+      expect(oldAction, findsOneWidget);
+      final ready = <Object?, Object?>{
+        'installed': true,
+        'compatible': true,
+        'canMaintain': true,
+        'tunAvailable': true,
+      };
+      engine.state = MacosServiceState.fromMap(ready);
+      await tester.tap(find.text(app.strings.get('retry')));
+      await tester.pumpAndSettle();
+      expect(app.lastError, oldError);
+      expect(oldAction, findsNothing);
+      engine.state = MacosServiceState.fromMap({
+        ...ready,
+        'cleanupConfirmed': true,
+      });
+      await tester.tap(find.text(app.strings.get('retry')));
+      await tester.pumpAndSettle();
+      expect(app.lastError, isNull);
+      app.lastError = 'unrelated error';
+      await tester.tap(find.text(app.strings.get('retry')));
+      await tester.pumpAndSettle();
+      expect(app.lastError, 'unrelated error');
+      expect(engine.actions, [MacosServiceAction.repair]);
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.macOS),
+  );
+  testWidgets(
     'cancelled authorization stays retryable and does not claim installation',
     (tester) async {
       final engine = ServiceEngine()..cancelFirst = true;
@@ -114,6 +169,34 @@ void main() {
         isNull,
       );
       expect(engine.actions, isEmpty);
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.macOS),
+  );
+
+  testWidgets(
+    'TUN test package shows the actual preflight result before production acceptance',
+    (tester) async {
+      final engine = ServiceEngine()
+        ..state = MacosServiceState.fromMap({
+          'installed': true,
+          'compatible': true,
+          'testTunBuild': true,
+        });
+      final app = AppController(engine)
+        ..localePreference = LocalePreference.english;
+      addTearDown(app.dispose);
+      await tester.pumpWidget(
+        workflowHost(
+          app,
+          home: Scaffold(body: MacosServiceSection(controller: app)),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.text(app.strings.get('macos_service_preflight')),
+        findsOneWidget,
+      );
+      expect(find.text(app.strings.get('macos_service_gated')), findsNothing);
     },
     variant: TargetPlatformVariant.only(TargetPlatform.macOS),
   );

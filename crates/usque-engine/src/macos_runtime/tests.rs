@@ -176,6 +176,7 @@ async fn connect(service: &ControlService, profile: &Profile) {
         .handle_payload(control_request::Payload::Connect(v1::ConnectRequest {
             profile_id: profile.id.to_string(),
             continuous: false,
+            ..Default::default()
         }))
         .await
         .unwrap();
@@ -299,6 +300,46 @@ async fn process_detach_keeps_protection_and_explicit_stop_releases_it() {
     service.await_disconnect_cleanup().await.unwrap();
     assert_eq!(controller.snapshot().phase, Phase::Stopped);
 }
+#[tokio::test]
+async fn cold_tun_settings_keep_the_guard_and_apply_the_requested_profile() {
+    let (_dir, service, mut profile, evidence, controller) = service().await;
+    profile.kill_switch = true;
+    service.upsert_profile(profile.clone()).await.unwrap();
+    evidence.ready.store(true, Ordering::SeqCst);
+    connect(&service, &profile).await;
+    connected(&service).await;
+    let original = controller.snapshot().session.unwrap();
+    let mut target = profile.clone();
+    target.mtu = 1380;
+    service
+        .execute_settings_plan(
+            &target,
+            &profile,
+            usque_core::ReconfigureClass::ColdReconnect,
+            service.settings_intent.load(Ordering::SeqCst),
+        )
+        .await
+        .unwrap();
+    connected(&service).await;
+    let current = controller.snapshot().session.unwrap();
+    assert_eq!(current.session_id, original.session_id);
+    assert_eq!(current.config_revision, original.config_revision + 1);
+    assert_eq!(
+        service
+            .data_plane
+            .lock()
+            .await
+            .as_ref()
+            .unwrap()
+            .profile
+            .mtu,
+        1380
+    );
+    assert!(evidence.protective.load(Ordering::SeqCst));
+    service.disconnect().await.unwrap();
+    service.await_disconnect_cleanup().await.unwrap();
+}
+
 #[tokio::test]
 async fn replace_retains_protection_and_never_overlaps_provider_sessions() {
     let (_dir, service, profile, evidence, controller) = service().await;

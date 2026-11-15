@@ -320,7 +320,7 @@ pub fn plan_application(
         }
     }
     normalize(&mut target)?;
-    let class = crate::classify_reconfigure(previous, &target);
+    let class = crate::reconfigure::platform_class(crate::classify_reconfigure(previous, &target));
     if class == ReconfigureClass::PersistOnly {
         return Ok(ApplicationPlan {
             target: None,

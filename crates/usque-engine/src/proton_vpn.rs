@@ -121,7 +121,10 @@ impl ControlService {
                 selected: self.config.read().await.active_profile().map(|p| p.id),
             });
             let manager = self.proton_manager.clone();
-            let result = tokio::task::spawn_blocking(move || {
+            #[cfg(target_os = "macos")]
+            let interactive = !matches!(request.action.as_str(), "get" | "servers")
+                && usque_platform::macos_keychain::interaction_allowed();
+            let work = move || {
                 manager.command_with_network(
                     request,
                     input,
@@ -129,9 +132,13 @@ impl ControlService {
                     usque_transport::proton_vpn::ClientConfig::default(),
                     (accounts, Some(network)),
                 )
-            })
-            .await
-            .map_err(|_| ControlServiceError::InvalidRequest("Proton worker failed".into()))?;
+            };
+            #[cfg(target_os = "macos")]
+            let work =
+                move || usque_platform::macos_keychain::INTERACTIVE.sync_scope(interactive, work);
+            let result = tokio::task::spawn_blocking(work)
+                .await
+                .map_err(|_| ControlServiceError::InvalidRequest("Proton worker failed".into()))?;
             match result {
                 Ok(value) => Ok(v1::ProtonVpnResponse {
                     metadata_json: serde_json::to_string(&value.metadata)

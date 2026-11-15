@@ -136,9 +136,9 @@ pub use pin_refresh::{EndpointPinRefresher, refresh_endpoint_pin_over_protected_
 pub use proxy::ProxyRuntime;
 pub use queue_metrics::QueueKind;
 pub use socket::{
-    DirectEgressLease, DirectProtocol, NoopSocketProtector, PhysicalNetworkAvailability,
-    PhysicalNetworkSnapshot, PhysicalSocketPurpose, PreparedTcpSocket, STALE_GENERATION_REASON,
-    SocketHandle, SocketProtector,
+    DirectEgressLease, DirectProtocol, ENDPOINT_UNREACHABLE_REASON, NoopSocketProtector,
+    PhysicalNetworkAvailability, PhysicalNetworkSnapshot, PhysicalSocketPurpose, PreparedTcpSocket,
+    STALE_GENERATION_REASON, SocketHandle, SocketProtector,
 };
 pub use socks5::Socks5Runtime;
 pub use split_dns::{SPLIT_DNS_IPV4, SPLIT_DNS_IPV6};
