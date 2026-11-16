@@ -392,7 +392,64 @@ fn configured_tun_disconnect_restores_network() -> io::Result<()> {
             "verified active default DNS {published_dns:?}, both service DNS addresses and both route families on {interface}"
         );
         observer.probe("active");
-        check_physical_https(coordinator.backend_mut(), fence)?;
+        if let Err(error) = check_physical_https(coordinator.backend_mut(), fence) {
+            // Diagnose a broken data path on the disposable host. The session's
+            // PF remains active. Even if the control succeeds, fail acceptance
+            // and let ordinary recovery compare and undo all recorded routes.
+            let backend = coordinator.backend_mut();
+            let receipts = backend.receipts().unwrap().routes.clone();
+            for ip in [
+                PHYSICAL_HTTPS.parse::<SocketAddr>().unwrap().ip(),
+                path.gateway,
+            ] {
+                for scope in [Vec::new(), vec!["-ifscope", path.name.as_str()]] {
+                    let out = Command::new("/sbin/route")
+                        .args(["-n", "get", "-inet"])
+                        .args(&scope)
+                        .arg(ip.to_string())
+                        .env("LC_ALL", "C")
+                        .output()?;
+                    let text = String::from_utf8_lossy(&out.stdout);
+                    eprintln!(
+                        "Route for {} (scoped={}): physical={}, utun={}, has gateway={}",
+                        if ip == path.gateway {
+                            "gateway"
+                        } else {
+                            "public peer"
+                        },
+                        !scope.is_empty(),
+                        text.lines()
+                            .any(|s| s.trim().strip_prefix("interface: ") == Some(&path.name)),
+                        text.lines()
+                            .any(|s| s.trim().starts_with("interface: utun")),
+                        text.lines().any(|s| s.trim().starts_with("gateway:"))
+                    );
+                }
+            }
+            for route in receipts
+                .iter()
+                .filter(|r| r.destination.prefix_len() > 1 && r.destination.contains(&path.gateway))
+            {
+                routes::apply(&mut backend.runner, route, true)?;
+            }
+            let router_trial = check_physical_https(backend, fence);
+            eprintln!(
+                "Physical TCP after removing only the LAN capture over the router: {router_trial:?}"
+            );
+            if router_trial.is_err() {
+                for route in receipts
+                    .iter()
+                    .filter(|r| r.destination.addr().is_ipv4() && r.destination.prefix_len() == 1)
+                {
+                    routes::apply(&mut backend.runner, route, true)?;
+                }
+                eprintln!(
+                    "Physical TCP after also removing IPv4 split defaults: {:?}",
+                    check_physical_https(backend, fence)
+                );
+            }
+            return Err(error);
+        }
         eprintln!("Authorized physical TCP connected with utun routes active.");
         drop(reserved);
         require_endpoint_failure(coordinator.backend_mut(), fence, endpoint)?;
