@@ -1046,7 +1046,70 @@ impl ControlService {
         } else {
             None
         };
+        // Keep the large configuration/maintenance dispatch frame off the
+        // worker stack while polling a live connection or its cleanup.
         match payload {
+            control_request::Payload::Disconnect(_) => {
+                #[cfg(target_os = "macos")]
+                let snapshot = self.disconnect_confirmed().await?;
+                #[cfg(not(target_os = "macos"))]
+                let snapshot = self.disconnect().await?;
+                Ok(control_response::Payload::Status(Box::new(
+                    self.snapshot_with_quality_to_proto(&snapshot),
+                )))
+            }
+            control_request::Payload::Connect(request) => {
+                let id = parse_profile_id(&request.profile_id)?;
+                let connect = async {
+                    #[cfg(target_os = "macos")]
+                    if !request.background {
+                        self.retry_macos_proxy_recovery().await?;
+                    } else if let Some(error) = *self.macos_proxy_recovery_error.lock().await {
+                        return Err(ControlServiceError::MacSystemProxy(error));
+                    }
+                    if request.continuous {
+                        self.connect_continuously(id).await
+                    } else {
+                        self.connect(id).await
+                    }
+                };
+                #[cfg(target_os = "macos")]
+                let connect =
+                    usque_platform::macos_keychain::INTERACTIVE.scope(!request.background, connect);
+                let snapshot = connect.await?;
+                Ok(control_response::Payload::Status(Box::new(
+                    self.snapshot_with_quality_to_proto(&snapshot),
+                )))
+            }
+            control_request::Payload::Retry(request) => {
+                #[cfg(target_os = "macos")]
+                self.retry_macos_proxy_recovery().await?;
+                let snapshot = if request.continuous {
+                    let id = self.config.read().await.active_profile_id.ok_or_else(|| {
+                        ControlServiceError::InvalidRequest(
+                            "an active profile is required".to_owned(),
+                        )
+                    })?;
+                    self.connect_continuously(id).await?
+                } else {
+                    self.retry().await?
+                };
+                Ok(control_response::Payload::Status(Box::new(
+                    self.snapshot_with_quality_to_proto(&snapshot),
+                )))
+            }
+            other => Box::pin(self.handle_other_payload(other)).await,
+        }
+    }
+
+    async fn handle_other_payload(
+        &self,
+        payload: control_request::Payload,
+    ) -> Result<control_response::Payload, ControlServiceError> {
+        match payload {
+            control_request::Payload::Connect(_)
+            | control_request::Payload::Disconnect(_)
+            | control_request::Payload::Retry(_) => unreachable!("handled in connection dispatch"),
             control_request::Payload::Scenario(request) => Ok(control_response::Payload::Scenario(
                 Box::pin(self.scenario_command(request)).await?,
             )),
@@ -1158,38 +1221,6 @@ impl ControlService {
                     profile_to_proto(&profile),
                 )))
             }
-            control_request::Payload::Disconnect(_) => {
-                #[cfg(target_os = "macos")]
-                let snapshot = self.disconnect_confirmed().await?;
-                #[cfg(not(target_os = "macos"))]
-                let snapshot = self.disconnect().await?;
-                Ok(control_response::Payload::Status(Box::new(
-                    self.snapshot_with_quality_to_proto(&snapshot),
-                )))
-            }
-            control_request::Payload::Connect(request) => {
-                let id = parse_profile_id(&request.profile_id)?;
-                let connect = async {
-                    #[cfg(target_os = "macos")]
-                    if !request.background {
-                        self.retry_macos_proxy_recovery().await?;
-                    } else if let Some(error) = *self.macos_proxy_recovery_error.lock().await {
-                        return Err(ControlServiceError::MacSystemProxy(error));
-                    }
-                    if request.continuous {
-                        self.connect_continuously(id).await
-                    } else {
-                        self.connect(id).await
-                    }
-                };
-                #[cfg(target_os = "macos")]
-                let connect =
-                    usque_platform::macos_keychain::INTERACTIVE.scope(!request.background, connect);
-                let snapshot = connect.await?;
-                Ok(control_response::Payload::Status(Box::new(
-                    self.snapshot_with_quality_to_proto(&snapshot),
-                )))
-            }
             control_request::Payload::ProvisionIdentity(request) => {
                 self.provision_identity(request).await?;
                 Ok(control_response::Payload::Empty(v1::Empty {}))
@@ -1267,23 +1298,6 @@ impl ControlService {
             control_request::Payload::UpdateProxyAuth(request) => {
                 self.update_proxy_auth(request).await?;
                 Ok(control_response::Payload::Empty(v1::Empty {}))
-            }
-            control_request::Payload::Retry(request) => {
-                #[cfg(target_os = "macos")]
-                self.retry_macos_proxy_recovery().await?;
-                let snapshot = if request.continuous {
-                    let id = self.config.read().await.active_profile_id.ok_or_else(|| {
-                        ControlServiceError::InvalidRequest(
-                            "an active profile is required".to_owned(),
-                        )
-                    })?;
-                    self.connect_continuously(id).await?
-                } else {
-                    self.retry().await?
-                };
-                Ok(control_response::Payload::Status(Box::new(
-                    self.snapshot_with_quality_to_proto(&snapshot),
-                )))
             }
             control_request::Payload::ClearAllData(request) => {
                 self.clear_all_data(request.confirmed).await?;
@@ -6718,6 +6732,58 @@ fn location_to_proto(location: &usque_core::GeoLocation) -> v1::GeoLocation {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(target_os = "macos")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn failed_loopback_endpoint_replies_on_engine_worker() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = ConfigStore::new(directory.path().join("config.json"));
+        let mut config = AppConfig::default();
+        let id = config.active_profile_id.unwrap();
+        config.network.frontends = usque_core::FrontendSettings {
+            tunnel: false,
+            http: true,
+            socks5: false,
+        };
+        config.network.proxy.system_proxy = false;
+        config.network.endpoint.selection = usque_core::EndpointSelection::Custom;
+        config.network.endpoint.ipv4 = std::net::Ipv4Addr::LOCALHOST;
+        let closed = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
+            .unwrap()
+            .local_addr()
+            .unwrap();
+        config.network.endpoint.port = closed.port();
+        config.network.ip_policy = usque_core::IpPolicy::Ipv4Only;
+        config.network.transport = usque_core::TransportPolicy::Http2;
+        config.network.masque_connections = 1;
+        config.network.geo_direct_countries.clear();
+        config.network.routing.ads_enabled = false;
+        store.save(&config).unwrap();
+        let service =
+            ControlService::open_with_vault(store, Arc::new(MemoryVault::default())).unwrap();
+        service
+            .persist_identity(id, &test_identity(IdentityProvider::Consumer, None), None)
+            .await
+            .unwrap();
+        // Run on the same bounded Tokio worker stack as a real accepted request.
+        let response = tokio::spawn(async move {
+            service
+                .handle(request(
+                    "closed-endpoint",
+                    control_request::Payload::Connect(v1::ConnectRequest {
+                        profile_id: id.to_string(),
+                        continuous: false,
+                        background: true,
+                    }),
+                ))
+                .await
+        })
+        .await
+        .unwrap();
+        let error = response.error.unwrap();
+        assert_eq!(error.code, "DATA_PLANE_FAILED", "{error:?}");
+        assert!(error.message.contains("refused"), "{error:?}");
+    }
+
     #[tokio::test]
     async fn a_provider_job_blocks_the_entire_account_mutation_before_its_config_lock() {
         let directory = tempfile::tempdir().unwrap();
