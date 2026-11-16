@@ -20,9 +20,10 @@ from pathlib import Path
 PHASES = ("before", "active", "retained", "after")
 PROTOCOLS = ("tcp-syn", "udp", "dns")
 FAMILIES = (
-    (socket.AF_INET, "198.19.249.1", "198.19.249.2"),
-    (socket.AF_INET6, "fd6e:7573:7175:ed::1", "fd6e:7573:7175:ed::2"),
+    (socket.AF_INET, "198.19.249.1", "192.0.2.222"),
+    (socket.AF_INET6, "fd6e:7573:7175:ed::1", "2001:db8:7573::222"),
 )
+GATEWAYS = {socket.AF_INET: "198.19.249.2", socket.AF_INET6: "fd6e:7573:7175:ed::2"}
 IFCONFIG = "/sbin/ifconfig"
 TCPDUMP = "/usr/sbin/tcpdump"
 SCOPE_OPTIONS = {
@@ -94,14 +95,36 @@ def setup(directory: Path) -> None:
         command(IFCONFIG, sender, "inet", FAMILIES[0][1], "netmask", "255.255.255.252", "alias")
         command(IFCONFIG, sender, "inet6", FAMILIES[1][1], "prefixlen", "64", "-dad", "alias")
         peer_mac = mac(peer)
-        for family, _, dest in FAMILIES:
-            route = command(
-                "/sbin/route", "-n", "get", "-inet" if family == socket.AF_INET else "-inet6", dest
+        command("/usr/sbin/arp", "-s", GATEWAYS[socket.AF_INET], peer_mac, "ifscope", sender)
+        command("/usr/sbin/ndp", "-s", GATEWAYS[socket.AF_INET6], peer_mac)
+        for entry in (
+            command("/usr/sbin/arp", "-n", "-i", sender, GATEWAYS[socket.AF_INET]),
+            command("/usr/sbin/ndp", "-n", GATEWAYS[socket.AF_INET6]),
+        ):
+            # Both commands may omit the leading zero of a MAC octet.
+            octets = ":".join(
+                f"0?{int(o, 16):x}" if int(o, 16) < 16 else o for o in peer_mac.split(":")
             )
-            if not re.search(rf"^\s*interface:\s*{sender}\s*$", route, re.M):
-                raise RuntimeError(f"synthetic probe route is not on {sender}: {route}")
-        command("/usr/sbin/arp", "-s", FAMILIES[0][2], peer_mac, "ifscope", sender)
-        command("/usr/sbin/ndp", "-s", FAMILIES[1][2], peer_mac)
+            if not re.search(rf"\b{octets}\b.*\b{sender}\b", entry, re.IGNORECASE):
+                raise RuntimeError(
+                    f"fixture neighbor does not resolve to {peer_mac} on {sender}: {entry}"
+                )
+            print(entry.strip(), flush=True)
+        for family, _, dest in FAMILIES:
+            # Test routed traffic. macOS applies separate Local Network privacy
+            # checks to application traffic sent directly to an on-link address.
+            args = [
+                "-inet" if family == socket.AF_INET else "-inet6",
+                "-host",
+                "-ifscope",
+                sender,
+                dest,
+            ]
+            gateway = GATEWAYS[family]
+            command("/sbin/route", "-n", "add", *args, gateway)
+            route = command("/sbin/route", "-n", "get", *args)
+            verify_gateway(route, sender, gateway)
+            print(route.strip(), flush=True)
         save(path, state)
     except BaseException:
         cleanup(directory)
@@ -113,6 +136,13 @@ def mac(interface: str) -> str:
     if match is None:
         raise RuntimeError(f"missing Ethernet address for {interface}")
     return match.group(1)
+
+
+def verify_gateway(route: str, interface: str, gateway: str) -> None:
+    if not re.search(rf"^\s*interface:\s*{re.escape(interface)}\s*$", route, re.M) or not re.search(
+        rf"^\s*gateway:\s*{re.escape(gateway)}(?:%{re.escape(interface)})?\s*$", route, re.M
+    ):
+        raise RuntimeError(f"expected probe route via {gateway} on {interface}: {route}")
 
 
 def bind_source(sock: socket.socket, address: str, port: int, interface: str) -> None:

@@ -5,6 +5,7 @@ import struct
 import sys
 import tempfile
 import unittest
+from ipaddress import ip_address, ip_network
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -30,6 +31,18 @@ def ethernet_frame(f: int, k: int, phase: str) -> bytes:
 
 
 class WireTests(unittest.TestCase):
+    def test_every_probe_uses_an_off_link_destination_via_the_controlled_gateway(self):
+        for family, source, destination in wire.FAMILIES:
+            gateway = wire.GATEWAYS[family]
+            local = ip_network(f"{source}/{30 if family == socket.AF_INET else 64}", strict=False)
+            self.assertIn(ip_address(gateway), local)
+            self.assertNotIn(ip_address(destination), local)
+            route = f"  gateway: {gateway}\ninterface: feth7\n"
+            wire.verify_gateway(route, "feth7", gateway)
+            for incorrect in (route.replace("feth7", "en0"), route.replace(gateway, destination)):
+                with self.assertRaises(RuntimeError):
+                    wire.verify_gateway(incorrect, "feth7", gateway)
+
     def test_independent_https_is_attempted_when_capture_fails_and_both_errors_survive(self):
         directory = Path("/unused")
         config = directory / "observer.json"
