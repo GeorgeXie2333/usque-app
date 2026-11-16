@@ -81,6 +81,69 @@ fn observed_dial_failures(log: &str, continuous: bool) -> bool {
     false
 }
 
+fn preparing_fence() -> serde_json::Value {
+    // The ordinary Engine only uses unprivileged GUI RPC. Read its separate
+    // Agent journal as an independent observer on the disposable runner.
+    let output = Command::new("/usr/bin/sudo")
+        .args([
+            "-n",
+            "/bin/cat",
+            "/Library/Application Support/Usque/Agent/network.json",
+        ])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let journal: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(journal["transaction"]["phase"], "preparing");
+    let fence = &journal["transaction"]["fence"];
+    assert!(
+        fence["session"]
+            .as_str()
+            .is_some_and(|s| Uuid::parse_str(s).is_ok())
+    );
+    assert!(fence["configuration"].as_u64().is_some_and(|n| n > 0));
+    assert!(fence["network"].as_u64().is_some_and(|n| n > 0));
+    fence.clone()
+}
+
+fn retry_preparing(socket: &Path, log_path: &Path) {
+    let before = preparing_fence();
+    let response = control(
+        socket,
+        Payload::Retry(v1::RetryRequest { continuous: true }),
+    );
+    assert!(
+        response.error.is_none(),
+        "Retry error: {:?}",
+        response.error
+    );
+    let Some(control_response::Payload::Status(snapshot)) = response.payload else {
+        panic!("Retry did not acknowledge a snapshot")
+    };
+    assert_eq!(snapshot.phase(), v1::ConnectionPhase::Preparing);
+    let acknowledged = fs::read(log_path).unwrap().len();
+    wait_until(
+        "subsequent real dial after GUI Retry",
+        Duration::from_secs(15),
+        || {
+            let log = fs::read_to_string(log_path).unwrap();
+            log.get(acknowledged..).is_some_and(|new_entries| {
+                new_entries.lines().any(|line| {
+                    serde_json::from_str::<serde_json::Value>(line).is_ok_and(|entry| {
+                        entry["fields"]["message"] == "MASQUE initial dial failed"
+                            && entry["fields"]["transport_failure"] == "H2_TCP_CONNECT_FAILED"
+                    })
+                })
+            })
+        },
+    );
+    assert_eq!(
+        preparing_fence(),
+        before,
+        "Retry replaced the active fenced transaction"
+    );
+}
+
 #[derive(Debug, PartialEq, Eq)]
 struct HostNetwork {
     dns: Vec<String>,
@@ -376,6 +439,9 @@ fn failed_endpoint_disconnect_and_exit() {
                     status["recoveryPending"] == true
                 }
         });
+        if continuous {
+            retry_preparing(&socket, &engine_log);
+        }
         assert_eq!(
             host_network(),
             baseline,

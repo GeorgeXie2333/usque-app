@@ -64,6 +64,12 @@ pub(crate) struct MacAgentRuntime {
     proxy: Option<MacSystemProxyGuard>,
     proxy_context: Context,
 }
+
+#[derive(Default)]
+pub(super) struct Startup {
+    pub gate: usque_transport::VpnGateStart,
+    pub telemetry: usque_transport::ConnectionTelemetry,
+}
 impl std::ops::Deref for MacAgentRuntime {
     type Target = DataPlaneRuntime;
     fn deref(&self) -> &Self::Target {
@@ -75,6 +81,28 @@ impl std::ops::DerefMut for MacAgentRuntime {
         &mut self.tunnel
     }
 }
+/// While startup owns the only carrier, forward the intent's retry signal to
+/// its supervisor. End this wait before publishing or retiring the runtime.
+pub(super) async fn with_startup_retries<F: std::future::Future>(
+    startup: F,
+    wake: Option<&tokio::sync::Notify>,
+    cancellation: &CancellationToken,
+    request_recovery: impl Fn(),
+) -> F::Output {
+    let Some(wake) = wake else {
+        return startup.await;
+    };
+    tokio::pin!(startup);
+    loop {
+        tokio::select! {
+            biased;
+            _ = cancellation.cancelled() => return startup.await,
+            result = &mut startup => return result,
+            _ = wake.notified() => request_recovery(),
+        }
+    }
+}
+
 struct StartupOwner(MacAgentClient, bool);
 impl Drop for StartupOwner {
     fn drop(&mut self) {
@@ -94,9 +122,13 @@ impl MacAgentRuntime {
         identity: MasqueTlsIdentity,
         refresher: Arc<dyn EndpointPinRefresher>,
         policy: Arc<GeoDirectPolicy>,
-        mut gate: usque_transport::VpnGateStart,
+        startup: Startup,
         proxy_context: Context,
     ) -> io::Result<Self> {
+        let Startup {
+            mut gate,
+            telemetry,
+        } = startup;
         let agent = MacAgentClient::connect().await?;
         let status = agent.status().await?;
         let resume = macos_agent::resumable(&status);
@@ -221,13 +253,14 @@ impl MacAgentRuntime {
                 tokio::time::Instant::now() + usque_core::endpoint_connection_budget(profile)
             })
         });
-        let mut tunnel = Box::pin(DataPlaneRuntime::start_with_vpngate(
+        let mut tunnel = Box::pin(DataPlaneRuntime::start_with_vpngate_and_telemetry(
             profile,
             identity.clone(),
             protector,
             Some(refresher.clone()),
             policy,
             gate,
+            telemetry,
         ))
         .await
         .map_err(|error| startup_transport_error(error, &failure))?;
@@ -468,7 +501,10 @@ impl MacAgentRuntime {
             identity,
             refresher,
             policy,
-            gate,
+            Startup {
+                gate,
+                ..Default::default()
+            },
             self.proxy_context.clone(),
         ))
         .await?;
@@ -562,6 +598,39 @@ fn apply_final_network(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test(start_paused = true)]
+    async fn retry_while_carrier_is_unpublished_wakes_its_supervisor() {
+        let request = tokio::sync::Notify::new();
+        let supervisor = tokio::sync::Notify::new();
+        let cancel = CancellationToken::new();
+        let startup = async {
+            tokio::select! {
+                biased;
+                _ = cancel.cancelled() => false,
+                _ = supervisor.notified() => true,
+            }
+        };
+        // Duplicate Connect can arrive before the guarded carrier starts.
+        request.notify_one();
+        let result = tokio::time::timeout(
+            Duration::from_millis(100),
+            with_startup_retries(startup, Some(&request), &cancel, || supervisor.notify_one()),
+        )
+        .await
+        .expect("guarded startup never delivered the pending retry");
+        assert!(result);
+        // Join cleanup after cancellation, even if another retry is pending.
+        request.notify_one();
+        cancel.cancel();
+        with_startup_retries(tokio::task::yield_now(), Some(&request), &cancel, || {
+            panic!("stale retry")
+        })
+        .await;
+        tokio::time::timeout(Duration::from_millis(100), request.notified())
+            .await
+            .unwrap();
+    }
 
     #[tokio::test]
     async fn agent_failure_during_carrier_startup_stops_continuous_retries() {

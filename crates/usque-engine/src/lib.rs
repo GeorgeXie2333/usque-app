@@ -2420,6 +2420,8 @@ impl ControlService {
             startup_cancel,
             restart_exhausted_recovery,
             None,
+            #[cfg(target_os = "macos")]
+            None,
         ))
         .await
     }
@@ -2430,6 +2432,7 @@ impl ControlService {
         startup_cancel: tokio_util::sync::CancellationToken,
         restart_exhausted_recovery: bool,
         startup_lock: Option<tokio::sync::OwnedMutexGuard<()>>,
+        #[cfg(target_os = "macos")] startup_wake: Option<&tokio::sync::Notify>,
     ) -> Result<ConnectionSnapshot, ControlServiceError> {
         if startup_cancel.is_cancelled() {
             return Ok(self.state.lock().await.snapshot().clone());
@@ -2856,20 +2859,30 @@ impl ControlService {
             #[cfg(target_os = "macos")]
             {
                 if !macos_runtime::provider_permitted(self.macos_provider.read().await.as_ref()) {
-                    match Box::pin(macos_agent_runtime::MacAgentRuntime::start(
+                    let telemetry = usque_transport::ConnectionTelemetry::default();
+                    let startup = Box::pin(macos_agent_runtime::MacAgentRuntime::start(
                         &profile,
                         identity,
                         Arc::clone(&pin_refresher),
                         Arc::new(geo_policy.clone()),
-                        usque_transport::VpnGateStart {
-                            continuous,
-                            selected: selected_gate,
-                            status: Some(self.gate_status.clone()),
-                            cancellation: startup_cancel.clone(),
-                            deadline: Some(connection_deadline),
+                        macos_agent_runtime::Startup {
+                            gate: usque_transport::VpnGateStart {
+                                continuous,
+                                selected: selected_gate,
+                                status: Some(self.gate_status.clone()),
+                                cancellation: startup_cancel.clone(),
+                                deadline: Some(connection_deadline),
+                            },
+                            telemetry: telemetry.clone(),
                         },
                         self.macos_proxy_context.clone(),
-                    ))
+                    ));
+                    match macos_agent_runtime::with_startup_retries(
+                        startup,
+                        startup_wake,
+                        &startup_cancel,
+                        || telemetry.request_recovery(),
+                    )
                     .await
                     {
                         Ok(runtime) => ActiveRuntime::Vpn(Box::new(runtime)),

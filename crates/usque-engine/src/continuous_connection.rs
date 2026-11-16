@@ -221,6 +221,8 @@ impl ControlService {
                                             worker_cancel.clone(),
                                             false,
                                             Some(mutation),
+                                            #[cfg(target_os = "macos")]
+                                            Some(&worker_wake),
                                         )
                                         .await
                                 }
