@@ -57,6 +57,33 @@ fn agent_status() -> serde_json::Value {
     serde_json::from_slice(&output.stdout).unwrap()
 }
 
+fn observed_dial_failures(log: &str, continuous: bool) -> bool {
+    let mut prepared = false;
+    let mut resumed = false;
+    let mut failures = 0;
+    for entry in log
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+    {
+        let fields = &entry["fields"];
+        if fields["message"] == "macOS TUN Agent prepared the physical egress" {
+            prepared = true;
+            resumed |= fields["resumed"] == true;
+        } else if prepared
+            && fields["stage"] == "runtime"
+            && fields["transport_failure"] == "H2_TCP_CONNECT_FAILED"
+        {
+            failures += 1;
+            prepared = false;
+        }
+    }
+    if continuous {
+        failures >= 2 && resumed
+    } else {
+        failures >= 1
+    }
+}
+
 fn seed_identity(id: Uuid, keychain: &str) {
     // Ephemeral login fixture. Only the pinned Engine is granted permission to
     // read these synthetic values. No remote registration or user tokens.
@@ -223,14 +250,8 @@ fn failed_endpoint_disconnect_and_exit() {
             Duration::from_secs(25),
             || {
                 let log = fs::read_to_string(&engine_log).unwrap_or_default();
-                log.get(log_start..).is_some_and(|log| {
-                    log.contains("macOS TUN Agent prepared the physical egress")
-                        && log.lines().any(|line| {
-                            serde_json::from_str::<serde_json::Value>(line).is_ok_and(|entry| {
-                                entry["fields"]["transport_failure"] == "H2_TCP_CONNECT_FAILED"
-                            })
-                        })
-                })
+                log.get(log_start..)
+                    .is_some_and(|log| observed_dial_failures(log, continuous))
             },
         );
         wait_until("retained Kill Switch", Duration::from_secs(5), || {

@@ -16,7 +16,16 @@ use usque_transport::{
 
 pub(crate) fn map_error(error: io::Error) -> crate::ControlServiceError {
     log_tun_failure("runtime", &error);
-    crate::ControlServiceError::PlatformVpn(error.to_string())
+    // Shared transport failures carry the retry policy for continuous
+    // connections. Keep that policy across the platform I/O boundary.
+    let message = error.to_string();
+    match error
+        .into_inner()
+        .and_then(|cause| cause.downcast::<usque_transport::TransportError>().ok())
+    {
+        Some(transport) => crate::ControlServiceError::Transport(*transport),
+        None => crate::ControlServiceError::PlatformVpn(message),
+    }
 }
 pub(super) fn log_tun_failure(stage: &'static str, error: &io::Error) {
     let cause = error.get_ref();
@@ -517,6 +526,21 @@ fn apply_final_network(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn closed_endpoint_is_retryable_but_failed_agent_recovery_stops() {
+        let refusal = usque_transport::TransportError::Io(io::ErrorKind::ConnectionRefused.into());
+        let mapped = map_error(io::Error::other(refusal));
+        assert!(crate::continuous_connection::retry_network_error(&mapped));
+        assert!(matches!(mapped, crate::ControlServiceError::Transport(_)));
+
+        let recovery = map_error(io::Error::other(macos_agent::AgentFailure(
+            p::MacosFailure::RecoveryIncomplete,
+        )));
+        assert!(!crate::continuous_connection::retry_network_error(
+            &recovery
+        ));
+    }
 
     #[test]
     fn macos_tun_diagnostics_record_codes_without_private_error_text() {
