@@ -441,16 +441,22 @@ fn connected_peer_loss_disconnect_and_exit() {
                 && agent_status()["phase"] == usque_ipc::agent_v1::AgentPhase::Active as i32
         },
     );
-    let active = host_network();
-    assert_ne!(active.dns, baseline.dns);
-    assert_ne!(active.routes[0], baseline.routes[0]);
-    assert!(
-        active.routes[0]
-            .as_ref()
-            .unwrap()
-            .iter()
-            .any(|s| s.starts_with("interface: utun")),
-        "{active:?}"
+    let expected_dns = usque_transport::SPLIT_DNS_IPV4.to_string();
+    wait_until(
+        "published tunnel resolver and route",
+        Duration::from_secs(8),
+        || {
+            let active = host_network();
+            let dns = active
+                .dns
+                .iter()
+                .find(|line| line.starts_with("nameserver["))
+                .and_then(|line| line.split_whitespace().last());
+            dns == Some(expected_dns.as_str())
+                && active.routes[0]
+                    .as_ref()
+                    .is_some_and(|fields| fields.iter().any(|s| s.starts_with("interface: utun")))
+        },
     );
     // Only the remote end of the CONNECT-IP stream can return this nonce.
     let udp = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0)).unwrap();

@@ -124,10 +124,19 @@ jobs:
             ~/.cargo/registry
             target/debug
           key: ${{ steps.cache.outputs.cache-primary-key }}
-      - name: Reproduce endpoint failure and request disconnect and exit over GUI IPC
+      - name: Install Go for the disposable CONNECT-IP peer
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: 1.26.4
+          check-latest: false
+          cache: false
+      - name: Compile the native test peer before changing network settings
+        run: GOTOOLCHAIN=local GOPROXY=off go build -o "$RUNNER_TEMP/connect-ip-peer" tool/macos_tun_engine_peer.go
+      - name: Exercise endpoint refusal, CONNECT-IP packet flow, peer loss and GUI disconnect
         env:
           RUNNER_ENVIRONMENT: ${{ runner.environment }}
           USQUE_DISPOSABLE_MAC: '1'
+          USQUE_TEST_PEER: ${{ runner.temp }}/connect-ip-peer
         run: |
           python3 tool/macos_tun_deadline.py bash tool/macos_tun_engine.sh target/debug/usque-engine target/debug/usque-agent \
             "$(cat "$RUNNER_TEMP/engine-test-path")"

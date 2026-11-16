@@ -70,11 +70,8 @@ export USQUE_TEST_DIRECTORY="$fixture"
 iface=$(route -n get -inet default | awk '$1 == "interface:" { print $2 }')
 USQUE_TEST_PHYSICAL_V4=$(ipconfig getifaddr "$iface")
 export USQUE_TEST_PHYSICAL_V4
+test -x "$USQUE_TEST_PEER"
 for scenario in failed_endpoint_disconnect_and_exit connected_peer_loss_disconnect_and_exit; do
-  if [[ $scenario == connected_peer_loss_disconnect_and_exit ]]; then
-    export USQUE_TEST_PEER="$fixture/connect-ip-peer"
-    GOTOOLCHAIN=local GOPROXY=off go build -o "$USQUE_TEST_PEER" tool/macos_tun_engine_peer.go
-  fi
   "$test_binary" --ignored --exact "$scenario" --test-threads=1 --nocapture \
     --format=pretty --color=never | tee "$fixture/$scenario.txt"
   grep -Eq '^test result: ok\. 1 passed; 0 failed; 0 ignored;' "$fixture/$scenario.txt"
