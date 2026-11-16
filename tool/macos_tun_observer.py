@@ -16,6 +16,7 @@ import platform
 import re
 import secrets
 import shutil
+import signal
 import socket
 import ssl
 import subprocess
@@ -172,7 +173,7 @@ def acknowledge(conn: http.client.HTTPConnection, config: dict, phase: str) -> N
 
 def bound_request(config: dict, phase: str, *, forbid_connect: bool = False) -> None:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as raw:
-        raw.settimeout(4)
+        raw.settimeout(8 if phase in CONTROL else 4)
         # Darwin netinet/in.h IP_BOUND_IF. Bind raw IPv4 before TLS; no system
         # proxy, DNS lookup, tunnel routing fallback, or HTTP redirect.
         raw.setsockopt(socket.IPPROTO_IP, 25, config["ifindex"])
@@ -192,6 +193,26 @@ def bound_request(config: dict, phase: str, *, forbid_connect: bool = False) -> 
                 acknowledge(conn, config, phase)
     if forbid_connect:
         raise RuntimeError(f"physical-bound HTTPS probe escaped the Kill Switch during {phase}")
+
+
+def positive_request(config: dict, phase: str) -> None:
+    if phase not in (*CONTROL, "finish"):
+        raise ValueError("only positive controls may be retried")
+    for attempt in range(1, 4):
+        try:
+            if phase == "finish":
+                # Resolve through macOS and use the system default route.
+                with contextlib.closing(
+                    http.client.HTTPSConnection(config["host"], timeout=8)
+                ) as conn:
+                    acknowledge(conn, config, phase)
+            else:
+                bound_request(config, phase)
+            return
+        except TimeoutError:
+            if attempt == 3:
+                raise
+            print(f"{phase}: timed out on attempt {attempt}; retrying the same marker", flush=True)
 
 
 def prepare(endpoint: Path, path: Path) -> None:
@@ -249,15 +270,12 @@ def probe(phase: str, path: Path) -> None:
         raise RuntimeError(f"expected preceding probe phases before {phase}")
     if phase in ("active", "retained"):
         bound_request(config, phase, forbid_connect=True)
-    elif phase == "finish":
-        # HTTPSConnection resolves this run's hostname through macOS and uses
-        # the default route. Success requires a matching receipt from Linux.
-        with contextlib.closing(http.client.HTTPSConnection(config["host"], timeout=12)) as conn:
-            acknowledge(conn, config, phase)
-        print("finish: external HTTPS acknowledged after ordinary DNS and unbound connect")
     else:
-        bound_request(config, phase)
-        print(f"{phase}: Linux receiver acknowledged physical-bound probe")
+        positive_request(config, phase)
+        if phase == "finish":
+            print("finish: external HTTPS acknowledged after ordinary DNS and unbound connect")
+        else:
+            print(f"{phase}: Linux receiver acknowledged physical-bound probe")
     config["phases"].append(phase)
     write_json(path, config)
 
@@ -319,7 +337,12 @@ def main() -> None:
         if args.command == "prepare":
             prepare(args.path, config)
         else:
-            probe("finish" if args.command == "finish" else args.phase, config)
+            phase = "finish" if args.command == "finish" else args.phase
+            if phase in (*CONTROL, "finish"):
+                # This CLI handles one phase per process. Cap DNS, TLS, HTTP
+                # and all retry attempts together, including a stalled resolver.
+                signal.alarm(30)
+            probe(phase, config)
 
 
 if __name__ == "__main__":

@@ -87,6 +87,36 @@ class BoundProbeTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "did not acknowledge"):
                 observer.bound_request(self.config, "after")
 
+    def test_positive_retry_requires_a_valid_ack_for_the_same_marker(self):
+        for responses, expected, error in (
+            ([TimeoutError("TLS read timed out"), self.config["session"].encode()], 2, None),
+            ([TimeoutError("TLS read timed out")] * 3, 3, TimeoutError),
+            ([b"wrong session"], 1, RuntimeError),
+            ([ssl.SSLCertVerificationError("untrusted")], 1, ssl.SSLCertVerificationError),
+        ):
+            with (
+                self.subTest(expected=expected, error=error),
+                patch.object(socket, "socket") as sockets,
+                patch.object(ssl, "create_default_context"),
+                patch.object(http.client, "HTTPConnection") as connection,
+            ):
+                conn = connection.return_value
+                res = conn.getresponse.return_value
+                res.status = 200
+                res.read.side_effect = responses
+                if error is None:
+                    observer.positive_request(self.config, "after")
+                else:
+                    with self.assertRaises(error):
+                        observer.positive_request(self.config, "after")
+                self.assertEqual(sockets.call_count, expected)
+                self.assertEqual(len(conn.request.call_args_list), expected)
+                for request in conn.request.call_args_list:
+                    self.assertEqual(
+                        request.args,
+                        ("POST", f"/{self.config['target']}/arm64/{self.config['session']}/after"),
+                    )
+
     def test_finish_uses_default_resolver_and_routing_after_successful_cleanup(self):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "client.json"
