@@ -389,6 +389,26 @@ fn lan_capture_is_independent_of_allow_lan_and_keeps_both_families_in_shared_rul
         service: n.paths[0].service,
     });
     let captured = destinations_for(&plan, &interface, &n).unwrap();
+    for address in ["0.0.0.0", "::"] {
+        let ip: std::net::IpAddr = address.parse().unwrap();
+        assert!(
+            !captured.iter().any(|r| r.destination.contains(&ip)),
+            "utun shadows the kernel's default-route lookup for {address}"
+        );
+    }
+    for address in [
+        "1.0.0.1",
+        "162.159.199.2",
+        "64:ff9b::7",
+        "2606:4700::1",
+        "fd00::42",
+    ] {
+        let ip: std::net::IpAddr = address.parse().unwrap();
+        assert!(
+            captured.iter().any(|r| r.destination.contains(&ip)),
+            "lost capture for {address}"
+        );
+    }
     plan.allow_lan = true;
     assert_eq!(captured, destinations_for(&plan, &interface, &n).unwrap());
     for cidr in [

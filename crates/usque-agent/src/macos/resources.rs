@@ -72,7 +72,9 @@ impl Evidence for NativeReceipts {
                 .iter()
                 .any(|a| a.port() != 443 || !usable_address(a.ip()))
             || self.dns.len() > 64
-            || self.routes.len() > 80
+            // 8 IPv4 and 16 IPv6 capture prefixes, 2 subnets per physical
+            // alias (16 per family), and up to 8 host routes for DNS.
+            || self.routes.len() > 96
         {
             return Err(invalid());
         }

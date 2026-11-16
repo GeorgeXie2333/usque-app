@@ -787,20 +787,39 @@ fn destinations_for(
     network: &Network,
 ) -> io::Result<Vec<RouteReceipt>> {
     let mut destinations = Vec::<ipnet::IpNet>::new();
+    // XNU's fallback for IP_BOUND_IF looks up the all-zero destination
+    // without a netmask. A utun 0/1 wins that lookup over the physical
+    // default. Cover routable destinations with nonzero keys instead.
     if plan.assigned_ipv4.is_some() {
-        destinations.extend([
-            "0.0.0.0/1".parse::<ipnet::IpNet>().unwrap(),
-            "128.0.0.0/1".parse().unwrap(),
-        ]);
+        destinations.extend(
+            ipnet::Ipv4Subnets::new(
+                std::net::Ipv4Addr::new(1, 0, 0, 0),
+                std::net::Ipv4Addr::BROADCAST,
+                0,
+            )
+            .map(ipnet::IpNet::V4),
+        );
     }
     if plan.assigned_ipv6.is_some() {
-        destinations.extend([
-            "::/1".parse::<ipnet::IpNet>().unwrap(),
-            "8000::/1".parse().unwrap(),
-        ]);
+        // Keep the reserved zero /16 with the system, including loopback and
+        // IPv4-mapped addresses. Both NAT64 prefixes still go through utun.
+        destinations.extend(
+            ipnet::Ipv6Subnets::new(
+                std::net::Ipv6Addr::new(1, 0, 0, 0, 0, 0, 0, 0),
+                std::net::Ipv6Addr::from(u128::MAX),
+                0,
+            )
+            .map(ipnet::IpNet::V6),
+        );
     }
     // More-specific capture routes beat physical connected prefixes. LAN
     // permission remains a shared data-plane rule; no PF/global route bypass.
+    let connected = network
+        .paths
+        .iter()
+        .flat_map(|p| &p.addresses)
+        .map(|prefix| prefix.trunc())
+        .collect::<std::collections::BTreeSet<_>>();
     for path in &network.paths {
         if (path.address.is_ipv4() && plan.assigned_ipv4.is_none())
             || (path.address.is_ipv6() && plan.assigned_ipv6.is_none())
@@ -819,6 +838,9 @@ fn destinations_for(
             }
         }
     }
+    // A connected prefix is already present. Its more-specific capture
+    // routes steer traffic without replacing the physical network's entry.
+    destinations.retain(|prefix| !prefix.network().is_unspecified() && !connected.contains(prefix));
     for dns in &plan.dns_servers {
         destinations.push(
             ipnet::IpNet::new(*dns, if dns.is_ipv4() { 32 } else { 128 })
