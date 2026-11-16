@@ -20,7 +20,7 @@ def main() -> int:
     # The supervisor stays outside the test's process group and needs no network.
     with subprocess.Popen(sys.argv[1:], start_new_session=True) as child:  # noqa: S603
         try:
-            status = child.wait(timeout=180)
+            status = child.wait(timeout=360 if os.environ.get("USQUE_TEST_LIVE_WARP") == "1" else 180)
         except subprocess.TimeoutExpired:
             print("TUN test exceeded its local deadline; terminating the test group", flush=True)
             for sig in (signal.SIGTERM, signal.SIGKILL):

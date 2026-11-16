@@ -4,6 +4,7 @@ set -euo pipefail
 [[ ${GITHUB_ACTIONS:-} == true && ${RUNNER_ENVIRONMENT:-} == github-hosted &&
    ${USQUE_DISPOSABLE_MAC:-} == 1 && $(uname -s) == Darwin && $(id -u) != 0 ]]
 [[ $# == 3 ]]
+umask 077
 engine=$1
 agent=$2
 test_binary=$3
@@ -37,7 +38,7 @@ cleanup() {
     sudo -n launchctl bootout system/com.usque.agent || result=1
     # The deadline supervisor handles recovery after the daemon releases its lock.
   fi
-  if (( result != 0 )); then
+  if (( result != 0 )) && [[ ${USQUE_TEST_LIVE_WARP:-} != 1 ]]; then
     python3 tool/macos_tun_engine_failure.py "$fixture" "$installed/usque-engine"
   fi
   if [[ -f "$keychain" ]]; then
@@ -58,7 +59,7 @@ PY
 trap cleanup EXIT
 sudo -n "$maintenance" install
 daemon_started=true
-# Provision synthetic records only inside this short-lived private keychain.
+# Keep all test device credentials in a fresh, unlocked runner keychain.
 password=$(uuidgen)
 security create-keychain -p "$password" "$keychain"
 security unlock-keychain -p "$password" "$keychain"
@@ -70,8 +71,13 @@ export USQUE_TEST_DIRECTORY="$fixture"
 iface=$(route -n get -inet default | awk '$1 == "interface:" { print $2 }')
 USQUE_TEST_PHYSICAL_V4=$(ipconfig getifaddr "$iface")
 export USQUE_TEST_PHYSICAL_V4
-test -x "$USQUE_TEST_PEER"
-for scenario in failed_endpoint_disconnect_and_exit connected_peer_loss_disconnect_and_exit; do
+if [[ ${USQUE_TEST_LIVE_WARP:-} == 1 ]]; then
+  scenarios=(live_warp_connect_disconnect_and_exit)
+else
+  test -x "$USQUE_TEST_PEER"
+  scenarios=(failed_endpoint_disconnect_and_exit connected_peer_loss_disconnect_and_exit)
+fi
+for scenario in "${scenarios[@]}"; do
   "$test_binary" --ignored --exact "$scenario" --test-threads=1 --nocapture \
     --format=pretty --color=never | tee "$fixture/$scenario.txt"
   grep -Eq '^test result: ok\. 1 passed; 0 failed; 0 ignored;' "$fixture/$scenario.txt"
