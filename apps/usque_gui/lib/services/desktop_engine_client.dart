@@ -63,6 +63,10 @@ class DesktopEngineClient
   }
 
   @override
+  Future<void> relaunchMacosAppAfterCleanup() =>
+      _transport.relaunchMacosAppAfterCleanup();
+
+  @override
   Future<LinuxServiceState> getLinuxServiceState() async =>
       LinuxServiceState.fromMap(
         await _transport.invokePlatformMethod<Map<Object?, Object?>>(

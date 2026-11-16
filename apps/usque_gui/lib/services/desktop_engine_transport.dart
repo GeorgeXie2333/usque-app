@@ -111,6 +111,7 @@ class DesktopEngineTransport {
   int _requestSequence = 0;
   int _startCount = 0;
   bool _disposed = false;
+  bool _relaunching = false;
   StreamController<Uint8List>? _rawEventController;
   StreamSubscription<dynamic>? _rawEventSubscription;
   Stream<Uint8List>? _rawEventFrames;
@@ -249,6 +250,9 @@ class DesktopEngineTransport {
 
   Future<void> ensureStarted() async {
     _throwIfDisposed();
+    if (_relaunching) {
+      throw const EngineException('ENGINE_CLOSED', 'Usque is restarting.');
+    }
     if (_isTestTransport && _startCount > 0) return;
     final existing = _starting;
     if (existing != null) {
@@ -388,6 +392,36 @@ class DesktopEngineTransport {
     process?.kill();
   }
 
+  /// The controller has confirmed Disconnect. Wait for the old process to
+  /// release the per-user Engine lease before Launch Services opens the app.
+  Future<void> relaunchMacosAppAfterCleanup() async {
+    _throwIfDisposed();
+    if (_relaunching) {
+      throw const EngineException('MACOS_AGENT_BUSY', 'Usque is restarting.');
+    }
+    _relaunching = true;
+    try {
+      await _starting;
+      final process = _process;
+      if (process != null) {
+        process.kill(ProcessSignal.sigterm);
+        final code = await process.exitCode.timeout(const Duration(seconds: 30));
+        if (code != 0) {
+          throw const EngineException(
+            'ENGINE_SHUTDOWN_FAILED',
+            'The Engine did not exit cleanly.',
+          );
+        }
+      }
+      await _nativeTransport.invokeMethod<void>('relaunchMacosApp', {
+        'cleanup_complete': true,
+      });
+    } catch (_) {
+      _relaunching = false;
+      rethrow;
+    }
+  }
+
   void _throwIfDisposed() {
     if (_disposed) {
       throw const EngineException(
@@ -481,7 +515,10 @@ class DesktopEngineTransport {
         if (identical(_process, process)) {
           _process = null;
           final events = _rawEventController;
-          if (!_disposed && events != null && !events.isClosed) {
+          if (!_disposed &&
+              !_relaunching &&
+              events != null &&
+              !events.isClosed) {
             events.addError(
               const EngineException(
                 'ENGINE_EVENT_UNAVAILABLE',

@@ -108,6 +108,35 @@ struct DesktopQuitState {
     confirmed = success
     return true
   }
+
+  mutating func confirmRelaunch(after acknowledgement: Any?, schedule: () throws -> Void) rethrows -> Bool {
+    guard !confirmed, pending == nil, Self.cleanupCompleted(acknowledgement) else { return false }
+    try schedule()
+    confirmed = true
+    return true
+  }
+}
+
+enum DesktopRelaunch {
+  /// Launch Services would activate the old window if asked to open it before
+  /// termination. This ordinary-user child waits for the old GUI to exit.
+  static func schedule(afterExitOf pid: pid_t, bundle: URL) throws {
+    let opener = Process()
+    opener.executableURL = URL(fileURLWithPath: "/bin/sh")
+    opener.arguments = ["-c", """
+      remaining=300
+      while kill -0 "$1" 2>/dev/null; do
+        [ "$remaining" -gt 0 ] || exit 1
+        remaining=$((remaining - 1))
+        /bin/sleep 0.1
+      done
+      exec /usr/bin/open "$2"
+      """, "usque-relaunch", String(pid), bundle.path]
+    opener.standardInput = FileHandle.nullDevice
+    opener.standardOutput = FileHandle.nullDevice
+    opener.standardError = FileHandle.nullDevice
+    try opener.run()
+  }
 }
 
 /// Process-local callback ownership, matching the Windows team's strict URI

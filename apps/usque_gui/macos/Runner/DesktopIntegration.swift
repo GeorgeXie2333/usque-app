@@ -176,6 +176,18 @@ final class DesktopIntegration: NSObject, NSWindowDelegate, UNUserNotificationCe
     if AgentMaintenanceBridge.handle(call, result: result) { return }
     let values = call.arguments as? [String: Any]
     switch call.method {
+    case "relaunchMacosApp":
+      // Flutter uses the same confirmed Disconnect as Cmd-Q, then waits for
+      // the old Engine to exit. A second Disconnect would launch it again.
+      do {
+        guard try quit.confirmRelaunch(after: values, schedule: {
+          try DesktopRelaunch.schedule(afterExitOf: ProcessInfo.processInfo.processIdentifier, bundle: Bundle.main.bundleURL)
+        }) else { throw CocoaError(.userCancelled) }
+        result(nil)
+        NSApp.terminate(nil)
+      } catch {
+        result(FlutterError(code: "MACOS_SERVICE_RELAUNCH_FAILED", message: "Could not reopen Usque.", details: nil))
+      }
     case "getWindowVisibility": result(visible)
     case "platformPreferences":
       result([

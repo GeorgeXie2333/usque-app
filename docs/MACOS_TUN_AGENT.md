@@ -181,7 +181,7 @@ package hash for each run. A loopback test cannot observe physical egress.
 Build the matching architecture using [packaging instructions](MACOS_DEVELOPMENT_PACKAGING.md),
 copy the manually trusted app to Applications, then use **Settings → macOS
 background service**. Install/update invokes system administrator authorization.
-Restart the GUI after installation/replacement so it launches the pinned Engine.
+Installing the service from Settings automatically reopens Usque with the pinned Engine after cleanup. After a repair or replacement, reopen Usque to use the updated service.
 Daily connections use the installed service without another authorization prompt.
 Service mutations are disabled while the GUI owns an active connection.
 

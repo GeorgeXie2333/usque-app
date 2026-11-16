@@ -6,6 +6,7 @@ enum DesktopContractMain {
   static func main() throws {
     try trayCapabilities()
     try quitAcknowledgements()
+    try relaunchAfterCleanup()
     try boundedConfigurationFiles()
     try restoredWindow()
     try zeroTrustCallbacks()
@@ -14,7 +15,7 @@ enum DesktopContractMain {
     try nativeMenuCoverage()
     try trayArtwork()
     try installedServiceIdentity()
-    print("10 macOS desktop contract groups passed")
+    print("11 macOS desktop contract groups passed")
   }
 
   private static func installedServiceIdentity() throws {
@@ -170,6 +171,26 @@ enum DesktopContractMain {
     try require(!quit.finish(first, success: true), "late acknowledgement confirms new quit")
     try require(quit.finish(second, success: true) && quit.confirmed, "matching disconnect acknowledgement rejected")
     try require(!quit.finish(second, success: false), "late timeout overwrites confirmed quit")
+  }
+
+  private static func relaunchAfterCleanup() throws {
+    var quit = DesktopQuitState()
+    var launches = 0
+    let schedule = { launches += 1 }
+    let proof = ["cleanup_complete": true]
+    for invalid: Any in [["cleanup_complete": false], ["cleanup_complete": 1], NSNull()] {
+      try require(!quit.confirmRelaunch(after: invalid, schedule: schedule), "unconfirmed cleanup scheduled a relaunch")
+    }
+    let ordinaryQuit = quit.begin()!
+    try require(!quit.confirmRelaunch(after: proof, schedule: schedule), "relaunch replaced a pending quit")
+    _ = quit.finish(ordinaryQuit, success: false)
+    do {
+      _ = try quit.confirmRelaunch(after: proof) { throw CocoaError(.executableNotLoadable) }
+      throw NSError(domain: "DesktopContract", code: 3)
+    } catch let error as CocoaError where error.code == .executableNotLoadable {}
+    try require(!quit.confirmed && launches == 0, "failed handoff allowed termination")
+    try require(quit.confirmRelaunch(after: proof, schedule: schedule) && quit.confirmed, "verified relaunch rejected")
+    try require(!quit.confirmRelaunch(after: proof, schedule: schedule) && launches == 1, "duplicate opener scheduled")
   }
 
   private static func boundedConfigurationFiles() throws {

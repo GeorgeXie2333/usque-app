@@ -483,7 +483,8 @@ class AppController extends ChangeNotifier {
       onboardingPhase == OnboardingPhase.submitting ||
       onboardingPhase == OnboardingPhase.reconciling;
   bool _busy = false;
-  bool get busy => _busy || profileIdentitiesLoading || _exitCleanup != null;
+  bool get busy =>
+      _busy || profileIdentitiesLoading || _exitCleanup != null || macosServiceBusy;
   set busy(bool value) => _busy = value;
   bool profileIdentitiesLoading = false;
   int _activeOperations = 0;
@@ -505,6 +506,8 @@ class AppController extends ChangeNotifier {
   bool get supportsMacosServiceMaintenance =>
       defaultTargetPlatform == TargetPlatform.macOS &&
       _engine is MacosServiceClient;
+  bool _macosServiceBusy = false;
+  bool get macosServiceBusy => _macosServiceBusy;
   Future<MacosServiceState> getMacosServiceState() async {
     final state = await (_engine as MacosServiceClient).getMacosServiceState();
     if (state.cleanupConfirmed &&
@@ -514,14 +517,39 @@ class AppController extends ChangeNotifier {
     return state;
   }
   Future<void> maintainMacosService(MacosServiceAction action) async {
-    if (snapshot.isConnected || snapshot.isTransitional) {
+    if (_macosServiceBusy ||
+        _exitCleanup != null ||
+        snapshot.isConnected ||
+        snapshot.isTransitional) {
       throw const EngineException(
         'MACOS_AGENT_BUSY',
         'Disconnect before service maintenance.',
       );
     }
-    await (_engine as MacosServiceClient).maintainMacosService(action);
-    await _refreshCapabilities();
+    final service = _engine as MacosServiceClient;
+    _macosServiceBusy = true;
+    _notifyListeners();
+    try {
+      await service.maintainMacosService(action);
+      if (action == MacosServiceAction.install) {
+        // Installation has already been verified by the native bridge. A
+        // relaunch error must not ask the user to authorize installation again.
+        try {
+          await disconnectForExit();
+          await service.relaunchMacosAppAfterCleanup();
+        } on Object {
+          throw const EngineException(
+            'MACOS_SERVICE_RELAUNCH_FAILED',
+            'The service is installed. Reopen Usque.',
+          );
+        }
+      } else {
+        await _refreshCapabilities();
+      }
+    } finally {
+      _macosServiceBusy = false;
+      _notifyListeners();
+    }
   }
 
   bool get supportsLinuxServiceMaintenance =>

@@ -116,6 +116,7 @@ class MacosServiceState {
 abstract interface class MacosServiceClient {
   Future<MacosServiceState> getMacosServiceState();
   Future<void> maintainMacosService(MacosServiceAction action);
+  Future<void> relaunchMacosAppAfterCleanup();
 }
 
 class EngineException implements Exception {
