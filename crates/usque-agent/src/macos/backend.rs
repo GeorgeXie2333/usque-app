@@ -66,12 +66,26 @@ impl<R: Runner> NativeBackend<R> {
                 .and_then(|r| r.pf.as_ref())
                 .map(|p| p.anchor.as_str()),
         )?;
+        self.snapshot_network()
+    }
+    fn snapshot_network(&self) -> io::Result<Network> {
         (self.snapshot)(
             self.receipts
                 .as_ref()
                 .map(|r| r.dns.as_slice())
                 .unwrap_or_default(),
         )
+    }
+    pub fn observe_status(&mut self, expects_protection: bool) -> (bool, Option<Network>) {
+        let retained = expects_protection && self.verify_protection().is_ok();
+        // verify_protection includes the complete PF preflight. Reuse that
+        // observation only within this reply; each status checks live rules.
+        let network = if retained {
+            self.snapshot_network()
+        } else {
+            self.preflight()
+        };
+        (retained, network.ok())
     }
     pub fn set_plan(&mut self, plan: ValidatedTunnelPlan) -> io::Result<()> {
         self.require_certain()?;

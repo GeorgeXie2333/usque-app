@@ -11,6 +11,7 @@ struct FakeRunner {
     fail_enable: bool,
     reference: bool,
     loads: usize,
+    firewall_audits: usize,
 }
 impl Runner for FakeRunner {
     fn run(
@@ -48,6 +49,7 @@ impl Runner for FakeRunner {
             self.loads += 1;
             success = !self.fail_load;
         } else if args == ["-sr"] {
+            self.firewall_audits += 1;
             stdout = "anchor \"com.apple/*\" all\n".into();
         } else if args.last().is_some_and(|s| s == "-sr") {
             stdout = self.rules.clone();
@@ -113,6 +115,7 @@ fn fixture() -> (tempfile::TempDir, NativeBackend<FakeRunner>, Fence) {
             fail_enable: false,
             reference: false,
             loads: 0,
+            firewall_audits: 0,
         },
         network: None,
         plan: None,
@@ -434,4 +437,17 @@ fn lan_capture_is_independent_of_allow_lan_and_keeps_both_families_in_shared_rul
             .iter()
             .all(|r| r.destination.addr().is_ipv4())
     );
+}
+
+#[test]
+fn protected_status_observes_pf_once_per_request_and_detects_changed_rules() {
+    let (_dir, mut backend, fence) = fixture();
+    backend.apply_and_verify(fence, Step::Protection).unwrap();
+    let before = backend.runner.firewall_audits;
+    let (retained, network) = backend.observe_status(true);
+    assert!(retained && network.is_some());
+    assert_eq!(backend.runner.firewall_audits - before, 1);
+    backend.runner.rules.clear();
+    let (retained, network) = backend.observe_status(true);
+    assert!(!retained && network.is_some());
 }

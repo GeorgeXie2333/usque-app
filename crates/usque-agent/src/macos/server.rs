@@ -321,7 +321,7 @@ impl Service {
             status.phase = p::AgentPhase::RecoveryRequired as i32;
             return status;
         };
-        if let Some(transaction) = state.state() {
+        let physical = if let Some(transaction) = state.state() {
             status.fence = Some(transaction.fence.into());
             status.caller_owns_transaction =
                 self.owner_connection.is_some() && transaction.owner == owner;
@@ -341,8 +341,8 @@ impl Service {
                 && !state.persistence_uncertain();
             let expects_protection =
                 transaction.kill_switch || transaction.transition.is_some() || resumable;
-            status.protection_retained =
-                expects_protection && state.backend_mut().verify_protection().is_ok();
+            let (retained, physical) = state.backend_mut().observe_status(expects_protection);
+            status.protection_retained = retained;
             status.resumable = resumable && status.protection_retained;
             if resumable {
                 status.control_api_candidates = state
@@ -356,10 +356,11 @@ impl Service {
                     })
                     .unwrap_or_default();
             }
+            physical
         } else {
             status.phase = p::AgentPhase::Clean as i32;
-        }
-        let physical = state.backend_mut().preflight().ok();
+            state.backend_mut().preflight().ok()
+        };
         status.preflight_passed = physical.is_some()
             && !status.recovery_pending
             && self.failure == p::MacosFailure::Unspecified;
