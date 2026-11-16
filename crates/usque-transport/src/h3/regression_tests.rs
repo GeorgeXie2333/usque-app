@@ -464,13 +464,10 @@ async fn full_actor_wakes_immediately_on_returned_receive_capacity() {
         commands_rx,
         cancel_peer.clone(),
     )));
-    assert!(
-        timeout(Duration::from_secs(3), startup_rx)
-            .await
-            .unwrap()
-            .unwrap()
-            .is_ok()
-    );
+    timeout(Duration::from_secs(3), startup_rx)
+        .await
+        .unwrap()
+        .unwrap();
     for index in 0..=INCOMING_BATCH_CHANNEL_CAPACITY {
         let mut packet = ipv4_packet_with_length(64);
         packet[20] = index as u8;

@@ -800,7 +800,11 @@ fn report_dial_evidence(dir: &Path) {
                 if let Some(value) = detail.filter(|v| {
                     v.len() <= 80 && v.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
                 }) {
-                    *counts.entry(format!("{transport}/{value}")).or_insert(0u32) += 1;
+                    let key = match fields["os_error"].as_i64() {
+                        Some(errno) => format!("{transport}/{value}/errno={errno}"),
+                        None => format!("{transport}/{value}"),
+                    };
+                    *counts.entry(key).or_insert(0u32) += 1;
                 }
             }
             Some("macOS Agent recovery projection") => {
@@ -829,6 +833,30 @@ fn report_dial_evidence(dir: &Path) {
     println!("MASQUE dial stage counts: {counts:?}");
 }
 
+// Use the same interface scope as the Agent's IP_BOUND_IF socket, without
+// creating another socket or sending any probe through the guarded network.
+fn report_physical_route(baseline: &HostNetwork) {
+    if let Some(route) = &baseline.routes[0]
+        && let Some(interface) = route.iter().find_map(|s| s.strip_prefix("interface: "))
+    {
+        let output = Command::new("/sbin/route")
+            .args(["-n", "get", "-inet", "-ifscope", interface, "162.159.199.2"])
+            .env("LC_ALL", "C")
+            .output()
+            .unwrap();
+        let text = String::from_utf8_lossy(&output.stdout);
+        let matches = |line: &String| text.lines().any(|s| s.trim() == line);
+        println!(
+            "Physical WARP route: interface matches baseline={}, gateway matches baseline={}",
+            text.lines()
+                .any(|line| line.trim().strip_prefix("interface: ") == Some(interface)),
+            route
+                .iter()
+                .any(|s| s.starts_with("gateway:") && matches(s))
+        );
+    }
+}
+
 #[test]
 #[ignore = "explicit enrollment on disposable GitHub Macs only; uses real Cloudflare WARP"]
 fn live_warp_connect_disconnect_and_exit() {
@@ -836,6 +864,7 @@ fn live_warp_connect_disconnect_and_exit() {
     let (dir, _) = fixture("live-warp");
     let baseline = host_network();
     assert_eq!(warp_trace().as_deref(), Ok("off"), "runner baseline trace");
+    report_physical_route(&baseline);
     println!("Cloudflare baseline warp=off; registering one free device through the Engine.");
     let (child, id, socket) = launch_engine(&dir, None);
     let response = control(
@@ -873,6 +902,7 @@ fn live_warp_connect_disconnect_and_exit() {
         "Real WARP Consumer enrollment completed. Connecting with automatic endpoint and transport."
     );
     let connected = verify_live_tunnel(&socket, id);
+    report_physical_route(&baseline);
     if let Err(reason) = &connected {
         eprintln!("Live traffic verification failed: {reason}");
         // Report only enumerated Agent health and known milestones. Raw provider

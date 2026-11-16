@@ -664,7 +664,7 @@ async fn connect_h3_application(
         result = timeout(CONNECT_TIMEOUT, startup_rx) => result,
     };
     match startup {
-        Ok(Ok(Ok(()))) => Ok(H3Tunnel {
+        Ok(Ok(())) => Ok(H3Tunnel {
             send: H3SendHalf {
                 sender: Some(outgoing_tx),
             },
@@ -686,29 +686,11 @@ async fn connect_h3_application(
             attempt: attempt.cloned(),
             packet_budget,
         }),
-        Ok(Ok(Err(failure))) => {
-            actor_cancellation.cancel();
-            let _ = task.await;
-            if pin_state.rejected() {
-                Err(TransportError::EndpointPinMismatch)
-            } else {
-                Err(failure.into_transport_error())
-            }
-        }
         Ok(Err(_)) => {
             let result = task
                 .await
                 .map_err(|error| TransportError::Http3(format!("driver task failed: {error}")))?;
-            if pin_state.rejected() {
-                Err(TransportError::EndpointPinMismatch)
-            } else {
-                match result {
-                    Ok(()) => Err(TransportError::Http3(
-                        "connection ended before CONNECT-IP became ready".to_owned(),
-                    )),
-                    Err(error) => Err(error),
-                }
-            }
+            Err(startup_error(result, pin_state.rejected()))
         }
         Err(_) => {
             actor_cancellation.cancel();
@@ -860,37 +842,14 @@ fn migration_availability_reason(
     }
 }
 
-#[derive(Debug)]
-enum StartupFailure {
-    ConnectRejected(u16),
-    DatagramUnavailable,
-    PmtuRevalidationExhausted,
-    ProtocolViolation(String),
-    Other(String),
-}
-
-impl StartupFailure {
-    fn from_transport_error(error: &TransportError) -> Self {
-        match error {
-            TransportError::Http3ConnectRejected(status) => Self::ConnectRejected(*status),
-            TransportError::Http3DatagramUnavailable => Self::DatagramUnavailable,
-            TransportError::PmtuRevalidationExhausted => Self::PmtuRevalidationExhausted,
-            TransportError::Http3ProtocolViolation(message) => {
-                Self::ProtocolViolation(message.clone())
-            }
-            _ => Self::Other(error.to_string()),
-        }
+// A closed readiness channel joins the actor, which owns the original error.
+fn startup_error(result: Result<(), TransportError>, pin_rejected: bool) -> TransportError {
+    if pin_rejected {
+        return TransportError::EndpointPinMismatch;
     }
-
-    fn into_transport_error(self) -> TransportError {
-        match self {
-            Self::ConnectRejected(status) => TransportError::Http3ConnectRejected(status),
-            Self::DatagramUnavailable => TransportError::Http3DatagramUnavailable,
-            Self::PmtuRevalidationExhausted => TransportError::PmtuRevalidationExhausted,
-            Self::ProtocolViolation(message) => TransportError::Http3ProtocolViolation(message),
-            Self::Other(message) => TransportError::Http3(message),
-        }
-    }
+    result.err().unwrap_or_else(|| {
+        TransportError::Http3("connection ended before CONNECT-IP became ready".into())
+    })
 }
 
 #[expect(
@@ -907,7 +866,7 @@ async fn run_h3_actor(
     incoming_tx: mpsc::Sender<PacketBatch>,
     control_tx: watch::Sender<PeerNetworkState>,
     budget_tx: watch::Sender<Option<crate::tcp_packet_budget::H3PacketBudget>>,
-    startup_tx: oneshot::Sender<Result<(), StartupFailure>>,
+    startup_tx: oneshot::Sender<()>,
     attempt: Option<ConnectionAttemptTelemetry>,
     quality: NetworkQualityTelemetry,
     datagram_queue: Arc<QueueMetrics>,
@@ -948,15 +907,6 @@ async fn run_h3_actor(
     )
     .await;
     path_sockets.shutdown_all().await;
-    if let Some(startup_tx) = startup_tx.take() {
-        let failure = match &result {
-            Ok(()) => {
-                StartupFailure::Other("connection ended before CONNECT-IP became ready".to_owned())
-            }
-            Err(error) => StartupFailure::from_transport_error(error),
-        };
-        let _ = startup_tx.send(Err(failure));
-    }
     result
 }
 
@@ -974,7 +924,7 @@ async fn drive_h3_actor(
     incoming_tx: mpsc::Sender<PacketBatch>,
     control_tx: watch::Sender<PeerNetworkState>,
     budget_tx: watch::Sender<Option<crate::tcp_packet_budget::H3PacketBudget>>,
-    startup_tx: &mut Option<oneshot::Sender<Result<(), StartupFailure>>>,
+    startup_tx: &mut Option<oneshot::Sender<()>>,
     attempt: Option<&ConnectionAttemptTelemetry>,
     quality: &NetworkQualityTelemetry,
     datagram_queue: &Arc<QueueMetrics>,
@@ -1092,7 +1042,7 @@ async fn drive_h3_actor(
                         );
                     }
                     if let Some(startup_tx) = startup_tx.take() {
-                        let _ = startup_tx.send(Ok(()));
+                        let _ = startup_tx.send(());
                     }
                 }
             } else {
@@ -1157,7 +1107,7 @@ async fn drive_h3_actor(
                         &budget_tx,
                     )?;
                     if let Some(startup_tx) = startup_tx.take() {
-                        let _ = startup_tx.send(Ok(()));
+                        let _ = startup_tx.send(());
                     }
                 }
             }
@@ -2578,10 +2528,24 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn startup_preserves_socket_errors_for_http2_fallback() {
+        let error = startup_error(
+            Err(TransportError::Io(
+                std::io::ErrorKind::NetworkUnreachable.into(),
+            )),
+            false,
+        );
+        let failure = error.failure(Some(usque_core::Transport::Http3), None);
+        assert_eq!(
+            failure.code,
+            usque_core::TransportFailureCode::H3UdpUnreachable
+        );
+        assert!(failure.fallback_allowed);
+    }
+
+    #[test]
     fn startup_preserves_the_typed_pmtu_exhaustion_failure() {
-        let error =
-            StartupFailure::from_transport_error(&TransportError::PmtuRevalidationExhausted)
-                .into_transport_error();
+        let error = startup_error(Err(TransportError::PmtuRevalidationExhausted), false);
         assert!(matches!(error, TransportError::PmtuRevalidationExhausted));
         let failure = error.failure(Some(usque_core::Transport::Http3), None);
         assert_eq!(
