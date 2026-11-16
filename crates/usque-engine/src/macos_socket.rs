@@ -15,6 +15,7 @@ use usque_transport::{
 
 pub struct MacSocketProtector {
     agent: MacAgentClient,
+    dial_queue: Arc<tokio::sync::Mutex<()>>,
     fence: p::MacosFence,
     physical: watch::Sender<PhysicalNetworkSnapshot>,
     dns: Vec<SocketAddr>,
@@ -70,6 +71,7 @@ impl MacSocketProtector {
         let physical = watch::channel(snapshot(network)).0;
         Ok(Arc::new(Self {
             agent,
+            dial_queue: Arc::default(),
             fence,
             physical,
             dns,
@@ -100,6 +102,9 @@ impl MacSocketProtector {
         purpose: PhysicalSocketPurpose,
         generation: u64,
     ) -> Result<(std::os::fd::OwnedFd, DirectEgressLease, SocketAddr), String> {
+        // The Agent serializes permit updates. Keep waiting candidates in the
+        // caller's future so a lost race cannot enqueue more privileged work.
+        let admission = self.dial_queue.clone().lock_owned().await;
         if generation != self.fence.network || self.physical.borrow().generation != generation {
             return Err(STALE_GENERATION_REASON.into());
         }
@@ -116,6 +121,7 @@ impl MacSocketProtector {
         // Cancelling a candidate cannot cancel a request already sent to the Agent.
         // Keep receiving its reply and own the lease before returning it to the caller.
         let (info, fd, lease) = tokio::spawn(async move {
+            let _admission = admission;
             let (info, fd) = agent
                 .descriptor(Operation::CreateSocket(p::MacosSocketRequest {
                     fence: Some(fence.clone()),

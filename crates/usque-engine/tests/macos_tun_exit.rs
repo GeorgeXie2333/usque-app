@@ -505,10 +505,15 @@ fn connected_peer_loss_disconnect_and_exit() {
         ready.is_file()
     });
     let port = fs::read_to_string(ready).unwrap().parse().unwrap();
-    let (child, id, socket) = start_engine(
+    // The same endpoint accepts H2 over TCP while its UDP socket never answers QUIC.
+    let silent_udp = UdpSocket::bind((host, port)).unwrap();
+    silent_udp
+        .set_read_timeout(Some(Duration::from_secs(15)))
+        .unwrap();
+    let pin = fs::read(dir.join("pin.der")).unwrap();
+    let (child, id, socket) = launch_engine(
         &dir,
-        SocketAddrV4::new(host, port),
-        &fs::read(dir.join("pin.der")).unwrap(),
+        Some((SocketAddrV4::new(host, port), &pin, TransportPolicy::Auto)),
     );
     let baseline = host_network();
     let response = control(
@@ -528,6 +533,17 @@ fn connected_peer_loss_disconnect_and_exit() {
                 && agent_status()["phase"] == usque_ipc::agent_v1::AgentPhase::Active as i32
         },
     );
+    let mut initial = [0; 2048];
+    let size = silent_udp
+        .recv(&mut initial)
+        .expect("H3 must send a QUIC Initial");
+    assert!(size >= 1200 && initial[0] & 0xf0 == 0xc0 && initial[1..5] == [0, 0, 0, 1]);
+    let response = control(&socket, Payload::GetStatus(v1::GetStatusRequest {}));
+    let Some(control_response::Payload::Status(snapshot)) = response.payload else {
+        panic!("missing carrier status");
+    };
+    assert_eq!(snapshot.transport, "h2");
+    println!("Unanswered H3 Initial observed; automatic transport negotiated H2.");
     let expected_dns = usque_transport::SPLIT_DNS_IPV4.to_string();
     wait_until(
         "published tunnel resolver and route",

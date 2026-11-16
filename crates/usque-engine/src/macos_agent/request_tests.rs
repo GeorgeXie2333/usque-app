@@ -243,8 +243,9 @@ async fn cancelling_a_sent_dial_releases_the_late_lease_and_preserves_the_owner(
         ));
         socket
     });
+    let first = protector.clone();
     let pending = tokio::spawn(async move {
-        protector
+        first
             .prepare_udp(
                 "127.0.0.1:443".parse().unwrap(),
                 PhysicalSocketPurpose::Masque,
@@ -253,6 +254,14 @@ async fn cancelling_a_sent_dial_releases_the_late_lease_and_preserves_the_owner(
             .await
     });
     sent.await.unwrap();
+    // A losing candidate queued behind the sent request must never create a
+    // privileged socket after cancellation. Only the already sent dial needs
+    // to receive and release its eventual lease.
+    tokio::select! {
+        biased;
+        _ = protector.prepare_udp("127.0.0.1:444".parse().unwrap(), PhysicalSocketPurpose::Masque, 1) => panic!("second dial completed while the first held the stream"),
+        _ = std::future::ready(()) => {}
+    }
     pending.abort();
     assert!(pending.await.unwrap_err().is_cancelled());
     grant.send(()).unwrap();
