@@ -109,19 +109,32 @@ fn host_network() -> HostNetwork {
             };
             let output = Command::new("/sbin/route")
                 .args(["-n", "get", family, destination])
+                .env("LC_ALL", "C")
                 .output()
                 .unwrap();
-            output.status.success().then(|| {
-                let fields = String::from_utf8(output.stdout)
-                    .unwrap()
-                    .lines()
+            let text = String::from_utf8(output.stdout).unwrap();
+            let error = String::from_utf8(output.stderr).unwrap();
+            // Darwin can exit successfully after reporting ESRCH on stderr.
+            if !text.contains("interface:")
+                && matches!(
+                    error.trim(),
+                    "route: writing to routing socket: not in table"
+                        | "route: message indicates error 3: No such process"
+                )
+            {
+                return None;
+            }
+            assert!(
+                output.status.success() && error.trim().is_empty() && text.contains("interface:"),
+                "route to {destination}: {text} {error}"
+            );
+            Some(
+                text.lines()
                     .map(str::trim)
                     .filter(|line| line.starts_with("gateway:") || line.starts_with("interface:"))
                     .map(str::to_owned)
-                    .collect::<Vec<_>>();
-                assert!(!fields.is_empty());
-                fields
-            })
+                    .collect(),
+            )
         })
         .to_vec();
     assert!(routes[0].is_some(), "expected a physical IPv4 route");

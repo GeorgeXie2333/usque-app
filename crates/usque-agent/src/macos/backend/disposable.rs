@@ -10,7 +10,7 @@ use crate::macos::{
 use core_foundation::{array::CFArray, base::TCFType, string::CFString};
 use std::{
     ffi::OsString,
-    net::{IpAddr, TcpStream},
+    net::{IpAddr, TcpListener, TcpStream},
     os::fd::AsRawFd,
     process::Command,
     time::{Duration, Instant},
@@ -18,7 +18,6 @@ use std::{
 use usque_ipc::agent_v1::{MacosSocketPurpose, TunnelPlan};
 use uuid::Uuid;
 
-const ENDPOINT_IP: &str = "192.0.2.193";
 const DNS: [&str; 2] = ["198.18.0.1", "fd00::1"];
 // Both IPv4 capture prefixes, both IPv6 capture prefixes, and the explicit
 // tunnel DNS destinations (including the incident's /128 host route).
@@ -160,32 +159,6 @@ fn route_probes() -> io::Result<Vec<Option<Route>>> {
     ROUTE_PROBES.into_iter().map(lookup).collect()
 }
 
-/// A host-specific scoped reject route targets only the documentation address.
-/// The other runner and observer traffic continue to use their normal routes.
-struct RejectRoute {
-    interface: String,
-    gateway: String,
-}
-impl RejectRoute {
-    fn change(&self, verb: &str) -> io::Result<()> {
-        checked_command(
-            "/sbin/route",
-            &[
-                "-n",
-                verb,
-                "-inet",
-                "-host",
-                ENDPOINT_IP,
-                &self.gateway,
-                "-reject",
-                "-ifscope",
-                &self.interface,
-            ],
-        )
-        .map(|_| ())
-    }
-}
-
 fn require_endpoint_failure(
     backend: &mut NativeBackend,
     fence: Fence,
@@ -197,16 +170,16 @@ fn require_endpoint_failure(
             if error
                 .get_ref()
                 .and_then(|e| e.downcast_ref::<EndpointConnectFailure>())
-                .is_some() =>
+                .is_some_and(|e| e.0.raw_os_error() == Some(libc::ECONNREFUSED)) =>
         {
             eprintln!("bound endpoint connect failed before FD handoff: {error}");
             Ok(())
         }
         Err(error) => Err(io::Error::other(format!(
-            "failure occurred before endpoint connect: {error}"
+            "expected the reserved endpoint to refuse the connection: {error}"
         ))),
         Ok((lease, fd, _)) => {
-            // Nonblocking connect may deliver the route rejection via SO_ERROR.
+            // Nonblocking connect may deliver the refusal via SO_ERROR.
             let socket = TcpStream::from(fd);
             let mut pollfd = libc::pollfd {
                 fd: socket.as_raw_fd(),
@@ -220,18 +193,7 @@ fn require_endpoint_failure(
             backend.release_socket(fence, lease)?;
             check(
                 ready > 0
-                    && error
-                        .as_ref()
-                        .and_then(io::Error::raw_os_error)
-                        .is_some_and(|n| {
-                            matches!(
-                                n,
-                                libc::EHOSTUNREACH
-                                    | libc::EHOSTDOWN
-                                    | libc::ENETUNREACH
-                                    | libc::ECONNREFUSED
-                            )
-                        }),
+                    && error.as_ref().and_then(io::Error::raw_os_error) == Some(libc::ECONNREFUSED),
                 &format!("expected bound endpoint refusal, poll={ready}, SO_ERROR={error:?}"),
             )?;
             eprintln!("bound endpoint connect failed after FD handoff: {error:?}");
@@ -257,7 +219,7 @@ fn fixture_plan(endpoint: SocketAddr) -> TunnelPlan {
 
 #[test]
 fn fixture_plan_meets_agent_prepare_and_configure_contracts() {
-    let wire = fixture_plan(format!("{ENDPOINT_IP}:443").parse().unwrap());
+    let wire = fixture_plan("192.0.2.193:443".parse().unwrap());
     ValidatedTunnelPlan::from_macos_prepare(TunnelPlan {
         defer_network_configuration: true,
         ..wire.clone()
@@ -298,12 +260,21 @@ fn configured_tun_disconnect_restores_network() -> io::Result<()> {
         "existing network resources require recovery",
     )?;
     let physical = backend.preflight()?;
-    let endpoint: SocketAddr = format!("{ENDPOINT_IP}:443").parse().unwrap();
-    let path = physical.path(endpoint)?;
-    let reject = RejectRoute {
-        interface: path.name.clone(),
-        gateway: path.gateway.to_string(),
-    };
+    let path = physical
+        .paths
+        .iter()
+        .find(|p| p.address.is_ipv4())
+        .ok_or_else(|| io::Error::other("missing physical IPv4 uplink"))?;
+    // Darwin silently drops SYNs to a bound, non-listening TCP socket. Close
+    // the listener to observe a real refusal, then reserve its exact port up
+    // to the protected dial so another process cannot occupy it in between.
+    let endpoint = TcpListener::bind((path.address, 0))?.local_addr()?;
+    let baseline_dial = TcpStream::connect_timeout(&endpoint, Duration::from_secs(2));
+    check(
+        baseline_dial.as_ref().err().and_then(|e| e.raw_os_error()) == Some(libc::ECONNREFUSED),
+        &format!("baseline dial did not get ECONNREFUSED: {baseline_dial:?}"),
+    )?;
+    let reserved = TcpListener::bind(endpoint)?;
     let dns_servers = DNS.map(|v| v.parse::<IpAddr>().unwrap());
     let original_dns = dns::snapshot(&dns_servers)?;
     let original_effective = effective_dns()?;
@@ -335,7 +306,6 @@ fn configured_tun_disconnect_restores_network() -> io::Result<()> {
         network: 1,
     };
 
-    reject.change("add")?;
     let run = (|| {
         eprintln!("preparing guard");
         coordinator.prepare(owner, fence, true)?;
@@ -391,6 +361,7 @@ fn configured_tun_disconnect_restores_network() -> io::Result<()> {
             "verified active default DNS {published_dns:?}, both service DNS addresses and both route families on {interface}"
         );
         observer.probe("active");
+        drop(reserved);
         require_endpoint_failure(coordinator.backend_mut(), fence, endpoint)?;
         drop(fd);
         coordinator.owner_lost(owner, fence)?;
@@ -420,7 +391,6 @@ fn configured_tun_disconnect_restores_network() -> io::Result<()> {
             eprintln!("administrator recovery incomplete: {restore}");
         }
     }
-    reject.change("delete")?;
     run?;
     await_dns(&original_effective)?;
     let restored_dns = dns::snapshot(&dns_servers)?;
