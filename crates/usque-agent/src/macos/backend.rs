@@ -839,4 +839,6 @@ fn destinations_for(
 }
 
 #[cfg(test)]
+mod disposable;
+#[cfg(test)]
 mod tests;
