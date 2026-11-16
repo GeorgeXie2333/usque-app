@@ -131,7 +131,12 @@ jobs:
           check-latest: false
           cache: false
       - name: Compile the native test peer before changing network settings
-        run: GOTOOLCHAIN=local GOPROXY=off go build -o "$RUNNER_TEMP/connect-ip-peer" tool/macos_tun_engine_peer.go
+        env:
+          GOTOOLCHAIN: local
+          GOPROXY: 'off'
+        run: |
+          go test tool/macos_tun_engine_peer.go tool/macos_tun_engine_peer_test.go
+          go build -o "$RUNNER_TEMP/connect-ip-peer" tool/macos_tun_engine_peer.go
       - name: Exercise endpoint refusal, CONNECT-IP packet flow, peer loss and GUI disconnect
         env:
           RUNNER_ENVIRONMENT: ${{ runner.environment }}

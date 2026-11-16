@@ -39,12 +39,11 @@ func readVarint(r *bufio.Reader) (uint64, error) {
 	return value, nil
 }
 
-func echoCanary(body []byte, nonce string) []byte {
-	// Context zero followed by an unfragmented UDP/IPv4 packet to the canary.
-	if len(body) < 29 || body[0] != 0 {
+func echoCanary(ip []byte, nonce string) []byte {
+	// H2 type-zero capsules carry the raw IP packet starting at byte zero.
+	if len(ip) < 28 {
 		return nil
 	}
-	ip := body[1:]
 	header := int(ip[0]&15) * 4
 	if ip[0]>>4 != 4 || header < 20 || len(ip) < header+8 ||
 		int(binary.BigEndian.Uint16(ip[2:4])) != len(ip) || ip[9] != 17 ||
@@ -66,7 +65,7 @@ func echoCanary(body []byte, nonce string) []byte {
 	binary.BigEndian.PutUint16(udp[2:4], src)
 	// Swapping address and port pairs preserves their one's-complement
 	// checksums; all other header and payload bytes are unchanged.
-	return body
+	return ip
 }
 
 func serve(directory, host, nonce string) error {
