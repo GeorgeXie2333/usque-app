@@ -57,28 +57,40 @@ struct DesktopTrayState {
   var canToggleTunnel: Bool { outputsEnabled && (tunnel || tunnelAvailable) }
   var canToggleSystemProxy: Bool { outputsEnabled && (systemProxy || systemProxyAvailable) }
 
-  func menuBarImage(appIcon: NSImage) -> NSImage {
-    let color: NSColor?
-    switch badge {
-    case "connected": color = .systemGreen
-    case "busy": color = .systemBlue
-    case "warning": color = .systemYellow
-    case "error": color = .systemRed
-    default: color = nil
-    }
-    return NSImage(size: NSSize(width: 18, height: 18), flipped: false) { bounds in
-      appIcon.draw(in: bounds)
-      if let color {
-        let dot = NSBezierPath(ovalIn: NSRect(x: bounds.maxX - 6.5, y: bounds.minY + 0.5,
-                                              width: 6, height: 6))
-        color.setFill()
-        dot.fill()
-        NSColor.white.setStroke()
-        dot.lineWidth = 1
-        dot.stroke()
+  var menuBarImage: NSImage? {
+    guard let mark = NSImage(named: "MenuBarMark") else { return nil }
+    let image = NSImage(size: mark.size, flipped: false) { bounds in
+      mark.draw(in: bounds)
+      // The open centre of the U leaves room for status without covering the star or arcs.
+      NSColor.black.set()
+      switch badge {
+      case "connected":
+        NSBezierPath(ovalIn: NSRect(x: 8.25, y: 11, width: 3.5, height: 3.5)).fill()
+      case "busy":
+        NSBezierPath(roundedRect: NSRect(x: 7.5, y: 12, width: 5, height: 1.5),
+                     xRadius: 0.75, yRadius: 0.75).fill()
+      case "warning":
+        let triangle = NSBezierPath()
+        triangle.move(to: NSPoint(x: 10, y: 15.25))
+        triangle.line(to: NSPoint(x: 7.25, y: 10.75))
+        triangle.line(to: NSPoint(x: 12.75, y: 10.75))
+        triangle.close()
+        triangle.fill()
+      case "error":
+        let cross = NSBezierPath()
+        cross.move(to: NSPoint(x: 8.25, y: 11))
+        cross.line(to: NSPoint(x: 11.75, y: 14.5))
+        cross.move(to: NSPoint(x: 8.25, y: 14.5))
+        cross.line(to: NSPoint(x: 11.75, y: 11))
+        cross.lineWidth = 1.5
+        cross.lineCapStyle = .round
+        cross.stroke()
+      default: break
       }
       return true
     }
+    image.isTemplate = true
+    return image
   }
 }
 

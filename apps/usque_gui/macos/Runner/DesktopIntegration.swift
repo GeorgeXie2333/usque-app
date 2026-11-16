@@ -335,7 +335,7 @@ final class DesktopIntegration: NSObject, NSWindowDelegate, UNUserNotificationCe
 
   private func updateStatusItem() {
     guard let statusItem else { return }
-    statusItem.button?.image = tray.menuBarImage(appIcon: NSApp.applicationIconImage)
+    statusItem.button?.image = tray.menuBarImage
     statusItem.button?.toolTip = "Usque — \(tray.status)"
     statusItem.button?.setAccessibilityValue(tray.status)
     let menu = NSMenu()

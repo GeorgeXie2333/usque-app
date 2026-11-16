@@ -140,15 +140,13 @@ enum DesktopContractMain {
   }
 
   private static func trayArtwork() throws {
-    let runner = URL(fileURLWithPath: CommandLine.arguments[1])
-      .deletingLastPathComponent().deletingLastPathComponent()
-    guard let logo = NSImage(contentsOf: runner.appendingPathComponent(
-      "Assets.xcassets/AppIcon.appiconset/app_icon_64.png")) else {
-      throw NSError(domain: "DesktopContract", code: 3)
+    guard let mark = NSImage(named: "MenuBarMark") else {
+      throw NSError(domain: "DesktopContract", code: 3, userInfo: [NSLocalizedDescriptionKey: "missing menu bar asset"])
     }
-    let size = NSSize(width: 18, height: 18)
+    try require(mark.isTemplate, "asset catalog must declare the Usque mark as a template")
+    let size = NSSize(width: 20, height: 20)
     for scale in [1, 2] {
-      let pixels = 18 * scale
+      let pixels = Int(size.width) * scale
       func render(_ image: NSImage) -> Data {
         let context = CGContext(data: nil, width: pixels, height: pixels, bitsPerComponent: 8,
           bytesPerRow: pixels * 4, space: CGColorSpaceCreateDeviceRGB(),
@@ -160,23 +158,40 @@ enum DesktopContractMain {
         NSGraphicsContext.restoreGraphicsState()
         return Data(bytes: context.data!, count: pixels * pixels * 4)
       }
-      let original = render(logo)
-      var appearances = Set<Data>()
-      for badge in ["idle", "busy", "connected", "warning", "error"] {
+      var masks = [String: Data]()
+      for badge in ["idle", "busy", "connected", "warning", "error", "unknown"] {
         var state = DesktopTrayState()
         state.badge = badge
-        let image = state.menuBarImage(appIcon: logo)
-        let artwork = render(image)
-        try require(image.size == size && !image.isTemplate, "tray lost its size or brand colors")
-        for row in 0..<pixels {
-          let start = row * pixels * 4
-          let leftHalf = start..<(start + pixels / 2 * 4)
-          try require(artwork[leftHalf] == original[leftHalf], "tray badge replaced the Usque artwork")
+        guard let image = state.menuBarImage else {
+          throw NSError(domain: "DesktopContract", code: 3, userInfo: [NSLocalizedDescriptionKey: "missing menu bar image"])
         }
-        if badge == "idle" { try require(artwork == original, "idle tray changed the Usque icon") }
-        appearances.insert(artwork)
+        let artwork = render(image)
+        if badge == "idle" { try require(artwork == render(mark), "idle icon differs from the Usque mark") }
+        try require(image.isTemplate, "menu bar artwork must use AppKit template tinting")
+        try require(image.size == size, "menu bar artwork lost its intended point size")
+        var alpha = Data()
+        for offset in stride(from: 0, to: artwork.count, by: 4) {
+          try require(artwork[offset] == 0 && artwork[offset + 1] == 0 && artwork[offset + 2] == 0,
+                      "menu bar template contains baked-in colors")
+          alpha.append(artwork[offset + 3])
+        }
+        masks[badge] = alpha
       }
-      try require(appearances.count == 5, "tray states should remain visually distinct")
+      let idle = masks["idle"]!
+      let ink = idle.filter { $0 > 64 }.count
+      try require(ink > pixels * pixels / 8 && ink < pixels * pixels / 2,
+                  "Usque outline disappeared or acquired a solid background")
+      try require(idle.first == 0 && idle[pixels - 1] == 0 && idle.last == 0 &&
+                  idle[pixels * (pixels - 1)] == 0 && idle[pixels * (pixels / 2) + pixels / 2] <= 4,
+                  "idle icon must have clear corners and an open U")
+      try require(masks["unknown"] == idle, "unknown status should show the plain Usque mark")
+      try require(Set(masks.values).count == 5, "the five menu bar states must differ in shape")
+      for (badge, mask) in masks {
+        for i in idle.indices where idle[i] > 4 {
+          try require(mask[i] == idle[i],
+                      "\(badge) changed the Usque outline at \(scale)x (\(i % pixels), \(i / pixels)): \(idle[i]) → \(mask[i])")
+        }
+      }
     }
   }
 
