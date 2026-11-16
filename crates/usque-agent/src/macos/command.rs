@@ -84,10 +84,18 @@ impl Runner for NativeRunner {
             _ => None,
         };
         let deadline = Instant::now() + Duration::from_secs(8);
+        // Most route/PF commands exit within a few milliseconds. A fixed 10 ms
+        // first poll accumulates across all of the individually verified routes.
+        let mut polling_delay = Duration::from_micros(250);
         let status = loop {
             match child.try_wait() {
                 Ok(Some(status)) => break Ok(status),
-                Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(10)),
+                Ok(None) if Instant::now() < deadline => {
+                    thread::sleep(
+                        polling_delay.min(deadline.saturating_duration_since(Instant::now())),
+                    );
+                    polling_delay = (polling_delay * 2).min(Duration::from_millis(10));
+                }
                 result => {
                     let _ = child.kill();
                     let _ = child.wait();
@@ -138,4 +146,42 @@ pub fn checked(
         return Err(io::Error::other("native adapter rejected operation"));
     }
     Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[ignore = "timing comparison of read-only ifconfig commands on an idle Mac"]
+    fn fast_native_commands_do_not_wait_for_a_polling_tick() {
+        let mut overhead = Vec::new();
+        for _ in 0..31 {
+            let direct = Instant::now();
+            assert!(
+                Command::new(Program::Ifconfig.path())
+                    .arg("-l")
+                    .output()
+                    .unwrap()
+                    .status
+                    .success()
+            );
+            let direct = direct.elapsed();
+            let start = Instant::now();
+            assert!(
+                NativeRunner
+                    .run(Program::Ifconfig, &arguments(&["-l"]), None)
+                    .unwrap()
+                    .success
+            );
+            overhead.push(start.elapsed().saturating_sub(direct));
+        }
+        overhead.sort();
+        let median = overhead[overhead.len() / 2];
+        println!("median adapter overhead above direct ifconfig: {median:?}");
+        assert!(
+            median < Duration::from_millis(6),
+            "unexpected per-command polling delay"
+        );
+    }
 }
