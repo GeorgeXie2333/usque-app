@@ -691,6 +691,33 @@ fn project_observation(
     if status.is_some_and(clean) {
         return;
     }
+    // Startup protects the host before it can publish its data plane. A separate
+    // status socket from the same authenticated process can observe this interval.
+    if let Some(status) = status
+        && status.caller_owns_transaction
+        && status.fence.is_some()
+        && matches!(
+            status.phase(),
+            p::AgentPhase::Preparing | p::AgentPhase::Active
+        )
+        && !status.recovery_pending
+        && !status.system_proxy_recovery_pending
+        && status.failure == 0
+        && matches!(
+            snapshot.phase,
+            usque_core::ConnectionPhase::Preparing
+                | usque_core::ConnectionPhase::ConnectingHttp3
+                | usque_core::ConnectionPhase::ConnectingHttp2
+                | usque_core::ConnectionPhase::Connected
+                | usque_core::ConnectionPhase::Degraded
+                | usque_core::ConnectionPhase::Reconnecting
+        )
+    {
+        if status.protection_retained {
+            snapshot.kill_switch_state = usque_core::KillSwitchState::Active;
+        }
+        return;
+    }
     snapshot.phase = usque_core::ConnectionPhase::Error;
     snapshot.kill_switch_state = if status.is_some_and(|s| s.protection_retained) {
         usque_core::KillSwitchState::Active
@@ -885,6 +912,61 @@ mod tests {
         status.resumable = false;
         assert!(!retained_guard(&status, &fence));
     }
+    #[test]
+    fn dialing_engine_projects_its_owned_transaction_as_startup() {
+        use usque_core::{ConnectionPhase, ConnectionSnapshot, KillSwitchState};
+        let status = p::MacosPlatformStatus {
+            caller_owns_transaction: true,
+            phase: p::AgentPhase::Preparing as i32,
+            protection_retained: true,
+            fence: Some(p::MacosFence::default()),
+            ..Default::default()
+        };
+        let starting = ConnectionSnapshot {
+            phase: ConnectionPhase::ConnectingHttp3,
+            ..Default::default()
+        };
+        for agent_phase in [p::AgentPhase::Preparing, p::AgentPhase::Active] {
+            let mut snapshot = starting.clone();
+            project_observation(
+                &mut snapshot,
+                Some(&p::MacosPlatformStatus {
+                    phase: agent_phase as i32,
+                    ..status.clone()
+                }),
+            );
+            assert_eq!(snapshot.phase, starting.phase);
+            assert!(snapshot.error.is_none());
+            assert_eq!(snapshot.kill_switch_state, KillSwitchState::Active);
+        }
+        for unhealthy in [
+            p::MacosPlatformStatus {
+                caller_owns_transaction: false,
+                ..status.clone()
+            },
+            p::MacosPlatformStatus {
+                recovery_pending: true,
+                ..status.clone()
+            },
+            p::MacosPlatformStatus {
+                system_proxy_recovery_pending: true,
+                ..status.clone()
+            },
+            p::MacosPlatformStatus {
+                phase: p::AgentPhase::RecoveryRequired as i32,
+                ..status.clone()
+            },
+            p::MacosPlatformStatus {
+                failure: p::MacosFailure::OwnershipConflict as i32,
+                ..status
+            },
+        ] {
+            let mut snapshot = starting.clone();
+            project_observation(&mut snapshot, Some(&unhealthy));
+            assert_eq!(snapshot.phase, ConnectionPhase::Error);
+        }
+    }
+
     #[test]
     fn restarted_engine_projects_pending_or_unknown_recovery_as_error() {
         let mut snapshot = usque_core::ConnectionSnapshot::default();

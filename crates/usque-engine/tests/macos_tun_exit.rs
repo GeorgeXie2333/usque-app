@@ -453,6 +453,11 @@ fn failed_endpoint_disconnect_and_exit() {
                 }
         });
         if continuous {
+            assert_eq!(
+                phase(&socket),
+                v1::ConnectionPhase::ConnectingHttp2,
+                "GetStatus mislabeled a live dial as orphan recovery"
+            );
             retry_preparing(&socket, &engine_log);
         }
         assert_eq!(

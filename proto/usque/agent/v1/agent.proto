@@ -844,6 +844,8 @@ message MacosPlatformStatus {
   bool system_proxy_active = 16;
   // Developer package opt-in, independent of production acceptance.
   bool test_tun_enabled = 17;
+  // The authenticated caller still owns the live transaction control connection.
+  bool caller_owns_transaction = 18;
 }
 message MacosDescriptor {
   MacosFence fence = 1;

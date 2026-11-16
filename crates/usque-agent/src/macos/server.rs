@@ -323,6 +323,8 @@ impl Service {
         };
         if let Some(transaction) = state.state() {
             status.fence = Some(transaction.fence.into());
+            status.caller_owns_transaction =
+                self.owner_connection.is_some() && transaction.owner == owner;
             status.phase = match transaction.phase {
                 Phase::Preparing => p::AgentPhase::Preparing,
                 Phase::Active => p::AgentPhase::Active,
