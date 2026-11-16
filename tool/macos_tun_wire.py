@@ -193,6 +193,10 @@ def probe(directory: Path, config: Path, phase: str) -> None:
     state = json.loads(path.read_text())
     if state["phases"] != list(PHASES[: PHASES.index(phase)]):
         raise RuntimeError("wire phases not executed in order")
+    # Each phase is attempted once. Its exit status records acceptance; a
+    # failed capture must not prevent fresh measurements in later phases.
+    state["phases"].append(phase)
+    save(path, state)
     peer, index = state["links"][1]
     if socket.if_nametoindex(peer) != index:
         raise RuntimeError("capture peer was replaced")
@@ -207,7 +211,20 @@ def probe(directory: Path, config: Path, phase: str) -> None:
     with (
         logpath.open("w") as log,
         subprocess.Popen(  # noqa: S603 - capture only synthetic per-phase frames on our peer.
-            [TCPDUMP, "-i", peer, "-p", "-n", "-U", "-s", "160", "-w", str(capture), match],
+            [
+                TCPDUMP,
+                "-i",
+                peer,
+                "-p",
+                "-n",
+                "--immediate-mode",
+                "-U",
+                "-s",
+                "160",
+                "-w",
+                str(capture),
+                match,
+            ],
             stdout=log,
             stderr=log,
         ) as sniff,
@@ -245,8 +262,28 @@ def probe(directory: Path, config: Path, phase: str) -> None:
     print(f"Darwin virtual Ethernet receive-side {phase}: {json.dumps(counts)}", flush=True)
     save(directory / f"{phase}.json", counts)
     verify_counts(phase, counts)
-    state["phases"].append(phase)
-    save(path, state)
+
+
+def probe_both(directory: Path, config: Path, phase: str) -> None:
+    errors = []
+    try:
+        probe(directory, config, phase)
+    except Exception as error:
+        errors.append(f"wire: {error}")
+    try:
+        subprocess.run(  # noqa: S603 - fixed sibling script.
+            [
+                sys.executable,
+                str(Path(__file__).with_name("macos_tun_observer.py")),
+                "probe",
+                phase,
+            ],
+            check=True,
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        errors.append(f"HTTPS: {error}")
+    if errors:
+        raise RuntimeError(f"{phase} observation failed: " + "; ".join(errors))
 
 
 def main() -> None:
@@ -275,17 +312,7 @@ def main() -> None:
     elif args.command == "send":
         transmit(json.loads((directory / "links.json").read_text()), args.phase)
     else:
-        probe(directory, config, args.phase)
-        # Retain independently received HTTPS evidence for the real uplink.
-        subprocess.run(  # noqa: S603 - fixed sibling script.
-            [
-                sys.executable,
-                str(Path(__file__).with_name("macos_tun_observer.py")),
-                "probe",
-                args.phase,
-            ],
-            check=True,
-        )
+        probe_both(directory, config, args.phase)
 
 
 if __name__ == "__main__":

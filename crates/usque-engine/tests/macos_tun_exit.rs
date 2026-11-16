@@ -186,59 +186,78 @@ fn failed_endpoint_disconnect_and_exit() {
     });
     let status = agent_status();
     assert_eq!(status["tunAvailable"], true, "Agent preflight: {status}");
-    let response = control(
-        &socket,
-        Payload::Connect(v1::ConnectRequest {
-            profile_id: id.to_string(),
-            continuous: false,
-            background: true,
-        }),
-    );
-    let error = response
-        .error
-        .expect("closed endpoint unexpectedly connected");
-    println!("Connect returned {}", error.code);
     let engine_log = dir.join("logs/engine.jsonl");
-    // A nonblocking connect can report refusal immediately in the Agent or
-    // later via SO_ERROR in the Engine. Both reach this production failure
-    // code. A Keychain/preflight failure or an absent Agent cannot qualify.
-    wait_until(
-        "prepared physical egress and H2 TCP connect failure",
-        Duration::from_secs(5),
-        || {
-            fs::read_to_string(&engine_log).is_ok_and(|log| {
-                log.contains("macOS TUN Agent prepared the physical egress")
-                    && log.lines().any(|line| {
-                        serde_json::from_str::<serde_json::Value>(line).is_ok_and(|entry| {
-                            entry["fields"]["transport_failure"] == "H2_TCP_CONNECT_FAILED"
+    // A one-shot request returns the dial error. The desktop GUI normally
+    // acknowledges a continuous intent first, then dials on its worker.
+    for continuous in [false, true] {
+        let log_start = fs::read_to_string(&engine_log).unwrap_or_default().len();
+        let response = control(
+            &socket,
+            Payload::Connect(v1::ConnectRequest {
+                profile_id: id.to_string(),
+                continuous,
+                background: !continuous,
+            }),
+        );
+        if continuous {
+            assert!(
+                response.error.is_none(),
+                "Connect intent: {:?}",
+                response.error
+            );
+            let Some(control_response::Payload::Status(snapshot)) = response.payload else {
+                panic!("Connect intent did not acknowledge a snapshot");
+            };
+            assert_eq!(snapshot.phase, v1::ConnectionPhase::Preparing as i32);
+        } else {
+            let error = response
+                .error
+                .expect("closed endpoint unexpectedly connected");
+            println!("Connect returned {}", error.code);
+        }
+        // A nonblocking connect can report refusal immediately in the Agent or
+        // later via SO_ERROR in the Engine. Both reach this production failure
+        // code. A Keychain/preflight failure or an absent Agent cannot qualify.
+        wait_until(
+            "prepared physical egress and H2 TCP connect failure",
+            Duration::from_secs(25),
+            || {
+                let log = fs::read_to_string(&engine_log).unwrap_or_default();
+                log.get(log_start..).is_some_and(|log| {
+                    log.contains("macOS TUN Agent prepared the physical egress")
+                        && log.lines().any(|line| {
+                            serde_json::from_str::<serde_json::Value>(line).is_ok_and(|entry| {
+                                entry["fields"]["transport_failure"] == "H2_TCP_CONNECT_FAILED"
+                            })
                         })
-                    })
-            })
-        },
-    );
-    wait_until("retained Kill Switch", Duration::from_secs(5), || {
-        agent_status()["protectionRetained"] == true
-    });
+                })
+            },
+        );
+        wait_until("retained Kill Switch", Duration::from_secs(5), || {
+            let status = agent_status();
+            status["protectionRetained"] == true && status["recoveryPending"] == true
+        });
 
-    // Same Disconnect RPC and clean-snapshot conditions used by disconnectForExit().
-    let response = control(&socket, Payload::Disconnect(v1::DisconnectRequest {}));
-    assert!(
-        response.error.is_none(),
-        "Disconnect error: {:?}",
-        response.error
-    );
-    let Some(control_response::Payload::Status(snapshot)) = response.payload else {
-        panic!("Disconnect did not acknowledge a snapshot");
-    };
-    assert_eq!(snapshot.phase, v1::ConnectionPhase::Disconnected as i32);
-    assert!(snapshot.error.is_none());
-    assert!(
-        Command::new(ENGINE)
-            .arg("--macos-agent-check-clean")
-            .status()
-            .unwrap()
-            .success()
-    );
+        // Same Disconnect RPC and clean-snapshot conditions used by disconnectForExit().
+        let response = control(&socket, Payload::Disconnect(v1::DisconnectRequest {}));
+        assert!(
+            response.error.is_none(),
+            "Disconnect error: {:?}",
+            response.error
+        );
+        let Some(control_response::Payload::Status(snapshot)) = response.payload else {
+            panic!("Disconnect did not acknowledge a snapshot");
+        };
+        assert_eq!(snapshot.phase, v1::ConnectionPhase::Disconnected as i32);
+        assert!(snapshot.error.is_none());
+        assert!(
+            Command::new(ENGINE)
+                .arg("--macos-agent-check-clean")
+                .status()
+                .unwrap()
+                .success()
+        );
+    }
 
     // DesktopEngineTransport.dispose sends SIGTERM after confirming Disconnect.
     assert!(
@@ -256,6 +275,6 @@ fn failed_endpoint_disconnect_and_exit() {
     });
     assert!(!socket.exists(), "control socket survived clean exit");
     println!(
-        "Verified H2 dial failure, retained protection, explicit Disconnect, clean Agent and normal Engine exit."
+        "Verified one-shot and continuous H2 dial failure, retained protection, explicit Disconnect, clean Agent and normal Engine exit."
     );
 }

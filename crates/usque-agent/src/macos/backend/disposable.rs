@@ -51,17 +51,32 @@ fn checked_command(program: &str, args: &[&str]) -> io::Result<String> {
     String::from_utf8(out.stdout).map_err(io::Error::other)
 }
 
-struct Observer(OsString);
+struct Observer {
+    program: OsString,
+    failures: Vec<String>,
+}
 impl Observer {
-    fn probe(&self, phase: &str) -> io::Result<()> {
+    fn probe(&mut self, phase: &str) {
         eprintln!("external probe: {phase}");
-        check(
-            Command::new(&self.0)
-                .args(["probe", phase])
-                .status()?
-                .success(),
-            &format!("external {phase} probe failed"),
-        )
+        let failure = match Command::new(&self.program).args(["probe", phase]).status() {
+            Ok(status) if status.success() => return,
+            Ok(status) => format!("{phase}: {status}"),
+            Err(error) => format!("{phase}: {error}"),
+        };
+        // On this disposable Mac, finish the bounded incident and explicitly
+        // verify network recovery even when independent evidence is missing.
+        eprintln!("external observation failed: {failure}");
+        self.failures.push(failure);
+    }
+
+    fn finish(self) -> io::Result<()> {
+        if self.failures.is_empty() {
+            return Ok(());
+        }
+        Err(io::Error::other(format!(
+            "external observations failed: {}",
+            self.failures.join(", ")
+        )))
     }
 }
 
@@ -265,10 +280,11 @@ fn configured_tun_disconnect_restores_network() -> io::Result<()> {
             &format!("missing {name}"),
         )?;
     }
-    let observer = Observer(
-        std::env::var_os("USQUE_TUN_OBSERVER")
+    let mut observer = Observer {
+        program: std::env::var_os("USQUE_TUN_OBSERVER")
             .ok_or_else(|| io::Error::other("missing independent observer"))?,
-    );
+        failures: Vec::new(),
+    };
     let _single = journal::service_lock()?;
     let mut store = JournalStore::open()?;
     check(
@@ -293,7 +309,7 @@ fn configured_tun_disconnect_restores_network() -> io::Result<()> {
     let original_routes = route_probes()?;
     check(original_routes[0].is_some(), "no baseline IPv4 route")?;
     check(original_effective != DNS, "test DNS already in use")?;
-    observer.probe("before")?;
+    observer.probe("before");
     let wire = fixture_plan(endpoint);
     let staging = TunnelPlan {
         defer_network_configuration: true,
@@ -340,7 +356,7 @@ fn configured_tun_disconnect_restores_network() -> io::Result<()> {
             )?;
         }
         eprintln!("verified active default DNS and both families on {interface}");
-        observer.probe("active")?;
+        observer.probe("active");
         require_endpoint_failure(coordinator.backend_mut(), fence, endpoint)?;
         drop(fd);
         coordinator.owner_lost(owner, fence)?;
@@ -351,7 +367,7 @@ fn configured_tun_disconnect_restores_network() -> io::Result<()> {
             "lost owner did not retain protection",
         )?;
         coordinator.backend_mut().verify_protection()?;
-        observer.probe("retained")?;
+        observer.probe("retained");
         coordinator.disconnect_retained(owner, fence)?;
         check(
             coordinator.state().is_none() && coordinator.backend().receipts().is_none(),
@@ -395,9 +411,9 @@ fn configured_tun_disconnect_restores_network() -> io::Result<()> {
             "post-disconnect routes differ: before={original_routes:?}; after={restored_routes:?}"
         ),
     )?;
-    observer.probe("after")?;
     eprintln!(
         "clean disconnect: restored effective DNS, each service's DNS, IPv4/IPv6 routes and released utun"
     );
-    Ok(())
+    observer.probe("after");
+    observer.finish()
 }

@@ -30,6 +30,29 @@ def ethernet_frame(f: int, k: int, phase: str) -> bytes:
 
 
 class WireTests(unittest.TestCase):
+    def test_independent_https_is_attempted_when_capture_fails_and_both_errors_survive(self):
+        directory = Path("/unused")
+        config = directory / "observer.json"
+        with (
+            patch.object(wire, "probe", side_effect=RuntimeError("capture unavailable")),
+            patch.object(wire.subprocess, "run", side_effect=OSError("HTTPS unavailable")) as https,
+            self.assertRaisesRegex(
+                RuntimeError, r"active.*wire: capture unavailable.*HTTPS: HTTPS unavailable"
+            ),
+        ):
+            wire.probe_both(directory, config, "active")
+        self.assertEqual(https.call_args.args[0][-2:], ["probe", "active"])
+
+    def test_failed_wire_attempt_does_not_close_later_phases_to_measurement(self):
+        with tempfile.TemporaryDirectory() as name:
+            directory = Path(name)
+            path = directory / "links.json"
+            wire.save(path, {"phases": [], "links": [["feth0", 20], ["feth1", 21]]})
+            with patch.object(socket, "if_nametoindex", return_value=22):
+                for phase in ("before", "active"):
+                    with self.assertRaisesRegex(RuntimeError, "capture peer was replaced"):
+                        wire.probe(directory, directory / "observer.json", phase)
+
     def test_tentative_darwin_source_is_retried_before_emitting_any_probe(self):
         sock = Mock()
         sock.bind.side_effect = [OSError(wire.errno.EADDRNOTAVAIL, "tentative"), None]

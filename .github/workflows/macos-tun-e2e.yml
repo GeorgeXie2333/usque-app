@@ -159,15 +159,26 @@ jobs:
               USQUE_TUN_OBSERVER_CONFIG="$USQUE_TUN_OBSERVER_CONFIG" "$GITHUB_WORKSPACE/tool/macos_tun_wire.py" "$1"
           }
           trap 'wire cleanup' EXIT
-          wire setup
+          observer="$GITHUB_WORKSPACE/tool/macos_tun_wire.py"
+          wire_ready=true
+          if ! wire setup; then
+            echo "::error::Dual-stack capture setup failed; collecting the independent HTTPS evidence and native recovery result"
+            wire_ready=false
+            observer="$GITHUB_WORKSPACE/tool/macos_tun_observer.py"
+          fi
           name=macos::backend::disposable::configured_tun_disconnect_restores_network
           python3 tool/macos_tun_deadline.py sudo -n /usr/bin/env USQUE_DISPOSABLE_MAC=1 GITHUB_ACTIONS=true RUNNER_ENVIRONMENT="$RUNNER_ENVIRONMENT" \
-            USQUE_TUN_OBSERVER="$GITHUB_WORKSPACE/tool/macos_tun_wire.py" \
+            USQUE_TUN_OBSERVER="$observer" \
             USQUE_TUN_OBSERVER_CONFIG="$USQUE_TUN_OBSERVER_CONFIG" "$(cat "$RUNNER_TEMP/agent-test-path")" \
             --ignored --exact "$name" --test-threads=1 --nocapture --format=pretty --color=never \
             | tee "$RUNNER_TEMP/configured-result.txt"
           grep -Eq '^test result: ok\. 1 passed; 0 failed; 0 ignored;' "$RUNNER_TEMP/configured-result.txt"
-          python3 tool/macos_tun_observer.py finish
+          test "$wire_ready" = true
+      - name: Confirm ordinary DNS and default-route HTTPS after explicit disconnect
+        if: ${{ !cancelled() && steps.receiver.outcome == 'success' }}
+        env:
+          USQUE_TUN_OBSERVER_CONFIG: ${{ runner.temp }}/observer/client.json
+        run: python3 tool/macos_tun_observer.py finish
       - name: Preserve synthetic receive-side probes
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

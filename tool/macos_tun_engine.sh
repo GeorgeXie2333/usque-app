@@ -35,11 +35,7 @@ cleanup() {
   set +e
   if [[ $daemon_started == true ]]; then
     sudo -n launchctl bootout system/com.usque.agent || result=1
-    # On failure, regain connectivity for the runner's control channel. No
-    # fallback recovery contributes to any acceptance assertion.
-    if (( result != 0 )); then
-      sudo -n "$installed/usque-agent" --recover-state || true
-    fi
+    # The deadline supervisor handles recovery after the daemon releases its lock.
   fi
   if (( result != 0 )); then
     python3 tool/macos_tun_engine_failure.py "$fixture" "$installed/usque-engine"

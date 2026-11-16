@@ -4,6 +4,7 @@ import os
 import signal
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 
@@ -37,11 +38,28 @@ def main() -> int:
         agent = Path("/Library/PrivilegedHelperTools/com.usque.agent/usque-agent")
         if agent.is_file():
             print("Test FAILED; attempting administrator recovery for the CI runner", flush=True)
-            for command in (
-                ["/bin/launchctl", "bootout", "system/com.usque.agent"],
-                [str(agent), "--recover-state"],
-            ):
-                subprocess.run(["/usr/bin/sudo", "-n", *command], check=False, timeout=45)  # noqa: S603
+            subprocess.run(  # noqa: S603
+                ["/usr/bin/sudo", "-n", "/bin/launchctl", "bootout", "system/com.usque.agent"],
+                check=False,
+                timeout=45,
+            )
+            # launchctl may return while the terminating daemon still owns
+            # service.lock. Use the maintenance tool's bounded recovery window.
+            recovery_deadline = time.monotonic() + 15
+            while True:
+                result = subprocess.run(  # noqa: S603
+                    ["/usr/bin/sudo", "-n", str(agent), "--recover-state"],
+                    check=False,
+                    timeout=45,
+                    capture_output=True,
+                    text=True,
+                )
+                if result.returncode == 0:
+                    break
+                if time.monotonic() >= recovery_deadline:
+                    print(f"Runner recovery incomplete: {result.stderr.strip()}", file=sys.stderr)
+                    break
+                time.sleep(0.2)
     return status if status >= 0 else 1
 
 
