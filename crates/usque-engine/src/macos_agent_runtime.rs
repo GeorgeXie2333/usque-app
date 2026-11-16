@@ -12,7 +12,20 @@ use usque_core::Profile;
 use usque_ipc::agent_v1::{self as p, macos_agent_request::Operation};
 use usque_transport::{
     DataPlaneRuntime, EndpointPinRefresher, GeoDirectPolicy, MasqueTlsIdentity, SocketProtector,
+    TransportError,
 };
+
+fn startup_transport_error(
+    error: TransportError,
+    failure: &watch::Receiver<Option<String>>,
+) -> io::Error {
+    // The Agent monitor publishes its failure before cancelling the carrier.
+    // That cancellation can surface as TunnelClosed in either startup stage.
+    match failure.borrow().as_ref() {
+        Some(reason) => io::Error::other(reason.clone()),
+        None => io::Error::other(error),
+    }
+}
 
 pub(crate) fn map_error(error: io::Error) -> crate::ControlServiceError {
     log_tun_failure("runtime", &error);
@@ -217,7 +230,7 @@ impl MacAgentRuntime {
             gate,
         ))
         .await
-        .map_err(io::Error::other)?;
+        .map_err(|error| startup_transport_error(error, &failure))?;
         let ready = async {
             // Continuous startup returns a live supervisor before it has a
             // carrier. Leave physical DNS and routes in place until WARP
@@ -234,7 +247,7 @@ impl MacAgentRuntime {
                 }
                 None => carrier.await,
             }
-            .map_err(io::Error::other)?;
+            .map_err(|error| startup_transport_error(error, &failure))?;
             tracing::info!("macOS TUN remote data plane prepared");
             apply_final_network(&mut plan, &tunnel.network_parameters());
             agent
@@ -550,10 +563,44 @@ fn apply_final_network(
 mod tests {
     use super::*;
 
+    #[tokio::test]
+    async fn agent_failure_during_carrier_startup_stops_continuous_retries() {
+        let underlay = usque_transport::ManagedTunnelMonitor::failed(
+            usque_transport::RuntimePath {
+                transport: usque_core::Transport::Http2,
+                endpoint_family: usque_core::AddressFamily::Ipv4,
+                ipv4_available: false,
+                ipv6_available: false,
+            },
+            &usque_transport::TransportError::TunnelClosed,
+        );
+        let parent = CancellationToken::new();
+        let child = parent.child_token();
+        let (failure_tx, failure) = watch::channel(None);
+        let reason = "macOS Agent or physical network changed; recovery required";
+        failure_tx.send_replace(Some(reason.to_owned()));
+        child.cancel();
+        let closed = underlay.wait_until_ready(&child).await.unwrap_err();
+        assert!(matches!(
+            closed,
+            usque_transport::TransportError::TunnelClosed
+        ));
+        assert!(!parent.is_cancelled());
+        let error = map_error(startup_transport_error(closed, &failure));
+        assert!(
+            !crate::continuous_connection::retry_network_error(&error),
+            "{error:?}"
+        );
+        assert!(
+            matches!(error, crate::ControlServiceError::PlatformVpn(message) if message == reason)
+        );
+    }
+
     #[test]
     fn closed_endpoint_is_retryable_but_failed_agent_recovery_stops() {
         let refusal = usque_transport::TransportError::Io(io::ErrorKind::ConnectionRefused.into());
-        let mapped = map_error(io::Error::other(refusal));
+        let (_, failure) = watch::channel(None);
+        let mapped = map_error(startup_transport_error(refusal, &failure));
         assert!(crate::continuous_connection::retry_network_error(&mapped));
         assert!(matches!(mapped, crate::ControlServiceError::Transport(_)));
 
