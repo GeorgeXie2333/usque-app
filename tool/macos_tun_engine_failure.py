@@ -9,8 +9,7 @@ from pathlib import Path
 
 
 def report(fixture, engine):
-    log = fixture / "engine-state/logs/engine.jsonl"
-    if log.is_file():
+    for log in fixture.glob("*-state/logs/engine.jsonl"):
         for line in log.read_text().splitlines()[-30:]:
             try:
                 fields = json.loads(line).get("fields", {})

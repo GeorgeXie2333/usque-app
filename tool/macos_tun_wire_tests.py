@@ -32,10 +32,17 @@ def ethernet_frame(f: int, k: int, phase: str) -> bytes:
 
 class WireTests(unittest.TestCase):
     def test_every_probe_uses_an_off_link_destination_via_the_controlled_gateway(self):
+        output = "inet6 fe80::6465:74ff:fe68:1%feth8 prefixlen 64 scopeid 0xe"
+        gateway6 = wire.peer_link_local(output + "\n", "feth8")
+        self.assertEqual(gateway6, "fe80::6465:74ff:fe68:1")
+        self.assertIsNone(wire.peer_link_local(output + " tentative\n", "feth8"))
         for family, source, destination in wire.FAMILIES:
-            gateway = wire.GATEWAYS[family]
+            gateway = wire.IPV4_GATEWAY if family == socket.AF_INET else gateway6
             local = ip_network(f"{source}/{30 if family == socket.AF_INET else 64}", strict=False)
-            self.assertIn(ip_address(gateway), local)
+            if family == socket.AF_INET:
+                self.assertIn(ip_address(gateway), local)
+            else:
+                self.assertTrue(ip_address(gateway).is_link_local)
             self.assertNotIn(ip_address(destination), local)
             route = f"  gateway: {gateway}\ninterface: feth7\n"
             wire.verify_gateway(route, "feth7", gateway)

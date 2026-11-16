@@ -145,9 +145,13 @@ gh workflow run build.yml --ref feat/macos -f macos_tun_e2e=true
 
 The first scenario installs the Agent, provisions synthetic credentials in a
 temporary keychain and connects a separate ordinary-user Engine to an
-unreachable test endpoint. It checks the disconnect response used by the GUI,
-the installed Agent's cleanup status and normal Engine exit. The second drives
-the native Agent transaction past configuration and reads back the effective DNS,
+closed test endpoint. It checks one-shot failure, continuous retries, the
+disconnect response used by the GUI, the installed Agent's cleanup status and
+normal Engine exit. A second Engine scenario uses a pinned test HTTP/2
+CONNECT-IP server. A UDP datagram carrying a run-specific nonce must make a
+round trip through utun before the server is stopped to exercise connection
+loss and explicit disconnect. The native Agent scenario drives its transaction
+past configuration and reads back the effective DNS,
 per-service resolver preferences, IPv4 and IPv6 routes and utun lifetime.
 The HTTPS receiver runs on a separate Ubuntu runner. Its report must contain
 positive controls before protection and after disconnect for each Mac, with no

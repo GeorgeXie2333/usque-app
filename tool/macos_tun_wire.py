@@ -23,7 +23,7 @@ FAMILIES = (
     (socket.AF_INET, "198.19.249.1", "192.0.2.222"),
     (socket.AF_INET6, "fd6e:7573:7175:ed::1", "2001:db8:7573::222"),
 )
-GATEWAYS = {socket.AF_INET: "198.19.249.2", socket.AF_INET6: "fd6e:7573:7175:ed::2"}
+IPV4_GATEWAY = "198.19.249.2"
 IFCONFIG = "/sbin/ifconfig"
 TCPDUMP = "/usr/sbin/tcpdump"
 SCOPE_OPTIONS = {
@@ -90,22 +90,33 @@ def setup(directory: Path) -> None:
         command(IFCONFIG, sender, "peer", peer)
         command(IFCONFIG, peer, "up")
         command(IFCONFIG, sender, "up")
-        # Only the sender owns IP addresses; assigning the destination IP to
-        # the peer would let the local kernel shortcut the virtual wire on lo0.
+        # The final probe destinations belong to neither endpoint. The peer
+        # can answer NDP for its own link-local next hop but must not forward.
+        if command("/usr/sbin/sysctl", "-n", "net.inet6.ip6.forwarding").strip() != "0":
+            raise RuntimeError("the synthetic IPv6 gateway requires IPv6 forwarding to be off")
         command(IFCONFIG, sender, "inet", FAMILIES[0][1], "netmask", "255.255.255.252", "alias")
         command(IFCONFIG, sender, "inet6", FAMILIES[1][1], "prefixlen", "64", "-dad", "alias")
+        command(IFCONFIG, peer, "inet6", "fd6e:7573:7175:ee::1", "prefixlen", "128", "alias")
         peer_mac = mac(peer)
-        command("/usr/sbin/arp", "-s", GATEWAYS[socket.AF_INET], peer_mac, "ifscope", sender)
-        command("/usr/sbin/ndp", "-s", GATEWAYS[socket.AF_INET6], peer_mac)
+        deadline = time.monotonic() + 6
+        while not (gateway6 := peer_link_local(command(IFCONFIG, peer), peer)):
+            if time.monotonic() >= deadline:
+                raise RuntimeError(f"peer link-local router not ready: {command(IFCONFIG, peer)}")
+            time.sleep(0.1)
+        scoped = f"{gateway6}%{sender}"
+        command("/usr/sbin/arp", "-s", IPV4_GATEWAY, peer_mac, "ifscope", sender)
+        command("/sbin/ping6", "-n", "-c", "2", "-I", sender, scoped)
         for entry in (
-            command("/usr/sbin/arp", "-n", "-i", sender, GATEWAYS[socket.AF_INET]),
-            command("/usr/sbin/ndp", "-n", GATEWAYS[socket.AF_INET6]),
+            command("/usr/sbin/arp", "-n", "-i", sender, IPV4_GATEWAY),
+            command("/usr/sbin/ndp", "-n", scoped),
         ):
             # Both commands may omit the leading zero of a MAC octet.
             octets = ":".join(
                 f"0?{int(o, 16):x}" if int(o, 16) < 16 else o for o in peer_mac.split(":")
             )
-            if not re.search(rf"\b{octets}\b.*\b{sender}\b", entry, re.IGNORECASE):
+            if "(incomplete)" in entry or not re.search(
+                rf"\b{octets}\b.*\b{sender}\b", entry, re.IGNORECASE
+            ):
                 raise RuntimeError(
                     f"fixture neighbor does not resolve to {peer_mac} on {sender}: {entry}"
                 )
@@ -120,8 +131,14 @@ def setup(directory: Path) -> None:
                 sender,
                 dest,
             ]
-            gateway = GATEWAYS[family]
-            command("/sbin/route", "-n", "add", *args, gateway)
+            gateway = IPV4_GATEWAY if family == socket.AF_INET else gateway6
+            command(
+                "/sbin/route",
+                "-n",
+                "add",
+                *args,
+                IPV4_GATEWAY if family == socket.AF_INET else scoped,
+            )
             route = command("/sbin/route", "-n", "get", *args)
             verify_gateway(route, sender, gateway)
             print(route.strip(), flush=True)
@@ -136,6 +153,14 @@ def mac(interface: str) -> str:
     if match is None:
         raise RuntimeError(f"missing Ethernet address for {interface}")
     return match.group(1)
+
+
+def peer_link_local(config: str, interface: str) -> str | None:
+    for line in config.splitlines():
+        match = re.search(rf"\binet6 (fe80::[0-9a-f:]+)%{re.escape(interface)}\b", line)
+        if match and not re.search(r"\b(tentative|duplicated)\b", line):
+            return match.group(1)
+    return None
 
 
 def verify_gateway(route: str, interface: str, gateway: str) -> None:

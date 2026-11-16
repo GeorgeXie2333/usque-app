@@ -4,9 +4,9 @@
 use std::{
     fs,
     io::{Read, Write},
-    net::{Ipv4Addr, TcpListener, TcpStream},
+    net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpListener, TcpStream, UdpSocket},
     os::unix::net::UnixStream,
-    path::Path,
+    path::{Path, PathBuf},
     process::{Child, Command},
     thread,
     time::{Duration, Instant},
@@ -141,16 +141,16 @@ fn host_network() -> HostNetwork {
     HostNetwork { dns, routes }
 }
 
-fn seed_identity(id: Uuid, keychain: &str) {
+fn seed_identity(id: Uuid, pin: &[u8]) {
+    let keychain = std::env::var("USQUE_TEST_KEYCHAIN").unwrap();
     // Ephemeral login fixture. Only the pinned Engine is granted permission to
     // read these synthetic values. No remote registration or user tokens.
     let private = MasqueKeyPair::generate().private_sec1_der().unwrap();
-    let pin = MasqueKeyPair::generate().public_spki_der().unwrap();
     let metadata = IdentityProvider::Consumer.to_metadata_json().unwrap();
     for (field, bytes) in [
         (SecretRecord::MasquePrivateKey, private.as_slice()),
         (SecretRecord::AccessToken, b"e2e-token"),
-        (SecretRecord::EndpointPin, pin.as_slice()),
+        (SecretRecord::EndpointPin, pin),
         (SecretRecord::DeviceId, b"e2e-device"),
         (SecretRecord::AssignedIpv4, b"192.0.2.7"),
         (SecretRecord::AssignedIpv6, b"2001:db8::7"),
@@ -168,7 +168,7 @@ fn seed_identity(id: Uuid, keychain: &str) {
                 &hex,
                 "-T",
                 ENGINE,
-                keychain,
+                &keychain,
             ])
             .status()
             .unwrap();
@@ -176,9 +176,9 @@ fn seed_identity(id: Uuid, keychain: &str) {
     }
 }
 
-struct EngineProcess(Child);
+struct TestProcess(Child);
 
-impl Drop for EngineProcess {
+impl Drop for TestProcess {
     fn drop(&mut self) {
         // Failure cleanup for the disposable runner. A forced termination can
         // never satisfy the normal-exit assertion below.
@@ -200,9 +200,7 @@ fn wait_until(description: &str, timeout: Duration, mut condition: impl FnMut() 
     }
 }
 
-#[test]
-#[ignore = "remote disposable Mac only: installs real PF protection and dials a closed local endpoint"]
-fn failed_endpoint_disconnect_and_exit() {
+fn fixture(name: &str) -> (PathBuf, Ipv4Addr) {
     for (key, value) in [
         ("USQUE_DISPOSABLE_MAC", "1"),
         ("GITHUB_ACTIONS", "true"),
@@ -210,23 +208,19 @@ fn failed_endpoint_disconnect_and_exit() {
     ] {
         assert_eq!(std::env::var(key).as_deref(), Ok(value));
     }
-    let keychain = std::env::var("USQUE_TEST_KEYCHAIN").unwrap();
     let host: Ipv4Addr = std::env::var("USQUE_TEST_PHYSICAL_V4")
         .unwrap()
         .parse()
         .unwrap();
     let fixture = std::env::var("USQUE_TEST_DIRECTORY").unwrap();
-    let dir = Path::new(&fixture).join("engine-state");
+    let dir = Path::new(&fixture).join(name);
     fs::create_dir(&dir).unwrap();
+    (dir, host)
+}
+
+fn start_engine(dir: &Path, endpoint: SocketAddrV4, pin: &[u8]) -> (TestProcess, Uuid, PathBuf) {
     let config_path = dir.join("config.json");
     let socket = dir.join("control.sock");
-    let closed_endpoint = TcpListener::bind((host, 0)).unwrap().local_addr().unwrap();
-    assert_eq!(
-        TcpStream::connect_timeout(&closed_endpoint, Duration::from_secs(1))
-            .unwrap_err()
-            .kind(),
-        std::io::ErrorKind::ConnectionRefused
-    );
     let mut config = AppConfig::default();
     let id = Uuid::new_v4();
     config.profiles[0].id = id;
@@ -239,17 +233,17 @@ fn failed_endpoint_disconnect_and_exit() {
     config.network.kill_switch = true;
     config.network.masque_connections = 1;
     config.network.endpoint.selection = EndpointSelection::Custom;
-    config.network.endpoint.ipv4 = host;
-    config.network.endpoint.port = closed_endpoint.port();
+    config.network.endpoint.ipv4 = *endpoint.ip();
+    config.network.endpoint.port = endpoint.port();
     config.network.ip_policy = IpPolicy::Ipv4Only;
     config.network.transport = TransportPolicy::Http2;
     config.network.auto_connect = false;
     config.network.geo_direct_countries.clear();
     config.network.routing.ads_enabled = false;
     ConfigStore::new(config_path.clone()).save(&config).unwrap();
-    seed_identity(id, &keychain);
+    seed_identity(id, pin);
 
-    let mut child = EngineProcess(
+    let mut child = TestProcess(
         Command::new(ENGINE)
             .arg("--config")
             .arg(&config_path)
@@ -270,6 +264,67 @@ fn failed_endpoint_disconnect_and_exit() {
     });
     let status = agent_status();
     assert_eq!(status["tunAvailable"], true, "Agent preflight: {status}");
+    (child, id, socket)
+}
+
+fn disconnect(socket: &Path, baseline: &HostNetwork) {
+    // Same Disconnect RPC and clean-snapshot conditions used by disconnectForExit().
+    let response = control(socket, Payload::Disconnect(v1::DisconnectRequest {}));
+    assert!(
+        response.error.is_none(),
+        "Disconnect error: {:?}",
+        response.error
+    );
+    let Some(control_response::Payload::Status(snapshot)) = response.payload else {
+        panic!("Disconnect did not acknowledge a snapshot");
+    };
+    assert_eq!(snapshot.phase, v1::ConnectionPhase::Disconnected as i32);
+    assert!(snapshot.error.is_none());
+    assert!(
+        Command::new(ENGINE)
+            .arg("--macos-agent-check-clean")
+            .status()
+            .unwrap()
+            .success()
+    );
+    assert_eq!(
+        &host_network(),
+        baseline,
+        "Disconnect changed system DNS or routes"
+    );
+}
+
+fn normal_exit(mut child: TestProcess, socket: &Path) {
+    // DesktopEngineTransport.dispose sends SIGTERM after confirming Disconnect.
+    assert!(
+        Command::new("/bin/kill")
+            .args(["-TERM", &child.0.id().to_string()])
+            .status()
+            .unwrap()
+            .success()
+    );
+    wait_until("ordinary Engine exit", Duration::from_secs(12), || {
+        child.0.try_wait().unwrap().is_some_and(|status| {
+            assert!(status.success());
+            true
+        })
+    });
+    assert!(!socket.exists(), "control socket survived clean exit");
+}
+
+#[test]
+#[ignore = "remote disposable Mac only: installs real PF protection and dials a closed local endpoint"]
+fn failed_endpoint_disconnect_and_exit() {
+    let (dir, host) = fixture("engine-state");
+    let closed = TcpListener::bind((host, 0)).unwrap().local_addr().unwrap();
+    assert_eq!(
+        TcpStream::connect_timeout(&closed, Duration::from_secs(1))
+            .unwrap_err()
+            .kind(),
+        std::io::ErrorKind::ConnectionRefused
+    );
+    let pin = MasqueKeyPair::generate().public_spki_der().unwrap();
+    let (child, id, socket) = start_engine(&dir, SocketAddrV4::new(host, closed.port()), &pin);
     let baseline = host_network();
     let engine_log = dir.join("logs/engine.jsonl");
     // A one-shot request returns the dial error. The desktop GUI normally
@@ -327,48 +382,119 @@ fn failed_endpoint_disconnect_and_exit() {
             "failed dial changed system DNS or routes"
         );
 
-        // Same Disconnect RPC and clean-snapshot conditions used by disconnectForExit().
-        let response = control(&socket, Payload::Disconnect(v1::DisconnectRequest {}));
-        assert!(
-            response.error.is_none(),
-            "Disconnect error: {:?}",
-            response.error
-        );
-        let Some(control_response::Payload::Status(snapshot)) = response.payload else {
-            panic!("Disconnect did not acknowledge a snapshot");
-        };
-        assert_eq!(snapshot.phase, v1::ConnectionPhase::Disconnected as i32);
-        assert!(snapshot.error.is_none());
-        assert!(
-            Command::new(ENGINE)
-                .arg("--macos-agent-check-clean")
-                .status()
-                .unwrap()
-                .success()
-        );
-        assert_eq!(
-            host_network(),
-            baseline,
-            "Disconnect changed system DNS or routes"
-        );
+        disconnect(&socket, &baseline);
     }
-
-    // DesktopEngineTransport.dispose sends SIGTERM after confirming Disconnect.
-    assert!(
-        Command::new("/bin/kill")
-            .args(["-TERM", &child.0.id().to_string()])
-            .status()
-            .unwrap()
-            .success()
-    );
-    wait_until("ordinary Engine exit", Duration::from_secs(12), || {
-        child.0.try_wait().unwrap().is_some_and(|status| {
-            assert!(status.success());
-            true
-        })
-    });
-    assert!(!socket.exists(), "control socket survived clean exit");
+    normal_exit(child, &socket);
     println!(
         "Verified one-shot and continuous H2 dial failure, retained protection, explicit Disconnect, clean Agent and normal Engine exit."
+    );
+}
+
+fn phase(socket: &Path) -> v1::ConnectionPhase {
+    let response = control(socket, Payload::GetStatus(v1::GetStatusRequest {}));
+    assert!(response.error.is_none());
+    let Some(control_response::Payload::Status(status)) = response.payload else {
+        panic!("missing connection status");
+    };
+    status.phase()
+}
+
+#[test]
+#[ignore = "remote disposable Mac only: routes UDP through a real utun and a pinned H2 peer"]
+fn connected_peer_loss_disconnect_and_exit() {
+    let (dir, host) = fixture("peer-state");
+    let nonce = Uuid::new_v4().to_string();
+    let mut peer = TestProcess(
+        Command::new(std::env::var("USQUE_TEST_PEER").unwrap())
+            .arg(&dir)
+            .arg(host.to_string())
+            .arg(&nonce)
+            .spawn()
+            .unwrap(),
+    );
+    let ready = dir.join("peer-port");
+    wait_until("pinned CONNECT-IP server", Duration::from_secs(5), || {
+        assert!(peer.0.try_wait().unwrap().is_none());
+        ready.is_file()
+    });
+    let port = fs::read_to_string(ready).unwrap().parse().unwrap();
+    let (child, id, socket) = start_engine(
+        &dir,
+        SocketAddrV4::new(host, port),
+        &fs::read(dir.join("pin.der")).unwrap(),
+    );
+    let baseline = host_network();
+    let response = control(
+        &socket,
+        Payload::Connect(v1::ConnectRequest {
+            profile_id: id.to_string(),
+            continuous: true,
+            background: true,
+        }),
+    );
+    assert!(response.error.is_none(), "Connect: {:?}", response.error);
+    wait_until(
+        "connected H2 carrier and active Agent",
+        Duration::from_secs(30),
+        || {
+            phase(&socket) == v1::ConnectionPhase::Connected
+                && agent_status()["phase"] == usque_ipc::agent_v1::AgentPhase::Active as i32
+        },
+    );
+    let active = host_network();
+    assert_ne!(active.dns, baseline.dns);
+    assert_ne!(active.routes[0], baseline.routes[0]);
+    assert!(
+        active.routes[0]
+            .as_ref()
+            .unwrap()
+            .iter()
+            .any(|s| s.starts_with("interface: utun")),
+        "{active:?}"
+    );
+    // Only the remote end of the CONNECT-IP stream can return this nonce.
+    let udp = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0)).unwrap();
+    udp.set_read_timeout(Some(Duration::from_millis(500)))
+        .unwrap();
+    udp.connect(SocketAddr::from(([198, 51, 100, 42], 39017)))
+        .unwrap();
+    let mut packet = [0u8; 128];
+    wait_until(
+        "UDP echo through utun and CONNECT-IP",
+        Duration::from_secs(10),
+        || {
+            udp.send(nonce.as_bytes()).unwrap();
+            match udp.recv(&mut packet) {
+                Ok(size) => {
+                    assert_eq!(&packet[..size], nonce.as_bytes());
+                    true
+                }
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                    ) =>
+                {
+                    false
+                }
+                Err(error) => panic!("canary receive failed: {error}"),
+            }
+        },
+    );
+    println!(
+        "Verified real Engine, Agent, configured DNS/route and bidirectional UDP over pinned H2."
+    );
+    peer.0.kill().unwrap();
+    peer.0.wait().unwrap();
+    wait_until(
+        "lost carrier enters reconnect",
+        Duration::from_secs(20),
+        || phase(&socket) == v1::ConnectionPhase::Reconnecting,
+    );
+    assert_eq!(agent_status()["protectionRetained"], true);
+    disconnect(&socket, &baseline);
+    normal_exit(child, &socket);
+    println!(
+        "Verified peer-loss reconnect, explicit disconnect, restored DNS/routes and ordinary exit."
     );
 }
