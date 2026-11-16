@@ -19,6 +19,7 @@ use usque_ipc::agent_v1::{MacosSocketPurpose, TunnelPlan};
 use uuid::Uuid;
 
 const DNS: [&str; 2] = ["198.18.0.1", "fd00::1"];
+const PHYSICAL_HTTPS: &str = "1.1.1.1:443";
 // Both IPv4 capture prefixes, both IPv6 capture prefixes, and the explicit
 // tunnel DNS destinations (including the incident's /128 host route).
 const ROUTE_PROBES: [&str; 6] = [
@@ -206,7 +207,7 @@ fn fixture_plan(endpoint: SocketAddr) -> TunnelPlan {
     TunnelPlan {
         profile_id: Uuid::new_v4().to_string(),
         endpoint: endpoint.to_string(),
-        control_api_candidates: vec!["198.51.100.1:443".into()],
+        control_api_candidates: vec![PHYSICAL_HTTPS.into()],
         assigned_ipv4: "198.19.0.2/32".into(),
         assigned_ipv6: "fd29::2/128".into(),
         dns_servers: DNS.map(str::to_owned).to_vec(),
@@ -215,6 +216,34 @@ fn fixture_plan(endpoint: SocketAddr) -> TunnelPlan {
         kill_switch: true,
         ..Default::default()
     }
+}
+
+fn check_physical_https(backend: &mut NativeBackend, fence: Fence) -> io::Result<()> {
+    let remote: SocketAddr = PHYSICAL_HTTPS.parse().unwrap();
+    let (lease, fd, _) = backend.create_socket(fence, remote, 6, MacosSocketPurpose::Control)?;
+    let socket = TcpStream::from(fd);
+    let result = (|| {
+        let mut poll = libc::pollfd {
+            fd: socket.as_raw_fd(),
+            events: libc::POLLOUT,
+            revents: 0,
+        };
+        // SAFETY: poll borrows one live socket and writes its returned events.
+        let ready = unsafe { libc::poll(&mut poll, 1, 5000) };
+        if ready < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        if let Some(error) = socket.take_error()? {
+            return Err(error);
+        }
+        check(
+            ready > 0 && socket.peer_addr()? == remote,
+            "physical HTTPS handshake timed out",
+        )
+    })();
+    drop(socket);
+    backend.release_socket(fence, lease)?;
+    result
 }
 
 #[test]
@@ -309,6 +338,8 @@ fn configured_tun_disconnect_restores_network() -> io::Result<()> {
     let run = (|| {
         eprintln!("preparing guard");
         coordinator.prepare(owner, fence, true)?;
+        check_physical_https(coordinator.backend_mut(), fence)?;
+        eprintln!("Authorized physical TCP connected before utun routes.");
         coordinator
             .backend_mut()
             .finalize_plan(wire.try_into().map_err(io::Error::other)?)?;
@@ -361,6 +392,8 @@ fn configured_tun_disconnect_restores_network() -> io::Result<()> {
             "verified active default DNS {published_dns:?}, both service DNS addresses and both route families on {interface}"
         );
         observer.probe("active");
+        check_physical_https(coordinator.backend_mut(), fence)?;
+        eprintln!("Authorized physical TCP connected with utun routes active.");
         drop(reserved);
         require_endpoint_failure(coordinator.backend_mut(), fence, endpoint)?;
         drop(fd);
