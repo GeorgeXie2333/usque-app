@@ -309,6 +309,20 @@ pub(crate) async fn resolve_system_ipv6(host: &str, port: u16) -> Result<Vec<Soc
         .map_err(|_| "endpoint preset resolver failed".to_owned())?
 }
 
+// NI_MAXHOST on Darwin and Winsock, also large enough for a numeric host
+// with an interface suffix on Linux and Android.
+const NUMERIC_HOST_BYTES: usize = 1025;
+
+fn parse_numeric_ipv6(host: &[u8]) -> Option<std::net::Ipv6Addr> {
+    let host = std::ffi::CStr::from_bytes_until_nul(host)
+        .ok()?
+        .to_str()
+        .ok()?;
+    // Preset candidates carry only the address and caller's port. A numeric
+    // host returned by the OS may also contain an interface scope suffix.
+    host.split('%').next()?.parse().ok()
+}
+
 #[cfg(unix)]
 fn system_ipv6(host: &str, port: u16) -> Result<Vec<SocketAddr>, String> {
     let host = std::ffi::CString::new(host).map_err(|_| "invalid endpoint hostname")?;
@@ -323,18 +337,32 @@ fn system_ipv6(host: &str, port: u16) -> Result<Vec<SocketAddr>, String> {
             return Err("endpoint preset AAAA lookup failed".into());
         }
         let mut addresses = Vec::new();
+        let mut numeric_host = [0u8; NUMERIC_HOST_BYTES];
         let mut entry = result;
         while let Some(value) = entry.as_ref() {
-            if value.ai_family == libc::AF_INET6
-                && !value.ai_addr.is_null()
-                && value.ai_addrlen as usize >= std::mem::size_of::<libc::sockaddr_in6>()
-            {
-                let ip = (*(value.ai_addr.cast::<libc::sockaddr_in6>()))
-                    .sin6_addr
-                    .s6_addr;
-                addresses.push(SocketAddr::new(std::net::Ipv6Addr::from(ip).into(), port));
-            }
             entry = value.ai_next;
+            if value.ai_family != libc::AF_INET6
+                || value.ai_addr.is_null()
+                || (value.ai_addrlen as usize) < std::mem::size_of::<libc::sockaddr_in6>()
+            {
+                continue;
+            }
+            // Pass the original address and its length back to the resolver.
+            // NI_NUMERICHOST formats the address without a reverse DNS lookup.
+            let status = libc::getnameinfo(
+                value.ai_addr,
+                value.ai_addrlen,
+                numeric_host.as_mut_ptr().cast(),
+                numeric_host.len() as _,
+                std::ptr::null_mut(),
+                0,
+                libc::NI_NUMERICHOST,
+            );
+            if status == 0
+                && let Some(ip) = parse_numeric_ipv6(&numeric_host)
+            {
+                addresses.push(SocketAddr::new(ip.into(), port));
+            }
         }
         libc::freeaddrinfo(result);
         Ok(canonical_candidates(addresses, port))
@@ -347,14 +375,15 @@ mod tests;
 #[cfg(windows)]
 fn system_ipv6(host: &str, port: u16) -> Result<Vec<SocketAddr>, String> {
     use windows_sys::Win32::Networking::WinSock::{
-        ADDRINFOW, AF_INET6, FreeAddrInfoW, GetAddrInfoW, SOCK_STREAM, SOCKADDR_IN6,
+        ADDRINFOW, AF_INET6, FreeAddrInfoW, GetAddrInfoW, NI_NUMERICHOST, SOCK_STREAM,
+        SOCKADDR_IN6, getnameinfo,
     };
     // std initializes Winsock before the direct family-restricted API call.
     let _winsock =
         std::net::UdpSocket::bind("127.0.0.1:0").map_err(|_| "initialize endpoint resolver")?;
     let host = host.encode_utf16().chain(Some(0)).collect::<Vec<_>>();
     // SAFETY: the zeroed hints are valid, the UTF-16 string is terminated, and
-    // every returned record is checked for IPv6 layout before being read.
+    // Winsock's address and length remain valid until FreeAddrInfoW.
     unsafe {
         let mut hints: ADDRINFOW = std::mem::zeroed();
         hints.ai_family = i32::from(AF_INET6);
@@ -364,16 +393,33 @@ fn system_ipv6(host: &str, port: u16) -> Result<Vec<SocketAddr>, String> {
             return Err("endpoint preset AAAA lookup failed".into());
         }
         let mut addresses = Vec::new();
+        let mut numeric_host = [0u8; NUMERIC_HOST_BYTES];
         let mut entry = result;
         while let Some(value) = entry.as_ref() {
-            if value.ai_family == i32::from(AF_INET6)
-                && !value.ai_addr.is_null()
-                && value.ai_addrlen >= std::mem::size_of::<SOCKADDR_IN6>()
-            {
-                let ip = (*(value.ai_addr.cast::<SOCKADDR_IN6>())).sin6_addr.u.Byte;
-                addresses.push(SocketAddr::new(std::net::Ipv6Addr::from(ip).into(), port));
-            }
             entry = value.ai_next;
+            if value.ai_family != i32::from(AF_INET6)
+                || value.ai_addr.is_null()
+                || value.ai_addrlen < std::mem::size_of::<SOCKADDR_IN6>()
+            {
+                continue;
+            }
+            let Ok(len) = value.ai_addrlen.try_into() else {
+                continue;
+            };
+            let status = getnameinfo(
+                value.ai_addr,
+                len,
+                numeric_host.as_mut_ptr(),
+                numeric_host.len() as u32,
+                std::ptr::null_mut(),
+                0,
+                NI_NUMERICHOST as i32,
+            );
+            if status == 0
+                && let Some(ip) = parse_numeric_ipv6(&numeric_host)
+            {
+                addresses.push(SocketAddr::new(ip.into(), port));
+            }
         }
         FreeAddrInfoW(result);
         Ok(canonical_candidates(addresses, port))

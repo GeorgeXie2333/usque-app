@@ -93,7 +93,7 @@ void main() {
   );
 
   test(
-    'missing macOS system proxy service explains installation and restart',
+    'missing macOS system proxy service points to the localized Settings section',
     () {
       for (final locale in [
         LocalePreference.english,
@@ -107,7 +107,7 @@ void main() {
           const EngineException('MACOS_PROXY_AGENT_REQUIRED', _privateError),
         );
         expect(message, strings.get('macos_proxy_agent_required'));
-        expect(message, contains('Usque'));
+        expect(message, contains(strings.get('macos_service_title')));
         expect(message, isNot(contains(_privateError)));
       }
     },
