@@ -14,6 +14,63 @@ import macos_tun_observer as observer
 
 
 class ReceiverTests(unittest.TestCase):
+    def test_fresh_connectors_can_retry_only_before_publication(self):
+        host = "sample-issued-endpoint.trycloudflare.com"
+        for outcomes, published in (
+            ([TimeoutError("no DNS"), (host, ["203.0.113.1"])], True),
+            ([ConnectionError("exited before publication")] * 3, False),
+        ):
+            with tempfile.TemporaryDirectory() as temp, self.subTest(published=published):
+                directory = Path(temp)
+                server = SimpleNamespace(server_port=8989, target="one-challenge")
+                with (
+                    patch.object(observer.subprocess, "Popen") as starter,
+                    patch.object(observer, "connector_endpoint", side_effect=outcomes),
+                    patch.object(observer.time, "sleep"),
+                ):
+                    proc = starter.return_value.__enter__.return_value
+                    proc.poll.return_value = 2
+                    with self.assertRaisesRegex(
+                        RuntimeError, "after publication" if published else "3 attempts"
+                    ):
+                        observer.run_connectors(directory, directory / "verified-binary", server)
+                    self.assertEqual(starter.call_count, len(outcomes))
+                endpoint = directory / "endpoint.json"
+                self.assertEqual(endpoint.exists(), published)
+                if published:
+                    self.assertEqual(observer.read_json(endpoint)["target"], server.target)
+                    self.assertEqual(observer.read_json(endpoint)["host"], host)
+
+    def test_startup_reports_missing_hostname_and_dns_without_disclosing_log_contents(self):
+        for line, error in (
+            ("failed to reach https://api.trycloudflare.com/tunnel", "hostname was not issued"),
+            ("INF |  https://example-issued-host.trycloudflare.com   |", "IPv4 DNS unavailable"),
+        ):
+            with tempfile.TemporaryDirectory() as temp, self.subTest(error=error):
+                log = Path(temp) / "connector.log"
+                log.write_text(line)
+                proc = MagicMock()
+                proc.poll.return_value = None
+                with (
+                    patch.object(observer.time, "monotonic", side_effect=[0, 1, 91]),
+                    patch.object(observer.time, "sleep"),
+                    patch.object(observer.socket, "getaddrinfo", side_effect=socket.gaierror()),
+                    self.assertRaisesRegex(TimeoutError, error) as raised,
+                ):
+                    observer.connector_endpoint(proc, log)
+                self.assertNotIn("trycloudflare.com", str(raised.exception))
+
+    def test_connector_diagnostic_exposes_only_recognized_categories(self):
+        output = (
+            "https://private.trycloudflare.com/?token=secret failed with status 429: too many requests\n"
+            "Registered tunnel connection connIndex=secret-id\n"
+            "dial tcp 1.2.3.4:443: network is unreachable"
+        )
+        self.assertEqual(
+            observer.connector_diagnostic(output),
+            "HTTP 429, provider rate limit, edge connection registered, TCP edge connection failure, unreachable IP route",
+        )
+
     def test_only_bracketed_positive_controls_can_complete_the_run(self):
         with tempfile.TemporaryDirectory() as temp:
             server = SimpleNamespace(

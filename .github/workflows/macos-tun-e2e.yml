@@ -27,11 +27,13 @@ jobs:
           dir="$RUNNER_TEMP/observer"
           python3 -u tool/macos_tun_observer.py serve "$dir" > "$RUNNER_TEMP/observer.log" 2>&1 &
           pid=$!
-          for i in {1..110}; do
-            if test -s "$dir/endpoint.json"; then exit 0; fi
+          # Allow the verified download, three 90-second attempts, and retry backoff.
+          for i in {1..410}; do
+            if test -s "$dir/endpoint.json"; then cat "$RUNNER_TEMP/observer.log"; exit 0; fi
             if ! kill -0 "$pid" 2>/dev/null; then cat "$RUNNER_TEMP/observer.log"; exit 1; fi
             sleep 1
           done
+          cat "$RUNNER_TEMP/observer.log"
           echo "Timed out starting the external receiver" >&2
           exit 1
       - name: Make the per-run canary endpoint available to the Mac jobs
@@ -154,9 +156,9 @@ jobs:
         run: |
           dir="$RUNNER_TEMP/observer"
           mkdir -p "$dir"
-          for i in {1..12}; do
+          for i in {1..44}; do
             if gh run download "$GITHUB_RUN_ID" -n "macos-tun-observer-$GITHUB_RUN_ATTEMPT" -D "$dir"; then break; fi
-            sleep 5
+            sleep 10
           done
           python3 tool/macos_tun_observer.py prepare "$dir/endpoint.json"
       - name: Check physical probes during active and retained protection, then verify DNS and route restoration

@@ -112,7 +112,73 @@ def serve(directory: Path) -> None:
         server.sessions = {}
         server.observations = {arch: {} for arch in ARCHES}
         write_json(server.report, server.observations)
-        log = directory / "connector.log"
+        run_connectors(directory, binary, server)
+
+
+def connector_endpoint(tunnel: subprocess.Popen, log: Path) -> tuple[str, list[str]]:
+    deadline = time.monotonic() + 90
+    state = "hostname was not issued"
+    output = ""
+    while time.monotonic() < deadline:
+        output = log.read_text()
+        match = re.search(rf"\|\s*https://({TUNNEL_HOST})[ \t]*\|", output)
+        if match:
+            state = "hostname issued; IPv4 DNS unavailable"
+        status = tunnel.poll()
+        if status is not None:
+            raise ConnectionError(
+                f"connector exited with status {status} before publication ({state}, {connector_diagnostic(output)})"
+            )
+        # The pinned connector logs the provisioned hostname on its own table
+        # row. An error mentioning the provisioning API is not an endpoint.
+        if match:
+            try:
+                answers = socket.getaddrinfo(match[1], 443, socket.AF_INET, socket.SOCK_STREAM)
+            except socket.gaierror:
+                answers = []
+            addresses = sorted({entry[4][0] for entry in answers})
+            if addresses and all(ipaddress.IPv4Address(address).is_global for address in addresses):
+                return match[1], addresses
+        time.sleep(1)
+    raise TimeoutError(f"{state}, {connector_diagnostic(output)}")
+
+
+def connector_diagnostic(output: str) -> str:
+    # Emit fixed categories and numeric HTTP statuses only. Provider output
+    # contains the endpoint and may include response bodies or connection IDs.
+    stages = []
+    for code in sorted(
+        set(
+            re.findall(
+                r"(?i)\b(?:http(?:/[\d.]+)?|status(?: code)?)\s*[:=]?\s*([45]\d{2})\b", output
+            )
+        )
+    ):
+        stages.append(f"HTTP {code}")
+    for pattern, label in (
+        (r"too many requests|rate.?limit", "provider rate limit"),
+        (r"registered tunnel connection", "edge connection registered"),
+        (r"dial (?:tcp|http2)|http2 connection.*fail", "TCP edge connection failure"),
+        (r"dial (?:udp|quic)|quic connection.*fail", "UDP edge connection failure"),
+        (r"no route to host|network is unreachable", "unreachable IP route"),
+        (
+            r"no such host|temporary failure in name resolution|failed to (?:look up|resolve)",
+            "DNS resolution error",
+        ),
+    ):
+        if re.search(pattern, output, re.IGNORECASE):
+            stages.append(label)
+    return ", ".join(stages) if stages else "no recognized provider status"
+
+
+def run_connectors(directory: Path, binary: Path, server: http.server.HTTPServer) -> None:
+    endpoint = directory / "endpoint.json"
+    if endpoint.exists():
+        raise RuntimeError("refusing to replace a published observer endpoint")
+    for attempt in range(1, 4):
+        if attempt > 1:
+            time.sleep(15 * (attempt - 1))
+        log = directory / f"connector-{attempt}.log"
         with (
             log.open("w", encoding="utf-8") as out,
             subprocess.Popen(  # noqa: S603 - fixed verified executable, loopback destination.
@@ -132,35 +198,29 @@ def serve(directory: Path) -> None:
             ) as tunnel,
         ):
             try:
-                deadline = time.monotonic() + 90
-                while tunnel.poll() is None and time.monotonic() < deadline:
-                    match = re.search(rf"https://({TUNNEL_HOST})(?![a-z0-9.-])", log.read_text())
-                    if match:
-                        # Resolve the fresh hostname on Linux. The Mac pins these
-                        # physical probes without warming its resolver before recovery.
-                        try:
-                            answers = socket.getaddrinfo(
-                                match[1], 443, socket.AF_INET, socket.SOCK_STREAM
-                            )
-                        except socket.gaierror:
-                            time.sleep(1)
-                            continue
-                        write_json(
-                            directory / "endpoint.json",
-                            {
-                                "host": match[1],
-                                "target": server.target,
-                                "addresses": sorted({entry[4][0] for entry in answers}),
-                            },
-                        )
-                        server.timeout = 2
-                        while tunnel.poll() is None:
-                            server.handle_request()
-                        break
-                    time.sleep(0.5)
-                raise RuntimeError("external observer tunnel failed, see connector.log")
+                try:
+                    host, addresses = connector_endpoint(tunnel, log)
+                except (ConnectionError, TimeoutError) as error:
+                    print(f"External observer startup attempt {attempt}: {error}", flush=True)
+                    if attempt == 3:
+                        raise RuntimeError("observer unavailable after 3 attempts") from error
+                    continue
+                write_json(
+                    endpoint, {"host": host, "target": server.target, "addresses": addresses}
+                )
+                server.timeout = 2
+                while tunnel.poll() is None:
+                    server.handle_request()
+                raise RuntimeError(
+                    f"connector exited with status {tunnel.returncode} after publication"
+                )
             finally:
-                tunnel.terminate()
+                if tunnel.poll() is None:
+                    tunnel.terminate()
+                    try:
+                        tunnel.wait(timeout=3)
+                    except subprocess.TimeoutExpired:
+                        tunnel.kill()
 
 
 def acknowledge(conn: http.client.HTTPConnection, config: dict, phase: str) -> None:
