@@ -7,6 +7,7 @@ use crate::macos::{
     socket::EndpointConnectFailure,
     transaction::{Coordinator, Owner, Phase},
 };
+use core_foundation::{array::CFArray, base::TCFType, string::CFString};
 use std::{
     ffi::OsString,
     net::{IpAddr, TcpStream},
@@ -347,15 +348,48 @@ fn configured_tun_disconnect_restores_network() -> io::Result<()> {
         coordinator.backend_mut().unchanged_network(fence)?;
         coordinator.commit(owner, fence)?;
         coordinator.backend_mut().set_active();
-        let tunnel_dns = DNS.map(str::to_owned);
-        await_dns(&tunnel_dns)?;
+        // configd's IPMonitor publishes only DNS families routable on the
+        // primary service. A v4-only uplink can still route IPv6 via utun.
+        let published_dns: Vec<_> = dns_servers
+            .iter()
+            .filter(|ip| {
+                physical
+                    .paths
+                    .iter()
+                    .any(|p| p.service == path.service && p.address.is_ipv4() == ip.is_ipv4())
+            })
+            .map(ToString::to_string)
+            .collect();
+        await_dns(&published_dns)?;
+        let expected = CFArray::from_CFTypes(&DNS.map(CFString::new)).as_CFType();
+        let active_dns = dns::snapshot(&dns_servers)?;
+        check(
+            active_dns.len() == original_dns.len(),
+            "DNS service set changed",
+        )?;
+        for saved in &original_dns {
+            let actual = active_dns
+                .iter()
+                .find(|r| r.service == saved.service)
+                .and_then(|r| r.before.as_deref())
+                .ok_or_else(|| io::Error::other("missing configured DNS service"))?;
+            let dictionary = dns::decode(actual)?;
+            check(
+                dictionary
+                    .find(CFString::new("ServerAddresses"))
+                    .is_some_and(|servers| *servers == expected),
+                "service preferences must contain both tunnel DNS servers",
+            )?;
+        }
         for (ip, route) in ROUTE_PROBES.iter().zip(route_probes()?) {
             check(
                 route.as_ref().is_some_and(|r| r.interface == interface),
                 &format!("active route to {ip} bypassed {interface}: {route:?}"),
             )?;
         }
-        eprintln!("verified active default DNS and both families on {interface}");
+        eprintln!(
+            "verified active default DNS {published_dns:?}, both service DNS addresses and both route families on {interface}"
+        );
         observer.probe("active");
         require_endpoint_failure(coordinator.backend_mut(), fence, endpoint)?;
         drop(fd);
