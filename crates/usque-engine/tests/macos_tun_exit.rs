@@ -297,7 +297,6 @@ fn launch_engine(
     peer: Option<(SocketAddrV4, &[u8], TransportPolicy)>,
 ) -> (TestProcess, Uuid, PathBuf) {
     let config_path = dir.join("config.json");
-    let socket = dir.join("control.sock");
     let mut config = AppConfig::default();
     let id = Uuid::new_v4();
     config.profiles[0].id = id;
@@ -320,7 +319,15 @@ fn launch_engine(
     config.network.auto_connect = false;
     config.network.geo_direct_countries.clear();
     config.network.routing.ads_enabled = false;
-    ConfigStore::new(config_path.clone()).save(&config).unwrap();
+    ConfigStore::new(config_path).save(&config).unwrap();
+    let (child, socket) = reopen_engine(dir);
+    (child, id, socket)
+}
+
+fn reopen_engine(dir: &Path) -> (TestProcess, PathBuf) {
+    let config_path = dir.join("config.json");
+    let socket = dir.join("control.sock");
+    assert!(!socket.exists(), "previous Engine still owns the socket");
 
     let mut child = TestProcess(
         Command::new(ENGINE)
@@ -343,7 +350,7 @@ fn launch_engine(
     });
     let status = agent_status();
     assert_eq!(status["tunAvailable"], true, "Agent preflight: {status}");
-    (child, id, socket)
+    (child, socket)
 }
 
 fn disconnect(socket: &Path, baseline: &HostNetwork) {
@@ -704,13 +711,14 @@ fn warp_trace() -> Result<&'static str, String> {
     }
 }
 
-fn verify_live_tunnel(socket: &Path, id: Uuid) -> Result<String, String> {
+fn verify_live_tunnel(socket: &Path, id: Uuid, background: bool) -> Result<String, String> {
+    let started = Instant::now();
     let response = control(
         socket,
         Payload::Connect(v1::ConnectRequest {
             profile_id: id.to_string(),
             continuous: true,
-            background: false,
+            background,
         }),
     );
     if let Some(error) = response.error {
@@ -725,7 +733,10 @@ fn verify_live_tunnel(socket: &Path, id: Uuid) -> Result<String, String> {
         };
         let phase = status.phase();
         if previous != Some(phase) {
-            println!("Live connection phase: {phase:?}");
+            println!(
+                "Live connection phase: {phase:?} after {} ms",
+                started.elapsed().as_millis()
+            );
             previous = Some(phase);
         }
         if phase == v1::ConnectionPhase::Connected
@@ -790,6 +801,16 @@ fn report_dial_evidence(dir: &Path) {
         };
         let fields = &event["fields"];
         match fields["message"].as_str() {
+            Some(
+                stage @ ("macOS TUN Agent prepared the physical egress"
+                | "macOS TUN remote data plane prepared"
+                | "macOS TUN Agent applied the interface, DNS and routes"
+                | "macOS TUN data plane active"),
+            ) => {
+                if let Some(timestamp) = event["timestamp"].as_str() {
+                    println!("Engine milestone {timestamp} {stage}");
+                }
+            }
             Some("MASQUE dial progress" | "MASQUE dial failed") => {
                 let Some(transport @ ("Http3" | "Http2")) = fields["transport"].as_str() else {
                     continue;
@@ -901,7 +922,7 @@ fn live_warp_connect_disconnect_and_exit() {
     println!(
         "Real WARP Consumer enrollment completed. Connecting with automatic endpoint and transport."
     );
-    let connected = verify_live_tunnel(&socket, id);
+    let connected = verify_live_tunnel(&socket, id, false);
     report_physical_route(&baseline);
     if let Err(reason) = &connected {
         eprintln!("Live traffic verification failed: {reason}");
@@ -966,4 +987,16 @@ fn live_warp_connect_disconnect_and_exit() {
             .any(|s| s == interface),
         "session utun survived disconnect"
     );
+
+    // A new Engine has an empty secret cache. Reuse the existing signed executable,
+    // config, WARP device and Keychain entry. Background Connect forbids Keychain UI.
+    for attempt in 1..=3 {
+        let (child, socket) = reopen_engine(&dir);
+        println!("Cold Engine launch {attempt}: connecting without Keychain interaction.");
+        let connected = verify_live_tunnel(&socket, id, true);
+        disconnect(&socket, &baseline);
+        normal_exit(child, &socket);
+        assert_eq!(warp_trace().as_deref(), Ok("off"));
+        connected.expect("cold Engine must use the existing WARP item without authorization UI");
+    }
 }
