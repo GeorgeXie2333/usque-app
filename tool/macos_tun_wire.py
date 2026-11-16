@@ -93,7 +93,6 @@ def setup(directory: Path) -> None:
         # the peer would let the local kernel shortcut the virtual wire on lo0.
         command(IFCONFIG, sender, "inet", FAMILIES[0][1], "netmask", "255.255.255.252", "alias")
         command(IFCONFIG, sender, "inet6", FAMILIES[1][1], "prefixlen", "64", "-dad", "alias")
-        state["sender_mac"] = mac(sender)
         peer_mac = mac(peer)
         for family, _, dest in FAMILIES:
             route = command(
@@ -145,6 +144,7 @@ def transmit(state: dict, phase: str) -> None:
                 sock.settimeout(0.4)
                 if k == 0:
                     value = sock.connect_ex((dest, dp))
+                    print(f"{phase} {interface} {source}:{sp} tcp connect_ex={value}", flush=True)
                     if value not in BLOCKED | {
                         0,
                         errno.ECONNREFUSED,
@@ -160,10 +160,18 @@ def transmit(state: dict, phase: str) -> None:
                         else f"usque/{phase}/udp".encode("ascii")
                     )
                     try:
-                        sock.sendto(payload, (dest, dp))
+                        length = sock.sendto(payload, (dest, dp))
+                        print(
+                            f"{phase} {interface} {source}:{sp} {kind} wrote {length} bytes",
+                            flush=True,
+                        )
                     except OSError as error:
                         if error.errno not in BLOCKED:
                             raise
+                        print(
+                            f"{phase} {interface} {source}:{sp} {kind} send errno={error.errno}",
+                            flush=True,
+                        )
 
 
 def capture_filters(state: dict, phase: str) -> dict[str, str]:
@@ -203,11 +211,9 @@ def probe(directory: Path, config: Path, phase: str) -> None:
     filters = capture_filters(state, phase)
     capture = directory / f"{phase}.pcap"
     logpath = directory / f"{phase}.log"
-    match = (
-        f"ether src {state['sender_mac']} and ("
-        + " or ".join(f"({p})" for p in filters.values())
-        + ")"
-    )
+    # On the otherwise unconfigured peer use the same promiscuous BPF receive
+    # path as a Darwin TAP. Store only the test addresses and per-phase ports.
+    match = " or ".join(f"({p})" for p in filters.values())
     with (
         logpath.open("w") as log,
         subprocess.Popen(  # noqa: S603 - capture only synthetic per-phase frames on our peer.
@@ -215,7 +221,6 @@ def probe(directory: Path, config: Path, phase: str) -> None:
                 TCPDUMP,
                 "-i",
                 peer,
-                "-p",
                 "-n",
                 "--immediate-mode",
                 "-U",
@@ -261,7 +266,14 @@ def probe(directory: Path, config: Path, phase: str) -> None:
     }
     print(f"Darwin virtual Ethernet receive-side {phase}: {json.dumps(counts)}", flush=True)
     save(directory / f"{phase}.json", counts)
-    verify_counts(phase, counts)
+    try:
+        verify_counts(phase, counts)
+    except RuntimeError:
+        print(f"Receive-side capture: {logpath.read_text()}", flush=True)
+        for name, _ in state["links"]:
+            print(command(IFCONFIG, name), flush=True)
+            print(command("/usr/sbin/netstat", "-ibn", "-I", name), flush=True)
+        raise
 
 
 def probe_both(directory: Path, config: Path, phase: str) -> None:
