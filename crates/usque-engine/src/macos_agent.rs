@@ -39,12 +39,12 @@ pub static TEST_TUN_ENABLED: bool = cfg!(feature = "macos-test-tun");
 #[error("macOS Agent: {0:?}")]
 pub(super) struct AgentFailure(pub p::MacosFailure);
 struct Connection {
-    socket: UnixStream,
     peer: darwin_fd::PeerIdentity,
     sequence: u64,
 }
 #[derive(Clone)]
 pub struct MacAgentClient {
+    socket: Arc<UnixStream>,
     connection: Arc<Mutex<Option<Connection>>>,
 }
 fn invalid() -> io::Error {
@@ -120,9 +120,7 @@ impl MacAgentClient {
             Err(std::sync::TryLockError::WouldBlock) => return true,
             Err(_) => return false,
         };
-        guard
-            .as_ref()
-            .is_some_and(|connection| idle_proxy_stream(&connection.socket))
+        guard.is_some() && idle_proxy_stream(&self.socket)
     }
     pub async fn connect() -> io::Result<Self> {
         tokio::task::spawn_blocking(|| {
@@ -135,11 +133,8 @@ impl MacAgentClient {
                 return Err(invalid());
             }
             Ok(Self {
-                connection: Arc::new(Mutex::new(Some(Connection {
-                    socket,
-                    peer,
-                    sequence: 0,
-                }))),
+                socket: Arc::new(socket),
+                connection: Arc::new(Mutex::new(Some(Connection { peer, sequence: 0 }))),
             })
         })
         .await
@@ -147,6 +142,7 @@ impl MacAgentClient {
     }
     pub async fn request(&self, operation: Operation) -> io::Result<(Payload, Option<OwnedFd>)> {
         let connection = self.connection.clone();
+        let socket = self.socket.clone();
         tokio::task::spawn_blocking(move || {
             let mut guard = connection.lock().map_err(|_| invalid())?;
             let result = (|| {
@@ -169,11 +165,11 @@ impl MacAgentClient {
                     })),
                 };
                 darwin_fd::send_frame(
-                    &connection.socket,
+                    &socket,
                     &encode_frame(&request).map_err(io::Error::other)?,
                     None::<&OwnedFd>,
                 )?;
-                let frame = darwin_fd::receive_frame(&connection.socket, connection.peer)?;
+                let frame = darwin_fd::receive_frame(&socket, connection.peer)?;
                 let response: p::AgentResponse =
                     decode_frame(frame.bytes.into()).map_err(io::Error::other)?;
                 if response.request_id != request.request_id || response.error.is_some() {
@@ -210,10 +206,8 @@ impl MacAgentClient {
                 }
                 Ok(Ok((payload, frame.descriptor)))
             })();
-            if result.is_err()
-                && let Some(old) = guard.take()
-            {
-                let _ = old.socket.shutdown(Shutdown::Both);
+            if result.is_err() && guard.take().is_some() {
+                let _ = socket.shutdown(Shutdown::Both);
             }
             result?.map_err(io::Error::other)
         })
@@ -250,16 +244,13 @@ impl MacAgentClient {
     }
     /// Closing ownership retains protection. Only an explicit Disconnect RPC
     /// asks the Agent to restore the user's system network.
-    pub async fn abandon(&self) {
-        let connection = self.connection.clone();
-        let _ = tokio::task::spawn_blocking(move || {
-            if let Ok(mut guard) = connection.lock()
-                && let Some(old) = guard.take()
-            {
-                let _ = old.socket.shutdown(Shutdown::Both);
-            }
-        })
-        .await;
+    pub fn abandon(&self) {
+        // shutdown(2) wakes a thread blocked in recvmsg even when it holds the
+        // request lock. A queued candidate cannot send on this stream again.
+        let _ = self.socket.shutdown(Shutdown::Both);
+        if let Ok(mut guard) = self.connection.try_lock() {
+            guard.take();
+        }
     }
 }
 

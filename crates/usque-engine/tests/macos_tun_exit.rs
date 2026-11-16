@@ -289,10 +289,13 @@ fn fixture(name: &str) -> (PathBuf, Ipv4Addr) {
 }
 
 fn start_engine(dir: &Path, endpoint: SocketAddrV4, pin: &[u8]) -> (TestProcess, Uuid, PathBuf) {
-    launch_engine(dir, Some((endpoint, pin)))
+    launch_engine(dir, Some((endpoint, pin, TransportPolicy::Http2)))
 }
 
-fn launch_engine(dir: &Path, peer: Option<(SocketAddrV4, &[u8])>) -> (TestProcess, Uuid, PathBuf) {
+fn launch_engine(
+    dir: &Path,
+    peer: Option<(SocketAddrV4, &[u8], TransportPolicy)>,
+) -> (TestProcess, Uuid, PathBuf) {
     let config_path = dir.join("config.json");
     let socket = dir.join("control.sock");
     let mut config = AppConfig::default();
@@ -306,12 +309,12 @@ fn launch_engine(dir: &Path, peer: Option<(SocketAddrV4, &[u8])>) -> (TestProces
     };
     config.network.kill_switch = true;
     config.network.masque_connections = 1;
-    if let Some((endpoint, pin)) = peer {
+    if let Some((endpoint, pin, transport)) = peer {
         config.network.endpoint.selection = EndpointSelection::Custom;
         config.network.endpoint.ipv4 = *endpoint.ip();
         config.network.endpoint.port = endpoint.port();
         config.network.ip_policy = IpPolicy::Ipv4Only;
-        config.network.transport = TransportPolicy::Http2;
+        config.network.transport = transport;
         seed_identity(id, pin);
     }
     config.network.auto_connect = false;
@@ -589,6 +592,70 @@ fn connected_peer_loss_disconnect_and_exit() {
     );
 }
 
+#[test]
+#[ignore = "remote disposable Mac only: drops H3 handshakes before GUI disconnect"]
+fn unanswered_h3_handshake_disconnect_and_exit() {
+    let (dir, host) = fixture("unanswered-h3-state");
+    let peer = UdpSocket::bind((host, 0)).unwrap();
+    peer.set_read_timeout(Some(Duration::from_millis(500)))
+        .unwrap();
+    let endpoint = SocketAddrV4::new(host, peer.local_addr().unwrap().port());
+    let pin = MasqueKeyPair::generate().public_spki_der().unwrap();
+    let baseline = host_network();
+    let (child, id, socket) = launch_engine(&dir, Some((endpoint, &pin, TransportPolicy::Http3)));
+    let response = control(
+        &socket,
+        Payload::Connect(v1::ConnectRequest {
+            profile_id: id.to_string(),
+            continuous: true,
+            background: false,
+        }),
+    );
+    assert!(response.error.is_none());
+    // New QUIC connections have fresh client source connection IDs. Seeing
+    // two shows that the Engine is retrying, beyond the first Initial flight.
+    let mut ids = std::collections::HashSet::new();
+    let mut packet = [0u8; 2048];
+    wait_until(
+        "second unanswered QUIC handshake",
+        Duration::from_secs(45),
+        || {
+            match peer.recv(&mut packet) {
+                Ok(n) if n >= 1200 && packet[0] & 0xf0 == 0xc0 && packet[1..5] == [0, 0, 0, 1] => {
+                    let source_length = 6 + usize::from(packet[5]);
+                    if let Some(len @ 1..=20) = packet[..n].get(source_length).copied() {
+                        let start = source_length + 1;
+                        if let Some(scid) = packet[..n].get(start..start + usize::from(len)) {
+                            ids.insert(scid.to_vec());
+                        }
+                    }
+                }
+                Err(err)
+                    if !matches!(
+                        err.kind(),
+                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                    ) =>
+                {
+                    panic!("QUIC observation failed: {err}")
+                }
+                _ => {}
+            }
+            ids.len() >= 2
+        },
+    );
+    assert_eq!(
+        agent_status()["phase"],
+        usque_ipc::agent_v1::AgentPhase::Preparing as i32
+    );
+    let started = Instant::now();
+    disconnect(&socket, &baseline);
+    normal_exit(child, &socket);
+    println!(
+        "Unanswered H3 retries: GUI disconnect, restored DNS/routes and ordinary exit in {:?}.",
+        started.elapsed()
+    );
+}
+
 // Trace includes IP and location. Keep only the WARP field, and bypass any runner proxy.
 fn warp_trace() -> Result<&'static str, String> {
     let output = Command::new("/usr/bin/curl")
@@ -744,10 +811,34 @@ fn live_warp_connect_disconnect_and_exit() {
     let connected = verify_live_tunnel(&socket, id);
     if let Err(reason) = &connected {
         eprintln!("Live traffic verification failed: {reason}");
+        // Report only enumerated Agent health and known milestones. Raw provider
+        // replies, trace bodies, addresses and device identity stay on the runner.
+        if let Ok(output) = Command::new(ENGINE).arg("--macos-agent-status").output()
+            && let Ok(status) = serde_json::from_slice::<serde_json::Value>(&output.stdout)
+        {
+            println!(
+                "Agent at failure: phase={:?}, failure={:?}, recovery_pending={:?}, protection_retained={:?}",
+                status["phase"].as_i64(),
+                status["failure"].as_i64(),
+                status["recoveryPending"].as_bool(),
+                status["protectionRetained"].as_bool()
+            );
+        }
         let log = fs::read_to_string(dir.join("logs/engine.jsonl")).unwrap_or_default();
         let mut codes = std::collections::BTreeSet::new();
         for line in log.lines() {
             if let Ok(event) = serde_json::from_str::<serde_json::Value>(line) {
+                if let Some(
+                    milestone @ ("macOS TUN Agent prepared the physical egress"
+                    | "macOS TUN remote data plane prepared"
+                    | "macOS TUN Agent applied the interface, DNS and routes"
+                    | "macOS TUN data plane active"
+                    | "macOS TUN lost its Agent session or network generation"
+                    | "macOS TUN operation failed"),
+                ) = event["fields"]["message"].as_str()
+                {
+                    codes.insert(milestone.to_owned());
+                }
                 for field in ["transport_failure", "agent_failure", "error_code"] {
                     if let Some(code) = event["fields"][field].as_str()
                         && code.len() <= 80
@@ -760,7 +851,7 @@ fn live_warp_connect_disconnect_and_exit() {
                 }
             }
         }
-        eprintln!("Engine failure codes: {codes:?}");
+        eprintln!("Engine milestones and failure codes: {codes:?}");
     }
     // Exercise ordinary disconnect even after dial or traffic failure.
     disconnect(&socket, &baseline);

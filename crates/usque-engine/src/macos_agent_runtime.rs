@@ -106,13 +106,8 @@ pub(super) async fn with_startup_retries<F: std::future::Future>(
 struct StartupOwner(MacAgentClient, bool);
 impl Drop for StartupOwner {
     fn drop(&mut self) {
-        if self.1
-            && let Ok(runtime) = tokio::runtime::Handle::try_current()
-        {
-            let agent = self.0.clone();
-            runtime.spawn(async move {
-                agent.abandon().await;
-            });
+        if self.1 {
+            self.0.abandon();
         }
     }
 }
@@ -222,7 +217,7 @@ impl MacAgentRuntime {
                         _ = cancel.cancelled() => {
                             if failure.borrow().is_some() {
                                 protector.invalidate();
-                                agent.abandon().await;
+                                agent.abandon();
                             }
                             break;
                         },
@@ -243,7 +238,7 @@ impl MacAgentRuntime {
                     ));
                     cancel.cancel();
                     protector.invalidate();
-                    agent.abandon().await;
+                    agent.abandon();
                     break;
                 }
             }))
@@ -308,8 +303,8 @@ impl MacAgentRuntime {
             Ok(packets) => packets,
             Err(error) => {
                 cancel.cancel();
+                agent.abandon();
                 tunnel.shutdown().await;
-                agent.abandon().await;
                 owner.1 = false;
                 return Err(error);
             }
@@ -495,7 +490,7 @@ impl MacAgentRuntime {
                 .await?;
         }
         self.retained = true;
-        self.agent.abandon().await;
+        self.agent.abandon();
         let replacement = Box::pin(Self::start(
             profile,
             identity,
@@ -519,7 +514,7 @@ impl MacAgentRuntime {
         self.cancel.cancel();
         self.tunnel.fail_gate(reason).await;
         self.stop_packets().await;
-        self.agent.abandon().await;
+        self.agent.abandon();
         macos_agent::confirm_retained_protection(&self.fence).await
     }
     pub async fn detach(&mut self) {
@@ -527,7 +522,7 @@ impl MacAgentRuntime {
         self.quiesce_final();
         self.stop_packets().await;
         self.tunnel.shutdown().await;
-        self.agent.abandon().await;
+        self.agent.abandon();
     }
     pub async fn shutdown(&mut self) -> io::Result<()> {
         self.quiesce_final();
@@ -552,12 +547,7 @@ impl Drop for MacAgentRuntime {
     fn drop(&mut self) {
         self.cancel.cancel();
         self.tunnel.cancel_immediately();
-        let agent = self.agent.clone();
-        if let Ok(runtime) = tokio::runtime::Handle::try_current() {
-            runtime.spawn(async move {
-                agent.abandon().await;
-            });
-        }
+        self.agent.abandon();
     }
 }
 fn apply_final_network(

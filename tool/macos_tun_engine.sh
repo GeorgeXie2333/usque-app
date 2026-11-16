@@ -75,7 +75,7 @@ if [[ ${USQUE_TEST_LIVE_WARP:-} == 1 ]]; then
   scenarios=(live_warp_connect_disconnect_and_exit)
 else
   test -x "$USQUE_TEST_PEER"
-  scenarios=(failed_endpoint_disconnect_and_exit connected_peer_loss_disconnect_and_exit)
+  scenarios=(failed_endpoint_disconnect_and_exit connected_peer_loss_disconnect_and_exit unanswered_h3_handshake_disconnect_and_exit)
 fi
 for scenario in "${scenarios[@]}"; do
   "$test_binary" --ignored --exact "$scenario" --test-threads=1 --nocapture \

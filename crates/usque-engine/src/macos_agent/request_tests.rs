@@ -4,11 +4,8 @@ fn local_pair() -> (MacAgentClient, UnixStream) {
     let (socket, server) = UnixStream::pair().unwrap();
     let peer = darwin_fd::peer_identity(&socket).unwrap();
     let client = MacAgentClient {
-        connection: Arc::new(Mutex::new(Some(Connection {
-            socket,
-            peer,
-            sequence: 0,
-        }))),
+        socket: Arc::new(socket),
+        connection: Arc::new(Mutex::new(Some(Connection { peer, sequence: 0 }))),
     };
     (client, server)
 }
@@ -53,6 +50,32 @@ fn dial() -> Operation {
         purpose: p::MacosSocketPurpose::Masque as i32,
         ..Default::default()
     })
+}
+
+#[tokio::test]
+async fn abandoning_startup_interrupts_an_unanswered_agent_dial() {
+    let (client, server) = local_pair();
+    let request = tokio::spawn({
+        let client = client.clone();
+        async move { client.request(dial()).await }
+    });
+    let server = tokio::task::spawn_blocking(move || {
+        assert_eq!(receive_request(&server, 1).1, dial());
+        server
+    })
+    .await
+    .unwrap();
+    // The server keeps the socket open without replying, like a stalled permit update.
+    let abandon = tokio::task::spawn_blocking(move || client.abandon());
+    let stopped = tokio::time::timeout(Duration::from_secs(1), request).await;
+    drop(server);
+    abandon.await.unwrap();
+    assert!(
+        stopped
+            .expect("abandoned dial still waiting for reply")
+            .unwrap()
+            .is_err()
+    );
 }
 
 #[tokio::test]
