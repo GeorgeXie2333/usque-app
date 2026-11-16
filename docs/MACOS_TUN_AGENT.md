@@ -11,8 +11,9 @@ network failures on disposable Macs. Record the runner OS, architecture and
 individual assertions when updating the acceptance matrix. To build the opt-in TUN test DMGs, run
 `python3 tool/macos_package.py build --arch arm64 --test-tun` or use
 `--arch x86_64`. Packages are written under `build/macos-tun-test/<arch>/`
-with a `-tun-test.dmg` suffix. Install or update the bundled background service,
-then quit and reopen Usque. A matching Engine and Agent, network preflight and
+with a `-tun-test.dmg` suffix. Install the background service from Settings.
+Usque reopens automatically after the first installation. Reopen it manually
+after a service update. A matching Engine and Agent, network preflight and
 clean recovery state enable the TUN switch in Home and Proxy. Both helpers embed
 the test flag at compile time. Ordinary builds omit the opt-in.
 

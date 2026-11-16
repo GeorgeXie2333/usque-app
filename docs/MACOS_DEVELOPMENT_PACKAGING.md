@@ -54,7 +54,8 @@ python3 tool/macos_package.py build --arch x86_64
 For a local TUN test package, add `--test-tun` to each build command. This
 compiles matching Engine and Agent binaries and writes a `*-tun-test.dmg` to
 `build/macos-tun-test/<architecture>/`. After copying the app to Applications,
-install or update the background service in Settings and reopen Usque. TUN
+install the background service in Settings. Usque reopens automatically after
+the first installation. After updating an existing service, reopen Usque manually. TUN
 becomes available when the Agent passes preflight and has no pending recovery.
 
 Each invocation explicitly selects Flutter/Xcode and Rust architectures, sets

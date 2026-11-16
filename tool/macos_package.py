@@ -536,7 +536,7 @@ def package(
         test_tun = manifest["components"]["root_agent"] == "included_tun_test_enabled"
         name = artifact_name(version, architecture, test_tun=test_tun)
         tun_note = (
-            "System TUN is enabled for testing. Install or update the background service and reopen Usque. "
+            "System TUN is enabled for testing and uses the same background service. "
             "A compatible Agent, successful network preflight and clean recovery state are required.\n"
             if test_tun else "System TUN remains disabled until real network and failure-matrix acceptance passes.\n"
         )
@@ -544,7 +544,8 @@ def package(
         (volume / "DEVELOPMENT - READ ME.txt").write_text(
             "Usque macOS development build\n\nDrag Usque.app to Applications to install.\n"
             "This ad-hoc build is not notarized. Production automatic installation is disabled.\n"
-            "For the system proxy, install or update the macOS background service in Settings, then reopen Usque.\n"
+            "For the system proxy, install the macOS background service in Settings. Usque reopens automatically after the first installation.\n"
+            "After repairing or updating an existing service, reopen Usque manually.\n"
             "Only service maintenance needs administrator approval during normal use.\n"
             f"{tun_note}"
             "Administrator recovery: /Library/PrivilegedHelperTools/com.usque.agent/usque-agent --recover-state\n"
