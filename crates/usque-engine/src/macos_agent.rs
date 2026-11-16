@@ -709,6 +709,10 @@ fn project_observation(
         }
         return;
     }
+    tracing::debug!(engine_phase = ?snapshot.phase, agent_phase = status.map(|s| s.phase),
+        agent_failure = status.map(|s| s.failure), owned = status.map(|s| s.caller_owns_transaction),
+        recovery = status.map(|s| s.recovery_pending), proxy_recovery = status.map(|s| s.system_proxy_recovery_pending),
+        "macOS Agent recovery projection");
     snapshot.phase = usque_core::ConnectionPhase::Error;
     snapshot.kill_switch_state = if status.is_some_and(|s| s.protection_retained) {
         usque_core::KillSwitchState::Active

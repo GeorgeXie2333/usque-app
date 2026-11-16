@@ -330,7 +330,7 @@ fn launch_engine(
             .arg(&socket)
             .arg("--parent-pid")
             .arg(std::process::id().to_string())
-            .env("RUST_LOG", "info,usque_transport::netstack=debug")
+            .env("RUST_LOG", "info,usque_transport::netstack=debug,usque_transport::telemetry=debug,usque_engine::macos_agent=debug")
             .spawn()
             .unwrap(),
     );
@@ -765,6 +765,44 @@ fn verify_live_tunnel(socket: &Path, id: Uuid) -> Result<String, String> {
     Ok(interface)
 }
 
+fn report_dial_evidence(dir: &Path) {
+    let mut counts = std::collections::BTreeMap::new();
+    let log = fs::read_to_string(dir.join("logs/engine.jsonl")).unwrap_or_default();
+    for line in log.lines() {
+        let Ok(event) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
+        let fields = &event["fields"];
+        match fields["message"].as_str() {
+            Some("MASQUE dial progress" | "MASQUE dial failed") => {
+                let Some(transport @ ("Http3" | "Http2")) = fields["transport"].as_str() else {
+                    continue;
+                };
+                let detail = fields["event"]
+                    .as_str()
+                    .or_else(|| fields["failure_code"].as_str());
+                if let Some(value) = detail.filter(|v| {
+                    v.len() <= 80 && v.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+                }) {
+                    *counts.entry(format!("{transport}/{value}")).or_insert(0u32) += 1;
+                }
+            }
+            Some("macOS Agent recovery projection") => {
+                println!(
+                    "Recovery observation: Agent phase {:?}, failure {:?}, owns transaction {:?}, pending {:?}, proxy pending {:?}",
+                    fields["agent_phase"].as_i64(),
+                    fields["agent_failure"].as_i64(),
+                    fields["owned"].as_bool(),
+                    fields["recovery"].as_bool(),
+                    fields["proxy_recovery"].as_bool()
+                );
+            }
+            _ => {}
+        }
+    }
+    println!("MASQUE dial stage counts: {counts:?}");
+}
+
 #[test]
 #[ignore = "explicit enrollment on disposable GitHub Macs only; uses real Cloudflare WARP"]
 fn live_warp_connect_disconnect_and_exit() {
@@ -809,6 +847,7 @@ fn live_warp_connect_disconnect_and_exit() {
         "Real WARP Consumer enrollment completed. Connecting with automatic endpoint and transport."
     );
     let connected = verify_live_tunnel(&socket, id);
+    report_dial_evidence(&dir);
     if let Err(reason) = &connected {
         eprintln!("Live traffic verification failed: {reason}");
         // Report only enumerated Agent health and known milestones. Raw provider
