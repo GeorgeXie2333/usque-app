@@ -203,6 +203,11 @@ impl MacAgentRuntime {
                 }
             }))
         };
+        let readiness_deadline = (!gate.continuous).then(|| {
+            gate.deadline.unwrap_or_else(|| {
+                tokio::time::Instant::now() + usque_core::endpoint_connection_budget(profile)
+            })
+        });
         let mut tunnel = Box::pin(DataPlaneRuntime::start_with_vpngate(
             profile,
             identity.clone(),
@@ -217,11 +222,19 @@ impl MacAgentRuntime {
             // Continuous startup returns a live supervisor before it has a
             // carrier. Leave physical DNS and routes in place until WARP
             // actually connects, including when the user stops during retries.
-            tunnel
-                .underlay_monitor()
-                .wait_until_ready(&cancel)
-                .await
-                .map_err(io::Error::other)?;
+            let underlay = tunnel.underlay_monitor();
+            let carrier = underlay.wait_until_ready(&cancel);
+            match readiness_deadline {
+                Some(deadline) => {
+                    tokio::time::timeout_at(deadline, carrier)
+                        .await
+                        .map_err(|_| {
+                            io::Error::new(io::ErrorKind::TimedOut, "carrier readiness deadline")
+                        })?
+                }
+                None => carrier.await,
+            }
+            .map_err(io::Error::other)?;
             tracing::info!("macOS TUN remote data plane prepared");
             apply_final_network(&mut plan, &tunnel.network_parameters());
             agent
