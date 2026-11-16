@@ -10,9 +10,13 @@ on:
         description: Run only the real macOS utun test on Apple Silicon and Intel
         type: boolean
         default: false
+      macos_tun_e2e:
+        description: Run macOS TUN network acceptance on disposable hosted runners
+        type: boolean
+        default: false
 
 concurrency:
-  group: build-${{ github.event.pull_request.number || github.ref }}${{ inputs.macos_utun && '-utun' || '' }}
+  group: build-${{ github.event.pull_request.number || github.ref }}${{ inputs.macos_tun_e2e && '-tun-e2e' || inputs.macos_utun && '-utun' || '' }}
   cancel-in-progress: true
 
 permissions:
@@ -26,6 +30,10 @@ env:
   FLUTTER_VERSION: 3.44.7
 
 jobs:
+  macos-tun-e2e:
+    if: github.event_name == 'workflow_dispatch' && inputs.macos_tun_e2e
+    uses: ./.github/workflows/macos-tun-e2e.yml
+
   macos-utun:
     name: Real utun (${{ matrix.arch }})
     if: github.event_name == 'workflow_dispatch' && inputs.macos_utun
@@ -78,12 +86,12 @@ jobs:
 
   linux:
     name: Linux compile and packages
-    if: ${{ !inputs.macos_utun && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
+    if: ${{ !inputs.macos_utun && !inputs.macos_tun_e2e && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
     uses: ./.github/workflows/linux.yml
 
   windows:
     name: Windows ${{ matrix.label }} compile
-    if: ${{ !inputs.macos_utun && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
+    if: ${{ !inputs.macos_utun && !inputs.macos_tun_e2e && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 360
     permissions:
@@ -390,7 +398,7 @@ jobs:
 
   android:
     name: Android ARMv8, x64, ARMv7, and universal compile
-    if: ${{ !inputs.macos_utun && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
+    if: ${{ !inputs.macos_utun && !inputs.macos_tun_e2e && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 240
     steps:
@@ -594,7 +602,7 @@ jobs:
 
   gate:
     name: Build / gate
-    if: ${{ always() && !inputs.macos_utun && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
+    if: ${{ always() && !inputs.macos_utun && !inputs.macos_tun_e2e && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
     needs: [windows, android, linux]
     runs-on: ubuntu-24.04
     timeout-minutes: 5

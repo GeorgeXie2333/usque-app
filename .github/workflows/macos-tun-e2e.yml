@@ -1,0 +1,43 @@
+name: macOS TUN network acceptance
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  network:
+    name: macOS TUN E2E (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: macos-15
+          - arch: x86_64
+            runner: macos-15-intel
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Record the disposable runner baseline
+        env:
+          EXPECTED_ARCH: ${{ matrix.arch }}
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: |
+          set -euo pipefail
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$(uname -m)" = "$EXPECTED_ARCH"
+          sw_vers
+          uname -m
+          df -h "$RUNNER_TEMP"
+          route -n get default | awk '/gateway:|interface:/'
+          scutil --dns | awk '/resolver #|nameserver\[|if_index|flags|reach/'
+          sudo -n /sbin/pfctl -si | head -n 2
+          sudo -n /sbin/pfctl -sr
+          sudo -n /sbin/pfctl -sn
+          sudo -n /sbin/pfctl -a com.apple -s Anchors
+          sudo -n /sbin/pfctl -ss | wc -l
