@@ -144,8 +144,15 @@ def inspect_macho(path: Path, architecture: str, *, universal: bool = False) -> 
                         name, segment, _, nbytes, pos = struct.unpack_from(
                             endian + "16s16sQQI", commands, section
                         )
-                        if (name.rstrip(b"\0"), segment.rstrip(b"\0")) == (b"__usque_tun", b"__TEXT"):
-                            if test_tun is not None or nbytes != 1 or not 32 + command_bytes <= pos < size:
+                        if (name.rstrip(b"\0"), segment.rstrip(b"\0")) == (
+                            b"__usque_tun",
+                            b"__TEXT",
+                        ):
+                            if (
+                                test_tun is not None
+                                or nbytes != 1
+                                or not 32 + command_bytes <= pos < size
+                            ):
                                 raise ValueError("Invalid Mach-O TUN build flag")
                             handle.seek(offset + pos)
                             flag = handle.read(1)
@@ -214,16 +221,25 @@ def macho_files(app: Path) -> list[Path]:
 def required_files(app: Path) -> list[Path]:
     with (app / "Contents/Info.plist").open("rb") as handle:
         info = plistlib.load(handle)
-    names = ["MacOS/Usque", "MacOS/usque-engine", "Resources/usque-engine",
-             "Frameworks/App.framework/App", "Frameworks/FlutterMacOS.framework/FlutterMacOS"]
+    names = [
+        "MacOS/Usque",
+        "MacOS/usque-engine",
+        "Resources/usque-engine",
+        "Frameworks/App.framework/App",
+        "Frameworks/FlutterMacOS.framework/FlutterMacOS",
+    ]
     if info.get("UsqueAgentServiceIncluded", False):
         names += ["Helpers/usque-agent", "Helpers/usque-agent-maintenance"]
     if info.get("UsqueNetworkPrototypeIncluded", True):
         names += ["Helpers/usque-macos-control"]
-        names += [f"Library/SystemExtensions/{IDENTIFIER}.{suffix}.systemextension/Contents/MacOS/{executable}" for suffix, executable in PROVIDERS.items()]
+        names += [
+            f"Library/SystemExtensions/{IDENTIFIER}.{suffix}.systemextension/Contents/MacOS/{executable}"
+            for suffix, executable in PROVIDERS.items()
+        ]
     files = [app / "Contents" / name for name in names]
     maintenance = app / "Contents/Helpers/usque-maintenance"
-    if maintenance.exists(): files.append(maintenance)
+    if maintenance.exists():
+        files.append(maintenance)
     return files
 
 
@@ -251,7 +267,9 @@ def inspect_bundle(app: Path, architecture: str) -> list[dict]:
     executables = [
         path
         for path in required
-        if path.parent.name == "MacOS" or path.name in {"usque-maintenance", "usque-macos-control", "usque-agent", "usque-agent-maintenance"}
+        if path.parent.name == "MacOS"
+        or path.name
+        in {"usque-maintenance", "usque-macos-control", "usque-agent", "usque-agent-maintenance"}
     ]
     if any(path.stat().st_mode & 0o111 != 0o111 for path in executables):
         raise ValueError("Required macOS program does not have executable permissions")
@@ -279,7 +297,10 @@ def inspect_bundle(app: Path, architecture: str) -> list[dict]:
     agent_enabled = by_path.get("Contents/Helpers/usque-agent", {}).get("test_tun_enabled", False)
     if engine_enabled and info.get("UsqueAgentServiceIncluded") is not True:
         raise ValueError("A TUN test package requires the installable macOS Agent service")
-    if engine_enabled != agent_enabled or info.get("UsqueTestTunEnabled", False) is not engine_enabled:
+    if (
+        engine_enabled != agent_enabled
+        or info.get("UsqueTestTunEnabled", False) is not engine_enabled
+    ):
         raise ValueError("TUN build flags disagree in the Engine, Agent or application")
     return reports
 
@@ -376,13 +397,18 @@ def assemble_app(
         raise ValueError("Agent and maintenance helper must be supplied together")
     if agent is None and prototype is None:
         raise ValueError("Package requires its native backend")
-    for source_binary, name in [(agent, "usque-agent"), (agent_maintenance, "usque-agent-maintenance")]:
+    for source_binary, name in [
+        (agent, "usque-agent"),
+        (agent_maintenance, "usque-agent-maintenance"),
+    ]:
         if source_binary is not None:
             inspect_macho(source_binary, architecture)
             shutil.copy2(source_binary, helpers / name)
             (helpers / name).chmod(0o755)
     if prototype is not None:
-        shutil.copy2(prototype / "Contents/MacOS/usque-macos-control", helpers / "usque-macos-control")
+        shutil.copy2(
+            prototype / "Contents/MacOS/usque-macos-control", helpers / "usque-macos-control"
+        )
     elif (helpers / "usque-macos-control").exists():
         (helpers / "usque-macos-control").unlink()
     if maintenance is not None:
@@ -415,7 +441,9 @@ def assemble_app(
 
 
 def development_manifest(app: Path, architecture: str, version: str, machos: list[dict]) -> dict:
-    test_tun = any(m.get("test_tun_enabled") for m in machos if m["path"] == "Contents/MacOS/usque-engine")
+    test_tun = any(
+        m.get("test_tun_enabled") for m in machos if m["path"] == "Contents/MacOS/usque-engine"
+    )
     return {
         "schema_version": 1,
         "version": version,
@@ -434,9 +462,17 @@ def development_manifest(app: Path, architecture: str, version: str, machos: lis
         "components": {
             "flutter": "included",
             "engine": "included",
-            "network_extension_prototype": "included_activation_disabled" if (app / "Contents/Helpers/usque-macos-control").is_file() else "separate_experiment",
-            "system_proxy": "installed_agent_loopback_http_https" if (app / "Contents/Helpers/usque-agent").is_file() else "agent_required",
-            "root_agent": "included_tun_test_enabled" if test_tun else "included_release_gated" if (app / "Contents/Helpers/usque-agent").is_file() else "not_included",
+            "network_extension_prototype": "included_activation_disabled"
+            if (app / "Contents/Helpers/usque-macos-control").is_file()
+            else "separate_experiment",
+            "system_proxy": "installed_agent_loopback_http_https"
+            if (app / "Contents/Helpers/usque-agent").is_file()
+            else "agent_required",
+            "root_agent": "included_tun_test_enabled"
+            if test_tun
+            else "included_release_gated"
+            if (app / "Contents/Helpers/usque-agent").is_file()
+            else "not_included",
             "proton_guest_registration": "unavailable_on_macos",
             "atomic_update": (
                 "helper_included_installation_disabled"
@@ -538,7 +574,8 @@ def package(
         tun_note = (
             "System TUN is enabled for testing and uses the same background service. "
             "A compatible Agent, successful network preflight and clean recovery state are required.\n"
-            if test_tun else "System TUN remains disabled until real network and failure-matrix acceptance passes.\n"
+            if test_tun
+            else "System TUN remains disabled until real network and failure-matrix acceptance passes.\n"
         )
         (volume / "Applications").symlink_to("/Applications")
         (volume / "DEVELOPMENT - READ ME.txt").write_text(
@@ -561,11 +598,36 @@ def package(
                 image_help = ""
             if "--volumeName" in image_help:
                 # Current macOS creates an APFS image directly from the signed bundle.
-                run(["diskutil", "image", "create", "from", "--format", DMG_FORMAT,
-                     "--volumeName", volume_name, volume, image])
+                run(
+                    [
+                        "diskutil",
+                        "image",
+                        "create",
+                        "from",
+                        "--format",
+                        DMG_FORMAT,
+                        "--volumeName",
+                        volume_name,
+                        volume,
+                        image,
+                    ]
+                )
             else:
-                run(["hdiutil", "create", "-srcfolder", volume, "-volname", volume_name,
-                     "-format", DMG_FORMAT, "-fs", "HFS+", image])
+                run(
+                    [
+                        "hdiutil",
+                        "create",
+                        "-srcfolder",
+                        volume,
+                        "-volname",
+                        volume_name,
+                        "-format",
+                        DMG_FORMAT,
+                        "-fs",
+                        "HFS+",
+                        image,
+                    ]
+                )
             run(["hdiutil", "verify", image])
             manifest["artifact"] = {
                 "name": name,
@@ -589,7 +651,9 @@ def package(
     return manifest
 
 
-def build(architecture: str, output: Path, *, create_dmg: bool = True, test_tun: bool = False) -> dict:
+def build(
+    architecture: str, output: Path, *, create_dmg: bool = True, test_tun: bool = False
+) -> dict:
     if platform.system() != "Darwin":
         raise ValueError("macOS development builds require a macOS host")
     import fcntl
@@ -630,7 +694,11 @@ def build(architecture: str, output: Path, *, create_dmg: bool = True, test_tun:
                 "usque-engine",
                 "-p",
                 "usque-agent",
-                *(["--features", "usque-engine/macos-test-tun,usque-agent/macos-test-tun"] if test_tun else []),
+                *(
+                    ["--features", "usque-engine/macos-test-tun,usque-agent/macos-test-tun"]
+                    if test_tun
+                    else []
+                ),
             ],
             cwd=ROOT,
             env=env,
@@ -640,7 +708,11 @@ def build(architecture: str, output: Path, *, create_dmg: bool = True, test_tun:
             if built.get("test_tun_enabled", False) != test_tun:
                 raise ValueError(f"Compiled TUN mode differs from requested mode in {helper}")
         gui = ROOT / "apps/usque_gui"
-        run(["bash", ROOT / "tool/build_macos_agent_maintenance.sh", architecture], cwd=ROOT, env=env)
+        run(
+            ["bash", ROOT / "tool/build_macos_agent_maintenance.sh", architecture],
+            cwd=ROOT,
+            env=env,
+        )
         run(["flutter", "pub", "get", "--offline", "--enforce-lockfile"], cwd=gui, env=env)
         run(
             [
@@ -659,8 +731,13 @@ def build(architecture: str, output: Path, *, create_dmg: bool = True, test_tun:
         )
         return package(
             gui / "build/macos/Build/Products/Release/Usque.app",
-            ROOT / f"target/{target}/release/usque-engine", None,
-            output, architecture, version, build_number, create_dmg=create_dmg,
+            ROOT / f"target/{target}/release/usque-engine",
+            None,
+            output,
+            architecture,
+            version,
+            build_number,
+            create_dmg=create_dmg,
             agent=ROOT / f"target/{target}/release/usque-agent",
             agent_maintenance=ROOT / f"build/macos-agent/{architecture}/usque-agent-maintenance",
         )
@@ -678,7 +755,9 @@ def main() -> None:
         sub.add_argument("--output", type=Path)
         sub.add_argument("--no-dmg", action="store_true", help="Assemble/verify app only")
         if command == "build":
-            sub.add_argument("--test-tun", action="store_true", help="Compile the system TUN test build")
+            sub.add_argument(
+                "--test-tun", action="store_true", help="Compile the system TUN test build"
+            )
         if command == "package":
             sub.add_argument("--maintenance", type=Path)
             for name in ("app", "engine"):
@@ -693,9 +772,17 @@ def main() -> None:
             print(json.dumps(inspect_bundle(arguments.app, arguments.arch), indent=2))
             return
         test_tun = arguments.command == "build" and arguments.test_tun
-        output = arguments.output or ROOT / "build" / ("macos-tun-test" if test_tun else "macos-development") / arguments.arch
+        output = (
+            arguments.output
+            or ROOT
+            / "build"
+            / ("macos-tun-test" if test_tun else "macos-development")
+            / arguments.arch
+        )
         if arguments.command == "build":
-            manifest = build(arguments.arch, output, create_dmg=not arguments.no_dmg, test_tun=test_tun)
+            manifest = build(
+                arguments.arch, output, create_dmg=not arguments.no_dmg, test_tun=test_tun
+            )
         else:
             manifest = package(
                 arguments.app,

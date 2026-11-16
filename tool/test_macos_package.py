@@ -13,7 +13,9 @@ from unittest.mock import patch
 import macos_package
 
 
-def macho(architecture="arm64", *, minimum=0x000D0000, subtype=None, target_platform=1, test_tun=False):
+def macho(
+    architecture="arm64", *, minimum=0x000D0000, subtype=None, target_platform=1, test_tun=False
+):
     cpu, default_subtype = macos_package.ARCHITECTURES[architecture]
     command = struct.pack("<6I", 0x32, 24, target_platform, minimum, 0x001B0000, 0)
     commands = 1
@@ -21,8 +23,12 @@ def macho(architecture="arm64", *, minimum=0x000D0000, subtype=None, target_plat
     if test_tun:
         # Native __TEXT section shared by the Engine and Agent test builds.
         pos = 32 + len(command) + 72 + 80
-        command += struct.pack("<II16sQQQQIIII", 0x19, 152, b"__TEXT", 0, pos+1, 0, pos+1, 5, 5, 1, 0)
-        command += struct.pack("<16s16sQQ8I", b"__usque_tun", b"__TEXT", pos, 1, pos, 0, 0, 0, 0, 0, 0, 0)
+        command += struct.pack(
+            "<II16sQQQQIIII", 0x19, 152, b"__TEXT", 0, pos + 1, 0, pos + 1, 5, 5, 1, 0
+        )
+        command += struct.pack(
+            "<16s16sQQ8I", b"__usque_tun", b"__TEXT", pos, 1, pos, 0, 0, 0, 0, 0, 0, 0
+        )
         commands += 1
         payload = b"\x01"
     return (
@@ -37,7 +43,8 @@ def macho(architecture="arm64", *, minimum=0x000D0000, subtype=None, target_plat
             0,
             0,
         )
-        + command + payload
+        + command
+        + payload
     )
 
 
@@ -99,17 +106,29 @@ class MacOSPackageTests(unittest.TestCase):
 
     def test_agent_package_is_independent_of_network_extension(self):
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory); app = root / "source.app"; flutter_fixture(app)
+            root = Path(directory)
+            app = root / "source.app"
+            flutter_fixture(app)
             for name in ("engine", "agent", "maintenance"):
                 write(root / name, macho())
             with patch.object(macos_package, "_thin_and_sign"):
-                macos_package.assemble_app(app, root / "engine", None, root / "out.app", "arm64", "0.3.4", "1",
-                    agent=root / "agent", agent_maintenance=root / "maintenance")
+                macos_package.assemble_app(
+                    app,
+                    root / "engine",
+                    None,
+                    root / "out.app",
+                    "arm64",
+                    "0.3.4",
+                    "1",
+                    agent=root / "agent",
+                    agent_maintenance=root / "maintenance",
+                )
             packaged = root / "out.app"
             self.assertFalse((packaged / "Contents/Library/SystemExtensions").exists())
             self.assertTrue((packaged / "Contents/Helpers/usque-agent").is_file())
             (packaged / "Contents/Helpers/usque-agent").unlink()
-            with self.assertRaises(ValueError): macos_package.inspect_bundle(packaged, "arm64")
+            with self.assertRaises(ValueError):
+                macos_package.inspect_bundle(packaged, "arm64")
 
     def test_tun_test_package_requires_two_opted_in_helpers_and_reports_pending_acceptance(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -120,9 +139,21 @@ class MacOSPackageTests(unittest.TestCase):
             write(engine, macho(test_tun=True))
             write(agent, macho())
             write(maintenance, macho())
+
             def assemble():
-                return macos_package.package(gui, engine, None, root / "out", "arm64", "0.3.4", "1",
-                    agent=agent, agent_maintenance=maintenance, create_dmg=False)
+                return macos_package.package(
+                    gui,
+                    engine,
+                    None,
+                    root / "out",
+                    "arm64",
+                    "0.3.4",
+                    "1",
+                    agent=agent,
+                    agent_maintenance=maintenance,
+                    create_dmg=False,
+                )
+
             with patch.object(macos_package, "_thin_and_sign"):
                 with self.assertRaisesRegex(ValueError, "TUN"):
                     assemble()
@@ -131,7 +162,9 @@ class MacOSPackageTests(unittest.TestCase):
             self.assertEqual(manifest["components"]["root_agent"], "included_tun_test_enabled")
             self.assertFalse(manifest["production_capable"])
             self.assertEqual(manifest["validation"]["system_utun_network_acceptance"], "not_run")
-            self.assertTrue((root / "out/usque-v0.3.4-macos-arm64-tun-test.manifest.json").is_file())
+            self.assertTrue(
+                (root / "out/usque-v0.3.4-macos-arm64-tun-test.manifest.json").is_file()
+            )
 
     def test_names_are_architecture_specific_and_reject_path_injection(self) -> None:
         self.assertEqual(
@@ -483,7 +516,10 @@ class MacOSPackageTests(unittest.TestCase):
             operations = []
 
             def tool(arguments, **_):
-                if arguments[:4] == ["diskutil", "image", "create", "from"] and arguments[-1] == "--help":
+                if (
+                    arguments[:4] == ["diskutil", "image", "create", "from"]
+                    and arguments[-1] == "--help"
+                ):
                     return "--volumeName" if modern else ""
                 if arguments[:2] == ["hdiutil", "verify"]:
                     operations.append("verify")
@@ -492,17 +528,24 @@ class MacOSPackageTests(unittest.TestCase):
                     operations.append(arguments[0])
                     flag = "--format" if modern else "-format"
                     self.assertEqual(arguments[arguments.index(flag) + 1], "ULMO")
-                    volume = Path(arguments[-2] if modern else arguments[arguments.index("-srcfolder") + 1])
+                    volume = Path(
+                        arguments[-2] if modern else arguments[arguments.index("-srcfolder") + 1]
+                    )
                     self.assertEqual((volume / "Applications").readlink(), Path("/Applications"))
                     self.assertTrue((volume / "Usque.app").is_dir())
                     Path(arguments[-1]).write_bytes(b"new image")
                 return ""
 
             for modern in (False, True):
-                with self.subTest(modern=modern), patch.object(macos_package, "run", side_effect=tool):
+                with (
+                    self.subTest(modern=modern),
+                    patch.object(macos_package, "run", side_effect=tool),
+                ):
                     operations.clear()
                     with self.assertRaises(subprocess.CalledProcessError):
-                        macos_package.package(source, engine, prototype, output, "arm64", "0.3.3", "29")
+                        macos_package.package(
+                            source, engine, prototype, output, "arm64", "0.3.3", "29"
+                        )
                     self.assertEqual(operations, ["diskutil" if modern else "hdiutil", "verify"])
                     self.assertEqual(previous.read_bytes(), b"previous image")
                     self.assertFalse((output / "Usque.app").exists())

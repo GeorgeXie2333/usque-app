@@ -109,11 +109,17 @@ void main() {
       final app = AppController(engine);
       await app.initialize();
       final bridge = PlatformShellBridge(app);
-      addTearDown(() { bridge.dispose(); app.dispose(); });
+      addTearDown(() {
+        bridge.dispose();
+        app.dispose();
+      });
       final quitting = _requestQuit(tester);
       await tester.pump();
       engine.attempts.single.completeError(
-        const EngineException('MACOS_AGENT_RECOVERY_UNCONFIRMED', 'private detail'),
+        const EngineException(
+          'MACOS_AGENT_RECOVERY_UNCONFIRMED',
+          'private detail',
+        ),
       );
       expect(await quitting, {
         'cleanup_complete': false,

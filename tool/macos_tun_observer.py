@@ -231,6 +231,12 @@ def acknowledge(conn: http.client.HTTPConnection, config: dict, phase: str) -> N
         raise RuntimeError(f"external receiver did not acknowledge {phase}")
 
 
+def probe_tls_context() -> ssl.SSLContext:
+    context = ssl.create_default_context()
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
+    return context
+
+
 def bound_request(config: dict, phase: str, *, forbid_connect: bool = False) -> None:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as raw:
         raw.settimeout(8 if phase in CONTROL else 4)
@@ -247,7 +253,7 @@ def bound_request(config: dict, phase: str, *, forbid_connect: bool = False) -> 
                 print(f"{phase}: physical-bound TCP connect blocked; external audit pending")
                 return
             raise
-        with ssl.create_default_context().wrap_socket(raw, server_hostname=config["host"]) as tls:
+        with probe_tls_context().wrap_socket(raw, server_hostname=config["host"]) as tls:
             with contextlib.closing(http.client.HTTPConnection(config["host"])) as conn:
                 conn.sock = tls
                 acknowledge(conn, config, phase)
@@ -263,7 +269,9 @@ def positive_request(config: dict, phase: str) -> None:
             if phase == "finish":
                 # Resolve through macOS and use the system default route.
                 with contextlib.closing(
-                    http.client.HTTPSConnection(config["host"], timeout=8)
+                    http.client.HTTPSConnection(
+                        config["host"], timeout=8, context=probe_tls_context()
+                    )
                 ) as conn:
                     acknowledge(conn, config, phase)
             else:

@@ -405,7 +405,9 @@ class DesktopEngineTransport {
       final process = _process;
       if (process != null) {
         process.kill(ProcessSignal.sigterm);
-        final code = await process.exitCode.timeout(const Duration(seconds: 30));
+        final code = await process.exitCode.timeout(
+          const Duration(seconds: 30),
+        );
         if (code != 0) {
           throw const EngineException(
             'ENGINE_SHUTDOWN_FAILED',
@@ -434,9 +436,14 @@ class DesktopEngineTransport {
   Future<void> _startEngine() async {
     var executable = _engineExecutable();
     if (Platform.isMacOS &&
-        !(kDebugMode && (Platform.environment['USQUE_ENGINE_PATH'] ?? '').trim().isNotEmpty) &&
-        await _nativeTransport.invokeMethod<bool>('macosUseInstalledEngine') == true) {
-      executable = '/Library/PrivilegedHelperTools/com.usque.agent/usque-engine';
+        !(kDebugMode &&
+            (Platform.environment['USQUE_ENGINE_PATH'] ?? '')
+                .trim()
+                .isNotEmpty) &&
+        await _nativeTransport.invokeMethod<bool>('macosUseInstalledEngine') ==
+            true) {
+      executable =
+          '/Library/PrivilegedHelperTools/com.usque.agent/usque-engine';
     }
     if (Platform.isLinux && !kDebugMode) {
       executable =

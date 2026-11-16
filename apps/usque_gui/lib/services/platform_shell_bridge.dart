@@ -99,8 +99,9 @@ class PlatformShellBridge {
           if (e.code != 'MACOS_AGENT_RECOVERY_UNCONFIRMED') rethrow;
           return <String, Object>{
             'cleanup_complete': false,
-            'service_recovery_message':
-                _controller.strings.get('macos_agent_quit_failed'),
+            'service_recovery_message': _controller.strings.get(
+              'macos_agent_quit_failed',
+            ),
           };
         }
         return const <String, Object>{'cleanup_complete': true};

@@ -484,7 +484,10 @@ class AppController extends ChangeNotifier {
       onboardingPhase == OnboardingPhase.reconciling;
   bool _busy = false;
   bool get busy =>
-      _busy || profileIdentitiesLoading || _exitCleanup != null || macosServiceBusy;
+      _busy ||
+      profileIdentitiesLoading ||
+      _exitCleanup != null ||
+      macosServiceBusy;
   set busy(bool value) => _busy = value;
   bool profileIdentitiesLoading = false;
   int _activeOperations = 0;
@@ -540,6 +543,7 @@ class AppController extends ChangeNotifier {
     }
     return state;
   }
+
   Future<void> maintainMacosService(MacosServiceAction action) async {
     if (_macosServiceBusy ||
         _exitCleanup != null ||

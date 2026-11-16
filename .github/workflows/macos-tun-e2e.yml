@@ -33,7 +33,7 @@ jobs:
           python3 -u tool/macos_tun_observer.py serve "$dir" > "$RUNNER_TEMP/observer.log" 2>&1 &
           pid=$!
           # Allow the verified download, three 90-second attempts, and retry backoff.
-          for i in {1..410}; do
+          for ((attempt = 0; attempt < 410; attempt++)); do
             if test -s "$dir/endpoint.json"; then cat "$RUNNER_TEMP/observer.log"; exit 0; fi
             if ! kill -0 "$pid" 2>/dev/null; then cat "$RUNNER_TEMP/observer.log"; exit 1; fi
             sleep 1
@@ -173,7 +173,7 @@ jobs:
         run: |
           dir="$RUNNER_TEMP/observer"
           mkdir -p "$dir"
-          for i in {1..44}; do
+          for ((attempt = 0; attempt < 44; attempt++)); do
             if gh run download "$GITHUB_RUN_ID" -n "macos-tun-observer-$GITHUB_RUN_ATTEMPT" -D "$dir"; then break; fi
             sleep 10
           done

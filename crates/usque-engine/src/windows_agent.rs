@@ -4180,6 +4180,7 @@ fn payload_name(payload: &agent_response::Payload) -> &'static str {
         agent_response::Payload::PlatformState(_) => "platform_state",
         agent_response::Payload::DeviceLease(_) => "device_lease",
         agent_response::Payload::LinuxTunSession(_) => "linux_tun_session",
+        agent_response::Payload::Macos(_) => "macos",
     }
 }
 

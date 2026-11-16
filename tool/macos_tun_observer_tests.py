@@ -131,7 +131,7 @@ class BoundProbeTests(unittest.TestCase):
     def test_allowed_probe_requires_a_matching_external_receipt(self):
         with (
             patch.object(socket, "socket"),
-            patch.object(ssl, "create_default_context"),
+            patch.object(ssl, "create_default_context") as context,
             patch.object(http.client, "HTTPConnection") as factory,
         ):
             conn = factory.return_value
@@ -139,6 +139,11 @@ class BoundProbeTests(unittest.TestCase):
             res.status = 200
             res.read.side_effect = [self.config["session"].encode(), b"unrelated"]
             observer.bound_request(self.config, "before")
+            self.assertEqual(context.return_value.minimum_version, ssl.TLSVersion.TLSv1_2)
+            self.assertEqual(
+                context.return_value.wrap_socket.call_args.kwargs["server_hostname"],
+                self.config["host"],
+            )
             self.assertEqual(conn.request.call_args.args[0], "POST")
             conn.close.assert_called_once()
             with self.assertRaisesRegex(RuntimeError, "did not acknowledge"):
@@ -190,6 +195,10 @@ class BoundProbeTests(unittest.TestCase):
                 observer.probe("finish", path)
                 bound.assert_not_called()
                 self.assertEqual(unbound.call_args.args, (self.config["host"],))
+                context = unbound.call_args.kwargs["context"]
+                self.assertGreaterEqual(context.minimum_version, ssl.TLSVersion.TLSv1_2)
+                self.assertEqual(context.verify_mode, ssl.CERT_REQUIRED)
+                self.assertTrue(context.check_hostname)
                 self.assertEqual(
                     unbound.return_value.request.call_args.args,
                     ("POST", f"/{self.config['target']}/arm64/{self.config['session']}/finish"),
