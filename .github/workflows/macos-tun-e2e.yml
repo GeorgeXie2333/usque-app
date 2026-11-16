@@ -96,7 +96,7 @@ jobs:
           path: |
             ~/.cargo/registry
             target/debug
-          key: tun-e2e-v1-${{ matrix.runner }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}-${{ github.sha }}
+          key: tun-e2e-v1-${{ matrix.runner }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}-deps
           restore-keys: tun-e2e-v1-${{ matrix.runner }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}-
       - name: Build ordinary-user Engine and privileged Agent with test TUN enabled
         run: |
@@ -128,7 +128,7 @@ jobs:
           RUNNER_ENVIRONMENT: ${{ runner.environment }}
           USQUE_DISPOSABLE_MAC: '1'
         run: |
-          bash tool/macos_tun_engine.sh target/debug/usque-engine target/debug/usque-agent \
+          python3 tool/macos_tun_deadline.py bash tool/macos_tun_engine.sh target/debug/usque-engine target/debug/usque-agent \
             "$(cat "$RUNNER_TEMP/engine-test-path")"
       - name: Locate the independent receiver and pin the physical probe destination
         env:
@@ -146,11 +146,12 @@ jobs:
         shell: bash
         env:
           RUNNER_ENVIRONMENT: ${{ runner.environment }}
+          USQUE_DISPOSABLE_MAC: '1'
           USQUE_TUN_OBSERVER_CONFIG: ${{ runner.temp }}/observer/client.json
         run: |
           set -euo pipefail
           name=macos::backend::disposable::configured_tun_disconnect_restores_network
-          sudo -n /usr/bin/env USQUE_DISPOSABLE_MAC=1 GITHUB_ACTIONS=true RUNNER_ENVIRONMENT="$RUNNER_ENVIRONMENT" \
+          python3 tool/macos_tun_deadline.py sudo -n /usr/bin/env USQUE_DISPOSABLE_MAC=1 GITHUB_ACTIONS=true RUNNER_ENVIRONMENT="$RUNNER_ENVIRONMENT" \
             USQUE_TUN_OBSERVER="$GITHUB_WORKSPACE/tool/macos_tun_observer.py" \
             USQUE_TUN_OBSERVER_CONFIG="$USQUE_TUN_OBSERVER_CONFIG" "$(cat "$RUNNER_TEMP/agent-test-path")" \
             --ignored --exact "$name" --test-threads=1 --nocapture --format=pretty --color=never \

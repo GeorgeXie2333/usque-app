@@ -6,10 +6,9 @@ ad-hoc signatures and manual user trust. It requires administrator authorization
 for installation, replacement and removal, without an Apple Developer
 subscription or disabling SIP. Account credentials remain in the user's Keychain.
 
-**Production TUN is release-gated.** The implementation and isolated checks do
-not establish real network safety. The user has no disposable macOS environment
-or external observer; all unavailable real-system acceptance is explicitly
-`not_run`. To build the opt-in TUN test DMGs, run
+**Production TUN is release-gated.** Manual hosted tests exercise selected
+network failures on disposable Macs. Record the runner OS, architecture and
+individual assertions when updating the acceptance matrix. To build the opt-in TUN test DMGs, run
 `python3 tool/macos_package.py build --arch arm64 --test-tun` or use
 `--arch x86_64`. Packages are written under `build/macos-tun-test/<arch>/`
 with a `-tun-test.dmg` suffix. Install or update the bundled background service,
@@ -137,7 +136,27 @@ gh workflow run build.yml --ref feat/macos -f macos_utun=true
 ```
 
 Both **Real utun** jobs must show the named test passing. The socket pair used
-for this test lives in one process. For a disposable Mac with console access, compile
+for this test lives in one process. To run the endpoint-failure and recovery
+scenarios on both architectures with a separate Linux observer:
+
+```sh
+gh workflow run build.yml --ref feat/macos -f macos_tun_e2e=true
+```
+
+The first scenario installs the Agent, provisions synthetic credentials in a
+temporary keychain and connects a separate ordinary-user Engine to an
+unreachable test endpoint. It checks the disconnect response used by the GUI,
+the installed Agent's cleanup status and normal Engine exit. The second drives
+the native Agent transaction past configuration and reads back the effective DNS,
+per-service resolver preferences, IPv4 and IPv6 routes and utun lifetime.
+The HTTPS receiver runs on a separate Ubuntu runner. Its report must contain
+positive controls before protection and after disconnect for each Mac, with no
+protected marker arriving while the guard is active or retained. The probes
+bind to the original physical interface and reuse the pre-resolved destination.
+The public tunnel forwards only synthetic marker requests to the temporary
+receiver. The jobs use no WARP registration or personal account credentials.
+
+For a disposable Mac with console access, compile
 `cargo test --locked --offline -p usque-agent --lib --no-run` as an ordinary
 user. Run the resulting trusted test binary as administrator with
 `USQUE_DISPOSABLE_MAC=1` and `--ignored --exact` plus the full test name.

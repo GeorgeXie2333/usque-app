@@ -16,8 +16,8 @@ on:
         default: false
 
 concurrency:
-  group: build-${{ github.event.pull_request.number || github.ref }}${{ inputs.macos_tun_e2e && '-tun-e2e' || inputs.macos_utun && '-utun' || '' }}
-  cancel-in-progress: true
+  group: build-${{ github.event.pull_request.number || github.ref }}${{ inputs.macos_tun_e2e && format('-tun-e2e-{0}', github.sha) || inputs.macos_utun && '-utun' || '' }}
+  cancel-in-progress: ${{ !inputs.macos_tun_e2e }}
 
 permissions:
   contents: read

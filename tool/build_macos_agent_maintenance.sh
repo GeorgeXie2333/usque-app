@@ -9,4 +9,4 @@ xcrun swiftc -swift-version 5 -warnings-as-errors -O -parse-as-library -target "
   -module-cache-path "$TASK_ROOT/.toolchains/cache/clang" \
   "$TASK_ROOT/tool/macos-agent/Maintenance.swift" "$TASK_ROOT/tool/macos-agent/Main.swift" \
   -o "$TASK_OUTPUT/usque-agent-maintenance"
-/usr/bin/lipo -verify_arch "$TASK_ARCH" "$TASK_OUTPUT/usque-agent-maintenance"
+/usr/bin/lipo "$TASK_OUTPUT/usque-agent-maintenance" -verify_arch "$TASK_ARCH"
