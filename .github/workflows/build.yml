@@ -20,7 +20,7 @@ on:
         default: false
 
 concurrency:
-  group: build-${{ github.event.pull_request.number || github.ref }}${{ inputs.macos_live_warp && '-live-warp' || inputs.macos_tun_e2e && format('-tun-e2e-{0}', github.sha) || inputs.macos_utun && '-utun' || '' }}
+  group: build-${{ github.event.pull_request.number || github.ref }}${{ inputs.macos_live_warp && format('-live-warp-{0}', github.sha) || inputs.macos_tun_e2e && format('-tun-e2e-{0}', github.sha) || inputs.macos_utun && '-utun' || '' }}
   cancel-in-progress: ${{ !inputs.macos_tun_e2e && !inputs.macos_live_warp }}
 
 permissions:
