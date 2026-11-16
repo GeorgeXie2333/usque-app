@@ -774,7 +774,7 @@ fn verify_live_tunnel(socket: &Path, id: Uuid) -> Result<String, String> {
         thread::sleep(Duration::from_millis(200));
     };
     let trace = warp_trace().or_else(|_| warp_trace())?;
-    if !matches!(trace, "on" | "plus") {
+    if trace != "on" {
         return Err(format!("active tunnel trace returned warp={trace}"));
     }
     println!("Cloudflare verified warp={trace} with active tunnel DNS and {interface} route.");
@@ -812,6 +812,16 @@ fn report_dial_evidence(dir: &Path) {
                     fields["recovery"].as_bool(),
                     fields["proxy_recovery"].as_bool()
                 );
+            }
+            Some("MASQUE active carrier lost") => {
+                if let Some(code) = fields["failure_code"].as_str().filter(|code| {
+                    code.len() <= 80
+                        && code
+                            .bytes()
+                            .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_')
+                }) {
+                    *counts.entry(format!("active/{code}")).or_insert(0u32) += 1;
+                }
             }
             _ => {}
         }
@@ -863,7 +873,6 @@ fn live_warp_connect_disconnect_and_exit() {
         "Real WARP Consumer enrollment completed. Connecting with automatic endpoint and transport."
     );
     let connected = verify_live_tunnel(&socket, id);
-    report_dial_evidence(&dir);
     if let Err(reason) = &connected {
         eprintln!("Live traffic verification failed: {reason}");
         // Report only enumerated Agent health and known milestones. Raw provider
@@ -907,10 +916,12 @@ fn live_warp_connect_disconnect_and_exit() {
             }
         }
         eprintln!("Engine milestones and failure codes: {codes:?}");
+        report_dial_evidence(&dir);
     }
     // Exercise ordinary disconnect even after dial or traffic failure.
     disconnect(&socket, &baseline);
     normal_exit(child, &socket);
+    report_dial_evidence(&dir);
     assert_eq!(warp_trace().as_deref(), Ok("off"), "post-disconnect trace");
     println!(
         "Disconnect restored baseline DNS/routes, Agent is clean, Engine exited, Cloudflare warp=off."

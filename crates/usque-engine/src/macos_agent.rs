@@ -664,13 +664,12 @@ pub(super) async fn project_recovery(
         Ok(_) => (),
     }
     let engine = install.join("usque-engine");
-    if std::env::current_exe().ok().as_deref() == Some(engine.as_path())
-        && let Ok(Ok(status)) = tokio::time::timeout(Duration::from_secs(2), async {
-            MacAgentClient::connect().await?.status().await
-        })
-        .await
-    {
-        project_observation(snapshot, Some(&status));
+    if std::env::current_exe().ok().as_deref() == Some(engine.as_path()) {
+        // Configure holds the Agent lock while it verifies DNS and routes. Use
+        // the authenticated socket's I/O deadline. A child process cannot
+        // report ownership for this PID while Configure is still running.
+        let status = async { MacAgentClient::connect().await?.status().await }.await;
+        project_observation(snapshot, status.as_ref().ok());
     } else if !cache.observe(&engine).await {
         project_observation(snapshot, None);
     }

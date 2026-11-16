@@ -2457,6 +2457,8 @@ async fn run_transport_supervisor(
         } else {
             match outcome {
                 ActiveOutcome::Reconnect(failure) => {
+                    tracing::debug!(transport = ?active_transport, stage = ?failure.stage,
+                        failure_code = failure.code.as_str(), "MASQUE active carrier lost");
                     match RecoveryDecision::for_failure(&failure) {
                         RecoveryDecision::Stop => ActiveOutcome::Terminal(failure),
                         RecoveryDecision::RefreshPin => ActiveOutcome::PinMismatch,
