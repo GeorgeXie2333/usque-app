@@ -213,9 +213,17 @@ impl MacAgentRuntime {
         ))
         .await
         .map_err(io::Error::other)?;
-        tracing::info!("macOS TUN remote data plane prepared");
-        apply_final_network(&mut plan, &tunnel.network_parameters());
         let ready = async {
+            // Continuous startup returns a live supervisor before it has a
+            // carrier. Leave physical DNS and routes in place until WARP
+            // actually connects, including when the user stops during retries.
+            tunnel
+                .underlay_monitor()
+                .wait_until_ready(&cancel)
+                .await
+                .map_err(io::Error::other)?;
+            tracing::info!("macOS TUN remote data plane prepared");
+            apply_final_network(&mut plan, &tunnel.network_parameters());
             agent
                 .empty(Operation::Configure(p::MacosConfigure {
                     fence: Some(fence.clone()),
@@ -242,6 +250,8 @@ impl MacAgentRuntime {
             Err(error) => {
                 cancel.cancel();
                 tunnel.shutdown().await;
+                agent.abandon().await;
+                owner.1 = false;
                 return Err(error);
             }
         };

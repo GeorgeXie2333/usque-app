@@ -2356,6 +2356,11 @@ async fn run_initial_transport_supervisor(
             Some(Ok(value)) => connected = Some(value),
             Some(Err(error)) => {
                 let failure = error.failure(None, None);
+                tracing::debug!(
+                    attempt,
+                    transport_failure = failure.code.as_str(),
+                    "MASQUE initial dial failed"
+                );
                 if RecoveryDecision::for_failure(&failure) != RecoveryDecision::Retry {
                     let message = failure.code.to_string();
                     context.health_tx.send_replace(RuntimeHealth::Failed {
