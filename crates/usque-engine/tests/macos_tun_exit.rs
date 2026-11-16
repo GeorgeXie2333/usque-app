@@ -120,7 +120,8 @@ fn retry_preparing(socket: &Path, log_path: &Path) {
     let Some(control_response::Payload::Status(snapshot)) = response.payload else {
         panic!("Retry did not acknowledge a snapshot")
     };
-    assert_eq!(snapshot.phase(), v1::ConnectionPhase::Preparing);
+    // The Engine reports its H2 dial while the Agent journal remains Preparing.
+    assert_eq!(snapshot.phase(), v1::ConnectionPhase::ConnectingHttp2);
     let acknowledged = fs::read(log_path).unwrap().len();
     wait_until(
         "subsequent real dial after GUI Retry",
