@@ -99,6 +99,7 @@ jobs:
           key: tun-e2e-v1-${{ matrix.runner }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}-deps
           restore-keys: tun-e2e-v1-${{ matrix.runner }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}-
       - name: Build ordinary-user Engine and privileged Agent with test TUN enabled
+        id: native_build
         run: |
           cargo build --locked --no-default-features -p usque-engine -p usque-agent \
             --features usque-engine/macos-test-tun,usque-agent/macos-test-tun \
@@ -131,6 +132,8 @@ jobs:
           python3 tool/macos_tun_deadline.py bash tool/macos_tun_engine.sh target/debug/usque-engine target/debug/usque-agent \
             "$(cat "$RUNNER_TEMP/engine-test-path")"
       - name: Locate the independent receiver and pin the physical probe destination
+        id: receiver
+        if: ${{ !cancelled() && steps.native_build.outcome == 'success' }}
         env:
           GH_TOKEN: ${{ github.token }}
           USQUE_TUN_OBSERVER_CONFIG: ${{ runner.temp }}/observer/client.json
@@ -143,6 +146,7 @@ jobs:
           done
           python3 tool/macos_tun_observer.py prepare "$dir/endpoint.json"
       - name: Check physical probes during active and retained protection, then verify DNS and route restoration
+        if: ${{ !cancelled() && steps.receiver.outcome == 'success' }}
         shell: bash
         env:
           RUNNER_ENVIRONMENT: ${{ runner.environment }}
@@ -150,11 +154,29 @@ jobs:
           USQUE_TUN_OBSERVER_CONFIG: ${{ runner.temp }}/observer/client.json
         run: |
           set -euo pipefail
+          wire() {
+            sudo -n /usr/bin/env USQUE_DISPOSABLE_MAC=1 GITHUB_ACTIONS=true RUNNER_ENVIRONMENT="$RUNNER_ENVIRONMENT" \
+              USQUE_TUN_OBSERVER_CONFIG="$USQUE_TUN_OBSERVER_CONFIG" "$GITHUB_WORKSPACE/tool/macos_tun_wire.py" "$1"
+          }
+          trap 'wire cleanup' EXIT
+          wire setup
           name=macos::backend::disposable::configured_tun_disconnect_restores_network
           python3 tool/macos_tun_deadline.py sudo -n /usr/bin/env USQUE_DISPOSABLE_MAC=1 GITHUB_ACTIONS=true RUNNER_ENVIRONMENT="$RUNNER_ENVIRONMENT" \
-            USQUE_TUN_OBSERVER="$GITHUB_WORKSPACE/tool/macos_tun_observer.py" \
+            USQUE_TUN_OBSERVER="$GITHUB_WORKSPACE/tool/macos_tun_wire.py" \
             USQUE_TUN_OBSERVER_CONFIG="$USQUE_TUN_OBSERVER_CONFIG" "$(cat "$RUNNER_TEMP/agent-test-path")" \
             --ignored --exact "$name" --test-threads=1 --nocapture --format=pretty --color=never \
             | tee "$RUNNER_TEMP/configured-result.txt"
           grep -Eq '^test result: ok\. 1 passed; 0 failed; 0 ignored;' "$RUNNER_TEMP/configured-result.txt"
           python3 tool/macos_tun_observer.py finish
+      - name: Preserve synthetic receive-side probes
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: macos-tun-wire-${{ matrix.arch }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/observer/wire/*.pcap
+            ${{ runner.temp }}/observer/wire/before.json
+            ${{ runner.temp }}/observer/wire/active.json
+            ${{ runner.temp }}/observer/wire/retained.json
+            ${{ runner.temp }}/observer/wire/after.json
+          retention-days: 14

@@ -87,6 +87,28 @@ class BoundProbeTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "did not acknowledge"):
                 observer.bound_request(self.config, "after")
 
+    def test_finish_uses_default_resolver_and_routing_after_successful_cleanup(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "client.json"
+            self.config.update(phases=list(observer.PHASES))
+            observer.write_json(path, self.config)
+            with (
+                patch.object(observer.os, "getuid", return_value=501),
+                patch.object(observer, "bound_request") as bound,
+                patch.object(http.client, "HTTPSConnection") as unbound,
+            ):
+                response = unbound.return_value.getresponse.return_value
+                response.status = 200
+                response.read.return_value = self.config["session"].encode()
+                observer.probe("finish", path)
+                bound.assert_not_called()
+                self.assertEqual(unbound.call_args.args, (self.config["host"],))
+                self.assertEqual(
+                    unbound.return_value.request.call_args.args,
+                    ("POST", f"/{self.config['target']}/arm64/{self.config['session']}/finish"),
+                )
+            self.assertEqual(observer.read_json(path)["phases"][-1], "finish")
+
 
 if __name__ == "__main__":
     unittest.main()

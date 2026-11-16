@@ -131,9 +131,11 @@ fn failed_endpoint_disconnect_and_exit() {
         .unwrap()
         .parse()
         .unwrap();
-    let dir = tempfile::tempdir_in("/private/tmp").unwrap();
-    let config_path = dir.path().join("config.json");
-    let socket = dir.path().join("control.sock");
+    let fixture = std::env::var("USQUE_TEST_DIRECTORY").unwrap();
+    let dir = Path::new(&fixture).join("engine-state");
+    fs::create_dir(&dir).unwrap();
+    let config_path = dir.join("config.json");
+    let socket = dir.join("control.sock");
     let closed_endpoint = TcpListener::bind((host, 0)).unwrap().local_addr().unwrap();
     assert_eq!(
         TcpStream::connect_timeout(&closed_endpoint, Duration::from_secs(1))
@@ -196,7 +198,7 @@ fn failed_endpoint_disconnect_and_exit() {
         .error
         .expect("closed endpoint unexpectedly connected");
     println!("Connect returned {}", error.code);
-    let engine_log = dir.path().join("logs/engine.jsonl");
+    let engine_log = dir.join("logs/engine.jsonl");
     // A nonblocking connect can report refusal immediately in the Agent or
     // later via SO_ERROR in the Engine. Both reach this production failure
     // code. A Keychain/preflight failure or an absent Agent cannot qualify.

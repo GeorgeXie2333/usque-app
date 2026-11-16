@@ -153,6 +153,11 @@ The HTTPS receiver runs on a separate Ubuntu runner. Its report must contain
 positive controls before protection and after disconnect for each Mac, with no
 protected marker arriving while the guard is active or retained. The probes
 bind to the original physical interface and reuse the pre-resolved destination.
+After cleanup, a separate request resolves the receiver by name and uses the
+default route. On each Mac a paired Ethernet interface also captures synthetic
+IPv4 and IPv6 TCP, UDP and DNS probes on the receiving link. Each protocol
+must be visible before and after protection, with zero matching frames during
+both protected phases. The workflow saves the filtered captures and counts.
 The public tunnel forwards only synthetic marker requests to the temporary
 receiver. The jobs use no WARP registration or personal account credentials.
 

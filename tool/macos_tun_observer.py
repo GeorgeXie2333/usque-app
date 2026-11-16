@@ -135,8 +135,22 @@ def serve(directory: Path) -> None:
                 while tunnel.poll() is None and time.monotonic() < deadline:
                     match = re.search(rf"https://({TUNNEL_HOST})(?![a-z0-9.-])", log.read_text())
                     if match:
+                        # Resolve the fresh hostname on Linux. The Mac pins these
+                        # physical probes without warming its resolver before recovery.
+                        try:
+                            answers = socket.getaddrinfo(
+                                match[1], 443, socket.AF_INET, socket.SOCK_STREAM
+                            )
+                        except socket.gaierror:
+                            time.sleep(1)
+                            continue
                         write_json(
-                            directory / "endpoint.json", {"host": match[1], "target": server.target}
+                            directory / "endpoint.json",
+                            {
+                                "host": match[1],
+                                "target": server.target,
+                                "addresses": sorted({entry[4][0] for entry in answers}),
+                            },
                         )
                         server.timeout = 2
                         while tunnel.poll() is None:
@@ -146,6 +160,14 @@ def serve(directory: Path) -> None:
                 raise RuntimeError("external observer tunnel failed, see connector.log")
             finally:
                 tunnel.terminate()
+
+
+def acknowledge(conn: http.client.HTTPConnection, config: dict, phase: str) -> None:
+    path = "/".join((config["target"], config["arch"], config["session"], phase))
+    conn.request("POST", "/" + path, body=b"")
+    response = conn.getresponse()
+    if response.status != 200 or response.read(128).decode() != config["session"]:
+        raise RuntimeError(f"external receiver did not acknowledge {phase}")
 
 
 def bound_request(config: dict, phase: str, *, forbid_connect: bool = False) -> None:
@@ -167,11 +189,7 @@ def bound_request(config: dict, phase: str, *, forbid_connect: bool = False) -> 
         with ssl.create_default_context().wrap_socket(raw, server_hostname=config["host"]) as tls:
             with contextlib.closing(http.client.HTTPConnection(config["host"])) as conn:
                 conn.sock = tls
-                path = "/".join((config["target"], config["arch"], config["session"], phase))
-                conn.request("POST", "/" + path, body=b"")
-                response = conn.getresponse()
-                if response.status != 200 or response.read(128).decode() != config["session"]:
-                    raise RuntimeError(f"external receiver did not acknowledge {phase}")
+                acknowledge(conn, config, phase)
     if forbid_connect:
         raise RuntimeError(f"physical-bound HTTPS probe escaped the Kill Switch during {phase}")
 
@@ -183,14 +201,18 @@ def prepare(endpoint: Path, path: Path) -> None:
     host = config["host"]
     if not re.fullmatch(TUNNEL_HOST, host) or not re.fullmatch(r"[0-9a-f]{48}", config["target"]):
         raise ValueError("invalid external observer endpoint")
+    addresses = config.pop("addresses")
+    if (
+        not addresses
+        or len(addresses) > 16
+        or not all(ipaddress.IPv4Address(address).is_global for address in addresses)
+    ):
+        raise ValueError("invalid physical observer addresses")
     config.update(arch=platform.machine(), session=secrets.token_hex(16), phases=[])
     last_error = None
     for _ in range(12):
         try:
-            addresses = socket.getaddrinfo(host, 443, socket.AF_INET, socket.SOCK_STREAM)
-            for address in dict.fromkeys(info[4][0] for info in addresses):
-                if not ipaddress.ip_address(address).is_global:
-                    raise ValueError("unexpected nonpublic observer address")
+            for address in addresses:
                 route = subprocess.check_output(  # noqa: S603 - OS command and validated numeric IP.
                     ["/sbin/route", "-n", "get", "-inet", address], text=True
                 )
@@ -227,6 +249,12 @@ def probe(phase: str, path: Path) -> None:
         raise RuntimeError(f"expected preceding probe phases before {phase}")
     if phase in ("active", "retained"):
         bound_request(config, phase, forbid_connect=True)
+    elif phase == "finish":
+        # HTTPSConnection resolves this run's hostname through macOS and uses
+        # the default route. Success requires a matching receipt from Linux.
+        with contextlib.closing(http.client.HTTPSConnection(config["host"], timeout=12)) as conn:
+            acknowledge(conn, config, phase)
+        print("finish: external HTTPS acknowledged after ordinary DNS and unbound connect")
     else:
         bound_request(config, phase)
         print(f"{phase}: Linux receiver acknowledged physical-bound probe")
@@ -266,7 +294,8 @@ def wait(directory: Path) -> None:
                     f"missing controls or protected traffic received: {observations}"
                 )
             print(
-                "External Linux physical-bound IPv4 HTTPS observations:", json.dumps(observations)
+                "External Linux HTTPS observations (finish uses normal DNS and routing):",
+                json.dumps(observations),
             )
             return
         time.sleep(10)

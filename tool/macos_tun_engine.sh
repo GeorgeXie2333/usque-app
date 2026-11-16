@@ -41,6 +41,9 @@ cleanup() {
       sudo -n "$installed/usque-agent" --recover-state || true
     fi
   fi
+  if (( result != 0 )); then
+    python3 tool/macos_tun_engine_failure.py "$fixture" "$installed/usque-engine"
+  fi
   if [[ -f "$keychain" ]]; then
     security default-keychain -d user -s "$original_default" || result=1
     python3 - "$fixture/original-search-list" <<'PY' || result=1
@@ -67,6 +70,7 @@ security list-keychains -d user -s "$keychain"
 security default-keychain -d user -s "$keychain"
 unset password
 export USQUE_TEST_KEYCHAIN="$keychain"
+export USQUE_TEST_DIRECTORY="$fixture"
 iface=$(route -n get -inet default | awk '$1 == "interface:" { print $2 }')
 USQUE_TEST_PHYSICAL_V4=$(ipconfig getifaddr "$iface")
 export USQUE_TEST_PHYSICAL_V4

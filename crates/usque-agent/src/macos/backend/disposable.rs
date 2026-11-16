@@ -224,6 +224,32 @@ fn require_endpoint_failure(
     }
 }
 
+fn fixture_plan(endpoint: SocketAddr) -> TunnelPlan {
+    TunnelPlan {
+        profile_id: Uuid::new_v4().to_string(),
+        endpoint: endpoint.to_string(),
+        control_api_candidates: vec!["198.51.100.1:443".into()],
+        assigned_ipv4: "198.19.0.2/32".into(),
+        assigned_ipv6: "fd29::2/128".into(),
+        dns_servers: DNS.map(str::to_owned).to_vec(),
+        mtu: 1280,
+        split_dns: true,
+        kill_switch: true,
+        ..Default::default()
+    }
+}
+
+#[test]
+fn fixture_plan_meets_agent_prepare_and_configure_contracts() {
+    let wire = fixture_plan(format!("{ENDPOINT_IP}:443").parse().unwrap());
+    ValidatedTunnelPlan::from_macos_prepare(TunnelPlan {
+        defer_network_configuration: true,
+        ..wire.clone()
+    })
+    .unwrap();
+    ValidatedTunnelPlan::try_from(wire).unwrap();
+}
+
 #[test]
 #[ignore = "mutates DNS, routing and PF; only on a disposable hosted macOS runner"]
 fn configured_tun_disconnect_restores_network() -> io::Result<()> {
@@ -268,17 +294,7 @@ fn configured_tun_disconnect_restores_network() -> io::Result<()> {
     check(original_routes[0].is_some(), "no baseline IPv4 route")?;
     check(original_effective != DNS, "test DNS already in use")?;
     observer.probe("before")?;
-    let wire = TunnelPlan {
-        profile_id: Uuid::new_v4().to_string(),
-        endpoint: endpoint.to_string(),
-        assigned_ipv4: "198.19.0.2/32".into(),
-        assigned_ipv6: "fd29::2/128".into(),
-        dns_servers: DNS.map(str::to_owned).to_vec(),
-        mtu: 1280,
-        split_dns: true,
-        kill_switch: true,
-        ..Default::default()
-    };
+    let wire = fixture_plan(endpoint);
     let staging = TunnelPlan {
         defer_network_configuration: true,
         ..wire.clone()
