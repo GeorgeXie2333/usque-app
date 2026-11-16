@@ -544,7 +544,7 @@ def package(
         (volume / "DEVELOPMENT - READ ME.txt").write_text(
             "Usque macOS development build\n\nDrag Usque.app to Applications to install.\n"
             "This ad-hoc build is not notarized. Production automatic installation is disabled.\n"
-            "For the system proxy, install the macOS background service in Settings. Usque reopens automatically after the first installation.\n"
+            "For the system proxy, authorize the macOS background service on the setup permissions page or install it later in Settings. Usque reopens automatically after the first installation.\n"
             "After repairing or updating an existing service, reopen Usque manually.\n"
             "Only service maintenance needs administrator approval during normal use.\n"
             f"{tun_note}"

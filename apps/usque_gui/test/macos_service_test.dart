@@ -5,13 +5,16 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:usque/core/usque_theme.dart';
 import 'package:usque/models/app_models.dart';
+import 'package:usque/screens/onboarding_screen.dart';
 import 'package:usque/services/desktop_engine_transport.dart';
 import 'package:usque/services/engine_client.dart';
 import 'package:usque/state/app_controller.dart';
 import 'package:usque/widgets/local_proxy_outputs.dart';
 import 'package:usque/widgets/macos_service_section.dart';
+import 'package:usque/widgets/usque_logo.dart';
 
 import 'app_test.dart' show FakeEngineClient;
 import 'ui_workflow_test.dart' show workflowHost;
@@ -23,6 +26,7 @@ class ServiceEngine extends FakeEngineClient implements MacosServiceClient {
   bool cleanupFails = false;
   bool relaunchFails = false;
   Completer<void>? authorization;
+  Completer<void>? statusGate;
   int statusReads = 0;
 
   @override
@@ -43,6 +47,7 @@ class ServiceEngine extends FakeEngineClient implements MacosServiceClient {
   @override
   Future<MacosServiceState> getMacosServiceState() async {
     statusReads++;
+    await statusGate?.future;
     return state;
   }
 
@@ -68,6 +73,163 @@ class ServiceEngine extends FakeEngineClient implements MacosServiceClient {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  testWidgets(
+    'first visit to macOS permissions requests installation once and preserves a retry after reopening',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final engine = ServiceEngine()..cancelFirst = true;
+      final app = AppController(engine)
+        ..localePreference = LocalePreference.english;
+      addTearDown(app.dispose);
+      await tester.pumpWidget(
+        workflowHost(app, home: OnboardingScreen(controller: app)),
+      );
+      await tester.pumpAndSettle();
+      expect(engine.actions, isEmpty);
+      await tester.tap(
+        find.widgetWithText(FilledButton, app.strings.get('continue')),
+      );
+      await tester.pumpAndSettle();
+      expect(app.onboardingStep, 1);
+      expect(engine.actions, [MacosServiceAction.install]);
+      expect(
+        find.text(app.strings.get('macos_service_failed')),
+        findsOneWidget,
+      );
+      await tester.tap(
+        find.widgetWithText(FilledButton, app.strings.get('continue')),
+      );
+      await tester.pumpAndSettle();
+      expect(app.onboardingStep, 2);
+      await tester.tap(
+        find.widgetWithText(OutlinedButton, app.strings.get('back')),
+      );
+      await tester.pumpAndSettle();
+      await tester.pumpWidget(const SizedBox.shrink());
+      final reopened = AppController(engine)
+        ..localePreference = LocalePreference.english
+        ..onboardingStep = (await SharedPreferences.getInstance()).getInt(
+          'onboarding_step',
+        )!;
+      addTearDown(reopened.dispose);
+      await tester.pumpWidget(
+        workflowHost(reopened, home: OnboardingScreen(controller: reopened)),
+      );
+      await tester.pumpAndSettle();
+      expect(engine.actions, [MacosServiceAction.install]);
+      await tester.tap(find.byKey(const ValueKey('macos-service-install')));
+      await tester.pump();
+      expect(engine.calls.where((call) => call == 'relaunch'), hasLength(1));
+      await tester.pumpWidget(const SizedBox.shrink());
+      final resumed = AppController(engine)
+        ..onboardingStep = reopened.onboardingStep;
+      addTearDown(resumed.dispose);
+      await tester.pumpWidget(
+        workflowHost(resumed, home: OnboardingScreen(controller: resumed)),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.text(resumed.strings.get('macos_service_installed')),
+        findsOneWidget,
+      );
+      expect(engine.actions, [
+        MacosServiceAction.install,
+        MacosServiceAction.install,
+      ]);
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.macOS),
+  );
+
+  testWidgets(
+    'restored permissions step probes an installed service without a new prompt',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final engine = ServiceEngine()
+        ..state = const MacosServiceState(
+          installed: true,
+          compatible: true,
+          canMaintain: true,
+        );
+      final app = AppController(engine)..onboardingStep = 1;
+      addTearDown(app.dispose);
+      await tester.pumpWidget(
+        workflowHost(app, home: OnboardingScreen(controller: app)),
+      );
+      await tester.pumpAndSettle();
+      expect(engine.statusReads, 1);
+      expect(engine.actions, isEmpty);
+      expect(find.byKey(const ValueKey('macos-service-more')), findsNothing);
+      expect(find.text(app.strings.get('permission_note')), findsNothing);
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.macOS),
+  );
+
+  testWidgets(
+    'a late service probe does not prompt over the terms page or consume the first visit',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final engine = ServiceEngine()
+        ..statusGate = Completer<void>()
+        ..cancelFirst = true;
+      final app = AppController(engine)..onboardingStep = 1;
+      addTearDown(app.dispose);
+      await tester.pumpWidget(
+        workflowHost(app, home: OnboardingScreen(controller: app)),
+      );
+      await tester.pump();
+      expect(engine.statusReads, 1);
+      await tester.tap(
+        find.widgetWithText(FilledButton, app.strings.get('continue')),
+      );
+      engine.statusGate!.complete();
+      await tester.pumpAndSettle();
+      expect(app.onboardingStep, 2);
+      expect(engine.actions, isEmpty);
+      await tester.tap(
+        find.widgetWithText(OutlinedButton, app.strings.get('back')),
+      );
+      await tester.pumpAndSettle();
+      expect(engine.actions, [MacosServiceAction.install]);
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.macOS),
+  );
+
+  testWidgets(
+    'macOS setup permission actions fit narrow translated and right-to-left layouts',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({
+        'onboarding_macos_service_prompted': true,
+      });
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(375, 780);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
+      for (final locale in LocalePreference.values.where(
+        (value) => value != LocalePreference.system,
+      )) {
+        final app = AppController(ServiceEngine())
+          ..onboardingStep = 1
+          ..localePreference = locale;
+        addTearDown(app.dispose);
+        await tester.pumpWidget(
+          workflowHost(
+            app,
+            scale: 1.3,
+            home: OnboardingScreen(controller: app),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(
+          find.text(app.strings.get('macos_service_install')),
+          findsOneWidget,
+          reason: locale.name,
+        );
+        expect(tester.takeException(), isNull, reason: locale.name);
+        await tester.pumpWidget(const SizedBox.shrink());
+      }
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.macOS),
+  );
   test(
     'native relaunch blocks a second opener and Engine restart until a failed handoff returns',
     () async {
@@ -481,13 +643,15 @@ void main() {
       version: '0.3.4',
     ),
     'service_missing_zh': const MacosServiceState(canMaintain: true),
+    'onboarding_permissions_zh': const MacosServiceState(canMaintain: true),
   }.entries) {
     testWidgets(
       'macOS exact golden ${fixture.key}',
       (tester) async {
-        final chinese = fixture.key == 'service_missing_zh';
+        final onboarding = fixture.key == 'onboarding_permissions_zh';
+        final chinese = fixture.key.endsWith('_zh');
         tester.view.devicePixelRatio = 1;
-        tester.view.physicalSize = chinese
+        tester.view.physicalSize = chinese && !onboarding
             ? const Size(640, 210)
             : const Size(900, 720);
         addTearDown(tester.view.resetDevicePixelRatio);
@@ -542,29 +706,44 @@ void main() {
             vpn: fixture.value.tunAvailable,
             systemProxy: true,
           );
+        if (onboarding) {
+          SharedPreferences.setMockInitialValues({});
+          app.onboardingStep = 1;
+          engine.cancelFirst = true;
+        }
         addTearDown(app.dispose);
         await tester.pumpWidget(
           workflowHost(
             app,
             home: RepaintBoundary(
               key: const ValueKey('mac-capture'),
-              child: Scaffold(
-                body: Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Column(
-                    children: [
-                      MacosServiceSection(controller: app),
-                      if (!chinese) ...[
-                        const SizedBox(height: 24),
-                        LocalProxyOutputs(controller: app, enabled: true),
-                      ],
-                    ],
-                  ),
-                ),
-              ),
+              child: onboarding
+                  ? OnboardingScreen(controller: app)
+                  : Scaffold(
+                      body: Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Column(
+                          children: [
+                            MacosServiceSection(controller: app),
+                            if (!chinese) ...[
+                              const SizedBox(height: 24),
+                              LocalProxyOutputs(controller: app, enabled: true),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ),
             ),
           ),
         );
+        if (onboarding) {
+          await tester.runAsync(
+            () => precacheImage(
+              const AssetImage(UsqueLogo.lightAsset),
+              tester.element(find.byType(MaterialApp)),
+            ),
+          );
+        }
         await tester.pumpAndSettle();
         expect(tester.takeException(), isNull);
         final arch = Abi.current() == Abi.macosArm64 ? 'arm64' : 'x86_64';

@@ -11,7 +11,8 @@ network failures on disposable Macs. Record the runner OS, architecture and
 individual assertions when updating the acceptance matrix. To build the opt-in TUN test DMGs, run
 `python3 tool/macos_package.py build --arch arm64 --test-tun` or use
 `--arch x86_64`. Packages are written under `build/macos-tun-test/<arch>/`
-with a `-tun-test.dmg` suffix. Install the background service from Settings.
+with a `-tun-test.dmg` suffix. Install the background service on the setup
+wizard's permissions page or later in Settings.
 Usque reopens automatically after the first installation. Reopen it manually
 after a service update. A matching Engine and Agent, network preflight and
 clean recovery state enable the TUN switch in Home and Proxy. Both helpers embed
@@ -180,9 +181,12 @@ package hash for each run. A loopback test cannot observe physical egress.
 ## Installation and administrator recovery
 
 Build the matching architecture using [packaging instructions](MACOS_DEVELOPMENT_PACKAGING.md),
-copy the manually trusted app to Applications, then use **Settings → macOS
-background service**. Install/update invokes system administrator authorization.
-Installing the service from Settings automatically reopens Usque with the pinned Engine after cleanup. After a repair or replacement, reopen Usque to use the updated service.
+copy the manually trusted app to Applications and open it. The setup wizard's
+permissions page requests administrator authorization once if installation is needed.
+You can cancel and retry on that page, or continue setup and install later in
+**Settings → macOS background service**. Installing the service reopens Usque
+with the pinned Engine after cleanup. Setup resumes at the saved step.
+After a repair or replacement, reopen Usque to use the updated service.
 Daily connections use the installed service without another authorization prompt.
 Service mutations are disabled while the GUI owns an active connection.
 

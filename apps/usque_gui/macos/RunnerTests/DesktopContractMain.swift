@@ -56,9 +56,14 @@ enum DesktopContractMain {
       ("zh-Hans-SG", "zh_CN"), ("zh", "zh_CN")] {
       try require(NativeLocalization(preferredLanguages: [input]).catalogID == expected, "native startup differs from shared Flutter Chinese catalog policy")
     }
-    for input in ["en", "fr", "invalid", String(repeating: "x", count: 129)] {
+    for id in ["ja", "ko", "es", "pt", "fr", "nl", "tr", "ru", "fa", "ar", "de", "id", "it", "pl", "th", "uk", "vi"] {
+      try require(NativeLocalization(catalogID: id).catalogID == id, "supported native catalog fell back: \(id)")
+    }
+    try require(NativeLocalization(preferredLanguages: ["pt-BR"]).catalogID == "pt", "regional Portuguese fallback")
+    for input in ["en", "invalid", String(repeating: "x", count: 129)] {
       try require(NativeLocalization(catalogID: input).catalogID == "en", "unsupported native catalog is not safely defaulted")
     }
+    try require(NativeLocalization(catalogID: "in-ID").catalogID == "id", "legacy Indonesian language code")
   }
 
   private static func nativeLocalizedCopy() throws {
@@ -87,12 +92,31 @@ enum DesktopContractMain {
     guard CommandLine.arguments.count == 2 else {
       throw NSError(domain: "DesktopContract", code: 2, userInfo: [NSLocalizedDescriptionKey: "pass the MainMenu.xib fixture path"])
     }
-    let xml = try XMLDocument(contentsOf: URL(fileURLWithPath: CommandLine.arguments[1]))
+    let xib = URL(fileURLWithPath: CommandLine.arguments[1])
+    let xml = try XMLDocument(contentsOf: xib)
     let titles = try xml.nodes(forXPath: "//menu/@title | //menuItem/@title")
     let traditional = NativeLocalization(catalogID: "zh_TW")
     for attribute in titles {
       guard let title = attribute.stringValue, !["APP_NAME", "Main Menu"].contains(title) else { continue }
       try require(traditional.menuTitle(title) != title.replacingOccurrences(of: "APP_NAME", with: "Usque"), "native menu lacks Traditional translation: \(title)")
+    }
+    let info = try Data(contentsOf: xib.deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Info.plist"))
+    let plist = try PropertyListSerialization.propertyList(from: info, format: nil) as? [String: Any]
+    let regions = plist?["CFBundleLocalizations"] as? [String] ?? []
+    func strings(_ folder: String) throws -> [String: String] {
+      let file = Bundle.main.resourceURL!.appendingPathComponent("\(folder).lproj/UsqueNative.strings")
+      return try PropertyListSerialization.propertyList(from: Data(contentsOf: file), format: nil) as? [String: String] ?? [:]
+    }
+    let originals = try strings("en")
+    try require(!originals.isEmpty && regions.contains("fa"), "missing native catalog metadata")
+    for region in regions {
+      let local = NativeLocalization(catalogID: region)
+      let folder = ["zh-HK", "zh-TW"].contains(region) ? "zh-Hant" : region
+      let translated = try strings(folder)
+      try require(Set(translated.keys) == Set(originals.keys), "incomplete native strings: \(region)")
+      for (key, value) in translated {
+        try require(!value.isEmpty && local.text(key) == value, "wrong native lookup: \(region) / \(key)")
+      }
     }
   }
 

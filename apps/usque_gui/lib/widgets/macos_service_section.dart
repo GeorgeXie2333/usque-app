@@ -5,8 +5,13 @@ import '../state/app_controller.dart';
 import 'common.dart';
 
 class MacosServiceSection extends StatefulWidget {
-  const MacosServiceSection({required this.controller, super.key});
+  const MacosServiceSection({
+    required this.controller,
+    this.onboarding = false,
+    super.key,
+  });
   final AppController controller;
+  final bool onboarding;
   @override
   State<MacosServiceSection> createState() => _MacosServiceSectionState();
 }
@@ -21,19 +26,38 @@ class _MacosServiceSectionState extends State<MacosServiceSection> {
   @override
   void initState() {
     super.initState();
-    _refresh();
+    // Present the system sheet over the visible permissions page.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _refresh(requestInstall: widget.onboarding);
+    });
   }
 
-  Future<void> _refresh({String? notice}) async {
+  Future<void> _refresh({String? notice, bool requestInstall = false}) async {
     setState(() => _reading = true);
+    final controller = widget.controller;
     try {
-      final state = await widget.controller.getMacosServiceState();
+      final state = await controller.getMacosServiceState();
+      if (!mounted) return;
+      final install =
+          requestInstall &&
+          !state.installed &&
+          state.canMaintain &&
+          !state.recoveryPending &&
+          !state.protectionRetained &&
+          !controller.snapshot.isConnected &&
+          !controller.snapshot.isTransitional &&
+          await controller.claimMacosOnboardingInstallPrompt();
       if (!mounted) return;
       setState(() {
         _state = state;
         _notice = notice;
         _reading = false;
       });
+      if (install &&
+          controller.onboardingStep == 1 &&
+          !controller.onboardingComplete) {
+        await _maintain(MacosServiceAction.install);
+      }
     } on Object {
       if (!mounted) return;
       setState(() {
@@ -245,7 +269,11 @@ class _MacosServiceSectionState extends State<MacosServiceSection> {
                     tone: StatusTone.warning,
                   ),
                 ],
-                if (state != null) ...[
+                if (state != null &&
+                    (!widget.onboarding ||
+                        !installed ||
+                        incompatible ||
+                        recovery)) ...[
                   const SizedBox(height: 12),
                   Wrap(
                     spacing: 8,
@@ -265,7 +293,7 @@ class _MacosServiceSectionState extends State<MacosServiceSection> {
                           enabled: enabled,
                           prominent: false,
                         ),
-                      if (installed)
+                      if (installed && !widget.onboarding)
                         PopupMenuButton<MacosServiceAction>(
                           key: const ValueKey('macos-service-more'),
                           tooltip: strings.get('macos_service_more'),

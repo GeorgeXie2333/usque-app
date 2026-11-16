@@ -173,7 +173,7 @@ final class DesktopIntegration: NSObject, NSWindowDelegate, UNUserNotificationCe
   }
 
   private func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
-    if AgentMaintenanceBridge.handle(call, result: result) { return }
+    if AgentMaintenanceBridge.handle(call, localization: localization, result: result) { return }
     let values = call.arguments as? [String: Any]
     switch call.method {
     case "relaunchMacosApp":
@@ -186,7 +186,7 @@ final class DesktopIntegration: NSObject, NSWindowDelegate, UNUserNotificationCe
         result(nil)
         NSApp.terminate(nil)
       } catch {
-        result(FlutterError(code: "MACOS_SERVICE_RELAUNCH_FAILED", message: "Could not reopen Usque.", details: nil))
+        result(FlutterError(code: "MACOS_SERVICE_RELAUNCH_FAILED", message: text("Could not reopen Usque."), details: nil))
       }
     case "getWindowVisibility": result(visible)
     case "platformPreferences":

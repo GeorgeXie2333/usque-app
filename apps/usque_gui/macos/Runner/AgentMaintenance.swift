@@ -11,7 +11,7 @@ enum AgentMaintenanceBridge {
     matchesInstalledMacosService(root: URL(fileURLWithPath: root),
       contents: Bundle.main.bundleURL.appendingPathComponent("Contents"))
   }
-  static func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) -> Bool {
+  static func handle(_ call: FlutterMethodCall, localization: NativeLocalization, result: @escaping FlutterResult) -> Bool {
     if call.method == "macosUseInstalledEngine" {
       DispatchQueue.global(qos: .userInitiated).async {
         let matches = matchesBundledService()
@@ -46,11 +46,11 @@ enum AgentMaintenanceBridge {
     } else {
       let values = call.arguments as? [String: Any]
       guard let operation = values?["operation"] as? String, ["install", "repair", "recover", "uninstall"].contains(operation), values?.count == 1 else {
-        result(FlutterError(code: "MACOS_AGENT_INVALID_OPERATION", message: "Unknown service action.", details: nil)); return true
+        result(FlutterError(code: "MACOS_AGENT_INVALID_OPERATION", message: localization.text("Unknown service action."), details: nil)); return true
       }
       let helper = Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/usque-agent-maintenance")
       guard FileManager.default.isExecutableFile(atPath: helper.path), helper.resolvingSymlinksInPath() == helper else {
-        result(FlutterError(code: "MACOS_AGENT_INSTALL_REQUIRED", message: "Reinstall the application package.", details: nil)); return true
+        result(FlutterError(code: "MACOS_AGENT_INSTALL_REQUIRED", message: localization.text("Reinstall the application package."), details: nil)); return true
       }
       DispatchQueue.global(qos: .userInitiated).async {
         do {
@@ -87,7 +87,7 @@ enum AgentMaintenanceBridge {
           }
           DispatchQueue.main.async { result(nil) }
         } catch {
-          DispatchQueue.main.async { result(FlutterError(code: "MACOS_AGENT_MAINTENANCE_FAILED", message: "Service maintenance was cancelled or recovery is incomplete. Retry the action.", details: nil)) }
+          DispatchQueue.main.async { result(FlutterError(code: "MACOS_AGENT_MAINTENANCE_FAILED", message: localization.text("Service maintenance was cancelled or recovery is incomplete. Retry the action."), details: nil)) }
         }
       }
     }

@@ -37,6 +37,7 @@ const _tables = {
   'endpoint presets': kEndpointPresetCatalogs,
   'L4': kL4Catalogs,
   'Linux': kLinuxDesktopCatalogs,
+  'macOS': kMacDesktopCatalogs,
   'network quality': kNetworkQualityCatalogs,
   'network settings': kNetworkSettingsCatalogs,
   'onboarding': kOnboardingCatalogs,
@@ -64,8 +65,8 @@ AppStrings _strings(String id) {
 }
 
 void main() {
-  test('macOS Chinese catalogs resolve every key without English fallback', () {
-    expect(kMacDesktopCatalogs.keys.toSet(), {'en', 'zh_CN', 'zh_HK', 'zh_TW'});
+  test('all macOS catalogs resolve their own strings', () {
+    expect(kMacDesktopCatalogs.keys.toSet(), kCatalogs.keys.toSet());
     for (final catalog in kMacDesktopCatalogs.entries) {
       expect(catalog.value.keys.toSet(), kMacDesktopEn.keys.toSet());
       for (final entry in catalog.value.entries) {

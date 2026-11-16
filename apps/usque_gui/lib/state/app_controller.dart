@@ -508,6 +508,30 @@ class AppController extends ChangeNotifier {
       _engine is MacosServiceClient;
   bool _macosServiceBusy = false;
   bool get macosServiceBusy => _macosServiceBusy;
+
+  /// Claim the automatic prompt once, including across a cancelled setup and
+  /// a new process. The install button remains available independently.
+  Future<bool> claimMacosOnboardingInstallPrompt() async {
+    if (!supportsMacosServiceMaintenance ||
+        onboardingComplete ||
+        onboardingStep != 1) {
+      return false;
+    }
+    try {
+      return await _writeOnboardingPreference((preferences) async {
+        const key = 'onboarding_macos_service_prompted';
+        if (onboardingStep != 1 ||
+            onboardingComplete ||
+            preferences.getBool(key) == true) {
+          return false;
+        }
+        return preferences.setBool(key, true);
+      });
+    } on Object {
+      return false;
+    }
+  }
+
   Future<MacosServiceState> getMacosServiceState() async {
     final state = await (_engine as MacosServiceClient).getMacosServiceState();
     if (state.cleanupConfirmed &&

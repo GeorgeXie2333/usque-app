@@ -1,4 +1,24 @@
+import 'macos/ar.dart';
+import 'macos/de.dart';
+import 'macos/es.dart';
+import 'macos/fa.dart';
+import 'macos/fr.dart';
+import 'macos/id.dart';
+import 'macos/it.dart';
+import 'macos/ja.dart';
+import 'macos/ko.dart';
+import 'macos/nl.dart';
+import 'macos/pl.dart';
+import 'macos/pt.dart';
+import 'macos/ru.dart';
+import 'macos/th.dart';
+import 'macos/tr.dart';
+import 'macos/uk.dart';
+import 'macos/vi.dart';
+
 const kMacDesktopEn = <String, String>{
+  'macos_onboarding_permissions_body':
+      'You can install the background service now or later in Settings.',
   'macos_keychain_locked': 'Connect to unlock this account in Keychain.',
   'macos_keychain_permission':
       'Access to this account is pending. Click Connect to retry and allow Usque to read the account from your login keychain.',
@@ -60,6 +80,7 @@ const kMacDesktopEn = <String, String>{
 };
 
 const kMacDesktopZhCN = <String, String>{
+  'macos_onboarding_permissions_body': '你可以现在授权安装后台服务，也可以稍后在设置中安装。',
   'macos_keychain_locked': '点击“连接”即可授权访问钥匙串中的账户。',
   'macos_keychain_permission': '尚未获得账户访问权限。请点击“连接”重试，在登录钥匙串弹窗中允许 Usque 读取此账户。',
   'macos_service_title': 'macOS 后台服务',
@@ -104,6 +125,7 @@ const kMacDesktopZhCN = <String, String>{
 };
 
 const kMacDesktopZhHant = <String, String>{
+  'macos_onboarding_permissions_body': '你可以現在授權安裝背景服務，也可以稍後在設定中安裝。',
   'macos_keychain_locked': '按下「連線」即可授權存取鑰匙圈中的帳戶。',
   'macos_keychain_permission': '尚未取得帳戶存取權限。請按下「連線」重試，在登入鑰匙圈提示中允許 Usque 讀取此帳戶。',
   'macos_service_title': 'macOS 背景服務',
@@ -153,4 +175,21 @@ const kMacDesktopCatalogs = <String, Map<String, String>>{
   'zh_CN': kMacDesktopZhCN,
   'zh_HK': kMacDesktopZhHant,
   'zh_TW': kMacDesktopZhHant,
+  'ja': kMacDesktopJa,
+  'ko': kMacDesktopKo,
+  'es': kMacDesktopEs,
+  'pt': kMacDesktopPt,
+  'fr': kMacDesktopFr,
+  'nl': kMacDesktopNl,
+  'tr': kMacDesktopTr,
+  'ru': kMacDesktopRu,
+  'fa': kMacDesktopFa,
+  'ar': kMacDesktopAr,
+  'de': kMacDesktopDe,
+  'id': kMacDesktopId,
+  'it': kMacDesktopIt,
+  'pl': kMacDesktopPl,
+  'th': kMacDesktopTh,
+  'uk': kMacDesktopUk,
+  'vi': kMacDesktopVi,
 };

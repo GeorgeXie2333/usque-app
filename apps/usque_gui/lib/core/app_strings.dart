@@ -137,6 +137,8 @@ class AppStrings {
     'endpoint_preset_us',
     // French spells it the same.
     'onboarding_notifications_title',
+    // French and German also use “Version”.
+    'macos_service_version',
   };
 
   @visibleForTesting
@@ -170,6 +172,7 @@ class AppStrings {
           kLinuxDesktopCatalogs,
           kLinuxDesktopCatalogs['en']!,
         ) ||
+        !_featureTablesComplete(kMacDesktopCatalogs, kMacDesktopEn) ||
         !_featureTablesComplete(kWindowsRecoveryCatalogs, kWindowsRecoveryEn) ||
         !_featureTablesComplete(kNetworkQualityCatalogs, kNetworkQualityEn) ||
         !_featureTablesComplete(kL4Catalogs, kL4En) ||
@@ -260,6 +263,7 @@ class AppStrings {
     scan(kDiagnosticsCatalogs, kDiagnosticsCatalogs['en']!);
     scan(kAdsCatalogs, kAdsCatalogs['en']!);
     scan(kLinuxDesktopCatalogs, kLinuxDesktopCatalogs['en']!);
+    scan(kMacDesktopCatalogs, kMacDesktopEn);
     scan(kUiWorkflowCatalogs, kUiWorkflowEn);
     scan(kUpdateCheckCatalogs, kUpdateCheckCatalogs['en']!);
     scan(kOnboardingCatalogs, kOnboardingEn);
@@ -298,6 +302,7 @@ class AppStrings {
           kUpdateCheckCatalogs.values,
         ) ||
         !_placeholdersPreserved(kOnboardingEn, kOnboardingCatalogs.values) ||
+        !_placeholdersPreserved(kMacDesktopEn, kMacDesktopCatalogs.values) ||
         !_placeholdersPreserved(kProtonEn, kProtonCatalogs.values) ||
         !_placeholdersPreserved(
           kNetworkQualityEn,

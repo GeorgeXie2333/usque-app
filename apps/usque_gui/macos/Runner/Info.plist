@@ -11,6 +11,23 @@
 		<string>zh-Hant</string>
 		<string>zh-HK</string>
 		<string>zh-TW</string>
+		<string>ja</string>
+		<string>ko</string>
+		<string>es</string>
+		<string>pt</string>
+		<string>fr</string>
+		<string>nl</string>
+		<string>tr</string>
+		<string>ru</string>
+		<string>fa</string>
+		<string>ar</string>
+		<string>de</string>
+		<string>id</string>
+		<string>it</string>
+		<string>pl</string>
+		<string>th</string>
+		<string>uk</string>
+		<string>vi</string>
 	</array>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
