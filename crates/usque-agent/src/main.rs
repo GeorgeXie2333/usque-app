@@ -1,6 +1,59 @@
-#[cfg(not(any(windows, target_os = "linux")))]
+#[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
 fn main() {
-    eprintln!("usque-agent is available only on Windows and Linux");
+    eprintln!("usque-agent is available only on Windows, Linux and macOS");
+}
+
+#[cfg(target_os = "macos")]
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    use clap::Parser;
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
+    #[derive(Parser)]
+    #[command(name="usque-agent",version,group(clap::ArgGroup::new("operation").required(true).args(["service","validate_only","recover_state","initialize_state","readiness"])))]
+    struct Arguments {
+        #[arg(long)]
+        service: bool,
+        #[arg(long)]
+        validate_only: bool,
+        #[arg(long)]
+        recover_state: bool,
+        #[arg(long)]
+        initialize_state: bool,
+        #[arg(long)]
+        readiness: bool,
+    }
+    let arguments = Arguments::parse();
+    tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .with_ansi(false)
+        .init();
+    if arguments.readiness {
+        return Ok(usque_agent::macos::server::readiness()?);
+    }
+    if arguments.validate_only {
+        return Ok(usque_agent::macos::server::validate_only()?);
+    }
+    if arguments.recover_state {
+        return Ok(usque_agent::macos::server::recover_for_maintenance()?);
+    }
+    if arguments.initialize_state {
+        return Ok(usque_agent::macos::server::initialize_state()?);
+    }
+    let stopping = Arc::new(AtomicBool::new(false));
+    let signal = stopping.clone();
+    let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+    let watcher = tokio::spawn(async move {
+        tokio::select! {_=terminate.recv()=>{},_=tokio::signal::ctrl_c()=>{}}
+        signal.store(true, Ordering::Release);
+    });
+    let result =
+        tokio::task::spawn_blocking(move || usque_agent::macos::server::serve(stopping)).await?;
+    watcher.abort();
+    result?;
+    Ok(())
 }
 
 #[cfg(target_os = "linux")]

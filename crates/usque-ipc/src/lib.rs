@@ -12,6 +12,22 @@ pub mod agent_v1 {
 
 pub mod linux_failure;
 
+#[cfg(target_os = "macos")]
+pub mod darwin_fd;
+
+#[cfg(test)]
+mod macos_contract_tests {
+    #[test]
+    fn appended_macos_operation_is_recognized_without_reusing_old_tags() {
+        let bytes = bytes::Bytes::from_static(&[0, 0, 0, 10, 10, 1, b'x', 16, 3, 162, 2, 2, 82, 0]);
+        let request: super::agent_v1::AgentRequest = super::decode_frame(bytes).unwrap();
+        assert!(
+            request.payload.is_some(),
+            "tag 36 must decode the macOS command"
+        );
+    }
+}
+
 #[cfg(target_os = "linux")]
 pub mod unix_fd;
 
@@ -557,6 +573,7 @@ mod tests {
         let connect = v1::ConnectRequest {
             profile_id: "p".into(),
             continuous: true,
+            ..Default::default()
         };
         assert_eq!(connect.encode_to_vec(), [10, 1, b'p', 16, 1]);
         assert_eq!(

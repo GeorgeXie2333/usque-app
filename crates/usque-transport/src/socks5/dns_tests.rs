@@ -549,6 +549,11 @@ async fn exchange(udp: &TokioUdpSocket, relay: SocketAddr, target: &TcpTarget, i
 async fn http_exit_socks_udp_dns_uses_tcp_for_ipv4_ipv6_and_edge_domain() {
     let mut fixture = Fixture::new(ChainSource::HttpProxy).await;
     let (control, udp, relay) = fixture.associate().await;
+    // Darwin's default UDP send buffer is smaller than this intentionally
+    // oversized DNS fixture. Size only the test client's socket, not the host.
+    socket2::SockRef::from(&udp)
+        .set_send_buffer_size(64 * 1024)
+        .unwrap();
     let targets = [
         TcpTarget::new("198.51.100.53", 53).unwrap(),
         TcpTarget::new("2001:db8::53", 53).unwrap(),

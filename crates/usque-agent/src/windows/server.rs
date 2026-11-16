@@ -1368,7 +1368,8 @@ where
                     .map_err(|error| (request_id.clone(), error))?;
                 agent_response::Payload::Empty(agent_v1::Empty {})
             }
-            agent_request::Payload::ReleaseLinuxDirectEgress(_) => {
+            agent_request::Payload::ReleaseLinuxDirectEgress(_)
+            | agent_request::Payload::Macos(_) => {
                 return Err((request_id, ServiceError::DirectEgressTarget));
             }
             agent_request::Payload::AcquireDirectEgress(request) => {

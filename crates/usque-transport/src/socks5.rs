@@ -1035,11 +1035,23 @@ impl UdpResponse {
 #[derive(Default)]
 struct DirectUdpSockets {
     network_generation: Option<u64>,
+    owned: bool,
+    owned_sockets: StdMutex<HashMap<SocketAddr, Arc<TokioUdpSocket>>>,
+    owned_receivers: StdMutex<Vec<tokio_util::task::AbortOnDropHandle<()>>>,
+    receiver_config: StdMutex<Option<OwnedUdpReceiverConfig>>,
     routing_dns_queries: Mutex<crate::split_dns::RoutingDnsQueries>,
     v4: Option<Arc<TokioUdpSocket>>,
     v6: Option<Arc<TokioUdpSocket>>,
     leases: Mutex<HashMap<(Option<u64>, SocketAddr), DirectEgressLease>>,
     target_routes: StdMutex<UdpTargetRoutes>,
+}
+
+#[derive(Clone)]
+struct OwnedUdpReceiverConfig {
+    sender: mpsc::Sender<Result<UdpResponse, UdpReceiveFailure>>,
+    cancellation: CancellationToken,
+    context: DirectUdpReceiveContext,
+    packet_limit: usize,
 }
 
 #[derive(Default)]
@@ -1096,18 +1108,28 @@ impl DirectUdpSockets {
     fn new(protector: &dyn SocketProtector) -> Self {
         Self {
             network_generation: protector.network_generation(),
-            v4: bind_protected_udp(protector, false)
-                .map(Arc::new)
+            owned: protector.requires_owned_sockets(),
+            owned_sockets: StdMutex::default(),
+            owned_receivers: StdMutex::default(),
+            receiver_config: StdMutex::default(),
+            v4: (!protector.requires_owned_sockets())
+                .then(|| bind_protected_udp(protector, false))
+                .transpose()
+                .map(|value| value.map(Arc::new))
                 .map_err(|error| {
                     tracing::debug!(%error, "protected direct UDP/IPv4 socket unavailable");
                 })
-                .ok(),
-            v6: bind_protected_udp(protector, true)
-                .map(Arc::new)
+                .ok()
+                .flatten(),
+            v6: (!protector.requires_owned_sockets())
+                .then(|| bind_protected_udp(protector, true))
+                .transpose()
+                .map(|value| value.map(Arc::new))
                 .map_err(|error| {
                     tracing::debug!(%error, "protected direct UDP/IPv6 socket unavailable");
                 })
-                .ok(),
+                .ok()
+                .flatten(),
             leases: Mutex::new(HashMap::new()),
             routing_dns_queries: Mutex::default(),
             target_routes: StdMutex::default(),
@@ -1191,12 +1213,78 @@ impl DirectUdpSockets {
             .record(remote, payload, &context.geo_policy)
     }
 
-    fn for_address(&self, address: SocketAddr) -> Option<&Arc<TokioUdpSocket>> {
-        if address.is_ipv4() {
-            self.v4.as_ref()
+    fn for_address(&self, address: SocketAddr) -> Option<Arc<TokioUdpSocket>> {
+        if self.owned {
+            self.owned_sockets
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .get(&address)
+                .cloned()
+        } else if address.is_ipv4() {
+            self.v4.clone()
         } else {
-            self.v6.as_ref()
+            self.v6.clone()
         }
+    }
+
+    async fn ensure_owned_target(
+        &self,
+        protector: &dyn SocketProtector,
+        remote: SocketAddr,
+    ) -> Result<(), String> {
+        let generation = self.network_generation;
+        let mut leases = self.leases.lock().await;
+        if protector.network_generation() != generation {
+            return Err(crate::socket::STALE_GENERATION_REASON.into());
+        }
+        if leases.contains_key(&(generation, remote)) {
+            return Ok(());
+        }
+        if leases.len() >= 128 {
+            return Err("direct UDP socket limit reached".into());
+        }
+        let (socket, lease) = protector
+            .prepare_udp(
+                remote,
+                crate::socket::PhysicalSocketPurpose::Direct,
+                generation.unwrap_or_default(),
+            )
+            .await?;
+        let socket = Arc::new(TokioUdpSocket::from_std(socket).map_err(|e| e.to_string())?);
+        if protector.network_generation() != generation || lease.generation() != generation {
+            return Err(crate::socket::STALE_GENERATION_REASON.into());
+        }
+        match socket.peer_addr() {
+            Ok(peer) if peer.ip() != remote.ip() || peer.port() != remote.port() => {
+                return Err("physical UDP peer mismatch".into());
+            }
+            Ok(_) => (),
+            Err(_) => socket.connect(remote).await.map_err(|e| e.to_string())?,
+        }
+        if let Some(config) = self
+            .receiver_config
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+        {
+            let task = spawn_direct_udp_receiver(
+                socket.clone(),
+                config.sender,
+                config.cancellation,
+                config.context,
+                config.packet_limit,
+            );
+            self.owned_receivers
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .push(tokio_util::task::AbortOnDropHandle::new(task));
+        }
+        self.owned_sockets
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(remote, socket);
+        leases.insert((generation, remote), lease);
+        Ok(())
     }
 
     async fn ensure_target(
@@ -1204,6 +1292,9 @@ impl DirectUdpSockets {
         protector: &dyn SocketProtector,
         remote: SocketAddr,
     ) -> Result<(), String> {
+        if self.owned {
+            return self.ensure_owned_target(protector, remote).await;
+        }
         let socket = self
             .for_address(remote)
             .ok_or_else(|| format!("{remote}: protected socket unavailable"))?;
@@ -1364,8 +1455,7 @@ async fn send_udp_with_slot(
                 let socket = direct
                     .for_address(remote)
                     .ok_or("protected direct UDP socket unavailable")?;
-                let written = socket
-                    .send_to(request.payload, remote)
+                let written = crate::socket::send_udp_to(&socket, request.payload, remote)
                     .await
                     .map_err(|error| error.to_string())?;
                 if written != request.payload.len() {
@@ -1489,14 +1579,16 @@ async fn send_udp_unpinned(
             }
             let remote = SocketAddr::new(ip, port);
             if route == GeoRoute::Direct
-                && let Some(socket) = direct.for_address(remote)
                 && direct
                     .ensure_target(context.protector.as_ref(), remote)
                     .await
                     .is_ok()
+                && let Some(socket) = direct.for_address(remote)
                 && direct.track_dns(context, remote, payload).await
                 && verify_udp_generation(context, generation).is_ok()
-                && socket.send_to(payload, remote).await.is_ok()
+                && crate::socket::send_udp_to(&socket, payload, remote)
+                    .await
+                    .is_ok()
             {
                 context.counters.record_sent(payload.len());
                 return Ok(Some(UdpPath::Direct(remote)));
@@ -1546,10 +1638,6 @@ async fn send_udp_unpinned(
                         failures.push(format!("{remote}: unusable address"));
                         continue;
                     }
-                    let Some(socket) = direct.for_address(remote) else {
-                        failures.push(format!("{remote}: protected socket unavailable"));
-                        continue;
-                    };
                     if let Err(error) = direct
                         .ensure_target(context.protector.as_ref(), remote)
                         .await
@@ -1557,11 +1645,15 @@ async fn send_udp_unpinned(
                         failures.push(format!("{remote}: {error}"));
                         continue;
                     }
+                    let Some(socket) = direct.for_address(remote) else {
+                        failures.push(format!("{remote}: protected socket unavailable"));
+                        continue;
+                    };
                     if !direct.track_dns(context, remote, payload).await {
                         return Ok(None);
                     }
                     verify_udp_generation(context, generation)?;
-                    match socket.send_to(payload, remote).await {
+                    match crate::socket::send_udp_to(&socket, payload, remote).await {
                         Ok(written) if written == payload.len() => {
                             context.counters.record_sent(written);
                             return Ok(Some(UdpPath::Direct(remote)));
@@ -1751,6 +1843,7 @@ impl UdpReceiveFailure {
     }
 }
 
+#[derive(Clone)]
 struct DirectUdpReceiveContext {
     runtime_cancel: CancellationToken,
     counters: Arc<TrafficCounters>,
@@ -1764,6 +1857,19 @@ fn start_direct_udp_receivers(
     context: &SocksContext,
     packet_limit: usize,
 ) -> [Option<JoinHandle<()>>; 2] {
+    *direct
+        .receiver_config
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) = Some(OwnedUdpReceiverConfig {
+        sender: sender.clone(),
+        cancellation: cancellation.clone(),
+        packet_limit,
+        context: DirectUdpReceiveContext {
+            runtime_cancel: context.cancellation.clone(),
+            counters: context.counters.clone(),
+            network_generation: direct.network_generation,
+        },
+    });
     [&direct.v4, &direct.v6].map(|socket| {
         socket.as_ref().map(|socket| {
             spawn_direct_udp_receiver(
@@ -1825,6 +1931,15 @@ fn spawn_direct_udp_receiver(
                         continue;
                     }
                     context.counters.record_received(length);
+                    // SOCKS UDP wire addresses carry no IPv6 zone. The owned
+                    // socket and generation already bind the physical scope.
+                    #[cfg(target_os = "macos")]
+                    let source = if matches!(source.ip(), IpAddr::V6(ip) if ip.is_unicast_link_local())
+                    {
+                        SocketAddr::new(source.ip(), source.port())
+                    } else {
+                        source
+                    };
                     Ok(UdpResponse {
                         source: crate::tcp::TcpTarget::address(source),
                         route: GeoRoute::Direct,

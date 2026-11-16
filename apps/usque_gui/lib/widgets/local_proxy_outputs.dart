@@ -43,6 +43,8 @@ class LocalProxyOutputs extends StatelessWidget {
                     strings.get(
                       controller.tunnelOutputSupported
                           ? 'home_tun_hint'
+                          : defaultTargetPlatform == TargetPlatform.macOS
+                          ? 'macos_output_unavailable'
                           : 'linux_output_unavailable',
                     ),
                   ),
@@ -61,7 +63,8 @@ class LocalProxyOutputs extends StatelessWidget {
                 ),
               ),
               if (defaultTargetPlatform == TargetPlatform.windows ||
-                  defaultTargetPlatform == TargetPlatform.linux)
+                  defaultTargetPlatform == TargetPlatform.linux ||
+                  defaultTargetPlatform == TargetPlatform.macOS)
                 ContentSection(
                   padding: RowInsets.tile,
                   child: SwitchListTile(
@@ -74,7 +77,9 @@ class LocalProxyOutputs extends StatelessWidget {
                     subtitle: Text(
                       strings.get(
                         !controller.systemProxyOutputSupported
-                            ? 'linux_output_unavailable'
+                            ? defaultTargetPlatform == TargetPlatform.macOS
+                                  ? 'macos_proxy_unavailable'
+                                  : 'linux_output_unavailable'
                             : !frontends.http && !systemProxy
                             ? 'home_system_proxy_requires_http'
                             : 'home_system_proxy_hint',

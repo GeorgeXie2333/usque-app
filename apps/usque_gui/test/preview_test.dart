@@ -15,30 +15,70 @@ import 'package:usque/services/engine_client.dart';
 import 'package:usque/services/engine_client_factory.dart';
 
 void main() {
-  test('disconnect cancels a pending simulated connection', () async {
+  testWidgets('disconnect cancels a pending simulated connection', (
+    tester,
+  ) async {
     final engine = PreviewEngine();
     addTearDown(engine.dispose);
     final pending = engine.connect(UsqueProfile.defaultProfile());
     expect((await engine.snapshot()).phase, ConnectionPhase.connectingH3);
     await engine.disconnect();
+    await tester.pump(const Duration(milliseconds: 400));
     expect((await pending).phase, ConnectionPhase.disconnected);
+    engine.dispose();
+    await tester.pump();
   });
 
-  test('disposal stops traffic and prevents late reconnection', () async {
+  testWidgets('disposal stops traffic and prevents late reconnection', (
+    tester,
+  ) async {
     final engine = PreviewEngine();
     addTearDown(engine.dispose);
     final frames = <EngineSnapshotEvent>[];
-    final subscription = engine.snapshotEvents.listen(frames.add);
+    var streamClosed = false;
+    engine.snapshotEvents.listen(frames.add, onDone: () => streamClosed = true);
     engine.showPhase(ConnectionPhase.connected);
-    await Future<void>.delayed(const Duration(milliseconds: 1100));
+    await tester.pump(const Duration(milliseconds: 1100));
     expect((await engine.snapshot()).downloadedBytes, greaterThan(0));
     final pending = engine.connect(UsqueProfile.defaultProfile());
     engine.dispose();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(streamClosed, isTrue);
     expect((await pending).isConnected, isFalse);
     final count = frames.length;
-    await Future<void>.delayed(const Duration(milliseconds: 1100));
+    await tester.pump(const Duration(minutes: 2));
     expect(frames.length, count);
-    await subscription.cancel();
+  });
+
+  testWidgets('preview only samples traffic while connected', (tester) async {
+    final engine = PreviewEngine();
+    addTearDown(engine.dispose);
+    final frames = <EngineSnapshotEvent>[];
+    var streamClosed = false;
+    engine.snapshotEvents.listen(frames.add, onDone: () => streamClosed = true);
+    await tester.pump(const Duration(minutes: 2));
+    expect(frames, isEmpty);
+
+    engine.showPhase(ConnectionPhase.connected);
+    await tester.pump(const Duration(seconds: 1));
+    expect((await engine.snapshot()).downloadedBytes, greaterThan(0));
+    await engine.disconnect();
+    await tester.pump();
+    final count = frames.length;
+    await tester.pump(const Duration(minutes: 2));
+    expect(frames.length, count);
+
+    engine.showPhase(ConnectionPhase.connected);
+    await tester.pump(const Duration(seconds: 1));
+    expect((await engine.snapshot()).downloadedBytes, greaterThan(0));
+    engine.showPhase(ConnectionPhase.error);
+    await tester.pump();
+    final failedCount = frames.length;
+    await tester.pump(const Duration(minutes: 2));
+    expect(frames.length, failedCount);
+    engine.dispose();
+    await tester.pump();
+    expect(streamClosed, isTrue);
   });
 
   test('update cleanup cannot inspect or delete files', () async {

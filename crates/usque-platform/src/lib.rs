@@ -5,6 +5,12 @@ use zeroize::Zeroizing;
 
 pub mod packet_ring;
 
+#[cfg(target_os = "macos")]
+pub mod darwin_packet;
+
+#[cfg(target_os = "macos")]
+pub mod macos_proxy;
+
 #[cfg(target_os = "linux")]
 pub mod linux_paths;
 
@@ -96,6 +102,29 @@ pub trait SecretVault: Send + Sync {
 
     async fn delete(&self, profile_id: Uuid, record: SecretRecord) -> Result<(), VaultError>;
 
+    async fn replace_identity(
+        &self,
+        profile_id: Uuid,
+        records: Vec<(SecretRecord, Zeroizing<Vec<u8>>)>,
+    ) -> Result<(), VaultError> {
+        let result = async {
+            for (record, value) in &records {
+                self.put(profile_id, *record, value).await?;
+            }
+            for optional in [SecretRecord::WarpSecret, SecretRecord::License] {
+                if !records.iter().any(|(field, _)| *field == optional) {
+                    self.delete(profile_id, optional).await?;
+                }
+            }
+            Ok(())
+        }
+        .await;
+        if result.is_err() {
+            let _ = self.delete_identity(profile_id).await;
+        }
+        result
+    }
+
     async fn delete_identity(&self, profile_id: Uuid) -> Result<(), VaultError> {
         let mut first_error = None;
         for record in SecretRecord::ALL {
@@ -117,6 +146,8 @@ pub trait SecretVault: Send + Sync {
 
 #[derive(Debug, Error)]
 pub enum VaultError {
+    #[error("the login keychain requires user authorization")]
+    InteractionRequired,
     #[error("secret values must contain between 1 and 2560 bytes")]
     InvalidSecretSize,
     #[error("the credential service needs attention: {0}")]

@@ -5,10 +5,23 @@ on:
     branches: [main, dev]
     types: [opened, synchronize, reopened, ready_for_review, edited]
   workflow_dispatch:
+    inputs:
+      macos_utun:
+        description: Run only the real macOS utun test on Apple Silicon and Intel
+        type: boolean
+        default: false
+      macos_tun_e2e:
+        description: Run macOS TUN network acceptance on disposable hosted runners
+        type: boolean
+        default: false
+      macos_live_warp:
+        description: Accept Cloudflare terms and register one free WARP test device per Mac architecture
+        type: boolean
+        default: false
 
 concurrency:
-  group: build-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: build-${{ github.event.pull_request.number || github.ref }}${{ inputs.macos_live_warp && format('-live-warp-{0}', github.sha) || inputs.macos_tun_e2e && format('-tun-e2e-{0}', github.sha) || inputs.macos_utun && '-utun' || '' }}
+  cancel-in-progress: ${{ !inputs.macos_tun_e2e && !inputs.macos_live_warp }}
 
 permissions:
   contents: read
@@ -21,14 +34,73 @@ env:
   FLUTTER_VERSION: 3.44.7
 
 jobs:
+  macos-tun-e2e:
+    if: github.event_name == 'workflow_dispatch' && (inputs.macos_tun_e2e || inputs.macos_live_warp)
+    uses: ./.github/workflows/macos-tun-e2e.yml
+    with:
+      live_warp: ${{ inputs.macos_live_warp }}
+    permissions:
+      contents: read
+      actions: read
+
+  macos-utun:
+    name: Real utun (${{ matrix.arch }})
+    if: github.event_name == 'workflow_dispatch' && inputs.macos_utun
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: macos-15
+          - arch: x86_64
+            runner: macos-15-intel
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Verify native runner and install host Rust
+        env:
+          EXPECTED_ARCH: ${{ matrix.arch }}
+        run: |
+          sw_vers
+          uname -m
+          test "$(uname -m)" = "$EXPECTED_ARCH"
+          rustup toolchain install 1.97.1 --profile minimal
+
+      - name: Build the Agent library tests as the runner user
+        env:
+          CARGO_PROFILE_TEST_DEBUG: '0'
+        run: |
+          cargo +1.97.1 test --locked -p usque-agent --lib --no-run \
+            --message-format=json-render-diagnostics > "$RUNNER_TEMP/agent-build.jsonl"
+          jq -ers '
+            map(select(.reason == "compiler-artifact" and .target.name == "usque_agent"
+                       and .profile.test and .executable != null))
+            | if length == 1 then .[0].executable else error("expected one Agent library test binary") end
+          ' "$RUNNER_TEMP/agent-build.jsonl" > "$RUNNER_TEMP/agent-test-path"
+
+      - name: Run real utun descriptor handoff and check interface release
+        shell: bash
+        run: |
+          set -euo pipefail
+          binary=$(cat "$RUNNER_TEMP/agent-test-path")
+          test_name=macos::utun::tests::disposable_mac_real_utun_descriptor_handoff
+          sudo -n /usr/bin/env USQUE_DISPOSABLE_MAC=1 "$binary" \
+            --ignored --exact "$test_name" --test-threads=1 --format=pretty --color=never \
+            | tee "$RUNNER_TEMP/utun-result.txt"
+          grep -Fx "test $test_name ... ok" "$RUNNER_TEMP/utun-result.txt"
+
   linux:
     name: Linux compile and packages
-    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
+    if: ${{ !inputs.macos_utun && !inputs.macos_tun_e2e && !inputs.macos_live_warp && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
     uses: ./.github/workflows/linux.yml
 
   windows:
     name: Windows ${{ matrix.label }} compile
-    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
+    if: ${{ !inputs.macos_utun && !inputs.macos_tun_e2e && !inputs.macos_live_warp && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 360
     permissions:
@@ -335,7 +407,7 @@ jobs:
 
   android:
     name: Android ARMv8, x64, ARMv7, and universal compile
-    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
+    if: ${{ !inputs.macos_utun && !inputs.macos_tun_e2e && !inputs.macos_live_warp && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 240
     steps:
@@ -539,7 +611,7 @@ jobs:
 
   gate:
     name: Build / gate
-    if: ${{ always() && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
+    if: ${{ always() && !inputs.macos_utun && !inputs.macos_tun_e2e && !inputs.macos_live_warp && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
     needs: [windows, android, linux]
     runs-on: ubuntu-24.04
     timeout-minutes: 5

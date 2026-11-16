@@ -122,6 +122,25 @@ fn authenticated_tier_never_guesses_legacy_or_profile_account_type() {
 }
 
 #[test]
+fn numeric_host_accepts_scopes_and_requires_a_terminated_ipv6_literal() {
+    let link_local = "fe80::1".parse().unwrap();
+    assert_eq!(parse_numeric_ipv6(b"fe80::1%en0\0"), Some(link_local));
+    assert_eq!(parse_numeric_ipv6(b"fe80::1"), None);
+    assert_eq!(parse_numeric_ipv6(b"192.0.2.1\0"), None);
+}
+
+#[test]
+fn system_resolver_keeps_only_usable_numeric_ipv6_and_preserves_the_requested_port() {
+    let port = 8443;
+    assert_eq!(
+        system_ipv6("2001:db8::123", port).unwrap(),
+        vec!["[2001:db8::123]:8443".parse::<SocketAddr>().unwrap()]
+    );
+    assert!(system_ipv6("::1", port).unwrap().is_empty());
+    assert!(system_ipv6("::ffff:192.0.2.1", port).unwrap().is_empty());
+}
+
+#[test]
 fn candidates_are_finite_ipv6_unique_and_exact_port() {
     let mut addresses = (1..=30)
         .map(|n| format!("[2001:db8::{n:x}]:443").parse().unwrap())

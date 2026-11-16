@@ -22,7 +22,9 @@ class ProtonEngine extends ChainEngine
   final requests = <Map<String, Object?>>[];
   final inputs = <String>[];
   bool nativeCancelled = false;
+  int nativeVerifications = 0;
   bool cancelPuzzle = false;
+  bool loginNeedsVerification = false;
   Map<Object?, Object?> job = const {};
   List<Map<Object?, Object?>> profiles = [];
   static const success =
@@ -56,7 +58,14 @@ class ProtonEngine extends ChainEngine
           'challenge_id': 'synthetic-challenge',
         };
       case 'login':
-        job = {'id': 'synthetic-job', 'state': 'waiting_totp', 'phase': 'totp'};
+        job = loginNeedsVerification
+            ? {
+                'id': 'synthetic-job',
+                'state': 'waiting_verification',
+                'phase': 'srp_proof',
+                'challenge_id': 'synthetic-challenge',
+              }
+            : {'id': 'synthetic-job', 'state': 'waiting_totp', 'phase': 'totp'};
       case 'totp':
       case 'verify':
         job = {
@@ -105,6 +114,7 @@ class ProtonEngine extends ChainEngine
 
   @override
   Future<Uint8List?> completeProtonHumanVerification(Uint8List handoff) async {
+    nativeVerifications++;
     final value = jsonDecode(utf8.decode(handoff)) as Map<String, dynamic>;
     expect(value['job_id'], 'synthetic-job');
     expect(value['challenge_id'], 'synthetic-challenge');
@@ -512,10 +522,277 @@ Future<void> _startProtonAuthentication(
 }
 
 void main() {
+  _protonWidgetTest(
+    'polling runs only during active jobs and restarts after terminal states',
+    (tester) async {
+      final engine = PendingLogoutEngine();
+      final app = await hostChain(tester, engine);
+      final key = GlobalKey<ProtonVpnPanelState>();
+      final pollTimers = <Timer>[];
+      int activeTimers() => pollTimers.where((timer) => timer.isActive).length;
+      int reads() =>
+          engine.requests.where((request) => request['action'] == 'get').length;
+      await runZoned(
+        () async {
+          await tester.pumpWidget(
+            workflowHost(
+              app,
+              home: Scaffold(
+                body: SingleChildScrollView(
+                  child: ProtonVpnPanel(
+                    key: key,
+                    controller: app,
+                    onChanged: () {},
+                  ),
+                ),
+              ),
+            ),
+          );
+          await tester.pumpAndSettle();
+          expect(activeTimers(), 0);
+          await tester.pump(const Duration(seconds: 12));
+          expect(reads(), 1);
+
+          for (final state in ['completed', 'cancelled', 'failed']) {
+            await key.currentState!.logout('proton-profile');
+            await tester.pump();
+            expect(activeTimers(), 1);
+            final before = reads();
+            await tester.pump(const Duration(seconds: 2));
+            await tester.pump();
+            expect(reads(), before + 1);
+            expect(activeTimers(), 1);
+
+            engine.job = {'id': 'logout-job', 'state': state};
+            await tester.pump(const Duration(seconds: 2));
+            await tester.pumpAndSettle();
+            expect(reads(), before + 2);
+            expect(activeTimers(), 0);
+            await tester.pump(const Duration(seconds: 12));
+            expect(reads(), before + 2);
+          }
+
+          await key.currentState!.logout('proton-profile');
+          await tester.pump();
+          expect(activeTimers(), 1);
+          await tester.pumpWidget(const SizedBox.shrink());
+          expect(activeTimers(), 0);
+        },
+        zoneSpecification: ZoneSpecification(
+          createPeriodicTimer: (self, parent, zone, duration, callback) {
+            final timer = parent.createPeriodicTimer(zone, duration, callback);
+            if (duration == const Duration(seconds: 2)) pollTimers.add(timer);
+            return timer;
+          },
+        ),
+      );
+    },
+  );
+
+  _protonWidgetTest(
+    'macOS rejects guest and browser verification before reaching the engine',
+    (tester) async {
+      final engine = ProtonEngine();
+      final app = await hostChain(tester, engine);
+      expect(app.protonGuestLoginSupported, isFalse);
+      expect(app.protonHumanVerificationSupported, isFalse);
+      await expectLater(
+        app.protonVpn({'action': 'guest'}),
+        throwsA(
+          isA<EngineException>().having(
+            (error) => error.code,
+            'code',
+            'PROTON_GUEST_UNAVAILABLE',
+          ),
+        ),
+      );
+      for (final action in ['handoff', 'verify', 'verification_failed']) {
+        await expectLater(
+          app.protonVpn({'action': action}),
+          throwsA(
+            isA<EngineException>().having(
+              (error) => error.code,
+              'code',
+              'PROTON_VERIFICATION_UNAVAILABLE',
+            ),
+          ),
+        );
+      }
+      expect(
+        () => app.completeProtonHumanVerification(Uint8List(0)),
+        throwsA(
+          isA<EngineException>().having(
+            (error) => error.code,
+            'code',
+            'PROTON_VERIFICATION_UNAVAILABLE',
+          ),
+        ),
+      );
+      await app.cancelProtonHumanVerification();
+      expect(engine.requests, isEmpty);
+      expect(engine.nativeVerifications, 0);
+      expect(engine.nativeCancelled, isFalse);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+    platform: TargetPlatform.macOS,
+  );
+
+  _protonWidgetTest(
+    'macOS hides guest setup and retains account sign-in and authenticator codes',
+    (tester) async {
+      final engine = ProtonEngine();
+      final app = await hostChain(tester, engine);
+      await tester.pumpWidget(
+        workflowHost(
+          app,
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: ProtonVpnPanel(controller: app, onChanged: () {}),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Continue as guest'), findsNothing);
+      expect(find.text('Sign in to add a Proton account.'), findsOneWidget);
+      expect(find.text(app.strings.proton('empty')), findsNothing);
+      await _startProtonAuthentication(tester, 'login');
+      await tester.pumpAndSettle();
+      expect(
+        find.text('Enter your authenticator code to continue.'),
+        findsOneWidget,
+      );
+      await tester.enterText(find.byType(TextField), '123456');
+      await tester.tap(find.widgetWithText(TextButton, 'Continue'));
+      await tester.pumpAndSettle();
+      expect(find.text('Choose a server to finish setup.'), findsOneWidget);
+      await tester.tap(find.text('Free server'));
+      await tester.pumpAndSettle();
+      expect(find.text(app.strings.proton('completed')), findsOneWidget);
+      expect(engine.requests.map((request) => request['action']), [
+        'get',
+        'login',
+        'totp',
+        'select_node',
+      ]);
+      expect(engine.inputs, [
+        '{"username":"synthetic-user","password":"synthetic-password"}',
+        '123456',
+      ]);
+      expect(engine.nativeVerifications, 0);
+      await tester.pumpWidget(const SizedBox.shrink());
+      expect(engine.nativeCancelled, isFalse);
+    },
+    platform: TargetPlatform.macOS,
+  );
+
+  _protonWidgetTest(
+    'macOS saved accounts offer account sign-in without a guest menu item',
+    (tester) async {
+      final engine = CatalogueEngine();
+      final app = await hostChain(tester, engine);
+      await tester.pumpWidget(
+        workflowHost(
+          app,
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: ProtonVpnPanel(controller: app, onChanged: () {}),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Account'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('proton-add-account')));
+      await tester.pumpAndSettle();
+      expect(find.text('Continue as guest'), findsNothing);
+      expect(find.text('Sign in to Proton'), findsOneWidget);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+    platform: TargetPlatform.macOS,
+  );
+
+  _protonWidgetTest(
+    'macOS cancels account verification once without requesting or opening a browser',
+    (tester) async {
+      final engine = ProtonEngine()..loginNeedsVerification = true;
+      final app = await hostChain(tester, engine);
+      await tester.pumpWidget(
+        workflowHost(
+          app,
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: ProtonVpnPanel(controller: app, onChanged: () {}),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await _startProtonAuthentication(tester, 'login');
+      await tester.pumpAndSettle();
+      expect(
+        find.text(app.strings.proton('verification_unavailable_macos')),
+        findsOneWidget,
+      );
+      expect(find.text('Complete verification'), findsNothing);
+      expect(find.text(app.strings.proton('verification_hint')), findsNothing);
+      expect(engine.job['state'], 'cancelled');
+      expect(_action(tester, 'Sign in to Proton'), isNotNull);
+      await tester.pump(const Duration(seconds: 6));
+      await tester.pumpAndSettle();
+      expect(engine.requests.map((request) => request['action']), [
+        'get',
+        'login',
+        'cancel',
+      ]);
+      expect(engine.nativeVerifications, 0);
+      expect(engine.nativeCancelled, isFalse);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+    platform: TargetPlatform.macOS,
+  );
+
+  _protonWidgetTest(
+    'macOS explains engine verification unavailability without suggesting a retry',
+    (tester) async {
+      final engine = ProtonEngine()
+        ..job = {
+          'id': 'synthetic-job',
+          'state': 'failed',
+          'failure': 'verification_unavailable',
+        };
+      final app = await hostChain(tester, engine);
+      await tester.pumpWidget(
+        workflowHost(
+          app,
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: ProtonVpnPanel(controller: app, onChanged: () {}),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.text(app.strings.proton('verification_unavailable_macos')),
+        findsOneWidget,
+      );
+      expect(
+        find.text(app.strings.proton('verification_failed')),
+        findsNothing,
+      );
+      expect(find.text('Complete verification'), findsNothing);
+      expect(engine.requests.map((request) => request['action']), ['get']);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+    platform: TargetPlatform.macOS,
+  );
+
   for (final platform in [
     TargetPlatform.windows,
     TargetPlatform.android,
     TargetPlatform.linux,
+    TargetPlatform.macOS,
   ]) {
     _protonWidgetTest(
       'connected server choice is staged and applied, $platform',

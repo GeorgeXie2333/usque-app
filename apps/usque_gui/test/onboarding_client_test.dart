@@ -66,6 +66,50 @@ void main() {
     },
   );
 
+  test(
+    'onboarding polls silently until the user requests keychain access',
+    () async {
+      const codec = ControlCodec();
+      const id = 'p';
+      final state = ControlPayloadWriter()
+        ..string(2, id)
+        ..enumeration(3, 1);
+      final response = codec.frame(
+        (ControlPayloadWriter()
+              ..string(1, 'r')
+              ..message(26, state.takeBytes()))
+            .takeBytes(),
+      );
+      final seen = <Uint8List>[];
+      final client = DesktopEngineClient.forTest(
+        transport: DesktopEngineTransport.forTest(
+          exchange: (frame) async {
+            seen.add(frame);
+            return response;
+          },
+          requestIdFactory: () => 'r',
+        ),
+      );
+      addTearDown(client.dispose);
+      for (final interactive in [false, true]) {
+        await client.getInitialIdentityState(
+          id,
+          allowKeychainInteraction: interactive,
+        );
+        final payload = ControlPayloadWriter()..string(1, id);
+        if (interactive) payload.boolean(2, true);
+        expect(
+          seen.last,
+          codec.buildRequestFrame(
+            requestId: 'r',
+            payloadField: 50,
+            payload: payload.takeBytes(),
+          ),
+        );
+      }
+    },
+  );
+
   test('initial request timeout never replays registration', () async {
     var exchanges = 0;
     final client = DesktopEngineClient.forTest(

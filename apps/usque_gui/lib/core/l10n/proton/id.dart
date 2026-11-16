@@ -1,4 +1,9 @@
 const kProtonId = <String, String>{
+  'guest_unavailable_macos':
+      'Login tamu tidak tersedia di macOS. Login dengan akun Proton.',
+  'verification_unavailable_macos':
+      'Proton memerlukan verifikasi manusia yang tidak didukung aplikasi macOS ini. Gunakan akun Proton lain atau impor konfigurasi WireGuard.',
+  'empty_login': 'Login untuk menambahkan akun Proton.',
   'fallback_account':
       'Tidak dapat menghubungi Proton. Pilih akun WARP yang sudah ada dan coba lagi.',
   'fallback_failed':

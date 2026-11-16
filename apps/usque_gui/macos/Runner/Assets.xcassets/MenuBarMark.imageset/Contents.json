@@ -1,0 +1,8 @@
+{
+  "images": [
+    { "filename": "menu_bar_1x.png", "idiom": "mac", "scale": "1x" },
+    { "filename": "menu_bar_2x.png", "idiom": "mac", "scale": "2x" }
+  ],
+  "info": { "author": "xcode", "version": 1 },
+  "properties": { "template-rendering-intent": "template" }
+}

@@ -1,3 +1,5 @@
+#[cfg(test)]
+use crate::socket::DirectProtocol;
 use std::future::Future;
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, UdpSocket as StdUdpSocket};
@@ -9,14 +11,14 @@ use std::time::Duration;
 
 use crate::tcp::TcpStream as TunnelTcpStream;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
-use tokio::net::{TcpSocket, TcpStream, UdpSocket};
+use tokio::net::{TcpStream, UdpSocket};
 use tokio::time::timeout;
 use usque_geo::{CountryCode, GeoClassifier, GeoError};
 
 use crate::live_routing::{LiveRouting, RoutingSnapshot};
 pub use crate::live_routing::{PreparedRoutingUpdate, RoutingUpdateError};
 use crate::netstack::TrafficCounters;
-use crate::socket::{DirectEgressLease, DirectProtocol, SocketProtector, socket_handle};
+use crate::socket::{DirectEgressLease, SocketProtector, socket_handle};
 
 const DIRECT_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const MAX_DIRECT_ADDRESSES: usize = 16;
@@ -248,6 +250,12 @@ impl GeoDirectPolicy {
         self.ads = crate::live_ads::LiveAds::watch(cache_dir, self.ads_enabled);
         self
     }
+    /// Multi-process providers replace the entire verified policy snapshot;
+    /// they must not independently follow mutable advertising cache files.
+    pub fn with_frozen_ads(mut self, cache_dir: &Path) -> Self {
+        self.ads = crate::live_ads::LiveAds::snapshot(cache_dir, self.ads_enabled);
+        self
+    }
 
     pub fn ads_revision(&self) -> Option<String> {
         self.ads.rules().map(|ads| ads.revision().to_owned())
@@ -306,7 +314,7 @@ impl GeoDirectPolicy {
     pub(crate) fn rejects_ip(&self, ip: IpAddr) -> bool {
         self.custom_ip(ip) == Some(GeoRoute::Reject)
     }
-    pub(crate) fn resolved_route(&self, host: &str, ip: IpAddr) -> GeoRoute {
+    pub fn resolved_route(&self, host: &str, ip: IpAddr) -> GeoRoute {
         if self.frozen_routing.is_none() {
             return self.freeze_routing().resolved_route(host, ip);
         }
@@ -810,16 +818,13 @@ async fn connect_direct_address(
     if !direct_family_available(protector, remote) {
         return Err(DIRECT_FAMILY_UNAVAILABLE.into());
     }
-    let socket = if remote.is_ipv4() {
-        TcpSocket::new_v4()
-    } else {
-        TcpSocket::new_v6()
-    }
-    .map_err(|error| error.to_string())?;
-    let lease = protector
-        .protect_for_target(socket_handle(&socket), remote, DirectProtocol::Tcp)
-        .await
-        .map_err(|error| format!("protect direct socket: {error}"))?;
+    let (socket, lease) = protector
+        .prepare_tcp(
+            remote,
+            crate::socket::PhysicalSocketPurpose::Direct,
+            protector.network_generation().unwrap_or_default(),
+        )
+        .await?;
     let stream = timeout(DIRECT_CONNECT_TIMEOUT, socket.connect(remote))
         .await
         .map_err(|_| format!("connect to {remote} timed out"))?
@@ -860,19 +865,13 @@ pub(crate) async fn bind_direct_udp(
     protector: &dyn SocketProtector,
     remote: SocketAddr,
 ) -> Result<(UdpSocket, DirectEgressLease), String> {
-    let bind = if remote.is_ipv6() {
-        SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 0)
-    } else {
-        SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0)
-    };
-    let socket = StdUdpSocket::bind(bind).map_err(|error| error.to_string())?;
-    let lease = protector
-        .protect_for_target(socket_handle(&socket), remote, DirectProtocol::Udp)
-        .await
-        .map_err(|error| format!("protect direct UDP socket: {error}"))?;
-    socket
-        .set_nonblocking(true)
-        .map_err(|error| error.to_string())?;
+    let (socket, lease) = protector
+        .prepare_udp(
+            remote,
+            crate::socket::PhysicalSocketPurpose::Direct,
+            protector.network_generation().unwrap_or_default(),
+        )
+        .await?;
     let socket = UdpSocket::from_std(socket).map_err(|error| error.to_string())?;
     Ok((socket, lease))
 }

@@ -720,6 +720,7 @@ message AgentRequest {
     AbortReplacementRequest abort_replacement = 33;
     SetPresetEndpointCandidatesRequest set_preset_endpoint_candidates = 34;
     ReleaseLinuxDirectEgressRequest release_linux_direct_egress = 35;
+    MacosAgentRequest macos = 36;
   }
 }
 
@@ -736,5 +737,134 @@ message AgentResponse {
     PlatformState platform_state = 16;
     DeviceLease device_lease = 17;
     LinuxTunSession linux_tun_session = 18;
+    MacosAgentResponse macos = 19;
+  }
+}
+
+// Darwin operations have their own namespace and three-dimensional fences.
+// No credentials, executable paths, shell commands or PF text cross this API.
+message MacosFence {
+  string session_id = 1;
+  uint64 configuration = 2;
+  uint64 network = 3;
+}
+message MacosConfigure {
+  MacosFence fence = 1;
+  TunnelPlan plan = 2;
+}
+message MacosSocketRequest {
+  MacosFence fence = 1;
+  string remote_endpoint = 2;
+  uint32 protocol = 3;
+  MacosSocketPurpose purpose = 4;
+}
+enum MacosSocketPurpose {
+  MACOS_SOCKET_PURPOSE_UNSPECIFIED = 0;
+  MACOS_SOCKET_PURPOSE_MASQUE = 1;
+  MACOS_SOCKET_PURPOSE_BOOTSTRAP_DNS = 2;
+  MACOS_SOCKET_PURPOSE_DIRECT = 3;
+  MACOS_SOCKET_PURPOSE_CONTROL = 4;
+}
+message MacosEndpointCandidates {
+  MacosFence fence = 1;
+  string hostname = 2;
+  repeated string ipv6_candidates = 3;
+}
+message MacosReleaseSocket {
+  MacosFence fence = 1;
+  uint64 lease_id = 2;
+}
+message MacosResume {
+  MacosFence previous = 1;
+  MacosConfigure next = 2;
+}
+
+// No configuration dictionary or preference path is accepted from the Engine.
+message MacosProxyListener {
+  string lease = 1;
+  string loopback_ip = 2;
+  uint32 port = 3;
+}
+message MacosProxyRelease {
+  string lease = 1;
+}
+
+message MacosAgentRequest {
+  // Strictly increasing per authenticated stream; bounded replay tracking.
+  uint64 sequence = 1;
+  oneof operation {
+    Empty status = 10;
+    MacosConfigure prepare = 11;
+    MacosConfigure configure = 12;
+    MacosFence commit = 13;
+    MacosFence disconnect = 14;
+    MacosFence open_tun = 15;
+    MacosSocketRequest create_socket = 16;
+    MacosReleaseSocket release_socket = 17;
+    MacosResume resume = 18;
+    MacosEndpointCandidates set_endpoint_candidates = 19;
+    MacosFence suspend = 20;
+    MacosProxyListener acquire_proxy = 21;
+    MacosProxyRelease release_proxy = 22;
+    Empty recover_proxy = 23;
+  }
+}
+enum MacosFailure {
+  MACOS_FAILURE_UNSPECIFIED = 0;
+  MACOS_FAILURE_PROTOCOL = 1;
+  MACOS_FAILURE_AUTHENTICATION = 2;
+  MACOS_FAILURE_BUSY = 3;
+  MACOS_FAILURE_STALE_FENCE = 4;
+  MACOS_FAILURE_PREFLIGHT = 5;
+  MACOS_FAILURE_PF_INCOMPATIBLE = 6;
+  MACOS_FAILURE_JOURNAL = 7;
+  MACOS_FAILURE_OWNERSHIP_CONFLICT = 8;
+  MACOS_FAILURE_RECOVERY_INCOMPLETE = 9;
+  MACOS_FAILURE_RELEASE_GATED = 10;
+  MACOS_FAILURE_NETWORK_CHANGED = 11;
+  MACOS_FAILURE_IO = 12;
+  MACOS_FAILURE_PROXY_NO_SERVICE = 13;
+  // The physical connect failed and its unpublished egress permit was revoked.
+  MACOS_FAILURE_ENDPOINT_UNREACHABLE = 14;
+}
+message MacosPlatformStatus {
+  uint32 protocol_version = 1;
+  string agent_version = 2;
+  string architecture = 3;
+  bool release_approved = 4;
+  bool preflight_passed = 5;
+  bool recovery_pending = 6;
+  bool protection_retained = 7;
+  AgentPhase phase = 8;
+  MacosFence fence = 9;
+  MacosFailure failure = 10;
+  PhysicalNetworkInfo physical_network = 11;
+  bool resumable = 12;
+  repeated string control_api_candidates = 13;
+  bool system_proxy_supported = 14;
+  bool system_proxy_recovery_pending = 15;
+  bool system_proxy_active = 16;
+  // Developer package opt-in, independent of production acceptance.
+  bool test_tun_enabled = 17;
+  // The authenticated caller still owns the live transaction control connection.
+  bool caller_owns_transaction = 18;
+}
+message MacosDescriptor {
+  MacosFence fence = 1;
+  // Zero for utun; nonzero for a retained physical socket lease.
+  uint64 lease_id = 2;
+  string interface_name = 3;
+  uint32 interface_index = 4;
+  string local_endpoint = 5;
+  string remote_endpoint = 6;
+  uint32 protocol = 7;
+}
+message MacosAgentResponse {
+  MacosFailure failure = 1;
+  oneof payload {
+    Empty empty = 10;
+    MacosPlatformStatus status = 11;
+    // Exactly one SCM_RIGHTS FD, never a serialized descriptor integer.
+    MacosDescriptor descriptor = 12;
   }
 }

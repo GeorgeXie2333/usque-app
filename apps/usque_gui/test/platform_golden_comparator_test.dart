@@ -28,6 +28,18 @@ void main() {
   final linuxGolden = Uri.parse('goldens/linux/home_idle.png');
 
   for (final host in [
+    (
+      os: 'macos',
+      abi: Abi.macosArm64,
+      own: Uri.parse('goldens/macos/arm64/service.png'),
+      other: linuxGolden,
+    ),
+    (
+      os: 'macos',
+      abi: Abi.macosX64,
+      own: Uri.parse('goldens/macos/x86_64/service.png'),
+      other: windowsGolden,
+    ),
     (os: 'linux', abi: Abi.linuxX64, own: linuxGolden, other: windowsGolden),
     (
       os: 'windows',

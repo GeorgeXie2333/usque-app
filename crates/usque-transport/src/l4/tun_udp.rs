@@ -2,7 +2,7 @@
 use super::performance::MeasuredSender;
 use super::tun_reject::UdpRejector;
 use crate::direct_gateway::NatPacket;
-use crate::geo_direct::{GeoRoute, bind_protected_udp};
+use crate::geo_direct::{GeoRoute, bind_direct_udp};
 use crate::split_dns::DnsRouteCache;
 use crate::tcp::{DialError, ProxyServices, TcpTarget};
 use bytes::Bytes;
@@ -159,9 +159,9 @@ async fn worker(
                 let payload = &packet[meta.transport_offset + 8..];
                 if route == GeoRoute::Direct {
                     if let std::collections::hash_map::Entry::Vacant(entry) = direct.entry(remote)
-                        && let Ok(socket) = bind_protected_udp(services.protector.as_ref(), remote.is_ipv6()) {
+                        && let Ok((socket, lease)) = bind_direct_udp(services.protector.as_ref(), remote).await {
                         let socket = Arc::new(socket);
-                        if let Ok(lease) = services.protector.protect_for_target_generation(crate::socket::socket_handle(socket.as_ref()), remote, crate::socket::DirectProtocol::Udp, generation.unwrap_or_default()).await {
+                        {
                             if generation != services.protector.network_generation() { break; }
                             let read = socket.clone(); let tx = tx.clone(); let cancel = cancel.clone();
                             let task = AbortOnDropHandle::new(tokio::spawn(async move {
@@ -169,8 +169,8 @@ async fn worker(
                                 loop {
                                     let result = tokio::select! { _ = cancel.cancelled() => break, r = read.recv_from(&mut buffer) => r };
                                     let Ok((n, source)) = result else { break; };
-                                    if source == remote {
-                                        tokio::select! { _ = cancel.cancelled() => break, r = tx.send(UdpEvent::Datagram(source, Bytes::copy_from_slice(&buffer[..n]), GeoRoute::Direct)) => if r.is_err() { break; } }
+                                    if crate::socket::connected_peer_matches(source, remote) {
+                                        tokio::select! { _ = cancel.cancelled() => break, r = tx.send(UdpEvent::Datagram(remote, Bytes::copy_from_slice(&buffer[..n]), GeoRoute::Direct)) => if r.is_err() { break; } }
                                     }
                                 }
                             }));
@@ -178,7 +178,7 @@ async fn worker(
                         }
                     }
                     if let Some((socket, _, _)) = direct.get(&remote)
-                        && socket.send_to(payload, remote).await.is_ok() {
+                        && crate::socket::send_udp_to(socket, payload, remote).await.is_ok() {
                         targets.insert(remote, (meta, Instant::now(), GeoRoute::Direct));
                         last = Instant::now();
                         services.counters.record_sent(payload.len()); continue;

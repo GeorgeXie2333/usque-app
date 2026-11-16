@@ -111,9 +111,11 @@ class DesktopEngineTransport {
   int _requestSequence = 0;
   int _startCount = 0;
   bool _disposed = false;
+  bool _relaunching = false;
   StreamController<Uint8List>? _rawEventController;
   StreamSubscription<dynamic>? _rawEventSubscription;
   Stream<Uint8List>? _rawEventFrames;
+  Socket? _eventSocket;
 
   /// Number of times the engine process start path has completed successfully.
   @visibleForTesting
@@ -125,7 +127,8 @@ class DesktopEngineTransport {
   bool get isDisposed => _disposed;
 
   bool get supportsSnapshotEvents =>
-      _testSupportsSnapshotEvents ?? (Platform.isWindows || Platform.isLinux);
+      _testSupportsSnapshotEvents ??
+      (Platform.isWindows || Platform.isLinux || Platform.isMacOS);
 
   /// Raw length-prefixed event frames from the native event bridge.
   ///
@@ -137,11 +140,63 @@ class DesktopEngineTransport {
       return _testRawEvents ?? const Stream<Uint8List>.empty();
     }
     if (_disposed ||
-        !(Platform.isWindows || Platform.isLinux) ||
-        Platform.isLinux && _process == null) {
+        !(Platform.isWindows || Platform.isLinux || Platform.isMacOS) ||
+        (Platform.isLinux || Platform.isMacOS) && _process == null) {
       return const Stream<Uint8List>.empty();
     }
-    return _rawEventFrames ?? _listenNativeEventFrames();
+    return _rawEventFrames ??
+        (Platform.isMacOS
+            ? _listenMacEventFrames()
+            : _listenNativeEventFrames());
+  }
+
+  Stream<Uint8List> _listenMacEventFrames() {
+    final controller = StreamController<Uint8List>.broadcast();
+    _rawEventController = controller;
+    _rawEventFrames = controller.stream;
+    unawaited(() async {
+      Socket? socket;
+      try {
+        socket = await Socket.connect(
+          InternetAddress('$_endpoint.events', type: InternetAddressType.unix),
+          0,
+          timeout: const Duration(seconds: 2),
+        );
+        if (_disposed || !identical(_rawEventController, controller)) {
+          socket.destroy();
+          return;
+        }
+        _eventSocket = socket;
+        _rawEventSubscription = readEventFrames(socket).listen(
+          (frame) {
+            if (!controller.isClosed) controller.add(frame);
+          },
+          onError: (Object error, StackTrace stack) {
+            if (!controller.isClosed) controller.addError(error, stack);
+          },
+          onDone: () {
+            socket?.destroy();
+            if (identical(_rawEventController, controller)) {
+              _eventSocket = null;
+              _rawEventSubscription = null;
+              _rawEventController = null;
+              _rawEventFrames = null;
+            }
+            if (!controller.isClosed) unawaited(controller.close());
+          },
+          cancelOnError: false,
+        );
+      } on Object catch (error, stack) {
+        socket?.destroy();
+        if (!controller.isClosed) controller.addError(error, stack);
+        if (identical(_rawEventController, controller)) {
+          _rawEventController = null;
+          _rawEventFrames = null;
+        }
+        if (!controller.isClosed) unawaited(controller.close());
+      }
+    }());
+    return controller.stream;
   }
 
   Stream<Uint8List> _listenNativeEventFrames() {
@@ -195,6 +250,9 @@ class DesktopEngineTransport {
 
   Future<void> ensureStarted() async {
     _throwIfDisposed();
+    if (_relaunching) {
+      throw const EngineException('ENGINE_CLOSED', 'Usque is restarting.');
+    }
     if (_isTestTransport && _startCount > 0) return;
     final existing = _starting;
     if (existing != null) {
@@ -267,9 +325,9 @@ class DesktopEngineTransport {
     try {
       socket.add(request);
       await socket.flush();
-      return await readFrame(socket);
+      return await readFrame(socket).timeout(timeout);
     } finally {
-      await socket.close();
+      socket.destroy();
     }
   }
 
@@ -303,6 +361,8 @@ class DesktopEngineTransport {
   ]) => _nativeTransport.invokeMethod<T>(method, arguments);
 
   Future<void> resetEventStream() async {
+    _eventSocket?.destroy();
+    _eventSocket = null;
     final subscription = _rawEventSubscription;
     final events = _rawEventController;
     _rawEventSubscription = null;
@@ -317,6 +377,8 @@ class DesktopEngineTransport {
 
   void dispose() {
     _disposed = true;
+    _eventSocket?.destroy();
+    _eventSocket = null;
     unawaited(_rawEventSubscription?.cancel());
     _rawEventSubscription = null;
     final events = _rawEventController;
@@ -330,6 +392,38 @@ class DesktopEngineTransport {
     process?.kill();
   }
 
+  /// The controller has confirmed Disconnect. Wait for the old process to
+  /// release the per-user Engine lease before Launch Services opens the app.
+  Future<void> relaunchMacosAppAfterCleanup() async {
+    _throwIfDisposed();
+    if (_relaunching) {
+      throw const EngineException('MACOS_AGENT_BUSY', 'Usque is restarting.');
+    }
+    _relaunching = true;
+    try {
+      await _starting;
+      final process = _process;
+      if (process != null) {
+        process.kill(ProcessSignal.sigterm);
+        final code = await process.exitCode.timeout(
+          const Duration(seconds: 30),
+        );
+        if (code != 0) {
+          throw const EngineException(
+            'ENGINE_SHUTDOWN_FAILED',
+            'The Engine did not exit cleanly.',
+          );
+        }
+      }
+      await _nativeTransport.invokeMethod<void>('relaunchMacosApp', {
+        'cleanup_complete': true,
+      });
+    } catch (_) {
+      _relaunching = false;
+      rethrow;
+    }
+  }
+
   void _throwIfDisposed() {
     if (_disposed) {
       throw const EngineException(
@@ -341,6 +435,16 @@ class DesktopEngineTransport {
 
   Future<void> _startEngine() async {
     var executable = _engineExecutable();
+    if (Platform.isMacOS &&
+        !(kDebugMode &&
+            (Platform.environment['USQUE_ENGINE_PATH'] ?? '')
+                .trim()
+                .isNotEmpty) &&
+        await _nativeTransport.invokeMethod<bool>('macosUseInstalledEngine') ==
+            true) {
+      executable =
+          '/Library/PrivilegedHelperTools/com.usque.agent/usque-engine';
+    }
     if (Platform.isLinux && !kDebugMode) {
       executable =
           await _nativeTransport.invokeMethod<String>(
@@ -374,7 +478,10 @@ class DesktopEngineTransport {
         '--socket',
         _endpoint,
       ],
-      if (Platform.isLinux) ...<String>['--parent-pid', '$pid'],
+      if (Platform.isLinux || Platform.isMacOS) ...<String>[
+        '--parent-pid',
+        '$pid',
+      ],
     ];
     final process = await Process.start(
       executable,
@@ -415,7 +522,10 @@ class DesktopEngineTransport {
         if (identical(_process, process)) {
           _process = null;
           final events = _rawEventController;
-          if (!_disposed && events != null && !events.isClosed) {
+          if (!_disposed &&
+              !_relaunching &&
+              events != null &&
+              !events.isClosed) {
             events.addError(
               const EngineException(
                 'ENGINE_EVENT_UNAVAILABLE',
@@ -427,14 +537,15 @@ class DesktopEngineTransport {
       }),
     );
 
-    if (Platform.isWindows || Platform.isLinux) {
+    if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
       _EngineStartupOutcome outcome;
       try {
         outcome = await Future.any<_EngineStartupOutcome>(
           <Future<_EngineStartupOutcome>>[
-            _waitForWindowsEnginePipe().then(
-              (_) => const _EngineStartupOutcome.ready(),
-            ),
+            (Platform.isMacOS
+                    ? _waitForMacEngineSocket()
+                    : _waitForWindowsEnginePipe())
+                .then((_) => const _EngineStartupOutcome.ready()),
             exitCode.then(_EngineStartupOutcome.exited),
           ],
         );
@@ -460,6 +571,28 @@ class DesktopEngineTransport {
     }
   }
 
+  Future<void> _waitForMacEngineSocket() async {
+    final deadline = DateTime.now().add(_windowsEngineReadyTimeout);
+    while (!_disposed && DateTime.now().isBefore(deadline)) {
+      try {
+        final socket = await Socket.connect(
+          InternetAddress(_endpoint, type: InternetAddressType.unix),
+          0,
+          timeout: const Duration(milliseconds: 200),
+        );
+        socket.destroy();
+        return;
+      } on SocketException {
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      }
+    }
+    _throwIfDisposed();
+    throw const EngineException(
+      'ENGINE_START_TIMEOUT',
+      'The local Engine did not become ready in time.',
+    );
+  }
+
   Future<void> _waitForWindowsEnginePipe() async {
     try {
       await _nativeTransport
@@ -478,38 +611,90 @@ class DesktopEngineTransport {
   }
 }
 
+/// A persistent event socket can split or combine frames arbitrarily. Keep at
+/// most one bounded frame, reject a malformed length before allocating its body,
+/// and report EOF only when it interrupts a frame.
+@visibleForTesting
+Stream<Uint8List> readEventFrames(Stream<List<int>> input) async* {
+  final header = Uint8List(4);
+  var headerBytes = 0;
+  Uint8List? frame;
+  var used = 0;
+  await for (final chunk in input) {
+    var offset = 0;
+    while (offset < chunk.length) {
+      if (frame == null) {
+        final count = (4 - headerBytes).clamp(0, chunk.length - offset);
+        header.setRange(headerBytes, headerBytes + count, chunk, offset);
+        headerBytes += count;
+        offset += count;
+        if (headerBytes < 4) continue;
+        final length = ByteData.sublistView(header).getUint32(0, Endian.big);
+        if (length == 0 || length > kMaximumFrameBytes) {
+          throw const EngineException(
+            'ENGINE_EVENT_FRAME_INVALID',
+            'The Engine event frame length is invalid.',
+          );
+        }
+        frame = Uint8List(length + 4)..setRange(0, 4, header);
+        used = 4;
+      }
+      final count = (frame.length - used).clamp(0, chunk.length - offset);
+      frame.setRange(used, used + count, chunk, offset);
+      used += count;
+      offset += count;
+      if (used == frame.length) {
+        yield frame;
+        frame = null;
+        used = 0;
+        headerBytes = 0;
+      }
+    }
+  }
+  if (frame != null || headerBytes != 0) {
+    throw const EngineException(
+      'ENGINE_EVENT_TRUNCATED',
+      'The Engine closed an incomplete event frame.',
+    );
+  }
+}
+
 /// Reads one length-prefixed frame from a byte stream (unix socket path).
 @visibleForTesting
 Future<Uint8List> readFrame(Stream<List<int>> stream) async {
   final iterator = StreamIterator<List<int>>(stream);
   final buffer = BytesBuilder(copy: false);
   int? expected;
-  while (await iterator.moveNext()) {
-    buffer.add(iterator.current);
-    final bytes = buffer.toBytes();
-    if (expected == null && bytes.length >= 4) {
-      expected = ByteData.sublistView(bytes).getUint32(0, Endian.big);
-      if (expected > kMaximumFrameBytes) {
-        throw const EngineException(
-          'ENGINE_IPC_FRAME_TOO_LARGE',
-          'The local Engine response exceeded 4 MiB.',
-        );
+  try {
+    while (await iterator.moveNext()) {
+      buffer.add(iterator.current);
+      final bytes = buffer.toBytes();
+      if (expected == null && bytes.length >= 4) {
+        expected = ByteData.sublistView(bytes).getUint32(0, Endian.big);
+        if (expected > kMaximumFrameBytes) {
+          throw const EngineException(
+            'ENGINE_IPC_FRAME_TOO_LARGE',
+            'The local Engine response exceeded 4 MiB.',
+          );
+        }
+      }
+      if (expected != null && bytes.length >= expected + 4) {
+        if (bytes.length != expected + 4) {
+          throw const EngineException(
+            'ENGINE_IPC_INVALID_RESPONSE',
+            'The local Engine returned trailing frame bytes.',
+          );
+        }
+        return bytes;
       }
     }
-    if (expected != null && bytes.length >= expected + 4) {
-      if (bytes.length != expected + 4) {
-        throw const EngineException(
-          'ENGINE_IPC_INVALID_RESPONSE',
-          'The local Engine returned trailing frame bytes.',
-        );
-      }
-      return bytes;
-    }
+    throw const EngineException(
+      'ENGINE_IPC_TRUNCATED',
+      'The local Engine closed an incomplete response.',
+    );
+  } finally {
+    await iterator.cancel();
   }
-  throw const EngineException(
-    'ENGINE_IPC_TRUNCATED',
-    'The local Engine closed an incomplete response.',
-  );
 }
 
 String _engineExecutable() {

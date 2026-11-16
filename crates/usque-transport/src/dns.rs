@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 use std::future::Future;
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, UdpSocket as StdUdpSocket};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU16, Ordering};
@@ -13,7 +13,7 @@ use usque_core::ProxyDnsMode;
 
 use crate::h2::TransportError;
 use crate::port_allocator::next_udp_port;
-use crate::socket::{SocketProtector, socket_handle};
+use crate::socket::SocketProtector;
 
 const DNS_TIMEOUT: Duration = Duration::from_secs(4);
 const DNS_PORT: u16 = 53;
@@ -48,6 +48,25 @@ struct ResolverReadiness {
 }
 
 impl Resolver {
+    /// The Network Extension owns DNS policy. Proxy hostnames are preserved
+    /// until the OS-socket dialer registers their exact flow intent.
+    pub(crate) fn system_proxy(protector: Arc<dyn SocketProtector>) -> Self {
+        Self {
+            channel: None,
+            stream_dns: None,
+            assigned_ipv4: Ipv4Addr::UNSPECIFIED,
+            assigned_ipv6: Ipv6Addr::UNSPECIFIED,
+            servers: Vec::new(),
+            mode: ProxyDnsMode::EdgeResolved,
+            routing: Arc::new(crate::geo_direct::GeoDirectPolicy::disabled()),
+            final_exit: false,
+            final_doh: None,
+            final_tcp: None,
+            protector,
+            readiness: None,
+            deferred: None,
+        }
+    }
     pub(crate) fn deferred(
         mut self,
         target: crate::tcp::DeferredServices,
@@ -436,7 +455,7 @@ impl Resolver {
                     .recv_from_bytes()
                     .await
                     .map_err(|error| TransportError::Dns(error.to_string()))?;
-                if source != remote {
+                if !crate::socket::connected_peer_matches(source, remote) {
                     return Err(TransportError::Dns(
                         "DNS response source mismatch".to_owned(),
                     ));
@@ -760,24 +779,22 @@ async fn query_local_server(
     deadline: Instant,
 ) -> Result<Vec<u8>, TransportError> {
     let work = async {
-        let bind_address = if remote.is_ipv4() {
-            SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0)
-        } else {
-            SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 0)
-        };
-        let std_socket = StdUdpSocket::bind(bind_address)?;
-        protector
-            .protect(socket_handle(&std_socket))
+        let (std_socket, _lease) = protector
+            .prepare_udp(
+                remote,
+                crate::socket::PhysicalSocketPurpose::BootstrapDns,
+                protector.network_generation().unwrap_or_default(),
+            )
+            .await
             .map_err(TransportError::SocketProtection)?;
-        std_socket.set_nonblocking(true)?;
         let socket = UdpSocket::from_std(std_socket)?;
-        let sent = socket.send_to(query, remote).await?;
+        let sent = crate::socket::send_udp_to(&socket, query, remote).await?;
         if sent != query.len() {
             return Err(TransportError::Dns("partial DNS query send".to_owned()));
         }
         let mut response = [0u8; MAX_DNS_PACKET];
         let (length, source) = socket.recv_from(&mut response).await?;
-        if source != remote {
+        if !crate::socket::connected_peer_matches(source, remote) {
             return Err(TransportError::Dns(
                 "DNS response source mismatch".to_owned(),
             ));

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
+import 'dart:ui' show Locale;
 
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -31,11 +32,49 @@ class _AdsRulesWork {
 enum ProfilesDestination { root, accounts }
 
 class AppController extends ChangeNotifier {
+  final settingsNavigationRequests = ValueNotifier<int>(0);
+
+  void requestSettingsNavigation() {
+    if (!_disposed) settingsNavigationRequests.value++;
+  }
+
+  /// The mounted desktop shell checks its current dialogs and unsaved drafts
+  /// before native menu commands mutate connection settings.
+  bool Function()? nativeNetworkActionGuard;
+  bool get nativeNetworkActionsAllowed =>
+      _exitCleanup == null && (nativeNetworkActionGuard?.call() ?? true);
+
+  void notifyNativeNetworkActionGuardChanged() {
+    if (!_disposed) _notifyListeners();
+  }
+
   String? _lastProtonCompletedJob;
+  bool get protonGuestLoginSupported =>
+      defaultTargetPlatform != TargetPlatform.macOS;
+  bool get protonHumanVerificationSupported =>
+      defaultTargetPlatform != TargetPlatform.macOS;
+
   Future<ProtonVpnResult> protonVpn(
     Map<String, Object?> command, {
     Uint8List? sensitiveInput,
   }) async {
+    if (!protonGuestLoginSupported && command['action'] == 'guest') {
+      throw const EngineException(
+        'PROTON_GUEST_UNAVAILABLE',
+        'Proton guest sign-in is unavailable on macOS.',
+      );
+    }
+    if (!protonHumanVerificationSupported &&
+        const {
+          'handoff',
+          'verify',
+          'verification_failed',
+        }.contains(command['action'])) {
+      throw const EngineException(
+        'PROTON_VERIFICATION_UNAVAILABLE',
+        'Proton human verification is unavailable on macOS.',
+      );
+    }
     final engine = _engine;
     if (engine is ProtonVpnClient) {
       final generation = _dataGeneration;
@@ -62,6 +101,12 @@ class AppController extends ChangeNotifier {
   }
 
   Future<Uint8List?> completeProtonHumanVerification(Uint8List handoff) {
+    if (!protonHumanVerificationSupported) {
+      throw const EngineException(
+        'PROTON_VERIFICATION_UNAVAILABLE',
+        'Proton human verification is unavailable on macOS.',
+      );
+    }
     final engine = _engine;
     if (engine is ProtonHumanVerificationClient) {
       return (engine as ProtonHumanVerificationClient)
@@ -74,6 +119,7 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> cancelProtonHumanVerification() async {
+    if (!protonHumanVerificationSupported) return;
     final engine = _engine;
     if (engine is ProtonHumanVerificationClient) {
       await (engine as ProtonHumanVerificationClient)
@@ -145,6 +191,18 @@ class AppController extends ChangeNotifier {
        quality = qualityController ?? NetworkQualityController(engine),
        networkSettings = NetworkSettingsController(engine) {
     scenarios = ScenariosController((command) {
+      if (!profileWritesAllowed &&
+          !const {
+            'list',
+            'preview',
+            'preview_restore',
+            'preview_reset',
+          }.contains(command['action'])) {
+        throw const EngineException(
+          'SCENARIO_CANCELLED',
+          'The scene operation was retired.',
+        );
+      }
       final generation = _dataGeneration;
       return networkSettings.enqueue(() {
         if (_disposed || _clearing || generation != _dataGeneration) {
@@ -355,9 +413,18 @@ class AppController extends ChangeNotifier {
       networkSettings.state?.persisted == true &&
       networkSettings.state?.status == NetworkSettingsApplyStatus.failed;
 
+  /// Shared by the Home control and native menu-bar connection action. An
+  /// in-flight connection remains cancellable while unrelated writes are busy.
+  bool get connectionActionEnabled =>
+      _exitCleanup == null &&
+      (!busy || snapshot.isTransitional) &&
+      snapshot.phase != ConnectionPhase.disconnecting &&
+      snapshot.errorCode != 'WINDOWS_RECOVERY_BLOCKED';
+
   /// True while the Home and tray output shortcuts must not start a save.
   bool get networkShortcutsLocked =>
       !initialized ||
+      _exitCleanup != null ||
       busy ||
       snapshot.isTransitional ||
       snapshot.errorCode == 'WINDOWS_RECOVERY_BLOCKED' ||
@@ -384,6 +451,12 @@ class AppController extends ChangeNotifier {
   bool _startupUpdateCheckStarted = false;
   bool _disposed = false;
   int _connectionIntent = 0;
+  Future<void>? _exitCleanup;
+  final Set<Completer<void>> _pendingOperations = {};
+
+  /// Close write admission before Quit drains work, including open dialogs.
+  bool get profileWritesAllowed =>
+      !_disposed && !_clearing && _exitCleanup == null;
   int _updateOperationGeneration = 0;
   UpdateDownloadCancellation? _updateCancellation;
 
@@ -410,7 +483,11 @@ class AppController extends ChangeNotifier {
       onboardingPhase == OnboardingPhase.submitting ||
       onboardingPhase == OnboardingPhase.reconciling;
   bool _busy = false;
-  bool get busy => _busy || profileIdentitiesLoading;
+  bool get busy =>
+      _busy ||
+      profileIdentitiesLoading ||
+      _exitCleanup != null ||
+      macosServiceBusy;
   set busy(bool value) => _busy = value;
   bool profileIdentitiesLoading = false;
   int _activeOperations = 0;
@@ -429,6 +506,80 @@ class AppController extends ChangeNotifier {
       !_disposed &&
       !hideFromRecentsBusy;
   bool get canSetHideFromRecents => canRefreshRecents && hideFromRecentsKnown;
+  bool get supportsMacosServiceMaintenance =>
+      defaultTargetPlatform == TargetPlatform.macOS &&
+      _engine is MacosServiceClient;
+  bool _macosServiceBusy = false;
+  bool get macosServiceBusy => _macosServiceBusy;
+
+  /// Claim the automatic prompt once, including across a cancelled setup and
+  /// a new process. The install button remains available independently.
+  Future<bool> claimMacosOnboardingInstallPrompt() async {
+    if (!supportsMacosServiceMaintenance ||
+        onboardingComplete ||
+        onboardingStep != 1) {
+      return false;
+    }
+    try {
+      return await _writeOnboardingPreference((preferences) async {
+        const key = 'onboarding_macos_service_prompted';
+        if (onboardingStep != 1 ||
+            onboardingComplete ||
+            preferences.getBool(key) == true) {
+          return false;
+        }
+        return preferences.setBool(key, true);
+      });
+    } on Object {
+      return false;
+    }
+  }
+
+  Future<MacosServiceState> getMacosServiceState() async {
+    final state = await (_engine as MacosServiceClient).getMacosServiceState();
+    if (state.cleanupConfirmed &&
+        lastError == strings.get('macos_agent_quit_failed')) {
+      clearError();
+    }
+    return state;
+  }
+
+  Future<void> maintainMacosService(MacosServiceAction action) async {
+    if (_macosServiceBusy ||
+        _exitCleanup != null ||
+        snapshot.isConnected ||
+        snapshot.isTransitional) {
+      throw const EngineException(
+        'MACOS_AGENT_BUSY',
+        'Disconnect before service maintenance.',
+      );
+    }
+    final service = _engine as MacosServiceClient;
+    _macosServiceBusy = true;
+    _notifyListeners();
+    try {
+      await service.maintainMacosService(action);
+      if (action == MacosServiceAction.install) {
+        // Installation has already been verified by the native bridge. A
+        // relaunch error must not ask the user to authorize installation again.
+        try {
+          await disconnectForExit();
+          await service.relaunchMacosAppAfterCleanup();
+        } on Object {
+          throw const EngineException(
+            'MACOS_SERVICE_RELAUNCH_FAILED',
+            'The service is installed. Reopen Usque.',
+          );
+        }
+      } else {
+        await _refreshCapabilities();
+      }
+    } finally {
+      _macosServiceBusy = false;
+      _notifyListeners();
+    }
+  }
+
   bool get supportsLinuxServiceMaintenance =>
       defaultTargetPlatform == TargetPlatform.linux &&
       _engine is LinuxServiceClient;
@@ -443,12 +594,16 @@ class AppController extends ChangeNotifier {
     await _refreshCapabilities();
   }
 
-  bool get tunnelOutputSupported =>
-      defaultTargetPlatform != TargetPlatform.linux ||
-      engineCapabilities?.vpn == true;
-  bool get systemProxyOutputSupported =>
-      defaultTargetPlatform != TargetPlatform.linux ||
-      engineCapabilities?.systemProxy == true;
+  bool get tunnelOutputSupported => switch (defaultTargetPlatform) {
+    TargetPlatform.linux ||
+    TargetPlatform.macOS => engineCapabilities?.vpn == true,
+    _ => true,
+  };
+  bool get systemProxyOutputSupported => switch (defaultTargetPlatform) {
+    TargetPlatform.linux ||
+    TargetPlatform.macOS => engineCapabilities?.systemProxy == true,
+    _ => true,
+  };
   PerAppProxySettings perAppProxy = const PerAppProxySettings();
   int zeroTrustCallbackTicket = 0;
   Object? _zeroTrustCurrentOwner;
@@ -469,7 +624,16 @@ class AppController extends ChangeNotifier {
     final becameConnected = !_snapshot.isConnected && value.isConnected;
     _snapshot = value;
     if (value.isConnected && _lastErrorFromConnection) lastError = null;
-    if (becameConnected && initialized) unawaited(maintainAdsRules());
+    if (becameConnected && initialized) {
+      unawaited(maintainAdsRules());
+      if (identityState(activeProfileId) == ProfileIdentityState.locked) {
+        unawaited(
+          _refreshProfileCatalog()
+              .then((_) => _notifyListeners())
+              .catchError((Object _) {}),
+        );
+      }
+    }
     if (value.phase == ConnectionPhase.error &&
         (value.errorCode != null || value.warning?.isNotEmpty == true)) {
       _setConnectionError(
@@ -554,7 +718,18 @@ class AppController extends ChangeNotifier {
   Map<String, ProfileIdentityStatus> profileIdentityStatuses =
       <String, ProfileIdentityStatus>{};
 
-  AppStrings get strings => AppStrings(localePreference);
+  Locale? _systemLocale;
+  AppStrings get strings =>
+      AppStrings(localePreference, systemLocale: _systemLocale);
+
+  /// Keep system language changes in memory. The user's language preference
+  /// stays "system", and desktop integrations receive the same catalog as UI.
+  void noteSystemLocale(Locale locale) {
+    if (_disposed || _systemLocale == locale) return;
+    final previousCatalog = strings.catalogId;
+    _systemLocale = locale;
+    if (strings.catalogId != previousCatalog) _notifyListeners();
+  }
 
   double? get updateProgress => updateTotalBytes <= 0
       ? null
@@ -896,7 +1071,7 @@ class AppController extends ChangeNotifier {
       if (!_startupAutoConnectChecked) {
         _startupAutoConnectChecked = true;
         if (intent == _connectionIntent && _shouldAutoConnectOnStart()) {
-          await connectOrDisconnect();
+          await connectOrDisconnect(background: true);
         }
       }
     } on Object {
@@ -1093,7 +1268,7 @@ class AppController extends ChangeNotifier {
     try {
       return await _run(() async {
             if (_disposed || generation != _dataGeneration || _clearing) return;
-            if (!await refreshInitialIdentityState()) return;
+            if (!await _checkInitialIdentityForUserAction()) return;
             if (initialIdentityState?.phase == InitialIdentityPhase.pending) {
               return;
             }
@@ -1350,9 +1525,18 @@ class AppController extends ChangeNotifier {
     return work;
   }
 
+  Future<bool> _checkInitialIdentityForUserAction() async {
+    if (defaultTargetPlatform == TargetPlatform.macOS &&
+        _engine is MacosKeychainClient) {
+      await _initialIdentityRefresh;
+      return _readInitialIdentityState(allowKeychainInteraction: true);
+    }
+    return refreshInitialIdentityState();
+  }
+
   Future<bool> resumeInitialIdentityState() async {
     if (_disposed || _clearing || busy || _onboardingSubmitting) return false;
-    if (!await refreshInitialIdentityState()) return false;
+    if (!await _checkInitialIdentityForUserAction()) return false;
     final state = initialIdentityState;
     final engine = _engine;
     if (state == null ||
@@ -1382,7 +1566,9 @@ class AppController extends ChangeNotifier {
     }, affectsConnection: false);
   }
 
-  Future<bool> _readInitialIdentityState() async {
+  Future<bool> _readInitialIdentityState({
+    bool allowKeychainInteraction = false,
+  }) async {
     final engine = _engine;
     if (_disposed || _clearing || onboardingComplete) return false;
     if (engine is! InitialIdentityClient) {
@@ -1393,8 +1579,14 @@ class AppController extends ChangeNotifier {
     final generation = _dataGeneration;
     final profileId = _onboardingProfileId ?? activeProfileId;
     try {
-      final state = await (engine as InitialIdentityClient)
-          .getInitialIdentityState(profileId);
+      final state = allowKeychainInteraction && engine is MacosKeychainClient
+          ? await (engine as MacosKeychainClient).getInitialIdentityState(
+              profileId,
+              allowKeychainInteraction: true,
+            )
+          : await (engine as InitialIdentityClient).getInitialIdentityState(
+              profileId,
+            );
       if (_disposed || generation != _dataGeneration || _clearing) return false;
       _acceptInitialIdentityState(state, profileId);
       if (state.phase == InitialIdentityPhase.completed) {
@@ -1465,7 +1657,12 @@ class AppController extends ChangeNotifier {
       lastError = unsupported
           ? strings.get('onboarding_unavailable')
           : userFacingError(strings, error);
-      if (!unsupported) _scheduleOnboardingPoll();
+      if (error is EngineException &&
+          error.code == 'MACOS_KEYCHAIN_ACCESS_REQUIRED') {
+        _onboardingPollTimer?.cancel();
+      } else if (!unsupported) {
+        _scheduleOnboardingPoll();
+      }
       _notifyListeners();
       return false;
     }
@@ -1546,8 +1743,8 @@ class AppController extends ChangeNotifier {
     }
   }
 
-  Future<void> connectOrDisconnect() async {
-    if (snapshot.phase == ConnectionPhase.disconnecting) return;
+  Future<void> connectOrDisconnect({bool background = false}) async {
+    if (!connectionActionEnabled) return;
     final intent = ++_connectionIntent;
     if (snapshot.isConnected || snapshot.isTransitional) {
       snapshot = EngineSnapshot(
@@ -1587,14 +1784,23 @@ class AppController extends ChangeNotifier {
           );
         }
         if (intent != _connectionIntent) return;
-        if (identityState(activeProfile.id) != ProfileIdentityState.ready) {
+        if (!identityState(activeProfile.id).canConnect) {
           throw const EngineException(
             'IDENTITY_SETUP_REQUIRED',
             'This profile needs a valid Consumer WARP identity before it can connect.',
           );
         }
         _requireDataPlaneCapability(activeProfile);
-        final next = await _engine.connect(activeProfile);
+        final engine = _engine;
+        final next =
+            background &&
+                defaultTargetPlatform == TargetPlatform.macOS &&
+                engine is MacosKeychainClient
+            ? await (engine as MacosKeychainClient).connect(
+                activeProfile,
+                background: true,
+              )
+            : await engine.connect(activeProfile);
         if (intent == _connectionIntent) snapshot = next;
       }),
       connectionIntent: intent,
@@ -1607,6 +1813,7 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> retry() async {
+    if (_exitCleanup != null) return;
     final intent = ++_connectionIntent;
     final success = await _run(
       () => withControlOperation(() async {
@@ -1632,15 +1839,49 @@ class AppController extends ChangeNotifier {
     }
   }
 
-  Future<void> disconnectForExit() async {
+  Future<void> disconnectForExit() {
+    final pending = _exitCleanup;
+    if (pending != null) return pending;
+    late final Future<void> cleanup;
+    cleanup = _disconnectForExit().whenComplete(() {
+      if (identical(_exitCleanup, cleanup)) _exitCleanup = null;
+      _notifyListeners();
+    });
+    _exitCleanup = cleanup;
+    _notifyListeners();
+    return cleanup;
+  }
+
+  Future<void> _disconnectForExit() async {
     _connectionIntent++;
     await _onboardingPreferenceWrites;
     await LinuxPreferencesStore.flushPending();
-    if (snapshot.phase != ConnectionPhase.disconnected) {
+    // Some accepted account writes (for example identity changes) run outside
+    // the settings queue. New operations are fenced while these settle.
+    await Future.wait(_pendingOperations.map((operation) => operation.future));
+    // Account and network edits share a queue above the Engine's RPC queue.
+    // Drain already queued edits before the final stop can overtake them.
+    await flushProfileWrites();
+    final requiresCleanupConfirmation =
+        defaultTargetPlatform == TargetPlatform.macOS;
+    // A disconnected snapshot can still have a startup rollback or proxy
+    // restoration pending. macOS Disconnect acknowledges completed cleanup,
+    // so always ask the Engine rather than trusting the cached phase.
+    if (requiresCleanupConfirmation ||
+        snapshot.phase != ConnectionPhase.disconnected) {
       try {
         snapshot = await _engine.disconnect();
         _notifyListeners();
+        if (requiresCleanupConfirmation &&
+            (snapshot.phase != ConnectionPhase.disconnected ||
+                snapshot.errorCode != null)) {
+          throw const EngineException(
+            'DISCONNECT_CLEANUP_FAILED',
+            'Disconnection cleanup has not completed. Retry Disconnect before quitting.',
+          );
+        }
       } on Object {
+        if (requiresCleanupConfirmation) rethrow;
         // The native disconnect path is fail-fast; exit must not leave the UI
         // alive indefinitely if the cleanup acknowledgement is unavailable.
       }
@@ -1737,9 +1978,9 @@ class AppController extends ChangeNotifier {
     required String username,
     required String password,
   }) async {
-    if (_clearing || _disposed) return false;
-    final success = await networkSettings.enqueue(
-      () => _run(() async {
+    if (!profileWritesAllowed) return false;
+    final success = await _run(
+      () => networkSettings.enqueue(() async {
         try {
           await _engine.updateProxyAuth(
             activeProfileId,
@@ -1757,7 +1998,8 @@ class AppController extends ChangeNotifier {
           await networkSettings.refresh();
           await refreshSnapshot();
         }
-      }, affectsConnection: false),
+      }),
+      affectsConnection: false,
     );
     if (success) {
       lastNotice = username.isEmpty
@@ -2556,7 +2798,9 @@ class AppController extends ChangeNotifier {
     int? connectionIntent,
     bool allowDuringClear = false,
   }) async {
-    if (_clearing && !allowDuringClear) return false;
+    if (_exitCleanup != null || (_clearing && !allowDuringClear)) return false;
+    final completion = Completer<void>();
+    _pendingOperations.add(completion);
     final generation = _dataGeneration;
     _activeOperations += 1;
     busy = true;
@@ -2601,6 +2845,8 @@ class AppController extends ChangeNotifier {
       }
       return false;
     } finally {
+      _pendingOperations.remove(completion);
+      completion.complete();
       if (generation == _dataGeneration) _activeOperations -= 1;
       busy = _activeOperations > 0;
       _notifyListeners();
@@ -2762,7 +3008,7 @@ class AppController extends ChangeNotifier {
       _run(_engine.openAlwaysOnVpnSettings, affectsConnection: false);
 
   void addProfile(String name) {
-    if (_clearing) return;
+    if (!profileWritesAllowed) return;
     final normalized = name.trim();
     if (normalized.isEmpty || normalized.runes.length > 64) {
       return;
@@ -2955,7 +3201,7 @@ class AppController extends ChangeNotifier {
   }
 
   void renameProfile(String id, String name) {
-    if (_clearing) return;
+    if (!profileWritesAllowed) return;
     if (!profiles.any((profile) => profile.id == id)) {
       return;
     }
@@ -2987,7 +3233,7 @@ class AppController extends ChangeNotifier {
     UsqueProfile updated, {
     List<String>? changedFields,
   }) async {
-    if (updated.id != activeProfileId) return Future.value(false);
+    if (!profileWritesAllowed || updated.id != activeProfileId) return false;
     if (identityStatus(updated.id).provider == IdentityProvider.zeroTrust &&
         (changedFields ?? networkSettingsChangedFields(activeProfile, updated))
             .any(
@@ -3055,6 +3301,9 @@ class AppController extends ChangeNotifier {
         return false;
       }
     }
+    // Capability checks and rule preparation may have awaited while Quit
+    // closed admission. No prepared save may enter the queue after its drain.
+    if (!profileWritesAllowed) return false;
     final saved = await networkSettings.save(updated, fields);
     if (saved && !_disposed && generation == _dataGeneration) {
       if (activeProfile.routing.adsEnabled) {
@@ -3067,7 +3316,7 @@ class AppController extends ChangeNotifier {
   }
 
   void setActiveProfile(String id) {
-    if (_clearing) return;
+    if (!profileWritesAllowed) return;
     if (profiles.any((profile) => profile.id == id)) {
       _connectionIntent++;
       activeProfileId = id;
@@ -3083,7 +3332,7 @@ class AppController extends ChangeNotifier {
   }
 
   bool deleteProfile(String id) {
-    if (_clearing) return false;
+    if (!profileWritesAllowed) return false;
     if (profiles.length == 1) {
       return false;
     }
@@ -3116,6 +3365,7 @@ class AppController extends ChangeNotifier {
     Future<void> Function() mutation, {
     required void Function() optimistic,
   }) {
+    if (!profileWritesAllowed) return Future.value(false);
     final generation = _dataGeneration;
     _pendingAccountViews.add(optimistic);
     return networkSettings.enqueue(() async {
@@ -3395,6 +3645,7 @@ class AppController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    settingsNavigationRequests.dispose();
     _adsTimer?.cancel();
     _zeroTrustCurrentOwner = null;
     _onboardingPollTimer?.cancel();

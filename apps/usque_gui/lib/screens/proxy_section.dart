@@ -16,6 +16,7 @@ class ProxySection extends StatefulWidget {
     required this.active,
     required this.onSubpageChanged,
     required this.navigatorKey,
+    this.onInteractionChanged,
     super.key,
   });
 
@@ -23,6 +24,7 @@ class ProxySection extends StatefulWidget {
   final bool active;
   final ValueChanged<bool> onSubpageChanged;
   final GlobalKey<SectionNavigatorState> navigatorKey;
+  final VoidCallback? onInteractionChanged;
 
   @override
   State<ProxySection> createState() => ProxySectionState();
@@ -71,6 +73,7 @@ class ProxySectionState extends State<ProxySection> {
     active: widget.active,
     rootName: '/proxy',
     onSubpageChanged: widget.onSubpageChanged,
+    onInteractionChanged: widget.onInteractionChanged,
     builder: (context) => ControllerSelector<UsqueProfile>(
       controller: widget.controller,
       active: (controller) => controller.section == AppSection.proxy,

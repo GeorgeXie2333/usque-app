@@ -1,12 +1,14 @@
+#[cfg(test)]
+use crate::socket::DirectProtocol;
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, UdpSocket as StdUdpSocket};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::dns::QuerySocket as StackUdpSocket;
 use bytes::Bytes;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpSocket, UdpSocket};
+use tokio::net::UdpSocket;
 use tokio::sync::{Semaphore, mpsc};
 use tokio::task::JoinHandle;
 use tokio::time::timeout;
@@ -20,7 +22,7 @@ use crate::geo_direct::{GeoDirectPolicy, GeoRoute};
 use crate::network_quality::{DirectDnsMode, DirectDnsReasonCode, NetworkQualityTelemetry};
 use crate::port_allocator::{next_tcp_port, next_udp_port};
 use crate::queue_metrics::{QueueEntry, QueueKind, QueueMetrics};
-use crate::socket::{DirectProtocol, SocketProtector, socket_handle};
+use crate::socket::SocketProtector;
 
 pub const SPLIT_DNS_IPV4: Ipv4Addr = Ipv4Addr::new(198, 18, 0, 1);
 pub const SPLIT_DNS_IPV6: Ipv6Addr = Ipv6Addr::new(0xfd00, 0, 0, 0, 0, 0, 0, 1);
@@ -815,7 +817,7 @@ impl SplitDnsResolver {
             .await
             .map_err(|_| "timed out".to_owned())?
             .map_err(|error| error.to_string())?;
-        if source != server {
+        if !crate::socket::connected_peer_matches(source, server) {
             return Err(format!("response came from {source}"));
         }
         Ok(response.to_vec())
@@ -1216,27 +1218,21 @@ pub(crate) async fn direct_udp(
     server: SocketAddr,
     query: &[u8],
 ) -> Result<Vec<u8>, String> {
-    let bind = SocketAddr::new(
-        if server.is_ipv4() {
-            IpAddr::V4(Ipv4Addr::UNSPECIFIED)
-        } else {
-            IpAddr::V6(Ipv6Addr::UNSPECIFIED)
-        },
-        0,
-    );
-    let socket = StdUdpSocket::bind(bind).map_err(|error| error.to_string())?;
-    let _lease = protector
-        .protect_for_target(socket_handle(&socket), server, DirectProtocol::Udp)
-        .await
-        .map_err(|error| format!("protect DNS UDP socket: {error}"))?;
-    socket
-        .set_nonblocking(true)
-        .map_err(|error| error.to_string())?;
+    let (socket, _lease) = protector
+        .prepare_udp(
+            server,
+            crate::socket::PhysicalSocketPurpose::Direct,
+            protector.network_generation().unwrap_or_default(),
+        )
+        .await?;
     let socket = UdpSocket::from_std(socket).map_err(|error| error.to_string())?;
-    let sent = timeout(DNS_TIMEOUT, socket.send_to(query, server))
-        .await
-        .map_err(|_| "send timed out".to_owned())?
-        .map_err(|error| error.to_string())?;
+    let sent = timeout(
+        DNS_TIMEOUT,
+        crate::socket::send_udp_to(&socket, query, server),
+    )
+    .await
+    .map_err(|_| "send timed out".to_owned())?
+    .map_err(|error| error.to_string())?;
     if sent != query.len() {
         return Err(format!("sent {sent} of {} bytes", query.len()));
     }
@@ -1245,7 +1241,7 @@ pub(crate) async fn direct_udp(
         .await
         .map_err(|_| "receive timed out".to_owned())?
         .map_err(|error| error.to_string())?;
-    if source != server {
+    if !crate::socket::connected_peer_matches(source, server) {
         return Err(format!("response came from {source}"));
     }
     response.truncate(length);
@@ -1257,16 +1253,13 @@ async fn direct_tcp(
     server: SocketAddr,
     query: &[u8],
 ) -> Result<Vec<u8>, String> {
-    let socket = if server.is_ipv4() {
-        TcpSocket::new_v4()
-    } else {
-        TcpSocket::new_v6()
-    }
-    .map_err(|error| error.to_string())?;
-    let _lease = protector
-        .protect_for_target(socket_handle(&socket), server, DirectProtocol::Tcp)
-        .await
-        .map_err(|error| format!("protect DNS TCP socket: {error}"))?;
+    let (socket, _lease) = protector
+        .prepare_tcp(
+            server,
+            crate::socket::PhysicalSocketPurpose::Direct,
+            protector.network_generation().unwrap_or_default(),
+        )
+        .await?;
     let stream = timeout(DNS_TIMEOUT, socket.connect(server))
         .await
         .map_err(|_| "connect timed out".to_owned())?
@@ -2007,21 +2000,13 @@ async fn preset_dns_udp<S: SocketProtector + ?Sized>(
     wire: &[u8],
     generation: u64,
 ) -> Result<Vec<u8>, String> {
-    let bind = if server.is_ipv4() {
-        "0.0.0.0:0"
-    } else {
-        "[::]:0"
-    };
-    let socket = StdUdpSocket::bind(bind).map_err(|error| error.to_string())?;
-    let lease = protector
-        .protect_endpoint_preset_dns_generation(
-            socket_handle(&socket),
+    let (socket, lease) = protector
+        .prepare_udp(
             server,
-            DirectProtocol::Udp,
+            crate::socket::PhysicalSocketPurpose::BootstrapDns,
             generation,
         )
-        .await
-        .map_err(|reason| format!("preset_dns_protection:{reason}"))?;
+        .await?;
     let protected = PresetDnsSocket {
         socket,
         _lease: lease,
@@ -2064,21 +2049,13 @@ async fn preset_dns_tcp<S: SocketProtector + ?Sized>(
     wire: &[u8],
     generation: u64,
 ) -> Result<Vec<u8>, String> {
-    let socket = if server.is_ipv4() {
-        TcpSocket::new_v4()
-    } else {
-        TcpSocket::new_v6()
-    }
-    .map_err(|error| error.to_string())?;
-    let lease = protector
-        .protect_endpoint_preset_dns_generation(
-            socket_handle(&socket),
+    let (socket, lease) = protector
+        .prepare_tcp(
             server,
-            DirectProtocol::Tcp,
+            crate::socket::PhysicalSocketPurpose::BootstrapDns,
             generation,
         )
-        .await
-        .map_err(|reason| format!("preset_dns_protection:{reason}"))?;
+        .await?;
     let socket = PresetDnsSocket {
         socket,
         _lease: lease,

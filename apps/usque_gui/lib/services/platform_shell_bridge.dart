@@ -10,14 +10,16 @@ import '../models/app_models.dart';
 import '../state/app_controller.dart';
 import '../state/connection_notice_tracker.dart';
 import '../widgets/common.dart';
+import 'engine_client.dart';
 
 class PlatformShellBridge {
   PlatformShellBridge(this._controller) {
     _channel.setMethodCallHandler(_handleMethod);
-    if (defaultTargetPlatform == TargetPlatform.windows) {
+    if (defaultTargetPlatform == TargetPlatform.windows ||
+        defaultTargetPlatform == TargetPlatform.macOS) {
       unawaited(_readWindowVisibility());
     }
-    if (Platform.isWindows || Platform.isLinux) {
+    if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
       _notices = ConnectionNoticeTracker(onNotice: _showNotice);
       _controller.addListener(_publishTrayState);
       _publishTrayState();
@@ -54,6 +56,10 @@ class PlatformShellBridge {
   }
 
   Future<Object?> _handleMethod(MethodCall call) async {
+    if (call.method == 'openSettings') {
+      _controller.requestSettingsNavigation();
+      return null;
+    }
     if (call.method == 'windowVisibilityChanged') {
       if (call.arguments is bool) {
         _visibilityRevision++;
@@ -82,13 +88,31 @@ class PlatformShellBridge {
     if (call.method != 'trayCommand') return null;
     switch (call.arguments) {
       case 'toggle':
-        await _controller.connectOrDisconnect();
+        if (_controller.initialized &&
+            _controller.nativeNetworkActionsAllowed) {
+          await _controller.connectOrDisconnect();
+        }
       case 'disconnectAndExit':
-        await _controller.disconnectForExit();
+        try {
+          await _controller.disconnectForExit();
+        } on EngineException catch (e) {
+          if (e.code != 'MACOS_AGENT_RECOVERY_UNCONFIRMED') rethrow;
+          return <String, Object>{
+            'cleanup_complete': false,
+            'service_recovery_message': _controller.strings.get(
+              'macos_agent_quit_failed',
+            ),
+          };
+        }
+        return const <String, Object>{'cleanup_complete': true};
       case 'toggleTunnel':
-        await toggleTunnelShortcut(_controller);
+        if (_controller.nativeNetworkActionsAllowed) {
+          await toggleTunnelShortcut(_controller);
+        }
       case 'toggleSystemProxy':
-        await toggleSystemProxyShortcut(_controller);
+        if (_controller.nativeNetworkActionsAllowed) {
+          await toggleSystemProxyShortcut(_controller);
+        }
       default:
         throw PlatformException(
           code: 'INVALID_TRAY_COMMAND',
@@ -115,11 +139,18 @@ class PlatformShellBridge {
     final showOutputs =
         _controller.initialized && _controller.networkSettings.supported;
     final state = <String, Object>{
+      'catalog_id': strings.catalogId,
       'phase': snapshot.phase.name,
       'status': status,
       'connected': connected,
+      'connection_enabled':
+          _controller.initialized &&
+          _controller.nativeNetworkActionsAllowed &&
+          _controller.connectionActionEnabled,
       'badge': trayBadge(snapshot.phase),
       'open': strings.get('tray_open'),
+      'settings': strings.get('settings'),
+      'quit_failed': strings.get('macos_quit_failed'),
       'connect': strings.get('tray_connect_profile'),
       'disconnect': strings.get('tray_disconnect_profile'),
       'disconnect_exit': strings.get('tray_disconnect_exit'),
@@ -129,7 +160,9 @@ class PlatformShellBridge {
       'system_proxy_label': showOutputs ? strings.get('home_system_proxy') : '',
       'tunnel': profile.frontends.tunnel,
       'system_proxy': profile.proxy.systemProxy,
-      'outputs_enabled': !_controller.networkShortcutsLocked,
+      'outputs_enabled':
+          _controller.nativeNetworkActionsAllowed &&
+          !_controller.networkShortcutsLocked,
       'system_proxy_available':
           profile.frontends.http && _controller.systemProxyOutputSupported,
       'tunnel_available': _controller.tunnelOutputSupported,
@@ -178,7 +211,7 @@ class PlatformShellBridge {
 
   void dispose() {
     _disposed = true;
-    if (Platform.isWindows || Platform.isLinux) {
+    if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
       _controller.removeListener(_publishTrayState);
     }
     if (Platform.isAndroid) _controller.removeListener(_publishAndroidLocale);

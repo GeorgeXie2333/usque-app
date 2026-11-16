@@ -2115,9 +2115,9 @@ dependencies = [
 
 [[package]]
 name = "quinn-proto"
-version = "0.11.18"
+version = "0.11.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a9746dbde176634f4f2f1faf2404e30a31b2bc1e9cafb5329c95d8177a18c9fc"
+checksum = "0e750cca55fe4f0439a15d0bb529da9651e79993e8e72c61a899a36d462befbe"
 dependencies = [
  "bytes",
  "getrandom 0.4.3",
@@ -2137,9 +2137,9 @@ dependencies = [
 
 [[package]]
 name = "quinn-udp"
-version = "0.5.15"
+version = "0.5.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "35a133f956daabe89a61a685c2649f13d82d5aa4bd5d12d1277e1072a21c0694"
+checksum = "af66907df18639dcf4db56ca65490cabc4b27a97dbadd96f2926cca73298f016"
 dependencies = [
  "cfg_aliases",
  "libc",
@@ -3058,11 +3058,14 @@ dependencies = [
  "async-trait",
  "bytes",
  "clap",
+ "core-foundation",
  "ipnet",
  "libc",
+ "security-framework",
  "serde",
  "serde_json",
  "sha2",
+ "socket2",
  "tempfile",
  "thiserror",
  "tokio",
@@ -3137,6 +3140,7 @@ dependencies = [
  "bytes",
  "chrono",
  "clap",
+ "core-foundation",
  "ipnet",
  "libc",
  "p256",
@@ -3153,6 +3157,7 @@ dependencies = [
  "usque-core",
  "usque-geo",
  "usque-ipc",
+ "usque-macos-runtime",
  "usque-platform",
  "usque-transport",
  "uuid",
@@ -3192,6 +3197,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "usque-macos-runtime"
+version = "0.3.4"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tokio-util",
+ "usque-core",
+ "usque-geo",
+ "usque-transport",
+ "uuid",
+ "zeroize",
+]
+
+[[package]]
 name = "usque-openvpn"
 version = "0.3.4"
 dependencies = [
@@ -3207,9 +3232,12 @@ name = "usque-platform"
 version = "0.3.4"
 dependencies = [
  "async-trait",
+ "core-foundation",
  "libc",
  "libloading 0.9.0",
  "security-framework",
+ "serde",
+ "sha2",
  "tempfile",
  "thiserror",
  "tokio",

@@ -153,6 +153,43 @@ void main() {
   );
 
   testWidgets(
+    'shell settings tracks recents read, pending write and confirmed value',
+    (tester) async {
+      final engine = RecentsEngine()..hidden = true;
+      final app = await pumpWorkflow(
+        tester,
+        engine,
+        section: AppSection.settings,
+        size: const Size(390, 844),
+      );
+      final row = find.byKey(_row);
+      expect(tester.widget<SwitchListTile>(row).onChanged, isNull);
+
+      await app.refreshHideFromRecents();
+      await tester.pumpAndSettle();
+      expect(tester.widget<SwitchListTile>(row).value, isTrue);
+      expect(tester.widget<SwitchListTile>(row).onChanged, isNotNull);
+
+      engine.pendingVisibilityWrite = Completer<void>();
+      await tester.ensureVisible(row);
+      await tester.pumpAndSettle();
+      await tester.tap(row);
+      await tester.pumpAndSettle();
+      expect(engine.visibilityWrites, 1);
+      expect(tester.widget<SwitchListTile>(row).value, isTrue);
+      expect(tester.widget<SwitchListTile>(row).onChanged, isNull);
+
+      engine.pendingVisibilityWrite!.complete();
+      await tester.pumpAndSettle();
+      expect(tester.widget<SwitchListTile>(row).value, isFalse);
+      expect(tester.widget<SwitchListTile>(row).onChanged, isNotNull);
+      expect(engine.writes, 0);
+      expect(tester.takeException(), isNull);
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.android),
+  );
+
+  testWidgets(
     'unknown and failed read stay disabled until Retry confirms native state',
     (tester) async {
       final engine = RecentsEngine()..hidden = true;

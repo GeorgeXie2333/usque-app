@@ -16,6 +16,7 @@ import '../widgets/common.dart';
 import '../widgets/controller_selector.dart';
 import '../widgets/external_link.dart';
 import '../widgets/linux_service_section.dart';
+import '../widgets/macos_service_section.dart';
 import '../widgets/setup_handoff.dart';
 import '../widgets/stacking_action_bar.dart';
 import '../widgets/tv_text_input.dart';
@@ -1334,7 +1335,9 @@ class _PermissionsStep extends StatelessWidget {
           icon: _permissionsIcon,
           title: strings.get('permissions_title'),
           body: strings.get(
-            controller.requiresOnboardingPermissions
+            controller.supportsMacosServiceMaintenance
+                ? 'macos_onboarding_permissions_body'
+                : controller.requiresOnboardingPermissions
                 ? 'onboarding_android_permissions_body'
                 : 'permissions_body',
           ),
@@ -1344,7 +1347,9 @@ class _PermissionsStep extends StatelessWidget {
           LinuxServiceSection(controller: controller),
           const SizedBox(height: UsqueSpace.m),
         ],
-        if (controller.requiresOnboardingPermissions) ...[
+        if (controller.supportsMacosServiceMaintenance)
+          MacosServiceSection(controller: controller, onboarding: true)
+        else if (controller.requiresOnboardingPermissions) ...[
           // Android setup asks only for notifications; VPN authorization waits
           // for the first connection. The row follows the other steps' lists.
           ContentList(

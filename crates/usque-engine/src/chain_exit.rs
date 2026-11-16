@@ -1,6 +1,6 @@
 use crate::{ControlService, ControlServiceError};
 use usque_core::chain_exit::{ChainExitSettings, ChainSource};
-#[cfg(any(windows, target_os = "linux"))]
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 use usque_core::chain_exit::{ChainProfileRequest, ImportSecrets};
 use usque_ipc::v1;
 
@@ -86,7 +86,7 @@ impl ControlService {
         &self,
         request: v1::ChainProfileRequest,
     ) -> Result<v1::ChainProfileResponse, ControlServiceError> {
-        #[cfg(any(windows, target_os = "linux"))]
+        #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
         {
             let _mutation = self.mutation_lock.lock().await;
             let request = ChainProfileRequest {
@@ -125,7 +125,10 @@ impl ControlService {
             let cipher = self.chain_cipher.clone().ok_or_else(|| {
                 ControlServiceError::FeatureUnavailable("chain credential storage is unavailable")
             })?;
-            let result = tokio::task::spawn_blocking(move || {
+            #[cfg(target_os = "macos")]
+            let interactive =
+                request.action != "list" && usque_platform::macos_keychain::interaction_allowed();
+            let work = move || {
                 let _transaction = store.lock_exclusive()?;
                 let latest = store.load_or_default()?;
                 retained.extend(usque_core::scenarios::retained_chain_profiles(&latest));
@@ -143,9 +146,11 @@ impl ControlService {
                     request,
                     &retained,
                 ))
-            })
-            .await
-            .map_err(|_| {
+            };
+            #[cfg(target_os = "macos")]
+            let work =
+                move || usque_platform::macos_keychain::INTERACTIVE.sync_scope(interactive, work);
+            let result = tokio::task::spawn_blocking(work).await.map_err(|_| {
                 ControlServiceError::InvalidRequest("Chain storage worker failed".into())
             })??;
             Ok(v1::ChainProfileResponse {
@@ -153,7 +158,7 @@ impl ControlService {
                     .map_err(ControlServiceError::configuration)?,
             })
         }
-        #[cfg(not(any(windows, target_os = "linux")))]
+        #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
         {
             let _ = request;
             Err(ControlServiceError::InvalidRequest(
@@ -172,13 +177,13 @@ impl ControlService {
         profile: &usque_core::Profile,
         cipher: Option<&dyn usque_core::chain_exit::store::ProfileCipher>,
     ) -> Result<(), ControlServiceError> {
-        #[cfg(not(any(windows, target_os = "linux")))]
+        #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
         let _ = (parent, cipher);
         if profile
             .custom_chain()
             .is_some_and(|s| s.profile_id.is_some())
         {
-            #[cfg(any(windows, target_os = "linux"))]
+            #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
             {
                 let (summary, _, _) = usque_core::chain_exit::store::ChainProfileStore::new(
                     parent,
@@ -199,7 +204,7 @@ impl ControlService {
                     ));
                 }
             }
-            #[cfg(not(any(windows, target_os = "linux")))]
+            #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
             return Err(ControlServiceError::InvalidRequest(
                 "Chain import is unavailable on this host".into(),
             ));

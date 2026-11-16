@@ -19,6 +19,9 @@ windows-sys.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 security-framework.workspace = true
+core-foundation.workspace = true
+serde.workspace = true
+sha2.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
 libc.workspace = true

@@ -1,6 +1,8 @@
 //! Encrypted DNS with separate direct and final-exit connectors. No encrypted error branch can
 //! invoke the system resolver, physical DNS discovery, or a port-53 fallback.
 
+#[cfg(test)]
+use crate::socket::socket_handle;
 use std::net::{IpAddr, SocketAddr};
 use std::ops::{Deref, DerefMut};
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
@@ -15,7 +17,6 @@ use rustls::pki_types::ServerName;
 use rustls::{ClientConfig, RootCertStore};
 use thiserror::Error;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpSocket;
 use tokio::sync::{Mutex, MutexGuard, Notify, OwnedSemaphorePermit, Semaphore};
 use tokio::time::{Instant, MissedTickBehavior, interval, sleep, timeout_at};
 use tokio_rustls::client::TlsStream;
@@ -28,7 +29,7 @@ use crate::network_quality::{DirectDnsMode, DirectDnsReasonCode, NetworkQualityT
 use crate::queue_metrics::{QueueKind, QueueMetrics};
 use crate::socket::{
     DirectEgressLease, DirectProtocol, LeasedIo, STALE_GENERATION_REASON, SocketHandle,
-    SocketProtector, socket_handle,
+    SocketProtector,
 };
 use crate::split_dns::{
     physical_wire_query, resolve_encrypted_host, validate_dns_exchange, validate_dns_query,
@@ -406,7 +407,7 @@ struct ConnectionGeneration {
 }
 
 enum ResolverPool {
-    Doh([Mutex<Option<Arc<DohConnection>>>; MAX_CONNECTIONS]),
+    Doh(Box<[Mutex<Option<Arc<DohConnection>>>; MAX_CONNECTIONS]>),
     Dot(Box<[Mutex<Option<DotConnection>>; MAX_CONNECTIONS]>),
 }
 
@@ -594,7 +595,7 @@ impl EncryptedResolver {
             MAX_IN_FLIGHT * MAX_DNS_MESSAGE,
         );
         let pool = if mode == ConfigMode::Doh {
-            ResolverPool::Doh(std::array::from_fn(|_| Mutex::new(None)))
+            ResolverPool::Doh(Box::new(std::array::from_fn(|_| Mutex::new(None))))
         } else {
             ResolverPool::Dot(Box::new(std::array::from_fn(|_| Mutex::new(None))))
         };
@@ -1082,18 +1083,11 @@ impl EncryptedResolver {
                 )
             }
             DnsConnector::Direct => {
-                let socket = if endpoint.is_ipv4() {
-                    TcpSocket::new_v4()
-                } else {
-                    TcpSocket::new_v6()
-                }
-                .map_err(|_| DirectDnsError::ConnectFailed)?;
-                let lease = self
+                let (socket, lease) = self
                     .protector
-                    .protect_for_target_generation(
-                        socket_handle(&socket),
+                    .prepare_tcp(
                         endpoint,
-                        DirectProtocol::Tcp,
+                        crate::socket::PhysicalSocketPurpose::DirectDns,
                         context.network_generation,
                     )
                     .await
@@ -1747,6 +1741,35 @@ struct ConfiguredDnsProtector {
 
 #[async_trait]
 impl SocketProtector for ConfiguredDnsProtector {
+    fn requires_owned_sockets(&self) -> bool {
+        self.protector.requires_owned_sockets()
+    }
+    async fn prepare_tcp(
+        &self,
+        remote: SocketAddr,
+        purpose: crate::socket::PhysicalSocketPurpose,
+        generation: u64,
+    ) -> Result<
+        (
+            crate::socket::PreparedTcpSocket,
+            crate::socket::DirectEgressLease,
+        ),
+        String,
+    > {
+        self.protector
+            .prepare_tcp(remote, purpose, generation)
+            .await
+    }
+    async fn prepare_udp(
+        &self,
+        remote: SocketAddr,
+        purpose: crate::socket::PhysicalSocketPurpose,
+        generation: u64,
+    ) -> Result<(std::net::UdpSocket, crate::socket::DirectEgressLease), String> {
+        self.protector
+            .prepare_udp(remote, purpose, generation)
+            .await
+    }
     fn subscribe_physical_network(
         &self,
     ) -> Option<tokio::sync::watch::Receiver<crate::socket::PhysicalNetworkSnapshot>> {
