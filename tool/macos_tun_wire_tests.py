@@ -6,6 +6,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import Mock, patch
 
 import macos_tun_wire as wire
 
@@ -29,6 +30,15 @@ def ethernet_frame(f: int, k: int, phase: str) -> bytes:
 
 
 class WireTests(unittest.TestCase):
+    def test_tentative_darwin_source_is_retried_before_emitting_any_probe(self):
+        sock = Mock()
+        sock.bind.side_effect = [OSError(wire.errno.EADDRNOTAVAIL, "tentative"), None]
+        with patch.object(wire.time, "sleep") as delay:
+            wire.bind_source(sock, "fd6e:7573:7175:ed::1", 31001, "feth0")
+        self.assertEqual(sock.bind.call_count, 2)
+        self.assertEqual(sock.bind.call_args.args, (("fd6e:7573:7175:ed::1", 31001),))
+        delay.assert_called_once()
+
     @unittest.skipUnless(sys.platform == "darwin", "Apple tcpdump offline filter contract")
     def test_distinguishes_all_six_frame_types_and_ignores_other_phases(self):
         with tempfile.TemporaryDirectory() as directory:

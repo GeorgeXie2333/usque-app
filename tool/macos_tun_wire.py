@@ -91,8 +91,8 @@ def setup(directory: Path) -> None:
         command(IFCONFIG, sender, "up")
         # Only the sender owns IP addresses; assigning the destination IP to
         # the peer would let the local kernel shortcut the virtual wire on lo0.
-        command(IFCONFIG, sender, "inet", FAMILIES[0][1], "netmask", "255.255.255.252")
-        command(IFCONFIG, sender, "inet6", FAMILIES[1][1], "prefixlen", "64", "alias")
+        command(IFCONFIG, sender, "inet", FAMILIES[0][1], "netmask", "255.255.255.252", "alias")
+        command(IFCONFIG, sender, "inet6", FAMILIES[1][1], "prefixlen", "64", "-dad", "alias")
         state["sender_mac"] = mac(sender)
         peer_mac = mac(peer)
         for family, _, dest in FAMILIES:
@@ -116,16 +116,32 @@ def mac(interface: str) -> str:
     return match.group(1)
 
 
+def bind_source(sock: socket.socket, address: str, port: int, interface: str) -> None:
+    deadline = time.monotonic() + 5
+    while True:
+        try:
+            sock.bind((address, port))
+            return
+        except OSError as error:
+            if error.errno != errno.EADDRNOTAVAIL:
+                raise
+            if time.monotonic() >= deadline:
+                raise RuntimeError(
+                    f"probe source {address} still unavailable on {interface}: {command(IFCONFIG, interface)}"
+                ) from error
+            time.sleep(0.1)
+
+
 def transmit(state: dict, phase: str) -> None:
     if os.geteuid() == 0:
         raise RuntimeError("packet probes must run unprivileged")
-    index = state["links"][0][1]
+    interface, index = state["links"][0]
     for f, (family, source, dest) in enumerate(FAMILIES):
         for k, kind in enumerate(PROTOCOLS):
             sp, dp = numbers(phase, state["base"], f, k)
             with socket.socket(family, socket.SOCK_STREAM if k == 0 else socket.SOCK_DGRAM) as sock:
                 sock.setsockopt(*SCOPE_OPTIONS[family], index)
-                sock.bind((source, sp))
+                bind_source(sock, source, sp, interface)
                 sock.settimeout(0.4)
                 if k == 0:
                     value = sock.connect_ex((dest, dp))
@@ -211,7 +227,7 @@ def probe(directory: Path, config: Path, phase: str) -> None:
                 group=owner.st_gid,
                 extra_groups=[],
                 check=True,
-                timeout=8,
+                timeout=16,
             )
             time.sleep(0.5)
             if sniff.poll() is not None:
