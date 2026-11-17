@@ -1,4 +1,4 @@
-"""Sign and verify the proxy preview for direct distribution on a disposable Mac."""
+"""Sign and verify the macOS app for direct distribution on a disposable Mac."""
 
 from __future__ import annotations
 
@@ -63,7 +63,7 @@ def create_image(
             verify_signature(path, fingerprint)
         (volume / "Applications").symlink_to("/Applications")
         (volume / "READ ME.txt").write_text(
-            "Usque macOS proxy preview. This package is project-signed and has no Apple "
+            "Usque for macOS. This package is project-signed and has no Apple "
             "notarization ticket. Verify the DMG fingerprint and GitHub build provenance "
             "using the release notes. System-wide TUN is disabled in this build.\n",
             encoding="utf-8",

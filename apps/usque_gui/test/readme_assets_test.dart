@@ -38,6 +38,7 @@ import 'ui_workflow_test.dart' show workflowHost;
 
 final String? _root = Platform.environment['USQUE_README_ASSETS'];
 final String? _frames = Platform.environment['USQUE_README_FRAMES'];
+const _platforms = 'Windows · macOS · Linux · Android';
 
 const _capabilities = EngineCapabilities(
   vpn: true,
@@ -538,7 +539,7 @@ class _Banner extends StatelessWidget {
                   ),
                   const SizedBox(height: 16),
                   Text(
-                    'Windows · Linux · Android',
+                    _platforms,
                     style: TextStyle(
                       fontFamily: UsqueFonts.body,
                       fontWeight: FontWeight.w600,
@@ -650,7 +651,7 @@ class _SocialPreview extends StatelessWidget {
                   ),
                   const SizedBox(height: 20),
                   Text(
-                    'Windows · Linux · Android / Android TV',
+                    '$_platforms / Android TV',
                     style: body(21, FontWeight.w600, scheme.onSurfaceVariant),
                   ),
                   const SizedBox(height: 36),

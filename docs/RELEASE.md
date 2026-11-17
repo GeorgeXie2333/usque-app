@@ -7,8 +7,8 @@ executable contracts are [release.yml](../.github/workflows/release.yml) and
 
 The checked-in application metadata and workflow target `v0.3.4` /
 `0.3.4+30`. Consult GitHub Releases for the currently published Latest.
-The dual-architecture macOS workflow on `dev` is for a subsequent release with
-a fresh version and tag. The published v0.3.4 has no macOS DMGs.
+v0.3.5 will be the first release with macOS DMGs for Apple Silicon and Intel.
+Its release preparation must align the version metadata and exact tag trigger.
 [v0.3.3](https://github.com/GeorgeXie2333/usque-app/releases/tag/v0.3.3) was
 published as the stable Latest on 2026-10-26 (UTC) from
 `1d44597ddb6dee7fca6700c0442e0d3856eea31b` with 34 public assets.
@@ -243,7 +243,7 @@ dependencies of publication.
 ### Batch the signing review
 
 For the next tag, wait until **all seven** signing
-jobs (Windows x64-v2/ARM64, Android, Linux amd64/arm64 and macOS arm64/x86_64) are awaiting review, then
+jobs (Windows x64-v2/ARM64, macOS arm64/x86_64, Linux amd64/arm64 and Android) are awaiting review, then
 approve `release-signing` together. Do not approve the first arriving job and
 then repeatedly approve later platforms. The release-gate summary supplies a
 candidate-bound command; it does not approve anything:
@@ -328,7 +328,7 @@ bypasses the fingerprint check.
    extraction, 64-bit ELF LOAD segments must support 16 KiB alignment, and ZIP
    alignment must pass. Wrong ABIs, duplicate entries, shipped symbols and native
    debug information are rejected before candidate upload. No APK is installed.
-3. The two native Mac jobs sign and verify the preview app and DMG with the pinned project certificate. Staging checks each DMG's GitHub provenance against the exact tag, workflow and commit, requires all sixteen packages and generates their SPDX SBOM attestations. See [macOS verification](CODE_SIGNING.md#configure-and-verify-macos-release-signing).
+3. The two native Mac jobs sign and verify the app and DMG with the pinned project certificate. Staging checks each DMG's GitHub provenance against the exact tag, workflow and commit, requires all sixteen packages and generates their SPDX SBOM attestations. See [macOS verification](CODE_SIGNING.md#configure-and-verify-macos-release-signing).
 4. The publish job rechecks the staged manifest, calculates final checksums and publishes fourteen user-facing installers, two update-only MSIs, the manifest, checksums, sixteen SPDX SBOMs and four Linux signature metadata files.
    Separately retain the three matching Flutter symbol artifacts for the
    supported lifetime of this release, following [Flutter release symbols](FLUTTER_SYMBOLS.md).
@@ -399,20 +399,20 @@ next reviewed version (official only after approved publication):
 - `usque-vX.Y.Z-windows-arm64.exe`
 - `usque-vX.Y.Z-windows-x64-v2.msi`
 - `usque-vX.Y.Z-windows-arm64.msi`
-- `usque-vX.Y.Z-android-arm64-v8a.apk`
-- `usque-vX.Y.Z-android-x86_64.apk`
-- `usque-vX.Y.Z-android-armeabi-v7a.apk`
-- `usque-vX.Y.Z-android-universal.apk`
+- `usque-vX.Y.Z-macos-arm64.dmg`
+- `usque-vX.Y.Z-macos-x86_64.dmg`
 - `usque-vX.Y.Z-linux-amd64.AppImage`
 - `usque-vX.Y.Z-linux-amd64.deb`
 - `usque-vX.Y.Z-linux-amd64.rpm`
 - `usque-vX.Y.Z-linux-arm64.AppImage`
 - `usque-vX.Y.Z-linux-arm64.deb`
 - `usque-vX.Y.Z-linux-arm64.rpm`
-- `usque-vX.Y.Z-macos-arm64.dmg`
-- `usque-vX.Y.Z-macos-x86_64.dmg`
+- `usque-vX.Y.Z-android-arm64-v8a.apk`
+- `usque-vX.Y.Z-android-x86_64.apk`
+- `usque-vX.Y.Z-android-armeabi-v7a.apk`
+- `usque-vX.Y.Z-android-universal.apk`
 
-The two EXEs, four APKs, six Linux files and two Mac DMGs are user-facing packages; the two MSIs are
+The two EXEs, two Mac DMGs, six Linux files and four APKs are user-facing packages; the two MSIs are
 update payloads consumed by the signed Windows updater. In addition to these
 sixteen primary artifacts, the public release includes `release-manifest.json`,
 `SHA256SUMS`, each artifact's SPDX SBOM, and two Linux manifests with detached

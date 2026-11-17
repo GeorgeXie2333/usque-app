@@ -22,7 +22,7 @@
 </p>
 
 <p align="center">
-  کلاینت غیررسمی سازگار با خدمات Cloudflare® WARP® برای Windows، Linux، Android / Android TV و macOS (نسخهٔ پیش‌نمایش)،<br>
+  کلاینت غیررسمی سازگار با خدمات Cloudflare® WARP® برای Windows، macOS، Linux و Android / Android TV،<br>
   با رابط بومی Flutter و موتور MASQUE نوشته‌شده با Rust.
 </p>
 
@@ -32,7 +32,7 @@
 
 <p align="center">
   <a href="https://github.com/GeorgeXie2333/usque-app/releases"><img alt="مجموع دانلودها" src="https://img.shields.io/github/downloads/GeorgeXie2333/usque-app/total?color=C2500C"></a>
-  <img alt="سکوها: Windows، Linux، Android، macOS (پیش‌نمایش)" src="https://img.shields.io/badge/platforms-Windows%20%7C%20Linux%20%7C%20Android%20%7C%20macOS%20%28preview%29-555555">
+  <img alt="سکوها: Windows، macOS، Linux، Android" src="https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux%20%7C%20Android-555555">
   <a href="LICENSE.md"><img alt="مجوز MIT" src="https://img.shields.io/badge/license-MIT-C2500C.svg"></a>
 </p>
 
@@ -142,9 +142,9 @@ flowchart LR
 | سکو | حداقل سیستم | بسته‌ها |
 | --- | --- | --- |
 | Windows | Windows 10 2004، build 19041 | نصب‌کنندهٔ EXE برای x64-v2 یا ARM64 |
+| macOS | macOS 13 یا جدیدتر | در نسخهٔ v0.3.5 برای Apple Silicon (arm64) و Intel (x86_64) فایل‌های DMG جداگانه منتشر می‌شوند |
 | Linux (از v0.3.3) | Ubuntu 22.04+، Debian 12+، Fedora پشتیبانی‌شده؛ systemd | AppImage، deb یا rpm برای amd64 یا arm64 |
 | Android / Android TV | Android 8.0، API 26 | APK برای arm64-v8a، x86_64 یا armeabi-v7a، یا APK یکپارچه |
-| macOS (نسخهٔ پیش‌نمایش) | macOS 13 یا جدیدتر | [تصاویر DMG ویژهٔ توسعه](docs/MACOS_DEVELOPMENT_PACKAGING.md) برای Apple Silicon (arm64) و Intel (x86_64) |
 
 Windows x64 به پردازنده‌ای با پشتیبانی از **x86-64-v2** نیاز دارد؛ برای Windows ARM64 از بستهٔ بومی ARM64 استفاده کنید. اگر ABI دستگاه Android معلوم نیست، APK یکپارچهٔ بزرگ‌تر را که هر سه ABI را دارد به کار ببرید. هر نسخه همچنین دو فایل Windows MSI ویژهٔ به‌روزرسانی درون‌برنامه دارد؛ برای نصب دستی Windows از EXE استفاده کنید.
 
@@ -237,13 +237,15 @@ VPN، SOCKS5 و HTTP به‌طور پیش‌فرض روشن‌اند و پروک
 ### قابلیت‌های آزمایشی و خارج از پشتیبانی
 
 [ثبت‌نام Zero Trust](docs/ZERO_TRUST_EXPERIMENTAL.md) آزمایشی است. برای تونل اینترنت MASQUE از
-هویت سازمان استفاده می‌کند و سازگاری کامل با Cloudflare One™ Client را فراهم نمی‌کند. macOS دارای
-[نسخه‌های DMG ویژهٔ توسعه](docs/MACOS_DEVELOPMENT_PACKAGING.md) به‌صورت جداگانه برای arm64 و x86_64 است و قابلیت‌های دسکتاپ و پراکسی در حال بررسی هستند.
-در نسخهٔ پیش‌نمایش می‌توانید از پراکسی محلی HTTP یا SOCKS5 استفاده کنید. آزمایش VPN سیستمی به [نسخهٔ آزمایشی Agent/utun](docs/MACOS_TUN_AGENT.md) نیاز دارد. نصب خودکار غیرفعال است.
+هویت سازمان استفاده می‌کند و سازگاری کامل با Cloudflare One™ Client را فراهم نمی‌کند.
+iOS، توزیع فروشگاهی و CLI عمومی بیرون از محدودهٔ این انتشار هستند.
+
+### پشتیبانی از macOS در v0.3.5
+
+نخستین نسخهٔ رسمی macOS همراه با v0.3.5 منتشر می‌شود و از پراکسی‌های محلی HTTP و SOCKS5 پشتیبانی می‌کند. آزمایش VPN سیستمی به [نسخهٔ آزمایشی Agent/utun](docs/MACOS_TUN_AGENT.md) نیاز دارد. نصب خودکار غیرفعال است.
 برای مشاهدهٔ قابلیت‌های پیاده‌سازی‌شده و موارد باقی‌مانده، به [جدول مقایسهٔ قابلیت‌های macOS](docs/MACOS_WINDOWS_PARITY.md) مراجعه کنید.
 کد فعلی شاخهٔ `dev` سناریوهای اتصال macOS، تأیید تکمیل پاک‌سازی پیش از خروج و اتصال موقت محافظت‌شدهٔ WARP برای VPN Gate را اضافه می‌کند. تنظیمات ذخیره‌شدهٔ زنجیره حفظ می‌شوند و فهرست مستقیماً از شبکهٔ فیزیکی دریافت نمی‌شود. بسته‌های توسعهٔ موجود پیش از این تغییرات ساخته شده‌اند و بستهٔ جایگزین هنوز منتشر نشده است.
 در macOS، ثبت‌نام مهمان Proton و مرورگر داخلی تأیید حذف شده‌اند. ورود عادی به حساب باقی است، اما ورود نیازمند تأیید مرورگری تکمیل نمی‌شود.
-iOS، توزیع فروشگاهی و CLI عمومی بیرون از محدودهٔ این انتشار هستند.
 
 ## تنظیمات پیش‌فرض شبکه
 

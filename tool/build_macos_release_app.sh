@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Prepare the exact Flutter/Rust source and build the ordinary proxy preview.
+# Prepare the exact Flutter/Rust source and build the macOS release app.
 set -euo pipefail
 arch=${1:?expected native architecture}
 test "$(uname -s)" = Darwin

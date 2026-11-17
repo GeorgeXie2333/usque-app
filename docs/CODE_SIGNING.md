@@ -9,9 +9,9 @@ Only packages attached to a GitHub Release for this repository, with matching ch
 The release workflow uses a dedicated project-controlled identity for each platform:
 
 - Windows Authenticode for the installer bundle, its detached Burn engine, its native setup EXE, the update MSI, and every EXE/DLL in the Windows application payload inside that MSI except the official Wintun DLL
-- an Android release certificate for every official APK
+- a self-signed code-signing certificate for the macOS app, its nested code and each native DMG
 - an Ed25519 key for Linux package manifests and AppImage service payload manifests
-- a self-signed code-signing certificate for the macOS preview app, its nested code and each native DMG
+- an Android release certificate for every official APK
 
 Those identities are not a public CA and are not in the Windows Root or Trusted Publisher stores. Windows will show an unknown-publisher warning. That is expected. The installer does not install the certificate into the machine trust stores.
 
@@ -45,10 +45,10 @@ the final DMG with the project certificate.
 | Official Windows installer bundle, its detached Burn engine and embedded native setup EXE | project Authenticode identity |
 | Official Windows MSI | project Authenticode identity |
 | Every EXE/DLL in the Windows application payload inside that MSI, including Usque binaries and the Flutter engine and plugin DLLs from the Flutter release build, except the official Wintun DLL | same identity |
-| Official per-ABI and universal APKs | project Android release certificate |
+| Official Wintun DLL (`amd64` / `arm64`) | original vendor signature; Usque redistributes those files and does not re-sign them |
 | macOS arm64 and x86_64 DMGs and bundled code | project self-signed certificate, pinned by [DER SHA-256](../packaging/macos/release-certificate.sha256) |
 | Linux amd64/arm64 AppImage, deb and rpm; AppImage service payload | Ed25519 manifests verified against the checked-in [public key](../packaging/linux/release-public-key.hex) |
-| Official Wintun DLL (`amd64` / `arm64`) | original vendor signature; Usque redistributes those files and does not re-sign them |
+| Official per-ABI and universal APKs | project Android release certificate |
 | Local validation MSI/APK | a throwaway identity created on the build machine; never official |
 
 Unsigned project binaries must not ship in an official Windows package. The

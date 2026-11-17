@@ -22,7 +22,7 @@
 </p>
 
 <p align="center">
-  相容 Cloudflare® WARP® 服務的非官方用戶端，支援 Windows、Linux、Android / Android TV 與 macOS（開發預覽版），<br>
+  相容 Cloudflare® WARP® 服務的非官方用戶端，支援 Windows、macOS、Linux 與 Android / Android TV，<br>
   採用原生 Flutter 介面與 Rust MASQUE 引擎。
 </p>
 
@@ -32,7 +32,7 @@
 
 <p align="center">
   <a href="https://github.com/GeorgeXie2333/usque-app/releases"><img alt="總下載量" src="https://img.shields.io/github/downloads/GeorgeXie2333/usque-app/total?color=C2500C"></a>
-  <img alt="平台：Windows、Linux、Android、macOS（預覽版）" src="https://img.shields.io/badge/platforms-Windows%20%7C%20Linux%20%7C%20Android%20%7C%20macOS%20%28preview%29-555555">
+  <img alt="平台：Windows、macOS、Linux、Android" src="https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux%20%7C%20Android-555555">
   <a href="LICENSE.md"><img alt="MIT 授權" src="https://img.shields.io/badge/license-MIT-C2500C.svg"></a>
 </p>
 
@@ -142,9 +142,9 @@ flowchart LR
 | 平台 | 最低系統 | 安裝套件 |
 | --- | --- | --- |
 | Windows | Windows 10 2004，Build 19041 | x64-v2 或 ARM64 安裝程式 EXE |
+| macOS | macOS 13 或以上版本 | v0.3.5 將分別提供 Apple Silicon（arm64）及 Intel（x86_64）的 DMG |
 | Linux（自 v0.3.3 起） | Ubuntu 22.04+、Debian 12+、受支援的 Fedora；systemd | amd64 或 arm64 的 AppImage、deb 或 rpm |
 | Android / Android TV | Android 8.0，API 26 | arm64-v8a、x86_64 或 armeabi-v7a APK，或通用 APK |
-| macOS（開發預覽版） | macOS 13 或以上版本 | 分別適用於 Apple Silicon（arm64）及 Intel（x86_64）的[開發版 DMG](docs/MACOS_DEVELOPMENT_PACKAGING.md) |
 
 Windows x64 需要支援 **x86-64-v2** 的 CPU；ARM64 Windows 使用原生 ARM64 安裝套件。不清楚 Android 裝置架構時，可使用體積更大、包含全部三種 ABI 的通用 APK。每個版本另有兩個僅供應用程式內更新使用的 Windows MSI 檔案；手動安裝 Windows 版請使用 EXE。
 
@@ -237,13 +237,13 @@ VPN、SOCKS5 和 HTTP 預設開啟，系統代理預設關閉。它們共用一�
 ### 實驗性功能與支援範圍
 
 [Zero Trust 註冊](docs/ZERO_TRUST_EXPERIMENTAL.md)仍屬實驗性功能：可以用組織身分建立 MASQUE 公開網際網路通道，
-但不提供完整的 Cloudflare One™ Client 功能。macOS 提供獨立的 arm64 和 x86_64
-[開發版 DMG 建置](docs/MACOS_DEVELOPMENT_PACKAGING.md)，桌面與代理功能仍在驗證中。
-預覽版可使用本機 HTTP 或 SOCKS5 代理。測試系統 VPN 需要專用的 [Agent/utun 測試版本](docs/MACOS_TUN_AGENT.md)。自動安裝保持關閉。
-已實作與待完成的功能請參閱 [macOS 功能對照表](docs/MACOS_WINDOWS_PARITY.md)。
+但不提供完整的 Cloudflare One™ Client 功能。
 目前也不提供 iOS 版本、應用程式商店分發或公開命令列工具。
 
-### macOS 開發版測試與已知問題
+### v0.3.5 的 macOS 支援
+
+首個 macOS 正式版將隨 v0.3.5 發佈，支援在 macOS 13 及以上版本使用本機 HTTP 與 SOCKS5 代理。
+系統層級 VPN 仍需專用的 [Agent/utun 測試版本](docs/MACOS_TUN_AGENT.md)。各項功能的支援範圍見 [macOS 功能對照表](docs/MACOS_WINDOWS_PARITY.md)。
 
 macOS 13+ **歷史 v0.3.3 非官方 dev 預發佈套件**：
 [Apple Silicon（arm64）](https://github.com/JustinL330/usque-app/releases/download/macos-dev-v0.3.3-compact-12636756/usque-v0.3.3-macos-arm64.dmg)／

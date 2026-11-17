@@ -22,7 +22,7 @@
 </p>
 
 <p align="center">
-  Неофициальный клиент, совместимый с сервисами Cloudflare® WARP®, для Windows, Linux, Android / Android TV и macOS (предварительная версия),<br>
+  Неофициальный клиент, совместимый с сервисами Cloudflare® WARP®, для Windows, macOS, Linux и Android / Android TV,<br>
   с нативным интерфейсом Flutter и движком MASQUE на Rust.
 </p>
 
@@ -32,7 +32,7 @@
 
 <p align="center">
   <a href="https://github.com/GeorgeXie2333/usque-app/releases"><img alt="Всего загрузок" src="https://img.shields.io/github/downloads/GeorgeXie2333/usque-app/total?color=C2500C"></a>
-  <img alt="Платформы: Windows, Linux, Android, macOS (предварительная версия)" src="https://img.shields.io/badge/platforms-Windows%20%7C%20Linux%20%7C%20Android%20%7C%20macOS%20%28preview%29-555555">
+  <img alt="Платформы: Windows, macOS, Linux, Android" src="https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux%20%7C%20Android-555555">
   <a href="LICENSE.md"><img alt="Лицензия MIT" src="https://img.shields.io/badge/license-MIT-C2500C.svg"></a>
 </p>
 
@@ -142,9 +142,9 @@ flowchart LR
 | Платформа | Минимальная ОС | Пакеты |
 | --- | --- | --- |
 | Windows | Windows 10 2004, сборка 19041 | установщик EXE для x64-v2 или ARM64 |
+| macOS | macOS 13 и новее | В v0.3.5 выйдут отдельные образы DMG для Apple Silicon (arm64) и Intel (x86_64) |
 | Linux (начиная с v0.3.3) | Ubuntu 22.04+, Debian 12+, поддерживаемая Fedora; systemd | AppImage, deb или rpm для amd64 или arm64 |
 | Android / Android TV | Android 8.0, API 26 | APK arm64-v8a, x86_64 или armeabi-v7a либо универсальный APK |
-| macOS (предварительная версия) | macOS 13 и новее | [Тестовые образы DMG](docs/MACOS_DEVELOPMENT_PACKAGING.md) для Apple Silicon (arm64) и Intel (x86_64) |
 
 Windows x64 требует процессор с поддержкой **x86-64-v2**; для ARM64 Windows используйте нативный пакет ARM64. Если ABI Android неизвестен, возьмите универсальный APK большего размера со всеми тремя ABI. Каждый выпуск также содержит два Windows MSI только для обновления из приложения; для ручной установки Windows используйте EXE.
 
@@ -237,13 +237,15 @@ VPN, SOCKS5 и HTTP включены по умолчанию, системный
 ### Экспериментальные и неподдерживаемые возможности
 
 [Регистрация Zero Trust](docs/ZERO_TRUST_EXPERIMENTAL.md) экспериментальна. Для интернет-туннеля MASQUE используется
-удостоверение организации; полной совместимости с Cloudflare One™ Client нет. Для macOS доступны отдельные
-[сборки DMG для разработки](docs/MACOS_DEVELOPMENT_PACKAGING.md) для arm64 и x86_64; функции рабочего стола и прокси проходят проверку.
-В предварительной версии доступны локальные прокси HTTP и SOCKS5. Для проверки системного VPN нужна отдельная [тестовая сборка Agent/utun](docs/MACOS_TUN_AGENT.md). Автоматическая установка отключена.
+удостоверение организации; полной совместимости с Cloudflare One™ Client нет.
+iOS, распространение через магазины приложений и публичный CLI в этот выпуск не входят.
+
+### Поддержка macOS в v0.3.5
+
+Первая официальная версия для macOS выйдет вместе с v0.3.5. Она поддерживает локальные прокси HTTP и SOCKS5. Для проверки системного VPN нужна отдельная [тестовая сборка Agent/utun](docs/MACOS_TUN_AGENT.md). Автоматическая установка отключена.
 Реализованные и ещё не завершённые возможности перечислены в [таблице соответствия функций macOS](docs/MACOS_WINDOWS_PARITY.md).
 Текущий исходный код `dev` добавляет сценарии подключения macOS, подтверждение очистки перед выходом и защищённое временное подключение WARP для VPN Gate. Сохранённые параметры цепочки сохраняются; прямой загрузки каталога через физическую сеть нет. Существующие установщики для разработки выпущены до этих изменений; новые установщики ещё не опубликованы.
 В macOS удалены гостевая регистрация Proton и встроенный браузер проверки. Обычный вход в аккаунт сохранён, но вход с обязательной проверкой в браузере завершить нельзя.
-iOS, распространение через магазины приложений и публичный CLI в этот выпуск не входят.
 
 ## Сетевые параметры по умолчанию
 

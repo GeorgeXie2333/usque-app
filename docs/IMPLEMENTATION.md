@@ -1,7 +1,7 @@
 # Usque implementation progress
 
-This checklist covers the source for Windows, Linux, Android / Android TV and
-the macOS development preview. For published packages, consult the release
+This checklist covers the source for Windows, macOS, Linux and Android / Android TV.
+The macOS app is scheduled for v0.3.5. For published packages, consult the release
 notes for the installed version.
 
 - A checked implementation item means code or test infrastructure is in the
@@ -206,26 +206,7 @@ the official Proton human-verification page. Desktop UI and engine remain unpriv
   uninstall.
 - [ ] Isolated clean-install, upgrade, and uninstall validation.
 
-### Android and Android TV
-
-- [x] API 26 minimum, TV Leanback entry, and non-touchscreen compatibility.
-- [x] Dedicated `:vpn` process, `VpnService`, foreground notification, control Binder, and JNI boundary.
-- [x] Fail closed before creating the VPN if the Rust data channel is unavailable.
-- [x] Wire arm64-v8a, x86_64, and armeabi-v7a Rust targets into the Gradle release build and produce a universal APK.
-- [x] Transfer connection snapshots from `:vpn` to the UI over a bounded-time Binder request.
-- [x] Validate serialized WARP identity material in Rust for Android secure storage and startup. Retained parsers do not enable new Secret imports.
-- [x] Stream native events/counters from `:vpn` through Binder callbacks and Flutter `EventChannel`.
-- [x] Automatic Consumer registration through Rust before Android Keystore persistence.
-- [x] Export a saved Secret through Android SAF after explicit confirmation, without revealing it in the UI or diagnostics.
-- [x] Implement `VpnService.Builder` address/DNS setup, API 26–32 CIDR complements, API 33+ exclusions, a 256-route ceiling, retained TUN reconnects, `protect(fd)`, and underlying-network rebinding.
-- [x] Terminate GeoIP- or GeoSite-hint-selected Android TUN TCP/UDP flows in a bounded userspace gateway and relay them through protected sockets bound to the selected physical network.
-- [x] Snapshot Android `LinkProperties.dnsServers`, publish internal Split DNS routes, and fail VPN startup if a valid physical DNS path is unavailable.
-- [x] Add device-scoped Android per-app proxy (include-only `addAllowedApplication`) stored in app settings, not the Profile.
-- [x] Fail-closed Android reconnect: retain the TUN fd when Kill Switch is armed and the address/DNS/MTU/route identity is unchanged; establish a replacement TUN before closing the old one when that identity changes.
-- [x] Expose Android start-on-boot, Quick Settings tile request, and a deep link to system Always-on VPN settings.
-- [ ] Sleep, network-switch, and TV lifecycle tests.
-
-### macOS development preview
+### macOS desktop
 
 - [x] Current-user Unix Socket permissions, peer-UID validation, and protobuf engine IPC.
 - [x] Connect the Flutter macOS host to the Unix Socket client and sidecar lifecycle.
@@ -250,6 +231,25 @@ the official Proton human-verification page. Desktop UI and engine remain unpriv
 - [x] GNOME/KDE system proxy, StatusNotifierItem tray and current-user login entry.
 - [x] Ed25519 signed amd64/arm64 AppImage, deb and rpm packages with format-matched updates and removal.
 - [ ] Isolated install, upgrade, removal, TUN, leak and recovery validation on `usque-linux-snapshot-vm`.
+
+### Android and Android TV
+
+- [x] API 26 minimum, TV Leanback entry, and non-touchscreen compatibility.
+- [x] Dedicated `:vpn` process, `VpnService`, foreground notification, control Binder, and JNI boundary.
+- [x] Fail closed before creating the VPN if the Rust data channel is unavailable.
+- [x] Wire arm64-v8a, x86_64, and armeabi-v7a Rust targets into the Gradle release build and produce a universal APK.
+- [x] Transfer connection snapshots from `:vpn` to the UI over a bounded-time Binder request.
+- [x] Validate serialized WARP identity material in Rust for Android secure storage and startup. Retained parsers do not enable new Secret imports.
+- [x] Stream native events/counters from `:vpn` through Binder callbacks and Flutter `EventChannel`.
+- [x] Automatic Consumer registration through Rust before Android Keystore persistence.
+- [x] Export a saved Secret through Android SAF after explicit confirmation, without revealing it in the UI or diagnostics.
+- [x] Implement `VpnService.Builder` address/DNS setup, API 26–32 CIDR complements, API 33+ exclusions, a 256-route ceiling, retained TUN reconnects, `protect(fd)`, and underlying-network rebinding.
+- [x] Terminate GeoIP- or GeoSite-hint-selected Android TUN TCP/UDP flows in a bounded userspace gateway and relay them through protected sockets bound to the selected physical network.
+- [x] Snapshot Android `LinkProperties.dnsServers`, publish internal Split DNS routes, and fail VPN startup if a valid physical DNS path is unavailable.
+- [x] Add device-scoped Android per-app proxy (include-only `addAllowedApplication`) stored in app settings, not the Profile.
+- [x] Fail-closed Android reconnect: retain the TUN fd when Kill Switch is armed and the address/DNS/MTU/route identity is unchanged; establish a replacement TUN before closing the old one when that identity changes.
+- [x] Expose Android start-on-boot, Quick Settings tile request, and a deep link to system Always-on VPN settings.
+- [ ] Sleep, network-switch, and TV lifecycle tests.
 
 ## Milestone 4 — Flutter UX
 

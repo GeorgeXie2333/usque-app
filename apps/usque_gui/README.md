@@ -1,10 +1,9 @@
 # Usque GUI
 
-Flutter UI for Windows, Linux, Android and Android TV, with a desktop preview
-for macOS 13 and later. The Mac preview runs the user Engine for local HTTP and
-SOCKS5 proxies and provides menu bar controls. Apple Silicon and Intel each have
-a [development DMG](../../docs/MACOS_DEVELOPMENT_PACKAGING.md). Ordinary builds
-keep system-wide TUN disabled.
+Flutter UI for Windows, macOS, Linux and Android / Android TV. The macOS app
+will ship with v0.3.5 for Apple Silicon and Intel on macOS 13 and later. It runs
+the user Engine for local HTTP and SOCKS5 proxies and provides menu bar controls.
+System-wide TUN requires the separate [Agent/utun test build](../../docs/MACOS_TUN_AGENT.md).
 The UI uses native Flutter widgets. An isolated native WebView is reserved for
 the official Proton human-verification page on Android, Windows and Linux when the user completes its puzzle;
 account passwords and all other application UI stay in native widgets.

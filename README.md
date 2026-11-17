@@ -22,7 +22,7 @@
 </p>
 
 <p align="center">
-  An unofficial client compatible with Cloudflare® WARP® services for Windows, Linux, Android / Android TV and macOS (development preview),<br>
+  An unofficial client compatible with Cloudflare® WARP® services for Windows, macOS, Linux and Android / Android TV,<br>
   with a native Flutter interface and a Rust MASQUE engine.
 </p>
 
@@ -32,7 +32,7 @@
 
 <p align="center">
   <a href="https://github.com/GeorgeXie2333/usque-app/releases"><img alt="Total downloads" src="https://img.shields.io/github/downloads/GeorgeXie2333/usque-app/total?color=C2500C"></a>
-  <img alt="Platforms: Windows, Linux, Android, macOS (preview)" src="https://img.shields.io/badge/platforms-Windows%20%7C%20Linux%20%7C%20Android%20%7C%20macOS%20%28preview%29-555555">
+  <img alt="Platforms: Windows, macOS, Linux, Android" src="https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux%20%7C%20Android-555555">
   <a href="LICENSE.md"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-C2500C.svg"></a>
 </p>
 
@@ -142,9 +142,9 @@ Version **v0.3.4** adds local connection scenes and improves setup, routing and 
 | Platform | Minimum system | Package |
 | --- | --- | --- |
 | Windows | Windows 10 2004, build 19041 | x64-v2 or ARM64 installer EXE |
+| macOS | macOS 13 or later | DMGs for Apple Silicon (arm64) and Intel (x86_64), planned for v0.3.5 |
 | Linux (since v0.3.3) | Ubuntu 22.04+, Debian 12+, supported Fedora; systemd | amd64 or arm64 AppImage, deb or rpm |
 | Android / Android TV | Android 8.0, API 26 | arm64-v8a, x86_64 or armeabi-v7a APK, or the universal APK |
-| macOS (development preview) | macOS 13 or later | [Development DMGs](docs/MACOS_DEVELOPMENT_PACKAGING.md) for Apple Silicon (arm64) and Intel (x86_64) |
 
 Windows x64 requires a CPU supporting **x86-64-v2**; ARM64 Windows uses the native ARM64 package. When the Android ABI is unknown, use the larger universal APK, which contains all three ABIs. Each release also includes two Windows MSI files reserved for in-app updates; install Windows manually with the EXE.
 
@@ -238,15 +238,15 @@ VPN, SOCKS5 and HTTP are enabled by default; system proxy is off. They share one
 
 [Zero Trust enrollment](docs/ZERO_TRUST_EXPERIMENTAL.md) is experimental. It uses
 an organization identity for the MASQUE Internet tunnel and does not provide full
-Cloudflare One™ Client compatibility. macOS has separate arm64 and x86_64
-[development DMG builds](docs/MACOS_DEVELOPMENT_PACKAGING.md), with desktop and
-proxy features under validation. Use local HTTP or SOCKS5 proxies in the
-preview. System VPN requires the opt-in [Agent/utun test build](docs/MACOS_TUN_AGENT.md).
-Automatic installation is disabled. See the
-[macOS parity matrix](docs/MACOS_WINDOWS_PARITY.md) for implemented and pending
-features. iOS, store distribution and a public CLI are outside this release's scope.
+Cloudflare One™ Client compatibility. iOS, store distribution and a public CLI
+are outside this release's scope.
 
-### macOS development testing and known issues
+### macOS in v0.3.5
+
+The first macOS release will ship with v0.3.5. It supports local HTTP and SOCKS5
+proxies on macOS 13 and later. System-wide TUN requires the separate
+[Agent/utun test build](docs/MACOS_TUN_AGENT.md). See the
+[macOS feature matrix](docs/MACOS_WINDOWS_PARITY.md) for coverage and limitations.
 
 Historical **unofficial v0.3.3 dev pre-release** for macOS 13+:
 [Apple Silicon (arm64)](https://github.com/JustinL330/usque-app/releases/download/macos-dev-v0.3.3-compact-12636756/usque-v0.3.3-macos-arm64.dmg)

@@ -49,18 +49,16 @@ official fix.
 | --- | --- | --- |
 | Windows x64 | Windows 10 2004, build 19041 or later; x86-64-v2 CPU | x64-v2 EXE |
 | Windows ARM64 | Windows 10 2004, build 19041 or later, native ARM64 | ARM64 EXE |
+| macOS (planned for v0.3.5) | macOS 13 or later | Separate arm64 and x86_64 DMGs |
 | Linux (v0.3.4) | Ubuntu 22.04+, Debian 12+, supported Fedora; systemd | amd64/arm64 AppImage, deb or rpm; see [Linux desktop](LINUX_DESKTOP.md) |
 | Android / Android TV | Android 8.0, API 26 or later | APK matching the device's CPU architecture |
 | Android / Android TV, architecture unknown | Android 8.0, API 26 or later | Larger universal APK containing all three architectures |
 
-For the **macOS development preview**, open **Apple menu → About This Mac**.
-On macOS 13 or later, choose the arm64 DMG for an Apple Silicon chip or the
-x86_64 DMG for an Intel processor. The [Mac packaging guide](MACOS_DEVELOPMENT_PACKAGING.md)
-lists the historical preview and explains how to build the current source.
-Development DMGs use ad-hoc signatures and lack Apple notarization. The preview
-supports local HTTP and SOCKS5 proxies. Ordinary builds keep system-wide TUN
-disabled. The official v0.3.4 package list below covers Windows, Linux and Android.
-When a later release lists a macOS DMG, use its [signature and GitHub provenance checks](CODE_SIGNING.md#configure-and-verify-macos-release-signing).
+The macOS app will ship with v0.3.5. Open **Apple menu → About This Mac** to
+choose the arm64 DMG for an Apple Silicon chip or the x86_64 DMG for an Intel
+processor. Verify the project's self-signature and GitHub provenance before
+installing. The app supports local HTTP and SOCKS5 proxies. System-wide TUN
+remains disabled in release builds. See [macOS signature verification](CODE_SIGNING.md#configure-and-verify-macos-release-signing).
 
 ### Package names (v0.3.4)
 
