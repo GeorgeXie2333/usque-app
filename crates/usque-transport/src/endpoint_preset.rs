@@ -144,8 +144,7 @@ pub(crate) fn protocols(policy: TransportPolicy) -> &'static [Transport] {
 pub(crate) fn may_fallback(profile: &Profile, error: &TransportError) -> bool {
     profile.ip_policy == IpPolicy::PreferIpv6
         && !matches!(error, TransportError::UnderlyingNetworkChanged)
-        && crate::recovery_policy::RecoveryDecision::for_failure(&error.failure(None, None))
-            == crate::recovery_policy::RecoveryDecision::Retry
+        && crate::recovery_policy::RecoveryDecision::may_try_another_candidate(error)
 }
 
 /// Both data planes use the same ordering and trust boundary. The callback

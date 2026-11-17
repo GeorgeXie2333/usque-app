@@ -1098,7 +1098,20 @@ async fn drive_h3_actor(
                     }
                 }
 
-                if response_accepted && http3.dgram_enabled_by_peer(&connection) && !ready {
+                // A successful CONNECT is not a usable IPv6 link until an
+                // acknowledged QUIC packet size can carry its minimum packet.
+                // In particular, do not let a fast, undersized candidate win
+                // the endpoint/protocol race and cancel usable alternatives.
+                if response_accepted
+                    && http3.dgram_enabled_by_peer(&connection)
+                    && connect_ip_path_ready(
+                        &connection,
+                        request_stream_id.expect("accepted CONNECT has a stream"),
+                        profile_inner_mtu,
+                        quality.features().automatic_pmtu,
+                    )?
+                    && !ready
+                {
                     ready = true;
                     publish_packet_budget(
                         &connection,
@@ -1857,6 +1870,22 @@ fn connect_ip_payload_limit_with_overhead(
         effective_connect_ip_payload(profile_inner_mtu, maximum_datagram_size, datagram_overhead),
         datagram_overhead,
     ))
+}
+
+fn connect_ip_path_ready(
+    connection: &H3QuicConnection,
+    stream_id: u64,
+    profile_inner_mtu: usize,
+    automatic_pmtu: bool,
+) -> Result<bool, TransportError> {
+    let (maximum, _) = connect_ip_payload_limit(connection, stream_id, profile_inner_mtu)?;
+    if maximum >= crate::pmtu::IPV6_MINIMUM_INNER_MTU {
+        return Ok(true);
+    }
+    if automatic_pmtu && connection.pmtu().is_none() {
+        return Ok(false);
+    }
+    Err(TransportError::Ipv6MinimumMtuUnavailable(maximum))
 }
 
 fn publish_packet_budget(

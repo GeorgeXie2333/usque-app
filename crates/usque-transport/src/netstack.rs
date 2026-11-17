@@ -1492,10 +1492,7 @@ async fn connect_single_with_policy(
                 h3,
                 h2,
                 usque_core::recovery::TRANSPORT_RACE_DELAY,
-                |error| {
-                    RecoveryDecision::for_failure(&error.failure(None, None))
-                        != RecoveryDecision::Retry
-                },
+                |error| !RecoveryDecision::may_try_another_candidate(error),
             )
             .await
             {
@@ -1615,10 +1612,7 @@ async fn connect_happy_eyeballs(
         preferred_connect,
         alternate_connect,
         HAPPY_EYEBALLS_DELAY,
-        |error| {
-            RecoveryDecision::for_failure(&error.failure(Some(transport), None))
-                != RecoveryDecision::Retry
-        },
+        |error| !RecoveryDecision::may_try_another_candidate(error),
     )
     .await
     {
@@ -1671,6 +1665,7 @@ async fn connect_preset_candidate_set(
     let mut last_error =
         TransportError::AllEndpointsFailed("endpoint preset cycle exhausted".into());
     for &transport in crate::endpoint_preset::protocols(profile.transport) {
+        let mut candidate_failures = crate::endpoint_race::CandidateFailures::default();
         let connect = {
             let profile = profile.clone();
             let identity = identity.clone();
@@ -1728,15 +1723,13 @@ async fn connect_preset_candidate_set(
             }
             match result {
                 Ok(connected) => return Ok(connected),
-                Err(error)
-                    if RecoveryDecision::for_failure(&error.failure(Some(transport), None))
-                        != RecoveryDecision::Retry =>
-                {
+                Err(error) if !RecoveryDecision::may_try_another_candidate(&error) => {
                     return Err(error);
                 }
-                Err(error) => last_error = error,
+                Err(error) => candidate_failures.record(error)?,
             }
         }
+        last_error = candidate_failures.exhausted();
         if !last_error.failure(Some(transport), None).fallback_allowed {
             break;
         }
@@ -2066,18 +2059,43 @@ fn combine_endpoint_errors(
     alternate: std::net::SocketAddr,
     alternate_error: TransportError,
 ) -> TransportError {
-    if RecoveryDecision::for_failure(&preferred_error.failure(None, None)) == RecoveryDecision::Stop
+    if !matches!(
+        preferred_error,
+        TransportError::Ipv6MinimumMtuUnavailable(_)
+    ) && RecoveryDecision::for_failure(&preferred_error.failure(None, None))
+        == RecoveryDecision::Stop
     {
         return preferred_error;
     }
-    if RecoveryDecision::for_failure(&alternate_error.failure(None, None)) == RecoveryDecision::Stop
+    if !matches!(
+        alternate_error,
+        TransportError::Ipv6MinimumMtuUnavailable(_)
+    ) && RecoveryDecision::for_failure(&alternate_error.failure(None, None))
+        == RecoveryDecision::Stop
     {
         return alternate_error;
+    }
+    if matches!(preferred_error, TransportError::UnderlyingNetworkChanged)
+        || matches!(alternate_error, TransportError::UnderlyingNetworkChanged)
+    {
+        return TransportError::UnderlyingNetworkChanged;
     }
     if matches!(&preferred_error, TransportError::EndpointPinMismatch)
         || matches!(&alternate_error, TransportError::EndpointPinMismatch)
     {
         return TransportError::EndpointPinMismatch;
+    }
+    if matches!(
+        preferred_error,
+        TransportError::Ipv6MinimumMtuUnavailable(_)
+    ) {
+        return preferred_error;
+    }
+    if matches!(
+        alternate_error,
+        TransportError::Ipv6MinimumMtuUnavailable(_)
+    ) {
+        return alternate_error;
     }
     TransportError::AllEndpointsFailed(format!(
         "{preferred}: {preferred_error}; {alternate}: {alternate_error}"
@@ -2361,7 +2379,9 @@ async fn run_initial_transport_supervisor(
                     transport_failure = failure.code.as_str(),
                     "MASQUE initial dial failed"
                 );
-                if RecoveryDecision::for_failure(&failure) != RecoveryDecision::Retry {
+                if RecoveryDecision::for_intent(context.profile.transport, &failure)
+                    != RecoveryDecision::Retry
+                {
                     let message = failure.code.to_string();
                     context.health_tx.send_replace(RuntimeHealth::Failed {
                         last_path: requested,
@@ -2459,11 +2479,18 @@ async fn run_transport_supervisor(
                 ActiveOutcome::Reconnect(failure) => {
                     tracing::debug!(transport = ?active_transport, stage = ?failure.stage,
                         failure_code = failure.code.as_str(), "MASQUE active carrier lost");
-                    match RecoveryDecision::for_failure(&failure) {
+                    match RecoveryDecision::for_intent(profile.transport, &failure) {
                         RecoveryDecision::Stop => ActiveOutcome::Terminal(failure),
                         RecoveryDecision::RefreshPin => ActiveOutcome::PinMismatch,
                         RecoveryDecision::Retry => ActiveOutcome::Reconnect(failure),
                     }
+                }
+                ActiveOutcome::Terminal(failure)
+                    if RecoveryDecision::for_failure(&failure) == RecoveryDecision::Stop
+                        && RecoveryDecision::for_intent(profile.transport, &failure)
+                            == RecoveryDecision::Retry =>
+                {
+                    ActiveOutcome::Reconnect(failure)
                 }
                 outcome => outcome,
             }
@@ -2604,7 +2631,9 @@ async fn run_transport_supervisor(
                     if cancellation.is_cancelled() {
                         return;
                     }
-                    if RecoveryDecision::for_failure(&failure) == RecoveryDecision::Stop {
+                    if RecoveryDecision::for_intent(profile.transport, &failure)
+                        == RecoveryDecision::Stop
+                    {
                         let message = failure.code.to_string();
                         health_tx.send_replace(RuntimeHealth::Failed {
                             last_path: active_path,
@@ -3623,6 +3652,38 @@ fn ipv4_header_checksum(header: &[u8]) -> u16 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mtu_candidate_cannot_mask_trust_or_generation_failures() {
+        let first = "127.0.0.1:443".parse().unwrap();
+        let second = "[::1]:443".parse().unwrap();
+        for mtu_first in [true, false] {
+            let merge = |other| {
+                let mtu = TransportError::Ipv6MinimumMtuUnavailable(1270);
+                if mtu_first {
+                    combine_endpoint_errors(first, mtu, second, other)
+                } else {
+                    combine_endpoint_errors(first, other, second, mtu)
+                }
+            };
+            assert!(matches!(
+                merge(TransportError::SocketProtection("denied".into())),
+                TransportError::SocketProtection(_)
+            ));
+            assert!(matches!(
+                merge(TransportError::EndpointPinMismatch),
+                TransportError::EndpointPinMismatch
+            ));
+            assert!(matches!(
+                merge(TransportError::UnderlyingNetworkChanged),
+                TransportError::UnderlyingNetworkChanged
+            ));
+            assert!(matches!(
+                merge(TransportError::ConnectTimeout),
+                TransportError::Ipv6MinimumMtuUnavailable(1270)
+            ));
+        }
+    }
 
     struct DeferredEndpointProtection {
         calls: std::sync::Mutex<Vec<(std::net::SocketAddr, Instant)>>,

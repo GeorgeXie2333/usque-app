@@ -1271,7 +1271,7 @@ impl DataPlaneRuntime {
         let operation = error.failure(Some(path.transport), Some(path.endpoint_family));
         let gate = self.gate_status();
         if gate.stage == usque_core::vpngate::GateStage::Disabled || terminal_failure(&operation) {
-            return operation;
+            return retain_underlay_terminal_failure(operation, self.underlay_monitor().health());
         }
         let failure = if gate.stage == usque_core::vpngate::GateStage::Error {
             TransportError::VpnGate(gate.failure.unwrap_or(GateFailure::Transport))
@@ -2100,6 +2100,25 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn plain_packet_eof_preserves_terminal_low_pmtu_failure() {
+        use usque_core::{AddressFamily, Transport};
+        let (mut runtime, channels) = memory_warp().await;
+        runtime.transition_status = GateStatus::default();
+        let mut original = TransportError::Ipv6MinimumMtuUnavailable(1270)
+            .failure(Some(Transport::Http3), Some(AddressFamily::Ipv4));
+        // Exercise the handoff independently of the error's default metadata.
+        original.retryable = false;
+        channels
+            .health
+            .send_replace(failed_underlay(runtime.path(), original.clone()));
+        assert_eq!(
+            runtime.transport_failure(&TransportError::TunnelClosed),
+            original
+        );
+        runtime.shutdown().await;
+    }
+
+    #[tokio::test]
     async fn chain_startup_and_early_packet_exit_preserve_terminal_underlay_failures() {
         use usque_core::{AddressFamily, Transport, TransportFailureCode, TransportStage};
         for code in [
@@ -2201,7 +2220,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn transient_underlay_loss_remains_retryable_and_plain_packet_mapping_stays_local() {
+    async fn transient_underlay_loss_remains_retryable_and_plain_eof_retains_terminal_cause() {
         use usque_core::{TransportFailureCode, TransportStage};
         let (mut runtime, channels) = memory_warp().await;
         runtime.final_blocked = true;
@@ -2237,7 +2256,7 @@ mod tests {
             runtime
                 .transport_failure(&TransportError::TunnelClosed)
                 .code,
-            TransportFailureCode::H3ConnectionClosed
+            TransportFailureCode::SocketProtectionFailed
         );
         runtime.shutdown().await;
     }

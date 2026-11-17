@@ -50,6 +50,25 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   test(
+    'unusable H3 datagrams suggest HTTP/2 without exposing backend text',
+    () {
+      for (final locale in [
+        LocalePreference.english,
+        LocalePreference.simplifiedChinese,
+      ]) {
+        final strings = AppStrings(locale);
+        final message = userFacingFailure(
+          strings,
+          code: 'H3_DATAGRAM_UNAVAILABLE',
+          details: _privateError,
+        );
+        expect(message, contains(strings.get('diag_fix_try_http2')));
+        expect(message, isNot(contains(_privateError)));
+      }
+    },
+  );
+
+  test(
     'startup skips the locked account and a manual connection refreshes its status',
     () async {
       SharedPreferences.setMockInitialValues({'onboarding_complete': true});

@@ -293,6 +293,57 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
+    async fn insufficient_h3_candidate_does_not_cancel_healthy_h2() {
+        let started = Instant::now();
+        let result = race_automatic(
+            profile(),
+            EndpointPool::WarpPlus,
+            crate::socket::noop_socket_protector(),
+            Arc::new(tokio::sync::Semaphore::new(
+                recovery::AUTOMATIC_CANDIDATE_LIMIT,
+            )),
+            move |transport, _, _| async move {
+                if transport == Transport::Http3 {
+                    Err(TransportError::Ipv6MinimumMtuUnavailable(1270))
+                } else {
+                    Ok(Connected)
+                }
+            },
+        )
+        .await;
+        assert!(result.is_ok());
+        assert_eq!(started.elapsed(), Duration::from_millis(250));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn undersized_loser_cleanup_keeps_the_usable_h3_winner() {
+        let mut selected = profile();
+        selected.transport = usque_core::TransportPolicy::Http3;
+        let started = Arc::new(AtomicUsize::new(0));
+        let result = race_automatic(
+            selected,
+            EndpointPool::WarpPlus,
+            crate::socket::noop_socket_protector(),
+            Arc::new(tokio::sync::Semaphore::new(
+                recovery::AUTOMATIC_CANDIDATE_LIMIT,
+            )),
+            move |_, _, cancellation| {
+                let started = started.clone();
+                async move {
+                    if started.fetch_add(1, Ordering::SeqCst) == 0 {
+                        cancellation.cancelled().await;
+                        Err(TransportError::Ipv6MinimumMtuUnavailable(1270))
+                    } else {
+                        Ok(Connected)
+                    }
+                }
+            },
+        )
+        .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test(start_paused = true)]
     async fn h2_starts_after_250ms_while_h3_is_blackholed() {
         let started = Instant::now();
         let h3 = Arc::new(AtomicUsize::new(0));

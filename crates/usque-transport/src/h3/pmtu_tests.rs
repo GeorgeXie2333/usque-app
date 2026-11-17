@@ -672,23 +672,64 @@ fn ipv6_waiter_resumes_after_path_promotion() {
 }
 
 #[test]
-fn confirmed_low_pmtu_still_rejects_ipv6_minimum() {
+fn ipv6_readiness_waits_for_real_probe_ack_and_accepts_the_minimum_budget() {
     let mut pair = Pair::new(|client, server| {
-        client.set_max_send_udp_payload_size(QUIC_MIN_PAYLOAD);
+        client.set_max_send_udp_payload_size(1326);
         server.discover_pmtu(false);
     });
     pair.settle();
-    assert_eq!(pair.client.pmtu(), Some(QUIC_MIN_PAYLOAD));
-    let mut queue = BatchQueue::new(PacketBatch::single(ipv6_packet_with_length(1280)));
-    queue.step(&mut pair.client);
-    let result = queue.result.try_recv().unwrap();
-    assert_eq!(result.accepted_bytes, 0);
-    assert_eq!(result.oversized.len(), 1);
-    let (packet, maximum) = &result.oversized[0];
-    assert!(matches!(
-        crate::icmp::packet_too_big(packet, *maximum),
-        Err(TransportError::Ipv6MinimumMtuUnavailable(_))
-    ));
+    assert!(connect_ip_path_ready(&pair.client, 0, 1280, true).unwrap());
+    pair.client.revalidate_pmtu();
+    assert!(pair.client.pmtu().is_none());
+    assert!(!connect_ip_path_ready(&pair.client, 0, 1280, true).unwrap());
+    pair.settle();
+    assert!(connect_ip_path_ready(&pair.client, 0, 1280, true).unwrap());
+}
+
+#[test]
+fn confirmed_low_pmtu_still_rejects_ipv6_minimum() {
+    // Include the 1316-byte outer PMTU observed in an Android reconnect loop.
+    for outer_limit in [QUIC_MIN_PAYLOAD, 1316] {
+        let mut pair = Pair::new(|client, server| {
+            client.set_max_send_udp_payload_size(outer_limit);
+            server.discover_pmtu(false);
+        });
+        pair.settle();
+        assert_eq!(pair.client.pmtu(), Some(outer_limit));
+        assert!(matches!(
+            connect_ip_path_ready(&pair.client, 0, 1280, true),
+            Err(TransportError::Ipv6MinimumMtuUnavailable(_))
+        ));
+        let mut queue = BatchQueue::new(PacketBatch::single(ipv6_packet_with_length(1280)));
+        queue.step(&mut pair.client);
+        let result = queue.result.try_recv().unwrap();
+        assert_eq!(result.accepted_bytes, 0);
+        assert_eq!(result.oversized.len(), 1);
+        let (packet, maximum) = &result.oversized[0];
+        let error = crate::icmp::packet_too_big(packet, *maximum).unwrap_err();
+        assert!(matches!(
+            error,
+            TransportError::Ipv6MinimumMtuUnavailable(_)
+        ));
+        let failure = error.failure(
+            Some(usque_core::Transport::Http3),
+            Some(usque_core::AddressFamily::Ipv4),
+        );
+        assert!(
+            !failure.retryable,
+            "a confirmed insufficient PMTU must not restart the same session"
+        );
+        assert!(failure.fallback_allowed);
+        assert_eq!(
+            failure.code,
+            usque_core::TransportFailureCode::H3DatagramUnavailable
+        );
+        assert_eq!(failure.remediation_key, "try_http2");
+        assert_eq!(
+            crate::recovery_policy::RecoveryDecision::for_failure(&failure),
+            crate::recovery_policy::RecoveryDecision::Stop
+        );
+    }
 }
 
 #[test]

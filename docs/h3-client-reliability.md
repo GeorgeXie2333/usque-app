@@ -107,6 +107,28 @@ revalidation policy. The finite discovery-error and revalidation budgets remain
 in force. Confirmed insufficient IPv6 minimum MTU still follows the existing
 fail-closed termination policy.
 
+A successful CONNECT response alone does not make an H3 candidate ready. Its
+current, acknowledged DATAGRAM capacity must also carry IPv6's 1280-byte minimum
+after QUIC/HTTP framing. An unfinished search below this floor waits within the
+existing candidate deadline; a confirmed insufficient limit rejects that path
+before it can win the endpoint/transport race or report a connected session.
+
+The rejection is `H3DatagramUnavailable` with a non-retryable session result and
+the existing HTTP/2 advice. It is local to that candidate: another endpoint or
+permitted address family can still win, and Auto can select H2. Exhaustion
+retains the capacity rejection instead of turning it into a retryable generic
+EOF. Authentication, identity, pin and socket-protection evidence keep their
+existing priority and cleanup rules, including during losing-candidate cleanup.
+Before a winner exists, an exhausted capacity rejection still identifies H3 so
+Auto retains permission to retry other carriers; an explicit H3 selection stops.
+
+An active H3 path that later confirms insufficient capacity still terminates;
+it never sends an oversized IPv6 packet or lowers the minimum-MTU check. Auto
+may replace it through a fresh validated candidate race, while an explicit H3
+selection remains terminal and suggests H2. A closed local packet queue retains
+the original typed cause. TUN protection remains owned through replacement or
+until the user stops the connection.
+
 ## GOAWAY and automatic recovery
 
 A GOAWAY whose ID still permits the current CONNECT request starts one

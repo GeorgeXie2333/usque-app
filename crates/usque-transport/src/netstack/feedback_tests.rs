@@ -169,9 +169,13 @@ async fn feedback_saturation(count: usize, terminate_ipv6: bool) {
                 oversized: vec![(batch.pop_front().unwrap(), 1150)],
             })
             .unwrap();
-        assert!(
-            matches!(pump.await, ActiveOutcome::Terminal(failure) if failure.code == TransportFailureCode::PacketSendFailed)
-        );
+        let ActiveOutcome::Terminal(failure) = pump.await else {
+            panic!("confirmed insufficient IPv6 MTU must terminate the session");
+        };
+        assert_eq!(failure.code, TransportFailureCode::H3DatagramUnavailable);
+        assert!(!failure.retryable);
+        assert!(failure.fallback_allowed);
+        assert_eq!(failure.remediation_key, "try_http2");
         return;
     }
     assert!(

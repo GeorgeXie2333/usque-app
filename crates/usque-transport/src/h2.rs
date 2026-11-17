@@ -1603,9 +1603,10 @@ impl TransportError {
             Self::Http3ConnectRejected(_) => (Code::H3ProtocolError, Stage::MasqueConnect),
             Self::Http3DatagramUnavailable => (Code::H3DatagramUnavailable, Stage::PeerSettings),
             Self::PmtuRevalidationExhausted => (Code::PmtuRevalidationExhausted, Stage::PacketSend),
-            Self::Http3DatagramTooLarge { .. }
-            | Self::Ipv6MinimumMtuUnavailable(_)
-            | Self::MalformedIpPacket => (Code::PacketSendFailed, Stage::PacketSend),
+            Self::Ipv6MinimumMtuUnavailable(_) => (Code::H3DatagramUnavailable, Stage::PacketSend),
+            Self::Http3DatagramTooLarge { .. } | Self::MalformedIpPacket => {
+                (Code::PacketSendFailed, Stage::PacketSend)
+            }
             Self::UnsupportedOperatingMode => (Code::ConfigurationInvalid, Stage::TunnelStartup),
             Self::AllEndpointsFailed(_) => match transport {
                 Some(Transport::Http3) => (Code::H3UdpUnreachable, Stage::SocketConnect),
@@ -1641,6 +1642,18 @@ impl TransportError {
         let mut failure = TransportFailure::new(code, stage);
         failure.transport = transport;
         failure.address_family = family;
+        if matches!(self, Self::Ipv6MinimumMtuUnavailable(_)) {
+            // Candidate exhaustion has no selected path yet, but this capacity
+            // rejection still identifies H3 for Auto's replacement policy.
+            failure.transport.get_or_insert(Transport::Http3);
+            // This particular H3 path is unusable. Keep its session terminal,
+            // while permitting Auto to select a different, validated carrier.
+            failure.retryable = false;
+            failure.fallback_allowed = true;
+            failure.severity = usque_core::FailureSeverity::Error;
+            failure.remediation_key = "try_http2".to_owned();
+            failure.sanitized_detail = Some("ipv6_minimum_mtu_unavailable".to_owned());
+        }
         failure
     }
 

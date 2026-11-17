@@ -119,7 +119,10 @@ String userFacingFailure(
     final titleKey = 'diag_fail_$code';
     final title = strings.get(titleKey);
     if (title != titleKey) {
-      return '$title\n${strings.get('diag_fix_default')}';
+      final remediation = code == 'H3_DATAGRAM_UNAVAILABLE'
+          ? 'diag_fix_try_http2'
+          : 'diag_fix_default';
+      return '$title\n${strings.get(remediation)}';
     }
   }
   return strings.get('operation_failed');

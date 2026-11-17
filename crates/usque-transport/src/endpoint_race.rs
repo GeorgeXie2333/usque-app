@@ -25,6 +25,9 @@ pub(crate) enum RacePolicy {
 
 impl RacePolicy {
     fn stops(self, error: &TransportError) -> bool {
+        if matches!(error, TransportError::Ipv6MinimumMtuUnavailable(_)) {
+            return false;
+        }
         if self == Self::Automatic && matches!(error, TransportError::UnderlyingNetworkChanged) {
             return true;
         }
@@ -41,11 +44,19 @@ impl RacePolicy {
 #[derive(Default)]
 pub(crate) struct CandidateFailures {
     pin_rejected: bool,
+    maximum_rejected_ipv6_mtu: Option<usize>,
     last: Option<TransportError>,
 }
 
 impl CandidateFailures {
     pub(crate) fn record(&mut self, error: TransportError) -> Result<(), TransportError> {
+        if let TransportError::Ipv6MinimumMtuUnavailable(maximum) = error {
+            self.maximum_rejected_ipv6_mtu = Some(
+                self.maximum_rejected_ipv6_mtu
+                    .map_or(maximum, |previous| previous.max(maximum)),
+            );
+            return Ok(());
+        }
         if matches!(error, TransportError::UnderlyingNetworkChanged)
             || RecoveryDecision::for_failure(&error.failure(None, None)) == RecoveryDecision::Stop
         {
@@ -59,11 +70,55 @@ impl CandidateFailures {
     pub(crate) fn exhausted(self) -> TransportError {
         if self.pin_rejected {
             TransportError::EndpointPinMismatch
+        } else if let Some(maximum) = self.maximum_rejected_ipv6_mtu {
+            TransportError::Ipv6MinimumMtuUnavailable(maximum)
         } else {
             self.last.unwrap_or_else(|| {
                 TransportError::AllEndpointsFailed("automatic endpoint cycle exhausted".to_owned())
             })
         }
+    }
+}
+
+#[cfg(test)]
+mod mtu_rejection_tests {
+    use super::*;
+
+    #[test]
+    fn capacity_evidence_survives_exhaustion_without_masking_trust_failures() {
+        let mut failures = CandidateFailures::default();
+        failures
+            .record(TransportError::Ipv6MinimumMtuUnavailable(1170))
+            .unwrap();
+        failures
+            .record(TransportError::Ipv6MinimumMtuUnavailable(1270))
+            .unwrap();
+        failures.record(TransportError::ConnectTimeout).unwrap();
+        assert!(matches!(
+            failures.exhausted(),
+            TransportError::Ipv6MinimumMtuUnavailable(1270)
+        ));
+        let mut failures = CandidateFailures::default();
+        failures
+            .record(TransportError::Ipv6MinimumMtuUnavailable(1270))
+            .unwrap();
+        failures
+            .record(TransportError::EndpointPinMismatch)
+            .unwrap();
+        assert!(matches!(
+            failures.exhausted(),
+            TransportError::EndpointPinMismatch
+        ));
+        let mut failures = CandidateFailures::default();
+        failures
+            .record(TransportError::Ipv6MinimumMtuUnavailable(1270))
+            .unwrap();
+        assert!(matches!(
+            failures.record(TransportError::SocketProtection("denied".into())),
+            Err(TransportError::SocketProtection(_))
+        ));
+        assert!(!RacePolicy::Strict.stops(&TransportError::Ipv6MinimumMtuUnavailable(1270)));
+        assert!(RacePolicy::Automatic.stops(&TransportError::SocketProtection("denied".into())));
     }
 }
 
@@ -73,6 +128,7 @@ pub(crate) async fn finish_generation<T: RaceConnection>(
     expected: Option<u64>,
 ) -> Result<T, TransportError> {
     if let Err(error) = &result
+        && !matches!(error, TransportError::Ipv6MinimumMtuUnavailable(_))
         && RecoveryDecision::for_failure(&error.failure(None, None)) == RecoveryDecision::Stop
     {
         return result;
@@ -108,6 +164,9 @@ pub(crate) trait RaceConnection: Send + 'static {
 struct CancelCandidates(Vec<Option<CancellationToken>>);
 
 fn recovery_priority(error: &TransportError) -> u8 {
+    if matches!(error, TransportError::Ipv6MinimumMtuUnavailable(_)) {
+        return 0;
+    }
     if matches!(error, TransportError::UnderlyingNetworkChanged) {
         return 2;
     }
