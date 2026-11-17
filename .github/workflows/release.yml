@@ -867,6 +867,7 @@ jobs:
       - name: Build the tagged macOS proxy preview
         run: bash tool/build_macos_release_app.sh "$ARCH"
       - name: Sign the app and DMG and verify every embedded identity
+        timeout-minutes: 10
         env:
           MACOS_SIGNING_P12_BASE64: ${{ secrets.MACOS_SIGNING_P12_BASE64 }}
           MACOS_SIGNING_P12_PASSWORD: ${{ secrets.MACOS_SIGNING_P12_PASSWORD }}

@@ -5,6 +5,8 @@ from __future__ import annotations
 import argparse
 import plistlib
 import shutil
+import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -98,6 +100,16 @@ if __name__ == "__main__":
     parser.add_argument("--identity", required=True)
     parser.add_argument("--fingerprint", required=True)
     args = parser.parse_args()
-    create_image(
-        args.app, args.arch, args.tag, args.output, args.keychain, args.identity, args.fingerprint
-    )
+    try:
+        create_image(
+            args.app,
+            args.arch,
+            args.tag,
+            args.output,
+            args.keychain,
+            args.identity,
+            args.fingerprint,
+        )
+    except subprocess.CalledProcessError as error:
+        print(error.output, file=sys.stderr)
+        raise SystemExit(error.returncode) from error

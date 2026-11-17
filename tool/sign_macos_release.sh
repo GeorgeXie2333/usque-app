@@ -10,12 +10,11 @@ test "$(uname -s)" = Darwin
 test "$(uname -m)" = "$arch"
 work=$(mktemp -d "$RUNNER_TEMP/usque-sign.XXXXXXXX")
 keychain="$work/signing.keychain-db"
-trusted=0
+original=()
+while IFS= read -r path; do original+=("$path"); done < <(security list-keychains -d user | sed -E 's/^[[:space:]]*"//; s/"[[:space:]]*$//')
 cleanup() {
   result=$?
-  if [[ "$trusted" == 1 ]]; then
-    sudo -n security remove-trusted-cert -d "$work/leaf.der" || result=1
-  fi
+  security list-keychains -d user -s "${original[@]}" || result=1
   if [[ -e "$keychain" ]]; then security delete-keychain "$keychain" || result=1; fi
   rm -rf -- "$work" || result=1
   exit "$result"
@@ -31,7 +30,7 @@ case "$mode" in
     unset MACOS_SIGNING_P12_BASE64
     : "${MACOS_SIGNING_P12_PASSWORD:?missing protected password}"
     ;;
-  fixture)
+  fixture|fixture-probe)
     # This job has no production credentials or release environment.
     MACOS_SIGNING_P12_PASSWORD=$(openssl rand -hex 32)
     export MACOS_SIGNING_P12_PASSWORD
@@ -60,12 +59,16 @@ password=$(openssl rand -hex 32)
 security create-keychain -p "$password" "$keychain"
 security set-keychain-settings -lut 3600 "$keychain"
 security unlock-keychain -p "$password" "$keychain"
+security list-keychains -d user -s "$keychain" "${original[@]}"
 security import "$work/identity.p12" -k "$keychain" -P "$MACOS_SIGNING_P12_PASSWORD" -T /usr/bin/codesign
 unset MACOS_SIGNING_P12_PASSWORD
 security set-key-partition-list -S apple-tool:,apple: -s -k "$password" "$keychain" >/dev/null
-# Trust this exact signer exclusively for code signing on this disposable runner.
-sudo -n security add-trusted-cert -d -r trustRoot -p codeSign -k "$keychain" "$work/leaf.der"
-trusted=1
+if [[ "$mode" == fixture-probe ]]; then
+  printf 'int main(void) { return 0; }\n' | /usr/bin/clang -x c - -o "$work/probe"
+  /usr/bin/codesign --force --sign "$identity" --keychain "$keychain" --options runtime --timestamp=none "$work/probe"
+  /usr/bin/codesign --verify --strict "$work/probe"
+  exit 0
+fi
 python3 tool/macos_release.py --app "$RUNNER_TEMP/mac-app/Usque.app" --arch "$arch" \
   --tag "$tag" --output "$RUNNER_TEMP/mac-dmg" --keychain "$keychain" \
   --identity "$identity" --fingerprint "$expected"
