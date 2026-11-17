@@ -289,7 +289,12 @@ class ReleaseNotesContractTests(unittest.TestCase):
         self.assertEqual(len(linked), 14)
         self.assertEqual(set(linked), installers)
         badges = re.findall(r"!\[([^\]]+)\]\(([^)]+)\)", download)
-        self.assertEqual(len(badges), 17)
+        self.assertEqual(len(badges), 18)
+        self.assertIn(
+            "![Apple](https://github.com/Example/Usque/blob/v9.8.7/"
+            "docs/assets/release/apple.svg?raw=true)<br>**macOS 13+**",
+            download,
+        )
         # Equal intrinsic sizes keep download buttons uniform on narrow screens.
         assets = Path(__file__).resolve().parent.parent / "docs" / "assets" / "release"
         button_sizes = {

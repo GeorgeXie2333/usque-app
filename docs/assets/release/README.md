@@ -5,10 +5,12 @@ These images are used by the download table in
 Download buttons share one 168×40 size; see [Release process](../../RELEASE.md).
 
 The platform icons come from [Devicon](https://github.com/devicons/devicon),
-resized for display: `android.svg` (`icons/android/android-original.svg`),
+resized for display: `apple.svg` (`icons/apple/apple-original.svg`),
+`android.svg` (`icons/android/android-original.svg`),
 `windows.svg` (`icons/windows11/windows11-original.svg`) and `linux.svg`
 (`icons/linux/linux-original.svg`). Tux was originally drawn by Larry Ewing with
-The GIMP. Devicon is distributed under this license:
+The GIMP. The Apple icon uses a silver fill for light and dark backgrounds.
+Devicon is distributed under this license:
 
 ```text
 The MIT License (MIT)
