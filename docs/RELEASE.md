@@ -336,7 +336,7 @@ These non-secret variables come from the repository or the same environments:
 | `WINDOWS_SIGNER_SHA256` | SHA-256 of the raw Authenticode signer certificate, 64 hex characters |
 | `ANDROID_SIGNER_SHA256` | SHA-256 of the Android signing certificate, 64 hex characters |
 
-Keep encrypted offline backups of all three signing identities. Pre-1.0 packages use these fixed self-signed identities. A v1.0.0 signing change is a separate release.
+Keep encrypted offline backups of all four platform signing identities. Pre-1.0 packages use these fixed project identities. A v1.0.0 signing change is a separate release.
 
 The Windows job imports the private identity only into the runner user's personal certificate store. It does not add the certificate to Root or TrustedPublisher. It records the imported identity before checking the fingerprint or locating SignTool, so those failures still reach cleanup. Verification accepts the expected untrusted-root result and checks the DER SHA-256 fingerprint. An `always()` step removes both the certificate and its private key with `-DeleteKey`; its `finally` block deletes the temporary PFX even if certificate removal fails. Cleanup errors fail the job. The workflow never re-signs the official Wintun DLL. The Android job deletes its temporary keystore afterward.
 
