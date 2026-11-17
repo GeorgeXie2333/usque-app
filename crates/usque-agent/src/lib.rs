@@ -1,4 +1,4 @@
-//! Least-privilege platform service for Windows and Linux.
+//! Least-privilege platform service for desktop systems.
 //!
 //! This crate deliberately has no dependency on the WARP registration or
 //! MASQUE transport crates. The Agent receives only validated interface,
@@ -11,6 +11,9 @@ pub mod recovery_diagnostics;
 
 #[cfg(target_os = "linux")]
 pub mod linux;
+
+#[cfg(target_os = "macos")]
+pub mod macos;
 
 #[cfg(windows)]
 pub mod windows;

@@ -169,8 +169,14 @@ class AccountsScreen extends StatelessWidget {
   ) async {
     final updated = await showDialog<UsqueProfile>(
       context: context,
-      builder: (context) =>
-          _ProfileEditDialog(strings: strings, profile: profile),
+      builder: (context) => AnimatedBuilder(
+        animation: controller,
+        builder: (context, _) => _ProfileEditDialog(
+          strings: strings,
+          profile: profile,
+          enabled: controller.profileWritesAllowed,
+        ),
+      ),
     );
     if (updated != null) {
       controller.renameProfile(updated.id, updated.name);
@@ -324,10 +330,15 @@ class ScenarioAccountPicker extends StatelessWidget {
 }
 
 class _ProfileEditDialog extends StatefulWidget {
-  const _ProfileEditDialog({required this.strings, required this.profile});
+  const _ProfileEditDialog({
+    required this.strings,
+    required this.profile,
+    required this.enabled,
+  });
 
   final AppStrings strings;
   final UsqueProfile profile;
+  final bool enabled;
 
   @override
   State<_ProfileEditDialog> createState() => _ProfileEditDialogState();
@@ -349,7 +360,7 @@ class _ProfileEditDialogState extends State<_ProfileEditDialog> {
   }
 
   void _submit() {
-    if (_closing) {
+    if (_closing || !widget.enabled) {
       return;
     }
     final value = _controller.text.trim();
@@ -401,7 +412,7 @@ class _ProfileEditDialogState extends State<_ProfileEditDialog> {
           child: Text(widget.strings.get('cancel')),
         ),
         FilledButton(
-          onPressed: _closing ? null : _submit,
+          onPressed: _closing || !widget.enabled ? null : _submit,
           child: Text(widget.strings.get('save')),
         ),
       ],
@@ -678,7 +689,7 @@ class _ManagedAccountRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final tokens = UsqueTokens.of(context);
-    final ready = identityState == ProfileIdentityState.ready;
+    final ready = identityState.canConnect;
     final tags = <Widget>[
       // A saved choice, not a confirmed connection: brand, no check.
       if (selected)
@@ -935,11 +946,11 @@ class _AccountIdentityLine extends StatelessWidget {
   Widget build(BuildContext context) {
     if (state != ProfileIdentityState.ready) {
       return InlineStatus(
-        label: strings.get(
-          state == ProfileIdentityState.missing
-              ? 'identity_missing'
-              : 'identity_invalid',
-        ),
+        label: strings.get(switch (state) {
+          ProfileIdentityState.missing => 'identity_missing',
+          ProfileIdentityState.locked => 'macos_keychain_locked',
+          _ => 'identity_invalid',
+        }),
         tone: StatusTone.warning,
       );
     }

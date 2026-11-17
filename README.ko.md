@@ -10,6 +10,8 @@
   ·
   <a href="README.zh-CN.md">简体中文</a>
   ·
+  <a href="README.zh-Hant.md">繁體中文</a>
+  ·
   <a href="README.ja.md">日本語</a>
   ·
   한국어
@@ -233,7 +235,13 @@ VPN, SOCKS5, HTTP는 기본적으로 켜져 있고, 시스템 프록시는 꺼�
 
 ### 실험적 기능과 지원하지 않는 범위
 
-[Zero Trust 등록](docs/ZERO_TRUST_EXPERIMENTAL.md)은 실험적 기능입니다. 조직의 ID로 MASQUE 인터넷 터널을 구성하지만, Cloudflare One™ Client의 모든 기능과 호환되지는 않습니다. macOS 소스는 보존하고 있으나 빌드하거나 배포하지 않습니다. iOS, 앱 스토어 배포, 공개 CLI는 이번 릴리스 범위에 포함되지 않습니다.
+[Zero Trust 등록](docs/ZERO_TRUST_EXPERIMENTAL.md)은 실험적 기능입니다. 조직의 ID로 MASQUE 인터넷 터널을 구성하지만, Cloudflare One™ Client의 모든 기능과 호환되지는 않습니다.
+macOS는 arm64 및 x86_64용 [개발용 DMG 빌드](docs/MACOS_DEVELOPMENT_PACKAGING.md)를 각각 제공하며, 데스크톱 및 프록시 기능은 검증 중입니다.
+시스템 VPN과 정식 버전의 자동 설치는 서명된 빌드의 실제 기기 검증이 완료될 때까지 비활성화됩니다.
+구현된 기능과 아직 완료되지 않은 기능은 [macOS 기능 비교표](docs/MACOS_WINDOWS_PARITY.md)를 참조하세요.
+현재 `dev` 소스에는 macOS 연결 시나리오, 종료 전 정리 완료 확인, VPN Gate용 보호된 임시 WARP 연결이 추가되었습니다. 저장된 체인 설정을 유지하며 물리 네트워크로 목록을 직접 내려받지 않습니다. 기존 개발용 설치 파일에는 이 변경이 포함되지 않았으며 새 설치 파일은 아직 게시하지 않았습니다.
+macOS에서는 Proton 게스트 등록과 내장 인증 브라우저를 제거했습니다. 일반 계정 로그인은 유지되지만 브라우저 인증이 필요한 로그인은 완료할 수 없습니다.
+iOS, 앱 스토어 배포, 공개 CLI는 이번 릴리스 범위에 포함되지 않습니다.
 
 ## 기본 네트워크 설정
 

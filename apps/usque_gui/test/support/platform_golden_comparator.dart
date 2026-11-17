@@ -24,17 +24,29 @@ class PlatformGoldenComparator extends GoldenFileComparator {
         golden.hasQuery ||
         golden.hasFragment ||
         !RegExp(
-          r'^goldens/(?:linux/)?[A-Za-z0-9_.-]+\.png$',
+          r'^goldens/(?:(?:linux|macos/arm64|macos/x86_64)/)?[A-Za-z0-9_.-]+\.png$',
         ).hasMatch(golden.path)) {
       throw StateError('Unsupported golden path: $golden');
     }
     final linux = golden.path.startsWith('goldens/linux/');
-    final supported = linux
+    final macArm = golden.path.startsWith('goldens/macos/arm64/');
+    final macIntel = golden.path.startsWith('goldens/macos/x86_64/');
+    final supported = macArm
+        ? operatingSystem == 'macos' && abi == Abi.macosArm64
+        : macIntel
+        ? operatingSystem == 'macos' && abi == Abi.macosX64
+        : linux
         ? operatingSystem == 'linux' && abi == Abi.linuxX64
         : operatingSystem == 'windows' && abi == Abi.windowsX64;
     if (!supported) {
       throw StateError(
-        '$golden requires ${linux ? 'Linux amd64' : 'Windows x64'} with '
+        '$golden requires ${macArm
+            ? 'macOS arm64'
+            : macIntel
+            ? 'macOS x86_64'
+            : linux
+            ? 'Linux amd64'
+            : 'Windows x64'} with '
         'the pinned Flutter SDK. This host is $operatingSystem ($abi). '
         'On Linux amd64, select --tags linux-golden; ordinary widget tests '
         'use --exclude-tags golden. Baselines were not changed.',

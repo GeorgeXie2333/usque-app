@@ -1,0 +1,6 @@
+Simulated Flutter platform widgets with a fake Engine.
+No app, browser, CEF, native window, permission or real network ran.
+Both client areas are 1040 x 760 logical pixels at 100% text.
+Both platforms include the shared Flutter caption; AppKit traffic
+lights are native and are not rendered by this test.
+English uses the repository font assets. This is not device QA.

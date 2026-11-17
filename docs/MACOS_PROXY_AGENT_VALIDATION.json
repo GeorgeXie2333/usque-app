@@ -1,0 +1,67 @@
+{
+  "date": "2026-11-15",
+  "branch": "feat/macos",
+  "checkout_base": "8e53f8c89f3fb9a60ee546721f18fc3c3799524b",
+  "source": "Local working tree on top of checkout_base. Package digests identify the binaries tested.",
+  "host": {
+    "architecture": "arm64",
+    "macos": "27.0.1",
+    "build": "26A434"
+  },
+  "local_system_changes": {
+    "installed_agent": false,
+    "started_system_tun": false,
+    "changed_proxy_dns_routes_or_pf": false
+  },
+  "automated": {
+    "agent_engine_platform_ipc_rust_tests": 546,
+    "shared_core_rust_tests": 331,
+    "shared_transport_rust_tests": 911,
+    "readonly_native_systemconfiguration_proxy_plan": "passed",
+    "darwin_ipv4_ipv6_tcp_udp_binding_on_lo0": "passed",
+    "bidirectional_ipv4_ipv6_packet_pump_over_unix_datagrams": "passed",
+    "pfctl_dual_stack_parse_only": "passed",
+    "gui_desktop_and_comparator_tests": 50,
+    "gui_failure_language_and_client_tests": 104,
+    "arm64_exact_goldens": 5,
+    "swift_agent_maintenance_desktop_and_native_contracts": "passed",
+    "python_macos_packaging_tests": 15,
+    "rustfmt_clippy_buf_lint_flutter_analyze": "passed"
+  },
+  "proxy_evidence": "Repeated acquisition and release, external preference changes, engine socket loss, failed rollback, restart, cross-user refusal and corrupt receipts exercised with temporary durable files and injected preferences. The host SystemConfiguration probe was read-only.",
+  "disposable_mac_utun_fd_test": {
+    "compiled": true,
+    "executed": "not_run",
+    "name": "macos::utun::tests::disposable_mac_real_utun_descriptor_handoff"
+  },
+  "not_run": [
+    "live privileged install/upgrade/uninstall and observed password dialogs",
+    "real system-proxy apply, restore and crash recovery",
+    "physical-device utun, externally observed egress or leak prevention, actual DNS/PF/routes and network changes",
+    "macOS 13 and Intel hardware execution"
+  ],
+  "release_tun_enabled": false,
+  "source_delta": {
+    "sha256": "f9bccce24c7cac98b0c186a3a867b5436de67b13a8d3b22cce3e1ad9f271a811",
+    "file_count": 41,
+    "encoding": "Sorted non-document working-tree changes against checkout_base, including new files. Each entry is UTF-8 path, NUL, lowercase SHA-256 of file contents or deleted, then LF."
+  },
+  "packages": {
+    "arm64": {
+      "file": "build/macos-proxy-fix/arm64/usque-v0.3.4-macos-arm64.dmg",
+      "sha256": "a7d3e11df23a65a72c6c1bd4d0bd2bb37914304bb2a74a56bcbc983cf95f8e09",
+      "mach_o_architecture": "passed",
+      "ad_hoc_signature_integrity": "passed",
+      "dmg_integrity": "passed",
+      "packaged_engine_build_info": "passed"
+    },
+    "x86_64": {
+      "file": "build/macos-proxy-fix/x86_64/usque-v0.3.4-macos-x86_64.dmg",
+      "sha256": "c5cdd3bb7a0e2588544732525d07879fb7608e94591e2c1a7cb95d38b2faac2f",
+      "mach_o_architecture": "passed",
+      "ad_hoc_signature_integrity": "passed",
+      "dmg_integrity": "passed",
+      "packaged_engine_build_info": "not_run"
+    }
+  }
+}

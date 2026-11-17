@@ -840,3 +840,112 @@ async fn uncertain_activation_is_settled_from_storage_without_replay() {
     assert!(list["unresolved_operation_id"].is_null());
     assert_ne!(list["last_operation_id"], lost.to_string());
 }
+
+#[cfg(target_os = "macos")]
+#[tokio::test]
+async fn macos_scene_activation_requires_proxy_recovery_before_durable_selection() {
+    let (_directory, service) = fixture().await;
+    assert!(crate::current_capabilities().connection_scenarios);
+    assert!(!crate::current_capabilities().vpn);
+    let settings = ScenarioSettings {
+        transport: usque_core::TransportPolicy::Http2,
+        ..Default::default()
+    };
+    let scene = save_scene(&service, settings, None).await;
+    let plan = preview(&service, &scene).await;
+    let before = service.store.load().unwrap();
+    // A corrupt temporary recovery record fails before the native preferences
+    // backend can be reached. No host settings or actual Keychain are touched.
+    let journal = service.profile_dir.join("macos-system-proxy-v1.sealed");
+    std::fs::write(&journal, b"unreadable recovery record").unwrap();
+    *service.macos_proxy_recovery_error.lock().await =
+        Some(crate::macos_system_proxy::Error::RecoveryPending);
+    let error = request(&service, activate_request(&scene, &plan, Uuid::new_v4()))
+        .await
+        .unwrap_err();
+    assert!(matches!(error, ControlServiceError::MacSystemProxy(_)));
+    assert_eq!(service.store.load().unwrap(), before);
+    assert!(service.data_plane.lock().await.is_none());
+    let listed = request(&service, json!({"action":"list"})).await.unwrap();
+    assert_eq!(listed["scenarios"].as_array().unwrap().len(), 1);
+    assert!(listed["selection"].is_null());
+
+    // Removing this synthetic malformed record models completed restoration.
+    // A fresh explicit activation can now commit, while remaining proxy-only.
+    std::fs::remove_file(&journal).unwrap();
+    let fresh = preview(&service, &scene).await;
+    let response = request(&service, activate_request(&scene, &fresh, Uuid::new_v4()))
+        .await
+        .unwrap();
+    assert_eq!(response["persisted"], true);
+    assert_eq!(response["state"]["apply_status"], "deferred");
+    assert!(service.macos_proxy_recovery_error.lock().await.is_none());
+    assert!(service.data_plane.lock().await.is_none());
+    assert_eq!(
+        service.store.load().unwrap().network.frontends,
+        before.network.frontends
+    );
+
+    // Returning to Custom is another explicit activation. A failed recovery
+    // must not clear the selected scene or persist its default replacement.
+    let before_reset = service.store.load().unwrap();
+    assert!(before_reset.scenario_selection.is_some());
+    assert_eq!(
+        before_reset.network.transport,
+        usque_core::TransportPolicy::Http2
+    );
+    let reset = request(&service, json!({"action":"preview_reset"}))
+        .await
+        .unwrap();
+    std::fs::write(&journal, b"unreadable recovery record").unwrap();
+    *service.macos_proxy_recovery_error.lock().await =
+        Some(crate::macos_system_proxy::Error::RecoveryPending);
+    let error = request(
+        &service,
+        json!({
+            "action":"reset",
+            "preview_token":reset["preview"]["preview_token"],
+            "operation_id":Uuid::new_v4()
+        }),
+    )
+    .await
+    .unwrap_err();
+    assert!(matches!(error, ControlServiceError::MacSystemProxy(_)));
+    assert_eq!(service.store.load().unwrap(), before_reset);
+    assert!(service.data_plane.lock().await.is_none());
+    let listed = request(&service, json!({"action":"list"})).await.unwrap();
+    assert_eq!(listed["selection"]["scenario_id"], scene["id"]);
+
+    // Only a fresh explicit reset after recovery may replace that selection.
+    std::fs::remove_file(journal).unwrap();
+    let reset = request(&service, json!({"action":"preview_reset"}))
+        .await
+        .unwrap();
+    let operation = Uuid::new_v4();
+    let response = request(
+        &service,
+        json!({
+            "action":"reset",
+            "preview_token":reset["preview"]["preview_token"],
+            "operation_id":operation
+        }),
+    )
+    .await
+    .unwrap();
+    assert_eq!(response["persisted"], true);
+    assert_eq!(response["persisted_operation_id"], operation.to_string());
+    assert_eq!(response["state"]["apply_status"], "deferred");
+    assert!(response["selection"].is_null());
+    let after_reset = service.store.load().unwrap();
+    assert!(after_reset.scenario_selection.is_none());
+    assert_eq!(
+        after_reset.network.transport,
+        usque_core::TransportPolicy::Auto
+    );
+    assert_eq!(
+        after_reset.network.frontends,
+        before_reset.network.frontends
+    );
+    assert!(service.macos_proxy_recovery_error.lock().await.is_none());
+    assert!(service.data_plane.lock().await.is_none());
+}

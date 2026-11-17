@@ -1,0 +1,554 @@
+{
+  "schema_version": 2,
+  "date": "2026-11-14",
+  "branch": "feat/macos",
+  "implementation_status": "integrated_source_and_development_packages_complete_release_gated",
+  "complete_plan_implemented": false,
+  "remaining_plan_work": "Real-system acceptance and production capability opening remain pending; unavailable acceptance is explicitly not_run as requested by the user.",
+  "production_tun_enabled": false,
+  "release_gates": {
+    "agent": false,
+    "engine": false
+  },
+  "base_commit": "bf6c7ccb3dcc841d2072f08d16cb33cfa456d9e0",
+  "source_identity_note": "The tested source is this base commit plus the replacements/additions hashed below. Documentation and ignored build outputs are excluded. Artifact hashes bind the resulting development bundles; cross compilation does not establish runtime acceptance.",
+  "source_changes_sha256": {
+    "Cargo.lock": "50b16a1f936ab98041bed953162f85705df90a5ef8f2b30004415e82222ee0ff",
+    "apps/usque_gui/dart_test.yaml": "05f550c44a1d5ba04fb6b16d9215fa7f498dd004ac552a9be0ec97ad2570e9c5",
+    "apps/usque_gui/lib/core/l10n/macos_desktop.dart": "0ce8a757ff419cb902bcccfde67c566b3c765cbdef5c337aa14d57d46b471dc0",
+    "apps/usque_gui/lib/screens/settings_screen.dart": "616b48bab5e24961eab6dc9e6ceb77037e767bbd7d89d6c5223f3ba245c61917",
+    "apps/usque_gui/lib/services/desktop_engine_client.dart": "a03d33d7672020b8a1125e77d1dd154f8bf05b2918f7b9b01aa66915a2d93857",
+    "apps/usque_gui/lib/services/desktop_engine_transport.dart": "e4d435f5607ecf8127077a4bb08f14b7496c9f35debef29cbfb318ce857728fa",
+    "apps/usque_gui/lib/services/engine_client.dart": "79894def8a7df3f5cb9e53894ce3efc770816579b487c33f590721c7fceea608",
+    "apps/usque_gui/lib/state/app_controller.dart": "2b13dfda053bf2acc8c3a926ca0596a7db143201ce24761432767ed6667092e4",
+    "apps/usque_gui/lib/widgets/macos_service_section.dart": "94f133a9284d4ae232462168001f0a4de6e7546800c732e7fc20b2e2668ee0a5",
+    "apps/usque_gui/macos/Runner.xcodeproj/project.pbxproj": "d0cb9ffe253bad78fed1a57a3742b8f76ddf240aafa942d4381f80191f80ea69",
+    "apps/usque_gui/macos/Runner/AgentMaintenance.swift": "830ddc9e68bdaebdf8e7f9b7b578e70b8e35bd69919e91ffada39375c2f25ca9",
+    "apps/usque_gui/macos/Runner/DesktopIntegration.swift": "143cf032d1c206b53fcb70a0f7234f8ddea2f9da076241d00965f343426d1a02",
+    "apps/usque_gui/test/goldens/macos/arm64/protection_retained.png": "740ff56b54a5ba04ff0ae20e8af47b09e91340ad65f5d5fb4225966aaceba0a3",
+    "apps/usque_gui/test/goldens/macos/arm64/service_gated.png": "bf3b87cee5e96b963e4364a770d3213333e6ab606ede851050465fde5dad698e",
+    "apps/usque_gui/test/goldens/macos/arm64/service_incompatible.png": "757daf9e1d71b1a87bb7f11724655d6d8dee54c5a6444d858cf57024325bffd8",
+    "apps/usque_gui/test/goldens/macos/arm64/service_missing.png": "ea381b213cee6a8e615b178282bd97dd2b5b0b8343e44d586ec5927e9c02671d",
+    "apps/usque_gui/test/goldens/macos/arm64/tun_ready.png": "dbc16fca6ec2f869c7a5793fadb41d3bb9156de75407b4f2281e7e72cdfc5f65",
+    "apps/usque_gui/test/macos_service_test.dart": "4652c53947b3d5d11fa1854fa8869f66c0ab5c2ac18c795ee4a3d97d7887894c",
+    "apps/usque_gui/test/platform_golden_comparator_test.dart": "54dd50b7e246947b7fad68f42c8ed7a5393ca14d8a657a2e3c80547068cb6261",
+    "apps/usque_gui/test/support/platform_golden_comparator.dart": "aad4ba0ff8c4d3ef9587d870d09bf36d6d88b70126f3fe15eb76ddf8fc222e21",
+    "crates/usque-agent/Cargo.toml": "3d73e8d4c8479e12e85c394cbcec36bfd5bcca883d5849172403a1b008863088",
+    "crates/usque-agent/src/lib.rs": "524cf8c18e804b08496857a53395b994435d86426bfc392f621ae3ba7b8322a9",
+    "crates/usque-agent/src/macos/auth.rs": "95b95108843c6150653823d287b2295eebe0075873d1701387457415b53e7aa2",
+    "crates/usque-agent/src/macos/backend.rs": "257f98cb397db405f7b706c7c6674bf5679f60f123bdf207e60142e6b57bed44",
+    "crates/usque-agent/src/macos/backend/tests.rs": "37b6e471ddfc8faf96657d7c9ecc11df479485b5a1836f2403de890d9edae2fb",
+    "crates/usque-agent/src/macos/boot.rs": "45de15f3529ef6291b3661f5ec4e6487fb2b25c7139a414096f003ef2be83bed",
+    "crates/usque-agent/src/macos/command.rs": "367afa91bbde3afccb5becf43a5f49f624411d1b19a5d9eca03941f6061e1dfb",
+    "crates/usque-agent/src/macos/dns.rs": "ee8e8ce65d555fd3373aecca03d87b730fc5868444f2e6e0d3e2acb1bf22c7fd",
+    "crates/usque-agent/src/macos/firewall.rs": "0daf54257456c03bcf4c30f04b3e5d7c2b911a856f2a2032d27f6b9754763f54",
+    "crates/usque-agent/src/macos/journal.rs": "67cf4626e3616f6837e3249ce34fdb26be5836c8142fab68089535401a8208c2",
+    "crates/usque-agent/src/macos/mod.rs": "c3166d69693f6b8b08fb126c833e4ccaf5b8e6833ef386ed77aa4a6d935c9d8d",
+    "crates/usque-agent/src/macos/network.rs": "485a68d20a899b0c092879550b9253cb36ff18ebf14d62407510256aaa7eb34c",
+    "crates/usque-agent/src/macos/pf_reference.rs": "be7824fb13d7ce4437c9f061ab09f096ebdfd65dc84707601a5d72bf1a81b3dc",
+    "crates/usque-agent/src/macos/resources.rs": "083826ffab303638117a1df4c8365a30be715cc54516b7be2f2e4387aa7614fc",
+    "crates/usque-agent/src/macos/routes.rs": "326a8b14f60d43bb349a83cebdbf492c0fc7ff2c520949a861a110818f51a814",
+    "crates/usque-agent/src/macos/server.rs": "e2a489451845d3555c686fdd4a03105b282cc6b4d764a54b4c175b4e7981db4a",
+    "crates/usque-agent/src/macos/socket.rs": "b2838d99bf747f47d29adf81761951b5037f5318c211929783cefa3fa8fd3373",
+    "crates/usque-agent/src/macos/transaction.rs": "1535502213c4a09c0310899826b5e53e63bbd3f76f080737583ab545273f188f",
+    "crates/usque-agent/src/macos/transaction/tests.rs": "53eb12da9c691a01822abdc166159223b7850303df81ef44eddf2257b4b6a58d",
+    "crates/usque-agent/src/macos/utun.rs": "59fa4f1bb1b447a053f9910cc1dfd45815048d7ddd0388c58028a9eea1a848e5",
+    "crates/usque-agent/src/main.rs": "8691f3f647273fd3502f6833dd53ac4b51f38f56eccab2079a23d7099962904a",
+    "crates/usque-agent/src/windows/server.rs": "65976dd0377f01a6abcf5a943a873f9c7032014632015601f41ceceb02610192",
+    "crates/usque-engine/src/active_runtime.rs": "e52d41f0b5dfbcfaff5b9ffa02beadb6f9d4e5d5b128e5758323ed73ab2b7857",
+    "crates/usque-engine/src/lib.rs": "3f7b5567d7230f2056e8dd110f63474106905203cdb81dbf5aae974fd265cca7",
+    "crates/usque-engine/src/macos_agent.rs": "f435a743a957a25dfe85d5490c0c0401fb3ae84603938cbea862e658189150e7",
+    "crates/usque-engine/src/macos_agent_runtime.rs": "95c891f590bc4e8ff3196ce34a78b479d3fd944b18b2c2f21a8dd262e31471ef",
+    "crates/usque-engine/src/macos_runtime.rs": "c21ddc2334e2d6839ffc511eade4c3a79116b40665effc398e54da24fbcfba2c",
+    "crates/usque-engine/src/macos_socket.rs": "51453aa18d3591e994983a90fc49a7d708d88a52eb45a8aee8a6b0a62e5a0655",
+    "crates/usque-engine/src/macos_tun_io.rs": "8d76d16a3c642cb44238d9a5e83aab901dd0052ffe4d85bfb89a73c52316650f",
+    "crates/usque-engine/src/main.rs": "00ae08646b6cc5bae681919c5d69067412c4c34f9531cd2f85dcd33e650f9516",
+    "crates/usque-engine/src/vpngate.rs": "f53fef7c8cf30806d86dcaec13dba1fd96c0a9ce5572ec64f838f6a59f919ca8",
+    "crates/usque-ipc/Cargo.toml": "5ce8cfdb7b1dac3097f4535667466a820426003411912267777af4c543946b68",
+    "crates/usque-ipc/src/darwin_fd.rs": "de1f67c9288d6ab7a37d74255c7a0fe610e933a7112c4f0f7eb2940c9fc4d271",
+    "crates/usque-ipc/src/darwin_fd/tests.rs": "99b54e27b9feb4b4359d6167b6baa59e5167e43c2abe311ca6395cba59175561",
+    "crates/usque-ipc/src/lib.rs": "c7a22a1b1c80a997b5d844ad205bd3bf6c6b0d66a44b45c82dfd947249b57452",
+    "crates/usque-platform/src/darwin_packet.rs": "688c5112daad988b9fe1880319889421559714a7fcf081d1aa93171c9c5bf4e2",
+    "crates/usque-platform/src/lib.rs": "4153d29f361df778628adb98198fa3367ff038df5b5a2b919dab95c1976ac7aa",
+    "crates/usque-transport/src/dns.rs": "a6c74bec250f460982cdaedbc5cae00500021ce5fe7115508d935e60f8ee7158",
+    "crates/usque-transport/src/encrypted_dns.rs": "aca9234ec21b422bfaedcbd801737c42452e45c120e6c02116dd1c599ad3d86f",
+    "crates/usque-transport/src/encrypted_dns/tests.rs": "77f158bab4d4c42ec64d224baece0b90e9281c1a2d8b34d8b70288ce918f197f",
+    "crates/usque-transport/src/endpoint_preset.rs": "2e090cc5f449ccc0f2d3e0af6c898a30dddf19293c59398ef725c2b8bd509f48",
+    "crates/usque-transport/src/geo_direct.rs": "47725a7cc3b763dd6c56f471ecf4f9ad24ccacd0a5ff062304de1460d77b4f49",
+    "crates/usque-transport/src/h2.rs": "b5b8b94292a4ef2d5471b7e1489af2f33809f183bca8a77f3195941c93f6763e",
+    "crates/usque-transport/src/h3.rs": "2e408374063d79f4c9dde65e8e20966448a99fbf1cb0074526924e509022f8ea",
+    "crates/usque-transport/src/l4/tun_udp.rs": "efb5c0015dd05ab6b1186f6f01aa4d6192cd08a6c8fdaae9ac74ca9f3044b230",
+    "crates/usque-transport/src/lib.rs": "dd5e89c8041085f3dd86920ba181953da239bdcfed7c9355a51b2209ad491858",
+    "crates/usque-transport/src/pin_refresh.rs": "946f72fd91828d5aed4a35c60df15e9160daea37ad18bedf942c3fa695b3d20e",
+    "crates/usque-transport/src/socket.rs": "e96559c15fe39c95f33535a0b2f273239d13e384daed6f13e7264cd179061211",
+    "crates/usque-transport/src/socks5.rs": "5d2e859376fa31197084688c26f0ae8eedc8585111fbaebbfc92a0714894a3c4",
+    "crates/usque-transport/src/split_dns.rs": "76b7530179a99f5a15c8b926bf4cb16779e161a0e8232e4eb2ba7d10bdf6d637",
+    "crates/usque-transport/src/udp_io/portable.rs": "2ca45e11ba3585f34fb966a482fbea3de9722042faca26fe782ef357df678fee",
+    "proto/usque/agent/v1/agent.proto": "2660e2a697485421cfa50a4db6d60fc9e02a7140dbbd4621b1337de6dec3a70d",
+    "tool/build_macos_agent_maintenance.sh": "6df43eee24a62a395a7e72d2af6e0e25b6c53e0155bb5bd900cd262a1c628603",
+    "tool/macos-agent/Main.swift": "c51cfd96941da7d9b7d90f2f776f6a6f33611f48e6be202f74aa6eb213b040c7",
+    "tool/macos-agent/Maintenance.swift": "4491a86c46b38251506b3041f4aec620e23511d2487debae1998770bf8264f4f",
+    "tool/macos-agent/Tests.swift": "cb43e508395eb9321cb0e4c5c5c1ff06e3a3366b16ec243f540a51ebf4644dd4",
+    "tool/macos_package.py": "3c69d9b5a28928b596837e49e626a44543fbfd146b44327919bec5ec1c92acf4",
+    "tool/test_macos_package.py": "2256790e0552e1a69f5252bee4c2f1ed378ea8a695c9a638dcc8456f6b6e807c"
+  },
+  "host": {
+    "os": "macOS",
+    "version": "27.0.1",
+    "architecture": "arm64"
+  },
+  "toolchains": {
+    "rust": "1.97.1",
+    "flutter": "3.44.7",
+    "dart": "3.12.2",
+    "xcode": "27.2",
+    "minimum_macos": "13.0"
+  },
+  "checks": {
+    "rust_workspace_tests": {
+      "status": "passed",
+      "passed": 2201,
+      "failed": 0,
+      "ignored": 3,
+      "test_suites": 29,
+      "command": "cargo test --workspace --all-targets --locked --offline -- --test-threads=4",
+      "note": "The final IPv6 NS/NA rule change followed this run and was validated by the targeted Agent suite and Clippy below.",
+      "evidence": {
+        "path": "build/macos-validation/logs/rust_workspace_tests.log",
+        "sha256": "7eaadfd727048ed6d257d937b663753f0847b607c2db18b2710a77f45be3540c"
+      }
+    },
+    "agent_final_pf_regression": {
+      "status": "passed",
+      "passed": 54,
+      "failed": 0,
+      "command": "cargo test -p usque-agent macos --locked --offline -- --test-threads=4",
+      "note": "Includes final GUA/ULA bidirectional neighbor-discovery rule generation and actual pfctl -n parser validation without loading PF. These tests are a subset of the workspace suite.",
+      "evidence": {
+        "path": "build/macos-validation/logs/agent_final_pf_regression.log",
+        "sha256": "14138afb98293ce6c39cde58a3e94b4877c33f47754c5f667822bfd99063ee38"
+      }
+    },
+    "rust_workspace_clippy": {
+      "status": "passed",
+      "command": "cargo clippy --workspace --all-targets --locked --offline -- -D warnings",
+      "evidence": {
+        "path": "build/macos-validation/logs/rust_workspace_clippy.log",
+        "sha256": "4353204e4d0bfd5ab8d936a25264d89c2574c29c719116614174709d8c102b94"
+      }
+    },
+    "rust_format": {
+      "status": "passed",
+      "command": "cargo fmt --all -- --check",
+      "evidence": {
+        "path": "build/macos-validation/logs/rust_format.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    "intel_workspace_check": {
+      "status": "passed",
+      "command": "MACOSX_DEPLOYMENT_TARGET=13.0 cargo check --workspace --all-targets --target x86_64-apple-darwin --locked --offline",
+      "execution": "not_run",
+      "note": "Final native Intel release compilation also passed during packaging.",
+      "evidence": {
+        "path": "build/macos-validation/logs/intel_workspace_check.log",
+        "sha256": "5c51ade2e75a24511625b3bee9ffef8662d28dea4a25e4d7acd6978a96277a26"
+      }
+    },
+    "flutter_analyze": {
+      "status": "passed",
+      "command": "flutter analyze --no-pub",
+      "evidence": {
+        "path": "build/macos-validation/logs/flutter_analyze.log",
+        "sha256": "67c027f3f065a55f8b686ca02f341b39b9f06ac014948fc9a325ce0767cde01f"
+      }
+    },
+    "flutter_non_golden": {
+      "status": "passed",
+      "passed": 1675,
+      "skipped": 10,
+      "command": "flutter test --no-pub --exclude-tags golden --concurrency=4",
+      "evidence": {
+        "path": "build/macos-validation/logs/flutter_non_golden.log",
+        "sha256": "bb390399459802228156c1d87f973b391e86c3c7d7aa32aac835f83ebf63c6f3"
+      }
+    },
+    "macos_golden": {
+      "status": "passed",
+      "passed": 14,
+      "golden_images": 5,
+      "host_architecture": "arm64",
+      "comparison": "exact",
+      "command": "flutter test --no-pub test/platform_golden_comparator_test.dart test/macos_service_test.dart",
+      "cases": [
+        "service_missing",
+        "service_gated",
+        "service_incompatible",
+        "protection_retained",
+        "tun_ready"
+      ],
+      "note": "Count includes comparator and service behavior tests. The five golden baselines were regenerated and then compared exactly on the native arm64 host.",
+      "evidence": {
+        "path": "build/macos-validation/logs/macos_golden.log",
+        "sha256": "aede6b612faa7df8d4a7b15285fe397447bcf9dab73fece2c31d88afa7d8dfbb"
+      }
+    },
+    "swift_maintenance": {
+      "status": "passed",
+      "command": "xcrun swiftc -swift-version 5 -warnings-as-errors -parse-as-library -module-cache-path .toolchains/cache/clang tool/macos-agent/Maintenance.swift tool/macos-agent/Tests.swift -o /tmp/usque-maintenance-tests && /tmp/usque-maintenance-tests",
+      "coverage": [
+        "installation ordering",
+        "recovery before uninstall",
+        "rollback after failed activation",
+        "recovery restart",
+        "replacement phase and journal validation"
+      ],
+      "live_root_operations": "not_run",
+      "evidence": {
+        "path": "build/macos-validation/logs/swift_maintenance.log",
+        "sha256": "e88852f398c4c55e0bdbf7a2cba8cc21e86e1f21f20c0258b90218fa6cc48536"
+      }
+    },
+    "package_tests": {
+      "status": "passed",
+      "passed": 15,
+      "command": "python3 tool/test_macos_package.py",
+      "evidence": {
+        "path": "build/macos-validation/logs/package_tests.log",
+        "sha256": "13a9873150b453eea4246c127dd61d00ebfaf909f4772001ee9f66bf13d1924a"
+      }
+    },
+    "development_packages": {
+      "status": "passed",
+      "commands": [
+        "python3 tool/macos_package.py build --arch arm64",
+        "python3 tool/macos_package.py build --arch x86_64"
+      ],
+      "note": "Both packages include native GUI, Engine, Agent and administrator maintenance helper. No Network Extension is required or included by default."
+    },
+    "arm64_packaged_engine_smoke": {
+      "status": "passed",
+      "commands": [
+        "build/macos-development/arm64/Usque.app/Contents/MacOS/usque-engine --macos-agent-build-info",
+        "build/macos-development/arm64/Usque.app/Contents/MacOS/usque-engine --macos-agent-status"
+      ],
+      "build_info": {
+        "architecture": "aarch64",
+        "protocol": 3,
+        "version": "0.3.4"
+      },
+      "service_result": {
+        "installed": false,
+        "compatible": false,
+        "failure": "service_unavailable",
+        "recoveryPending": true,
+        "tunAvailable": false
+      },
+      "note": "Read-only CLI execution, without GUI, Keychain access or service installation. Unavailable service is conservatively reported with recovery pending, never as an enabled TUN."
+    },
+    "repository_policy": {
+      "status": "passed",
+      "command": "python3 tool/check_repository_policy.py",
+      "evidence": {
+        "path": "build/macos-validation/logs/repository_policy.log",
+        "sha256": "a9f039f1537b4e9bb82bc65bea5be8ec01eef960d8c971f7baeaaa497d7b5598"
+      }
+    },
+    "diff_whitespace": {
+      "status": "passed",
+      "command": "git diff --check"
+    },
+    "code_review": {
+      "status": "passed_after_fixes",
+      "resolved": [
+        "Darwin ancillary bounds, FD ownership and short receive/exec serialization",
+        "live Engine identity and root-owned installation evidence",
+        "write-before-mutate durability and interrupted initialization/replacement",
+        "connected UDP behavior and descriptor revocation before release",
+        "retained handoff ownership and pending successor recovery",
+        "explicit cleanup after unpublished startup failure and lost successful response",
+        "actual protection readback and packet-pump failure revocation",
+        "normal replacement cancels packet I/O before stopping shared data plane",
+        "IPv6 aliases, on-link source selection and link-local receive keys",
+        "GUA/ULA bidirectional neighbor discovery rules"
+      ],
+      "note": "Final read-only follow-up confirmed the NS/NA issue is resolved with no blocking findings. The 54-test Agent regression and installed PF parser also passed."
+    }
+  },
+  "artifacts": [
+    {
+      "architecture": "arm64",
+      "path": "build/macos-development/arm64/usque-v0.3.4-macos-arm64.dmg",
+      "size_bytes": 17995334,
+      "sha256": "a2323ecadde3d2c15ec55cf7a9f3f653d647687ed4674cfdc083a989145dd3be",
+      "manifest": "build/macos-development/arm64/usque-v0.3.4-macos-arm64.manifest.json",
+      "manifest_sha256": "68f400845989d1aa57fb869ac3a4011a2e5aaebd772e7e033108fdaf5f13fc27",
+      "spdx_inventory": "build/macos-development/arm64/usque-v0.3.4-macos-arm64.dmg.spdx.json",
+      "spdx_sha256": "97a493fde618fece4cf1c2a522877ebcad34cf1868403534be0817f08d8acb3d",
+      "signing": "ad-hoc",
+      "notarized": false,
+      "minimum_macos": "13.0",
+      "native_components": [
+        {
+          "path": "Contents/Frameworks/App.framework/Versions/A/App",
+          "architecture": "arm64",
+          "minimum_macos": "10.15.0",
+          "architectures": [
+            "arm64"
+          ],
+          "universal_container": false
+        },
+        {
+          "path": "Contents/Frameworks/FlutterMacOS.framework/Versions/A/FlutterMacOS",
+          "architecture": "arm64",
+          "minimum_macos": "11.0.0",
+          "architectures": [
+            "arm64"
+          ],
+          "universal_container": false
+        },
+        {
+          "path": "Contents/Helpers/usque-agent",
+          "architecture": "arm64",
+          "minimum_macos": "13.0.0",
+          "architectures": [
+            "arm64"
+          ],
+          "universal_container": false
+        },
+        {
+          "path": "Contents/Helpers/usque-agent-maintenance",
+          "architecture": "arm64",
+          "minimum_macos": "13.0.0",
+          "architectures": [
+            "arm64"
+          ],
+          "universal_container": false
+        },
+        {
+          "path": "Contents/MacOS/Usque",
+          "architecture": "arm64",
+          "minimum_macos": "13.0.0",
+          "architectures": [
+            "arm64"
+          ],
+          "universal_container": false
+        },
+        {
+          "path": "Contents/MacOS/usque-engine",
+          "architecture": "arm64",
+          "minimum_macos": "13.0.0",
+          "architectures": [
+            "arm64"
+          ],
+          "universal_container": false
+        }
+      ],
+      "bundle_files_verified": 312,
+      "validation": {
+        "architecture_and_deployment": "passed",
+        "strict_deep_codesign": "passed",
+        "dmg_integrity": "passed",
+        "artifact_and_bundle_sha256": "passed",
+        "live_installation": "not_run"
+      }
+    },
+    {
+      "architecture": "x86_64",
+      "path": "build/macos-development/x86_64/usque-v0.3.4-macos-x86_64.dmg",
+      "size_bytes": 21230806,
+      "sha256": "01ac5872277ee72098552cd50afb5d9812cb6a5739aa2310d53b4f790847fc50",
+      "manifest": "build/macos-development/x86_64/usque-v0.3.4-macos-x86_64.manifest.json",
+      "manifest_sha256": "bf9f178f27085f4c7e831bd7b1284779c00fedcf97505cb6b6bddf0e4c9313d1",
+      "spdx_inventory": "build/macos-development/x86_64/usque-v0.3.4-macos-x86_64.dmg.spdx.json",
+      "spdx_sha256": "b7b2bd850539dd7e54ff01dc8dc187393df2dcf0736a0faad246cd44a0f7c950",
+      "signing": "ad-hoc",
+      "notarized": false,
+      "minimum_macos": "13.0",
+      "native_components": [
+        {
+          "path": "Contents/Frameworks/App.framework/Versions/A/App",
+          "architecture": "x86_64",
+          "minimum_macos": "10.15.0",
+          "architectures": [
+            "x86_64"
+          ],
+          "universal_container": false
+        },
+        {
+          "path": "Contents/Frameworks/FlutterMacOS.framework/Versions/A/FlutterMacOS",
+          "architecture": "x86_64",
+          "minimum_macos": "10.15.0",
+          "architectures": [
+            "x86_64"
+          ],
+          "universal_container": false
+        },
+        {
+          "path": "Contents/Helpers/usque-agent",
+          "architecture": "x86_64",
+          "minimum_macos": "13.0.0",
+          "architectures": [
+            "x86_64"
+          ],
+          "universal_container": false
+        },
+        {
+          "path": "Contents/Helpers/usque-agent-maintenance",
+          "architecture": "x86_64",
+          "minimum_macos": "13.0.0",
+          "architectures": [
+            "x86_64"
+          ],
+          "universal_container": false
+        },
+        {
+          "path": "Contents/MacOS/Usque",
+          "architecture": "x86_64",
+          "minimum_macos": "13.0.0",
+          "architectures": [
+            "x86_64"
+          ],
+          "universal_container": false
+        },
+        {
+          "path": "Contents/MacOS/usque-engine",
+          "architecture": "x86_64",
+          "minimum_macos": "13.0.0",
+          "architectures": [
+            "x86_64"
+          ],
+          "universal_container": false
+        }
+      ],
+      "bundle_files_verified": 312,
+      "validation": {
+        "architecture_and_deployment": "passed",
+        "strict_deep_codesign": "passed",
+        "dmg_integrity": "passed",
+        "artifact_and_bundle_sha256": "passed",
+        "live_installation": "not_run"
+      }
+    }
+  ],
+  "build_evidence": {
+    "arm64_package": {
+      "path": "build/macos-validation/logs/arm64_package.log",
+      "sha256": "b920b6da6069003fcb0507cc845707074ca65dd54a748842ceff341fb4e4101c"
+    },
+    "intel_package": {
+      "path": "build/macos-validation/logs/intel_package.log",
+      "sha256": "0d562897cda888d047e7345a9bd8b8268c830473be248a6b1193b528fd9b0c23"
+    },
+    "arm64_inspection": {
+      "path": "build/macos-validation/logs/arm64_inspection.json",
+      "sha256": "73e56a764ab672f43584a545bbceb3bea0e0981d0f05241d9cd489e095676eb4"
+    },
+    "intel_inspection": {
+      "path": "build/macos-validation/logs/intel_inspection.json",
+      "sha256": "6c7cf83e77fb926e0cb37311ca9c6a00fbdd493faf68e17adde9436560ecfab8"
+    }
+  },
+  "real_network_matrix": [
+    {
+      "architecture": "arm64",
+      "os": "macOS 13",
+      "status": "not_run"
+    },
+    {
+      "architecture": "arm64",
+      "os": "current macOS",
+      "status": "not_run"
+    },
+    {
+      "architecture": "x86_64",
+      "os": "macOS 13",
+      "status": "not_run"
+    },
+    {
+      "architecture": "x86_64",
+      "os": "current macOS",
+      "status": "not_run"
+    }
+  ],
+  "deferred_acceptance": [
+    {
+      "case": "root utun creation, cross-process descriptor handoff and actual IPv4/IPv6 forwarding",
+      "status": "not_run"
+    },
+    {
+      "case": "externally observed physical interface binding and no MASQUE/DNS/DIRECT routing loops",
+      "status": "not_run"
+    },
+    {
+      "case": "IPv4/IPv6 TCP/UDP, dual-stack and protected single-stack behavior",
+      "status": "not_run"
+    },
+    {
+      "case": "H3/H2, CONNECT-IP/L4, 1-16 MASQUE connections and chained exits",
+      "status": "not_run"
+    },
+    {
+      "case": "same-IP domain split rules, IP/CIDR/country/ad rules and DIRECT/PROXY/REJECT",
+      "status": "not_run"
+    },
+    {
+      "case": "system DNS, DoH/DoT, controlled bootstrap, automatic endpoints and TUN/proxy coexistence",
+      "status": "not_run"
+    },
+    {
+      "case": "PF existing connections/states, anchor priority, competing firewall coexistence and fail-closed rejection",
+      "status": "not_run"
+    },
+    {
+      "case": "GUI/Engine/Agent termination and crash-retained protection verified by an independent observer",
+      "status": "not_run"
+    },
+    {
+      "case": "sleep/wake, service restart, network change and same-address gateway change",
+      "status": "not_run"
+    },
+    {
+      "case": "multi-user ownership, live caller forgery, installed Engine identity and Agent restart",
+      "status": "not_run"
+    },
+    {
+      "case": "administrator install/update/uninstall, cancellation/retry, failed upgrade rollback and partial cleanup",
+      "status": "not_run"
+    },
+    {
+      "case": "corrupt recovery logs, permission faults, DNS conflicts and administrator recovery on a reversible host",
+      "status": "not_run"
+    },
+    {
+      "case": "native Intel execution and macOS 13 execution on both architectures",
+      "status": "not_run"
+    },
+    {
+      "case": "Intel macOS and Windows/Linux exact golden comparison on their corresponding native hosts",
+      "status": "not_run"
+    }
+  ],
+  "not_run_reason": "No reversible macOS test environment, Intel execution host, macOS 13 host or external network observer is available. User explicitly requested not_run for unavailable real-system acceptance.",
+  "supported_environment_constraints": [
+    "PF preflight requires the standard Apple hook and refuses competing rules, foreign nested anchors, skipped interfaces or pre-existing states. Global state flushing and global PF disabling are prohibited.",
+    "Primary IPv4 and IPv6 physical paths on different interfaces/services are rejected. Additional non-primary interfaces and scoped/cloned route behavior require real acceptance.",
+    "An unprovable PF enable reference or corrupt ownership record remains recovery incomplete. No automatic protection release or unattended root Agent upgrade is provided."
+  ],
+  "host_side_effects": {
+    "root_service_installed": false,
+    "root_utun_created": false,
+    "routes_changed": false,
+    "system_dns_changed": false,
+    "pf_rules_loaded": false,
+    "gui_launched_for_validation": false,
+    "credentials_read_or_moved_to_agent": false
+  },
+  "compatibility_boundaries": [
+    "Existing protobuf field numbers preserved; macOS operations appended.",
+    "Existing Windows/Linux socket paths retained when no Agent socket factory is supplied.",
+    "Network Extension experiment remains independent.",
+    "Windows/Linux golden baseline images unchanged.",
+    "Validation did not publish a release or update the remote PR."
+  ]
+}

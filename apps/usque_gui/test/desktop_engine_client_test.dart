@@ -1103,6 +1103,11 @@ void main() {
         expect(requestTimeoutForPayload(10), const Duration(seconds: 5));
         expect(requestTimeoutForPayload(41), const Duration(seconds: 5));
         expect(requestTimeoutForPayload(42), const Duration(seconds: 5));
+        expect(requestTimeoutForPayload(13), const Duration(seconds: 5));
+        expect(macRequestTimeoutForPayload(13), const Duration(seconds: 120));
+        expect(macRequestTimeoutForPayload(10), const Duration(seconds: 5));
+        expect(macRequestTimeoutForPayload(12), const Duration(seconds: 715));
+        expect(macRequestTimeoutForPayload(27), const Duration(seconds: 1415));
       },
     );
 
@@ -1210,6 +1215,33 @@ void main() {
         client.dispose();
       },
     );
+
+    test('only automatic connect sets the background keychain flag', () async {
+      final seen = <Uint8List>[];
+      final client = DesktopEngineClient.forTest(
+        transport: DesktopEngineTransport.forTest(
+          exchange: (request) async {
+            seen.add(request);
+            return _statusResponse('1');
+          },
+          requestIdFactory: () => '1',
+        ),
+      );
+      addTearDown(client.dispose);
+      for (final background in [true, false]) {
+        await client.connect(_goldenProfile, background: background);
+        final payload = ControlPayloadWriter()..string(1, _goldenProfile.id);
+        if (background) payload.boolean(3, true);
+        expect(
+          seen.last,
+          const ControlCodec().buildRequestFrame(
+            requestId: '1',
+            payloadField: 12,
+            payload: payload.takeBytes(),
+          ),
+        );
+      }
+    });
 
     test('retry encodes control request payload field 14', () async {
       Uint8List? seen;

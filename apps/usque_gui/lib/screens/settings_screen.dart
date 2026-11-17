@@ -9,6 +9,7 @@ import '../state/app_controller.dart';
 import '../widgets/common.dart';
 import '../widgets/external_link.dart';
 import '../widgets/linux_service_section.dart';
+import '../widgets/macos_service_section.dart';
 import '../widgets/usque_dialog.dart';
 import 'about_screen.dart';
 import 'advanced_settings_screen.dart';
@@ -49,7 +50,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final bool android = defaultTargetPlatform == TargetPlatform.android;
     final bool desktop =
         defaultTargetPlatform == TargetPlatform.windows ||
-        defaultTargetPlatform == TargetPlatform.linux;
+        defaultTargetPlatform == TargetPlatform.linux ||
+        defaultTargetPlatform == TargetPlatform.macOS;
     return PageFrame(
       title: strings.get('settings'),
       contentWidth: 880,
@@ -84,6 +86,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ContentGroup(
                   title: strings.get('connection_protection_group'),
                   children: [
+                    if (controller.supportsMacosServiceMaintenance)
+                      MacosServiceSection(controller: controller),
                     if (controller.supportsLinuxServiceMaintenance)
                       LinuxServiceSection(controller: controller),
                     ContentSection(
@@ -110,6 +114,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           strings.get(
                             android
                                 ? 'kill_switch_help_android'
+                                : defaultTargetPlatform ==
+                                          TargetPlatform.macOS &&
+                                      !controller.tunnelOutputSupported
+                                ? 'macos_kill_switch_unavailable'
                                 : 'kill_switch_help',
                           ),
                         ),

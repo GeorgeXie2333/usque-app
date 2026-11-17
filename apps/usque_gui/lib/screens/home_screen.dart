@@ -50,6 +50,7 @@ class HomeScreen extends StatelessWidget {
     final bool compact =
         defaultTargetPlatform != TargetPlatform.windows &&
         defaultTargetPlatform != TargetPlatform.linux &&
+        defaultTargetPlatform != TargetPlatform.macOS &&
         (viewport.width < 760 ||
             defaultTargetPlatform == TargetPlatform.android &&
                 viewport.shortestSide < 600);
@@ -102,7 +103,9 @@ class HomeScreen extends StatelessWidget {
     }
     return PageFrame(
       title: strings.get('home'),
-      showHeading: defaultTargetPlatform != TargetPlatform.windows,
+      showHeading:
+          defaultTargetPlatform != TargetPlatform.windows &&
+          defaultTargetPlatform != TargetPlatform.macOS,
       fillViewport: true,
       child: SetupEntranceTransition(
         child: _DesktopHome(

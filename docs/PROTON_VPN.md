@@ -22,6 +22,18 @@ See the [native validation record](PROTON_VPN_NATIVE_VALIDATION.md).
 
 ## Prepare an account / 准备账号
 
+macOS provides account sign-in, authenticator codes and saved-account management.
+It does not provide guest registration or an embedded verification browser. If
+Proton requires browser verification, cancel setup and import a Proton OpenVPN
+or WireGuard configuration under that configuration source instead. Existing
+saved accounts remain available. The guest and browser instructions below apply
+to Android, Windows and Linux.
+
+macOS 保留普通账号登录、身份验证器代码和已保存账号管理，已移除游客登录和内置
+验证浏览器。若 Proton 要求浏览器人机验证，请取消设置，改在 OpenVPN 或 WireGuard
+来源中导入 Proton 配置。已保存账号仍可使用。下方游客及验证窗口说明适用于
+Android、Windows 和 Linux。
+
 1. Open the Proton source in an Engine with Proton support. Account setup does
    not require a WARP identity or an active WARP connection.
 2. Choose **Continue as guest** or **Sign in to Proton** under **Proton
@@ -36,7 +48,7 @@ See the [native validation record](PROTON_VPN_NATIVE_VALIDATION.md).
    unsupported rather than silently skipped.
 4. Android opens the official verification page automatically in a fixed
    full-screen window with an **X** at the top right when Proton requires it.
-   On desktop, select **Complete verification** when
+   On Windows and Linux, select **Complete verification** when
    **Verification required** appears. Finish the puzzle yourself; the window
    closes and setup resumes when its result is accepted. Use the **X** or
    Android Back to abandon verification on Android, or **Cancel** on desktop.
@@ -78,7 +90,7 @@ See the [native validation record](PROTON_VPN_NATIVE_VALIDATION.md).
 在“Proton 账号”下选择“以游客身份继续”或“登录 Proton”（已有账号后两者位于
 “添加账号”中），按提示输入密码、六位身份验证器验证码，
 由本人完成官方窗口的拼图。Android 自动打开固定全屏验证窗口，右上角 **X** 或
-返回键会终止任务；桌面点击“完成人机验证”，可用“取消”退出。窗口失败单独显示错误。
+返回键会终止任务；Windows 和 Linux 点击“完成人机验证”，可用“取消”退出。窗口失败单独显示错误。
 挑战绑定本次任务、会话和当前挑战，最多五分钟、使用一次。12087 表示验证结果被拒，应用清除该结果，
 最多重新获取一次挑战，新的拼图仍需本人完成；再次失败会显示错误。
 

@@ -67,12 +67,16 @@ mod socks5;
 mod split_dns;
 mod stack_tcp;
 mod stream_client;
+mod system_proxy;
 mod tcp;
 mod tcp_candidates;
 mod tcp_packet_budget;
 mod telemetry;
 mod transport_performance;
 mod tunnel;
+pub use system_proxy::{
+    SystemFlowAuthorizer, SystemFlowIntent, SystemFlowProtocol, SystemProxyRuntime,
+};
 pub use transport_performance::{
     H2ReceivePerformance, H3SendPerformance, QueueBackpressureSnapshot,
     TransportPerformanceSnapshot,
@@ -132,8 +136,9 @@ pub use pin_refresh::{EndpointPinRefresher, refresh_endpoint_pin_over_protected_
 pub use proxy::ProxyRuntime;
 pub use queue_metrics::QueueKind;
 pub use socket::{
-    DirectEgressLease, DirectProtocol, NoopSocketProtector, PhysicalNetworkAvailability,
-    PhysicalNetworkSnapshot, STALE_GENERATION_REASON, SocketHandle, SocketProtector,
+    DirectEgressLease, DirectProtocol, ENDPOINT_UNREACHABLE_REASON, NoopSocketProtector,
+    PhysicalNetworkAvailability, PhysicalNetworkSnapshot, PhysicalSocketPurpose, PreparedTcpSocket,
+    STALE_GENERATION_REASON, SocketHandle, SocketProtector,
 };
 pub use socks5::Socks5Runtime;
 pub use split_dns::{SPLIT_DNS_IPV4, SPLIT_DNS_IPV6};

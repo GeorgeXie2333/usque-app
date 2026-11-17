@@ -9,6 +9,7 @@ import 'l10n/diagnostics.dart';
 import 'l10n/endpoint_presets.dart';
 import 'l10n/l4.dart';
 import 'l10n/linux_desktop.dart';
+import 'l10n/macos_desktop.dart';
 import 'l10n/network_quality.dart';
 import 'l10n/network_settings.dart';
 import 'l10n/onboarding.dart';
@@ -29,6 +30,14 @@ class AppStrings {
       );
 
   final String catalogId;
+
+  /// Use the same resolved language for Flutter's built-in controls and our
+  /// catalogs. In particular, zh-Hant and zh-MO must not fall back to zh-CN.
+  Locale get locale {
+    if (catalogId == 'pt') return const Locale('pt', 'BR');
+    final parts = catalogId.split('_');
+    return Locale(parts.first, parts.length > 1 ? parts[1] : null);
+  }
 
   /// Localizes only the original default account's unchanged display name.
   /// Stored names and user-created accounts are kept verbatim.
@@ -66,6 +75,8 @@ class AppStrings {
   }
 
   String _raw(String key) {
+    final mac = kMacDesktopCatalogs[catalogId] ?? kMacDesktopEn;
+    if (mac.containsKey(key)) return mac[key]!;
     final scenes = kScenarioCatalogs[catalogId] ?? kScenarioEn;
     if (scenes.containsKey(key)) return scenes[key]!;
     final presets =
@@ -126,6 +137,8 @@ class AppStrings {
     'endpoint_preset_us',
     // French spells it the same.
     'onboarding_notifications_title',
+    // French and German also use “Version”.
+    'macos_service_version',
   };
 
   @visibleForTesting
@@ -159,6 +172,7 @@ class AppStrings {
           kLinuxDesktopCatalogs,
           kLinuxDesktopCatalogs['en']!,
         ) ||
+        !_featureTablesComplete(kMacDesktopCatalogs, kMacDesktopEn) ||
         !_featureTablesComplete(kWindowsRecoveryCatalogs, kWindowsRecoveryEn) ||
         !_featureTablesComplete(kNetworkQualityCatalogs, kNetworkQualityEn) ||
         !_featureTablesComplete(kL4Catalogs, kL4En) ||
@@ -249,6 +263,7 @@ class AppStrings {
     scan(kDiagnosticsCatalogs, kDiagnosticsCatalogs['en']!);
     scan(kAdsCatalogs, kAdsCatalogs['en']!);
     scan(kLinuxDesktopCatalogs, kLinuxDesktopCatalogs['en']!);
+    scan(kMacDesktopCatalogs, kMacDesktopEn);
     scan(kUiWorkflowCatalogs, kUiWorkflowEn);
     scan(kUpdateCheckCatalogs, kUpdateCheckCatalogs['en']!);
     scan(kOnboardingCatalogs, kOnboardingEn);
@@ -287,6 +302,7 @@ class AppStrings {
           kUpdateCheckCatalogs.values,
         ) ||
         !_placeholdersPreserved(kOnboardingEn, kOnboardingCatalogs.values) ||
+        !_placeholdersPreserved(kMacDesktopEn, kMacDesktopCatalogs.values) ||
         !_placeholdersPreserved(kProtonEn, kProtonCatalogs.values) ||
         !_placeholdersPreserved(
           kNetworkQualityEn,

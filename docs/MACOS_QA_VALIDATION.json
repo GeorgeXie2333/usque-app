@@ -1,0 +1,342 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-29",
+  "source_candidate": "00e243f54cfe8cc6cf4665e9d30172344606c4e8",
+  "source_tree": "9901a4cbb94a601bbe82d5964eb521d559ede863",
+  "local_prepared_source_commits": [
+    "ff2cb6e0358a3b499a8ba662444cfb4ac704d9de",
+    "17f883f2dbc88dca3645d7e4754dc46bc5f12fe7"
+  ],
+  "github_tree_matches_reviewed_source": true,
+  "development_branch": "dev",
+  "main_rollback": {
+    "commit": "0759ff02a09a73ef604eb2d083d11c1d894738f8",
+    "tree_matches": "1d44597ddb6dee7fca6700c0442e0d3856eea31b",
+    "modified_by_this_follow_up": false
+  },
+  "earlier_record": "MACOS_TRADITIONAL_CHINESE_VALIDATION.json",
+  "checklist": "MACOS_QA_CHECKLIST.md",
+  "host": {
+    "architecture": "arm64",
+    "macos": "27.0",
+    "xcode": "27.1"
+  },
+  "execution_policy": {
+    "background_only": true,
+    "native_app_or_cef_started": false,
+    "browser_or_permission_dialog_opened": false,
+    "normal_engine_executable_started": false,
+    "test_executables": "Headless Flutter, Rust unit/loopback fixtures, Foundation contracts, pure C++/Node and controlled Python children only",
+    "host_proxy_dns_routes_changed": false,
+    "host_keychain_accessed": false,
+    "extensions_activated": false,
+    "applications_installed": false,
+    "github_upload": "connected_service; anonymous fetch with credential helper disabled"
+  },
+  "fixed": [
+    "Mac output controls now honor unknown/false Engine VPN and system-proxy capabilities; saved unsupported outputs can still be switched off",
+    "Mac Home/Proxy no longer show Linux-specific unavailable messages; Settings explains proxy-mode Kill Switch limits",
+    "Default Mac client area matches Windows at 1040x760; first launch centered with native decoration, screen bounds and saved geometry retained",
+    "Settings selector watches login startup, close-to-tray and tray availability so successful changes redraw immediately",
+    "Numeric WARP WireGuard endpoint override survives encrypted preparation and dedicated secret DTO; non-WARP endpoint mismatch stays rejected",
+    "VPN Gate refresh/uncached download requires connected existing base WARP and forbids physical/temporary-runtime bootstrap; final-exit reconnect and cached Prepare/Favorite remain usable",
+    "Proton Ready proof bound to current browser/main frame, HTTP error document rejected, exact proxy auth retained, Swift bool/float generations/expiry rejected and frame bounds checked"
+  ],
+  "isolated_checks": {
+    "flutter_full_non_golden": {
+      "passed": 1320,
+      "skipped": 1,
+      "failed": 0,
+      "command": "flutter test --no-pub --exclude-tags golden --reporter expanded"
+    },
+    "desktop_widget_cases": {
+      "passed": 17,
+      "command": "flutter test --no-pub test/macos_desktop_layout_test.dart --reporter expanded",
+      "included_in_full_flutter": true,
+      "covers": [
+        "four pages and small windows",
+        "100/200 percent text",
+        "Home and Proxy capability gates",
+        "tray and shortcut guards",
+        "Zero Trust cancel/retry/single-use fill",
+        "native preference success/failure and tray availability",
+        "dynamic protection hint"
+      ]
+    },
+    "rust_relevant": {
+      "total_passed": 48,
+      "engine_parity": 10,
+      "fake_system_proxy": 10,
+      "engine_provider_loopback": 8,
+      "provider_runtime": 19,
+      "base_warp_recovery": 1,
+      "credential_storage": "MemoryVault and temporary encrypted fixtures only",
+      "external_network": "not_used"
+    },
+    "native_desktop_contracts": {
+      "passed_groups": 10,
+      "command": "bash tool/test_macos_desktop_contracts.sh"
+    },
+    "native_network_contracts": {
+      "passed_groups": 7,
+      "command": "bash tool/test_macos_native_contracts.sh"
+    },
+    "cef_harness": {
+      "passed": 22,
+      "command": "python tool/test_macos_proton_verification_harness.py",
+      "evidence": "tool output only; no saved log",
+      "tool_session_id": 25411,
+      "exit_code": 0,
+      "seconds": 9.35
+    },
+    "proton_dom_bridge": {
+      "passed": 15,
+      "command": "python -m unittest tool.test_proton_native_bridge",
+      "evidence": "tool output only; no saved log",
+      "tool_session_id": 12397,
+      "exit_code": 0,
+      "seconds": 22.215,
+      "inputs": "Mock DOM/Node including cefQuery nonce and original token; no browser"
+    },
+    "proton_foundation_contract": {
+      "passed_tests": 1,
+      "passed_groups": 6,
+      "command": "python -m unittest tool.test_macos_proton_contract",
+      "evidence": "tool output only; no saved log",
+      "tool_session_id": 10945,
+      "exit_code": 0,
+      "seconds": 16.345
+    },
+    "package_fixtures": {
+      "passed": 12,
+      "command": "python3 -m unittest discover -s tool -p test_macos_package.py"
+    },
+    "source_checks": {
+      "rust_format": "passed",
+      "strict_clippy_engine_and_runtime": "passed",
+      "dart_format": "passed",
+      "flutter_analyze": "passed",
+      "python_ruff_lint_and_format": "passed",
+      "runner_typecheck_both_architectures": "passed",
+      "repository_policy_source_archive": "passed"
+    },
+    "restricted_or_superseded_runs": {
+      "loopback": "Initial sandbox bind denial retained; scoped approved rerun passed all eight tests",
+      "transport_feature_selection": "Initial filter without wireguard selected zero tests; explicit wireguard run passed one and is the counted result",
+      "release": "Earlier pre-cache-fix build interrupted before staging; final stage source hashes match reviewed source"
+    },
+    "full_rust_workspace": "not_repeated; relevant 48 tests and strict Clippy used",
+    "real_proton_guest_registration": {
+      "status": "not_run",
+      "historical_complete_proxy_smoke": "failed",
+      "historical_error": "Authentication proxy failure did not end cleanly",
+      "fixed_by_this_follow_up": "not_established"
+    }
+  },
+  "builds": {
+    "mode": "compile_only_not_executed",
+    "architectures": [
+      "arm64",
+      "x86_64"
+    ],
+    "components": [
+      "Flutter GUI",
+      "Engine",
+      "Rust provider runtime",
+      "four Network Extensions and control helper",
+      "CEF verification"
+    ],
+    "gui_metadata": {
+      "path": "build/macos-qa-components/gui-20261029T151026Z-436e93d6/metadata.json",
+      "sha256": "508e6d11145d9a8cf6f64fddf4d78d02f721b88c36097dc37c9aa40ca0834bc2",
+      "source_inputs_checked": 237
+    },
+    "network_metadata": {
+      "path": "build/macos-qa-components/network-20261029T152220Z-f40687/metadata.json",
+      "sha256": "beb64159f00042b6febd634b1ae309d8d56519b91c6d5835c195050de7789ac2",
+      "source_inputs_checked": 435
+    },
+    "desktop_qa_metadata": {
+      "path": "build/macos-qa/layout-final-20261029T150020Z-6e0f09e7/QA.json",
+      "sha256": "be1dc07dbf835b72b50719e5fe1829498374fbbe4cfc33281bf47773d711fb96"
+    },
+    "all_recorded_source_hashes_match_final_source": true,
+    "maintenance": {
+      "reused_source_candidate": "6451a30cb16becac4b054d11215391aa090387f5",
+      "source_paths_unchanged": true
+    }
+  },
+  "simulated_ui": {
+    "device_screenshots": false,
+    "client_size": [
+      1040,
+      760
+    ],
+    "text_scale": 1,
+    "description": "Windows shared Flutter caption included; Mac native title bar is outside client and not rendered",
+    "files": [
+      {
+        "path": "docs/assets/macos-qa/macos-home.png",
+        "sha256": "7150c065aa02f782ddd79c123ab814b4d0f242009f48e6535beb908ad8f57c78"
+      },
+      {
+        "path": "docs/assets/macos-qa/macos-settings.png",
+        "sha256": "8e67b46f0969bd6606d307c52d917ee2d59f8dc800fa949d3329a1f42d211d76"
+      },
+      {
+        "path": "docs/assets/macos-qa/windows-home.png",
+        "sha256": "e77bdac5e9c00aafa2e3e3b73771e211992cb18fd37cdb51e326d1741f14885c"
+      },
+      {
+        "path": "docs/assets/macos-qa/windows-settings.png",
+        "sha256": "f4996844b6810f80431b0fc56af48ef56fcfc076060b8e720e9140da5afe0c30"
+      }
+    ]
+  },
+  "logs": {
+    "flutter_final": {
+      "path": "build/macos-qa/flutter-final.log",
+      "sha256": "5f466541ab79684c135906f9d34f7dcac460be5afdc6f5496603dc96eb4d930b"
+    },
+    "dart_analysis": {
+      "path": "build/macos-qa/flutter-analyze-final.log",
+      "sha256": "05d124843d6baa53fdfff1d1eede64b2beacc77b3d6b7185198733804601dcf2"
+    },
+    "dart_format": {
+      "path": "build/macos-qa/dart-format-final.log",
+      "sha256": "79148f4d8c63bd32e11b4704e050733502323e78f2dd3b8cb3b5d0e7cb700fba"
+    },
+    "rust_format": {
+      "path": "build/macos-qa/rust-format.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "package_fixtures": {
+      "path": "build/macos-qa/package-fixtures.log",
+      "sha256": "c58176c329c2da47f09f151799c967e8c1b0ec33b6917bffb10067f3bee38a13"
+    },
+    "native_network_contracts": {
+      "path": "build/macos-qa/native-network-contracts.log",
+      "sha256": "8f2f60dc3276f1304c20da3480197b021ad0525669c8aa29d120fd77eebe7c35"
+    },
+    "native_desktop_contracts": {
+      "path": "build/macos-qa/layout-final-20261029T150020Z-6e0f09e7/native-contracts.log",
+      "sha256": "6b7cd890ad9c71508202c1d172849bdfb1440f3403851de1d7769ae43c8e9fc8"
+    },
+    "desktop_widget_regressions": {
+      "path": "build/macos-qa/layout-final-20261029T150020Z-6e0f09e7/headless-widget-tests-final17.log",
+      "sha256": "19ea9daf6337ae2d4a688a77cabd0fab2d1627f177506d9a1bb99bb1fb0c6350"
+    },
+    "repository_policy": {
+      "path": "build/macos-qa/repository-policy-final-source.log",
+      "sha256": "a9f039f1537b4e9bb82bc65bea5be8ec01eef960d8c971f7baeaaa497d7b5598"
+    },
+    "engine_parity": {
+      "path": "build/macos-network-prototype/checklist-rust-20261029T150507Z-parity-final.log",
+      "sha256": "eca55a1f2d19e10b833b033e01af3a0c8d2b6150413bc1184bfb953e6bb92460"
+    },
+    "system_proxy": {
+      "path": "build/macos-network-prototype/checklist-rust-20261029T150507Z-system-proxy.log",
+      "sha256": "d024da769d6afe94109d67d6ffd125bac012970ba8d83aa0c6efa1c224894e16"
+    },
+    "engine_provider_loopback": {
+      "path": "build/macos-network-prototype/checklist-rust-20261029T150507Z-mac-runtime-adapter-loopback.log",
+      "sha256": "f22ff5b59c5fc09f499b2ce3706293b492cf4170d5faef4ca1ab056442cf3a8f"
+    },
+    "provider_runtime": {
+      "path": "build/macos-network-prototype/checklist-rust-20261029T150507Z-provider-runtime.log",
+      "sha256": "f20235c9c0b0dad87e33d52147502d1f20523f718709554d185e1a83221ae8e5"
+    },
+    "base_warp_recovery": {
+      "path": "build/macos-network-prototype/checklist-rust-20261029T150507Z-warp-control-recovery-wireguard.log",
+      "sha256": "6bbe54841885529f37940aeacd42f5ac31fb57d4291b6c145d13aa884099bffb"
+    },
+    "strict_clippy": {
+      "path": "build/macos-network-prototype/checklist-rust-20261029T150507Z-clippy-cache-final.log",
+      "sha256": "90201af89dfd84ff4c4f6edb726b42c89ef124e94e407f698088950cc7b37a34"
+    },
+    "native_typecheck_arm64": {
+      "path": "build/macos-qa/layout-final-20261029T150020Z-6e0f09e7/native-typecheck-arm64.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "network_extension_build_arm64": {
+      "path": "build/macos-qa/ne-arm64-build.log",
+      "sha256": "abf306720d65376f1ddc990901f30de5912a3e66cc10f33bd09d3aac4546c75f"
+    },
+    "cef_build_arm64": {
+      "path": "build/macos-network-prototype/cef-arm64-signup-audit-compile.log",
+      "sha256": "7de594bca09a4b2df61ebf9e6b2d5004604657405161f0277fb6e61b80c0d5af"
+    },
+    "native_typecheck_x86_64": {
+      "path": "build/macos-qa/layout-final-20261029T150020Z-6e0f09e7/native-typecheck-x86_64.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "network_extension_build_x86_64": {
+      "path": "build/macos-qa/ne-x86_64-build.log",
+      "sha256": "0ffed69a65920ebe02275a04381788f437201a4b65dc05e04b2d201f6deabf36"
+    },
+    "cef_build_x86_64": {
+      "path": "build/macos-network-prototype/cef-x86_64-signup-audit-compile.log",
+      "sha256": "2e00d1956711da12677c755d65cd6a787d60cce28cdd038d4e6f1ba939142fd7"
+    }
+  },
+  "artifacts": [
+    {
+      "name": "usque-v0.3.3-macos-arm64.dmg",
+      "size": 235657163,
+      "sha256": "c55c2de4a7e0964d2f163b26efce825d6475ef800a2e5d34a73defe07c964e6d",
+      "architecture": "arm64",
+      "local_directory": "build/macos-development-qa/arm64",
+      "mach_o_count": 20,
+      "bundle_file_count": 581,
+      "minimum_macos": "13.0",
+      "dmg_integrity": "passed",
+      "ad_hoc_signature_integrity": "passed",
+      "notarized": false,
+      "native_execution": "not_run",
+      "manifest_sha256": "359abda23e52dda36a5450d1f00833a386f72dd8083bdc4c070b5c03ef30cc4a",
+      "sbom_sha256": "32e4de666a5be427b50e3b36d9088c282d34bcfabeb28e8e2175172fab5c74d6",
+      "cef_executable_sha256": "48f2330365099179529bc6aaf41d38518493f8ce1d2fd907e78c89656f20f5a6",
+      "cef_build_report": {
+        "path": "build/macos-proton-verification/arm64/verification-build.json",
+        "sha256": "3ca2d760bd77e0bc3e07274ce1140c7446f43335e71eca1f7902dc370f756218"
+      }
+    },
+    {
+      "name": "usque-v0.3.3-macos-x86_64.dmg",
+      "size": 258917929,
+      "sha256": "03f47e9f1ac306d6e52e8b0313d68477440ab8d846b97194129b92d4b6c931c5",
+      "architecture": "x86_64",
+      "local_directory": "build/macos-development-qa/x86_64",
+      "mach_o_count": 20,
+      "bundle_file_count": 581,
+      "minimum_macos": "13.0",
+      "dmg_integrity": "passed",
+      "ad_hoc_signature_integrity": "passed",
+      "notarized": false,
+      "native_execution": "not_run",
+      "manifest_sha256": "dd18a10ed337c8b9e00fac96f3f672e1d24d0a2a038419f2c2291ce4e2a5e35b",
+      "sbom_sha256": "a1d6683baa1c70b37d0c829a4939515d2f438bb0958be61039576200a2029dad",
+      "cef_executable_sha256": "1b8abfda5bb5b680a2589529173b02fc3fbb8848d7deb187e30645ef18d03918",
+      "cef_build_report": {
+        "path": "build/macos-proton-verification/x86_64/verification-build.json",
+        "sha256": "5cad8d725a600e8b0c76bb0d500fc6555ea83ef6aeeb23a94430f68982cd35ae"
+      }
+    }
+  ],
+  "production_capable": false,
+  "automatic_installation_enabled": false,
+  "full_feature_version": false,
+  "not_run": [
+    "signed_network_extension_install_and_activation",
+    "physical_ipv4_ipv6_route_dns_and_kill_switch_capture",
+    "real_system_proxy_authorization_and_crash_recovery",
+    "all_external_chain_exit_connections",
+    "actual_Zero_Trust_organization_login_callback",
+    "official_Proton_captcha_guest_registration",
+    "CEF_actual_proxy_error_shutdown",
+    "native_window_menu_Dock_and_accessibility_interaction",
+    "actual_update_rollback_uninstall",
+    "macOS_13_hardware",
+    "Intel_native_execution"
+  ]
+}

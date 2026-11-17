@@ -1,4 +1,9 @@
 const kProtonTh = <String, String>{
+  'guest_unavailable_macos':
+      'macOS ไม่รองรับการเข้าสู่ระบบแบบผู้เยี่ยมชม โปรดเข้าสู่ระบบด้วยบัญชี Proton',
+  'verification_unavailable_macos':
+      'Proton ต้องการการยืนยันว่าเป็นมนุษย์ ซึ่งแอป macOS นี้ไม่รองรับ โปรดใช้บัญชี Proton อื่นหรือนำเข้าการกำหนดค่า WireGuard',
+  'empty_login': 'เข้าสู่ระบบเพื่อเพิ่มบัญชี Proton',
   'fallback_account':
       'ไม่สามารถติดต่อ Proton ได้ เลือกบัญชี WARP ที่มีอยู่แล้วลองอีกครั้ง',
   'fallback_failed':

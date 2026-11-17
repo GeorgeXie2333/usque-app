@@ -188,6 +188,11 @@ impl ConnectionAttemptTelemetry {
 
     pub(crate) fn rejected(&self, error: &crate::TransportError, duration: Duration) {
         let failure = error.failure(Some(self.transport), Some(self.family));
+        let os_error = match error {
+            crate::TransportError::Io(error) => error.raw_os_error(),
+            _ => None,
+        };
+        tracing::debug!(transport = ?self.transport, stage = ?failure.stage, failure_code = failure.code.as_str(), os_error, "MASQUE dial failed");
         self.telemetry.record(
             if self.path.candidate_id.is_some() {
                 ConnectionEventType::CandidateRejected
@@ -202,6 +207,7 @@ impl ConnectionAttemptTelemetry {
     }
 
     pub(crate) fn record(&self, event_type: ConnectionEventType, stage: TransportStage) {
+        tracing::debug!(transport = ?self.transport, event = ?event_type, "MASQUE dial progress");
         self.telemetry
             .record(event_type, Some(stage), self.path, None, None);
     }

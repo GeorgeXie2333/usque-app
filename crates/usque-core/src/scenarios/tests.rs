@@ -189,11 +189,11 @@ fn tunnel_only_scene_preview_uses_native_platform_reconnect_policy() {
     .unwrap();
     assert_eq!(
         result.response["preview"]["needs_reconnect"],
-        cfg!(target_os = "linux")
+        cfg!(any(target_os = "linux", target_os = "macos"))
     );
     assert_eq!(
         result.response["preview"]["apply_kind"],
-        if cfg!(target_os = "linux") {
+        if cfg!(any(target_os = "linux", target_os = "macos")) {
             "cold_reconnect"
         } else {
             "hot_tunnel_attach"

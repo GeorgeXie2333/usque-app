@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFont, ImageMath
+from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageMath
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "assets" / "branding" / "usque-app-icon.png"
@@ -174,6 +174,19 @@ def save_macos(source: Image.Image) -> None:
         )
 
 
+def save_macos_menu_bar(monochrome: Image.Image) -> None:
+    destination = FLUTTER / "macos" / "Runner" / "Assets.xcassets" / "MenuBarMark.imageset"
+    destination.mkdir(parents=True, exist_ok=True)
+    # Add a quarter-point of stroke weight at menu bar size. Both densities
+    # use the same centred outline, including the gap between the two U arcs.
+    mask = fit_artwork(monochrome, 20 * 8, 18 * 8).getchannel("A").filter(ImageFilter.MaxFilter(3))
+    for scale in (1, 2):
+        size = 20 * scale
+        image = Image.new("RGBA", (size, size), "black")
+        image.putalpha(resize(mask, size))
+        image.save(destination / f"menu_bar_{scale}x.png", optimize=True)
+
+
 def save_windows(source: Image.Image) -> None:
     windows_icon = FLUTTER / "windows" / "runner" / "resources" / "app_icon.ico"
     windows_icon.parent.mkdir(parents=True, exist_ok=True)
@@ -215,8 +228,10 @@ def main() -> None:
         raise ValueError("App icon has no transparent pixels")
 
     mask = line_mask(source)
-    save_android(source, monochrome_logo(mask))
+    monochrome = monochrome_logo(mask)
+    save_android(source, monochrome)
     save_macos(source)
+    save_macos_menu_bar(monochrome)
     save_windows(source)
     save_distribution_icons(source)
     save_flutter_ui_icon(source, dark_logo(source, mask))

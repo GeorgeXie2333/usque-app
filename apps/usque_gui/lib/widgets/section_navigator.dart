@@ -18,6 +18,7 @@ class SectionNavigator extends StatefulWidget {
     required this.rootName,
     required this.builder,
     this.onSubpageChanged,
+    this.onInteractionChanged,
     super.key,
   });
 
@@ -25,6 +26,7 @@ class SectionNavigator extends StatefulWidget {
   final String rootName;
   final WidgetBuilder builder;
   final ValueChanged<bool>? onSubpageChanged;
+  final VoidCallback? onInteractionChanged;
 
   static SectionNavigatorState? maybeOf(BuildContext context) =>
       context.findAncestorStateOfType<SectionNavigatorState>();
@@ -35,7 +37,7 @@ class SectionNavigator extends StatefulWidget {
 
 class SectionNavigatorState extends State<SectionNavigator> {
   final _navigator = GlobalKey<NavigatorState>();
-  late final _observer = _PageObserver(_pagesChanged);
+  late final _observer = _PageObserver(_pagesChanged, interactionChanged);
   final _guards = <UnsavedChangesGuardState>[];
   bool _closing = false;
   bool _subpageOpen = false;
@@ -48,11 +50,25 @@ class SectionNavigatorState extends State<SectionNavigator> {
   /// True while a dialog or popup menu sits on this section's navigator.
   bool get popupOpen => _observer.popups.isNotEmpty;
 
+  bool get nativeNetworkActionsAllowed =>
+      !_closing &&
+      !popupOpen &&
+      !_guards.any(
+        (guard) => guard.mounted && guard.blocksNativeNetworkActions,
+      );
+
   void registerGuard(UnsavedChangesGuardState guard) {
-    if (!_guards.contains(guard)) _guards.add(guard);
+    if (!_guards.contains(guard)) {
+      _guards.add(guard);
+      interactionChanged();
+    }
   }
 
-  void unregisterGuard(UnsavedChangesGuardState guard) => _guards.remove(guard);
+  void unregisterGuard(UnsavedChangesGuardState guard) {
+    if (_guards.remove(guard)) interactionChanged();
+  }
+
+  void interactionChanged() => widget.onInteractionChanged?.call();
 
   void _pagesChanged(Route<dynamic>? exiting) {
     final open = _observer.pages.length > 1;
@@ -102,6 +118,7 @@ class SectionNavigatorState extends State<SectionNavigator> {
     if (navigator == null) return true;
     if (_closing) return false;
     _closing = true;
+    interactionChanged();
     final confirmed = <UnsavedChangesGuardState>[];
     var departed = false;
     try {
@@ -142,6 +159,7 @@ class SectionNavigatorState extends State<SectionNavigator> {
         if (revoked) await WidgetsBinding.instance.endOfFrame;
       }
       _closing = false;
+      interactionChanged();
     }
   }
 
@@ -167,9 +185,10 @@ class SectionNavigatorState extends State<SectionNavigator> {
 
 /// Tracks page routes; dialogs and popup menus are only counted.
 class _PageObserver extends NavigatorObserver {
-  _PageObserver(this.onChanged);
+  _PageObserver(this.onChanged, this.onInteractionChanged);
 
   final void Function(Route<dynamic>? exiting) onChanged;
+  final VoidCallback onInteractionChanged;
   final pages = <Route<dynamic>>[];
   final popups = <Route<dynamic>>{};
 
@@ -180,6 +199,7 @@ class _PageObserver extends NavigatorObserver {
     } else if (route != null) {
       popups.add(route);
     }
+    onInteractionChanged();
   }
 
   void _remove(Route<dynamic>? route) {
@@ -188,6 +208,7 @@ class _PageObserver extends NavigatorObserver {
     } else {
       popups.remove(route);
     }
+    onInteractionChanged();
   }
 
   @override

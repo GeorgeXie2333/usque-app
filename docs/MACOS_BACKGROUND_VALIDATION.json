@@ -1,0 +1,178 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-29",
+  "source_candidate": "6451a30cb16becac4b054d11215391aa090387f5",
+  "source_tree": "7a9edd533407f285f46c6410aa7a7455942472cf",
+  "local_prepared_build_commit": "66f55f3f3190486000714129dda58f4b05726ee1",
+  "github_source_tree_matches_local_build_tree": true,
+  "development_branch": "dev",
+  "earlier_desktop_record": "MACOS_DESKTOP_VALIDATION.json",
+  "main_rollback": {
+    "commit": "0759ff02a09a73ef604eb2d083d11c1d894738f8",
+    "tree_matches": "1d44597ddb6dee7fca6700c0442e0d3856eea31b",
+    "modified_by_this_follow_up": false
+  },
+  "host": {
+    "architecture": "arm64",
+    "macos": "27.0",
+    "xcode": "27.1"
+  },
+  "execution_policy": {
+    "background_only": true,
+    "cef_process_started": false,
+    "flutter_app_started": false,
+    "engine_process_started": false,
+    "browser_or_permission_windows_opened": false,
+    "host_network_settings_changed": false,
+    "user_keychain_accessed_by_tests": false,
+    "applications_installed": false,
+    "extensions_activated": false,
+    "github_upload": "connected_service_no_local_keychain_helper"
+  },
+  "isolated_checks": {
+    "macos_proxy_network_observation": {
+      "passed": 8,
+      "command": "cargo test -p usque-engine --locked --offline proxy_network::macos_routes",
+      "inputs": "constructed Core Foundation dictionaries and injected interface identities; no host observation"
+    },
+    "cef_harness": {
+      "passed": 20,
+      "command": "python3 -m unittest discover -s tool -p test_macos_proton_verification_harness.py",
+      "executed": "controlled Python children, pure C++ argument parser and mocked proxy sockets; no CEF"
+    },
+    "package_fixtures": {
+      "passed": 12,
+      "command": "python3 -m unittest discover -s tool -p test_macos_package.py",
+      "covers": "missing helpers, architecture-specific ICU/V8 data, executable permissions, sandbox metadata and disabled production flags"
+    },
+    "maintenance_contracts": {
+      "passed_groups": 13,
+      "command": "bash tool/test_macos_maintenance.sh",
+      "inputs": "temporary app fixtures and injected bundle/health verifiers; authenticated live health channel remains unavailable"
+    },
+    "native_network_contracts": {
+      "passed_groups": 7,
+      "command": "bash tool/test_macos_native_contracts.sh"
+    },
+    "native_desktop_contracts": {
+      "passed_groups": 7,
+      "command": "bash tool/test_macos_desktop_contracts.sh"
+    },
+    "python_regression": {
+      "cases": 344,
+      "skipped": 21,
+      "failed": 0,
+      "execution": "334 cases in the restricted background runner excluding test_proton_browser_handoff, plus 10 separately reviewed loopback-only tests",
+      "source_follow_up": "package fixture suite passed again after correcting the SDK architecture-specific V8 filename",
+      "initial_full_attempt": "loopback binding denied by sandbox; an unrestricted full-suite retry was rejected by automatic approval review because of possible browser windows",
+      "safe_alternative": "reviewed the specific loopback implementation and mocked TTY test; its narrowly scoped 10-test execution was approved and passed without browser or UI"
+    },
+    "source_gate": {
+      "status": "passed",
+      "command": "CARGO_NET_OFFLINE=true CARGO_BUILD_JOBS=2 pwsh -NoProfile -File tool/check_source.ps1",
+      "initial_attempt": "Kotlin lint blocked by sandbox process IPC; approved source-only retry passed",
+      "after_final_packager_correction": "Ruff lint and formatting passed; no other checked source changed"
+    },
+    "intel_engine_strict_clippy": {
+      "status": "passed",
+      "command": "cargo clippy -p usque-engine --all-targets --locked --offline --target x86_64-apple-darwin -- -D warnings",
+      "runtime_execution": "not_run"
+    },
+    "repository_policy": {
+      "status": "passed_for_source_candidate",
+      "input": "git archive of tracked source"
+    },
+    "cef_executable_contracts": {
+      "status": "not_run_in_this_follow_up",
+      "reason": "No CEF application process launches while owner uses workstation; new six-case executable guard path has compile/static and fake-harness coverage only"
+    },
+    "cef_real_proxy_smoke": {
+      "status": "not_run_in_this_follow_up",
+      "historical_result": "failed",
+      "historical_error": "Authentication proxy failure did not end cleanly",
+      "fixed_by_this_follow_up": "not_established",
+      "official_challenge": "not_run"
+    }
+  },
+  "builds": {
+    "gui": [
+      "arm64",
+      "x86_64"
+    ],
+    "engine": [
+      "arm64",
+      "x86_64"
+    ],
+    "cef": [
+      "arm64",
+      "x86_64"
+    ],
+    "maintenance": [
+      "arm64",
+      "x86_64"
+    ],
+    "mode": "compile_only_not_executed",
+    "reused_network_extensions": {
+      "source_candidate": "2f9dd642e1bf68ee546d5d3c17c154cc8b50381e",
+      "source_paths_unchanged": true,
+      "paths": [
+        "apps/usque_gui/macos/NetworkExtensions",
+        "crates/usque-macos-runtime",
+        "crates/usque-core",
+        "crates/usque-transport"
+      ]
+    },
+    "full_rust_and_flutter_suites": "Not repeated; earlier complete-suite results remain in MACOS_DESKTOP_VALIDATION.json"
+  },
+  "artifacts": [
+    {
+      "name": "usque-v0.3.3-macos-arm64.dmg",
+      "size": 235562321,
+      "sha256": "3ae803797a04ca3144412b5895434afb6b70028e996c683a4b10c0066206fe04",
+      "architecture": "arm64",
+      "local_directory": "build/macos-development-background/arm64",
+      "mach_o_count": 20,
+      "bundle_file_count": 581,
+      "minimum_macos": "13.0",
+      "dmg_integrity": "passed",
+      "ad_hoc_signature_integrity": "passed",
+      "notarized": false,
+      "native_device_execution": "not_run",
+      "manifest_sha256": "20e771b2defed1236567b390905d63cb966de25b9bdb33f94b2987aa13a41e05",
+      "cef_component_sha256": "2db2c060fd154e2e2e9eae87c7854090f3e22c587e32ef8c75bb8f1d30e6b257"
+    },
+    {
+      "name": "usque-v0.3.3-macos-x86_64.dmg",
+      "size": 258932535,
+      "sha256": "18372a313e027613978b4308af7d430a558e98733e613d45947deac21f96d16c",
+      "architecture": "x86_64",
+      "local_directory": "build/macos-development-background/x86_64",
+      "mach_o_count": 20,
+      "bundle_file_count": 581,
+      "minimum_macos": "13.0",
+      "dmg_integrity": "passed",
+      "ad_hoc_signature_integrity": "passed",
+      "notarized": false,
+      "native_device_execution": "not_run",
+      "manifest_sha256": "ffe722cd5a57c9c04c2b79b0c138e22ab4dc2e9c3590b30b5fd1a38725ea1db6",
+      "cef_component_sha256": "7777ad28a65a656e4a1c69e219400d828df6a2937430b3fbad44e04c32d69732"
+    }
+  ],
+  "production_capable": false,
+  "automatic_installation_enabled": false,
+  "maintenance_trust_configured": false,
+  "live_health_authentication_integrated": false,
+  "full_feature_version": false,
+  "not_run": [
+    "actual_cef_callback_ordering_and_clean_shutdown",
+    "signed_cef_launch_and_official_proton_challenge",
+    "real_system_proxy_permission_and_recovery",
+    "signed_network_extension_activation",
+    "same_ip_domain_split_and_ipv4_ipv6_dns_physical_capture",
+    "provider_crash_sleep_network_change_egress_safety",
+    "actual_application_upgrade_rollback_uninstall",
+    "extension_upgrade_approval_restart",
+    "macos_13_hardware",
+    "intel_native_execution"
+  ]
+}

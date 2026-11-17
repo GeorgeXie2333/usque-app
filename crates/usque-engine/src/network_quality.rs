@@ -229,7 +229,7 @@ pub(crate) fn snapshot_to_proto(snapshot: &NetworkQualitySnapshot) -> v1::Networ
     }
 }
 
-#[cfg(any(windows, target_os = "linux", test))]
+#[cfg(any(windows, target_os = "macos", target_os = "linux", test))]
 pub(crate) fn is_major_change(
     previous: &v1::NetworkQualitySnapshot,
     next: &v1::NetworkQualitySnapshot,
@@ -248,7 +248,7 @@ pub(crate) fn is_major_change(
         || (queue_drop_total(previous) == 0 && queue_drop_total(next) != 0)
 }
 
-#[cfg(any(windows, target_os = "linux", test))]
+#[cfg(any(windows, target_os = "macos", target_os = "linux", test))]
 pub(crate) fn same_content(
     previous: &v1::NetworkQualitySnapshot,
     next: &v1::NetworkQualitySnapshot,
@@ -260,7 +260,7 @@ pub(crate) fn same_content(
     previous == next
 }
 
-#[cfg(any(windows, target_os = "linux", test))]
+#[cfg(any(windows, target_os = "macos", target_os = "linux", test))]
 fn dns_degraded_transition(
     previous: &v1::NetworkQualitySnapshot,
     next: &v1::NetworkQualitySnapshot,
@@ -276,7 +276,7 @@ fn dns_degraded_transition(
     previous != next && (previous == Some("degraded") || next == Some("degraded"))
 }
 
-#[cfg(any(windows, target_os = "linux", test))]
+#[cfg(any(windows, target_os = "macos", target_os = "linux", test))]
 fn queue_drop_total(snapshot: &v1::NetworkQualitySnapshot) -> u64 {
     snapshot
         .queues

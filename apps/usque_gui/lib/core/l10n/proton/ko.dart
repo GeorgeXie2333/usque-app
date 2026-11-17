@@ -1,4 +1,9 @@
 const kProtonKo = <String, String>{
+  'guest_unavailable_macos':
+      'macOS에서는 게스트 로그인을 사용할 수 없습니다. Proton 계정으로 로그인하세요.',
+  'verification_unavailable_macos':
+      'Proton에서 요구하는 사람 인증은 이 macOS 앱에서 지원되지 않습니다. 다른 Proton 계정을 사용하거나 WireGuard 구성을 가져오세요.',
+  'empty_login': 'Proton 계정을 추가하려면 로그인하세요.',
   'fallback_account': 'Proton에 연결할 수 없습니다. 기존 WARP 계정을 선택하고 다시 시도하세요.',
   'fallback_failed': 'WARP를 통해 연결할 수 없습니다. 선택한 WARP 계정과 네트워크를 확인하고 다시 시도하세요.',
   'fallback_starting': 'WARP를 통해 연결 중…',

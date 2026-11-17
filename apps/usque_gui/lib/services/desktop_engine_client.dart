@@ -38,7 +38,34 @@ class DesktopEngineClient
         ProtonHumanVerificationClient,
         InitialIdentityClient,
         LinuxServiceClient,
+        MacosServiceClient,
+        MacosKeychainClient,
         AdsRulesClient {
+  @override
+  Future<MacosServiceState> getMacosServiceState() async =>
+      MacosServiceState.fromMap(
+        await _transport.invokePlatformMethod<Map<Object?, Object?>>(
+              'getMacosServiceState',
+            ) ??
+            const {},
+      );
+  @override
+  Future<void> maintainMacosService(MacosServiceAction action) async {
+    if (!Platform.isMacOS) {
+      throw const EngineException(
+        'MACOS_SERVICE_UNAVAILABLE',
+        'macOS is required.',
+      );
+    }
+    await _transport.invokePlatformMethod<void>('maintainMacosService', {
+      'operation': action.name,
+    });
+  }
+
+  @override
+  Future<void> relaunchMacosAppAfterCleanup() =>
+      _transport.relaunchMacosAppAfterCleanup();
+
   @override
   Future<LinuxServiceState> getLinuxServiceState() async =>
       LinuxServiceState.fromMap(
@@ -138,13 +165,20 @@ class DesktopEngineClient
   });
 
   @override
-  Future<InitialIdentityState> getInitialIdentityState(String profileId) =>
-      _serialized(() async {
-        final payload = ControlPayloadWriter()..string(1, profileId);
-        return _requireInitialIdentityState(
-          await _request(50, payload.takeBytes()),
-        );
-      });
+  Future<InitialIdentityState> getInitialIdentityState(
+    String profileId, {
+    bool allowKeychainInteraction = false,
+  }) => _serialized(() async {
+    final payload = ControlPayloadWriter()..string(1, profileId);
+    if (allowKeychainInteraction) payload.boolean(2, true);
+    return _requireInitialIdentityState(
+      await _request(
+        50,
+        payload.takeBytes(),
+        timeout: allowKeychainInteraction ? identityRegistrationTimeout : null,
+      ),
+    );
+  });
 
   InitialIdentityState _requireInitialIdentityState(ControlResponse response) =>
       response.initialIdentityState ??
@@ -586,7 +620,9 @@ class DesktopEngineClient
 
   @override
   Future<String?> beginZeroTrustLogin(String teamName) async {
-    if (!(Platform.isWindows || Platform.isLinux)) return null;
+    if (!(Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
+      return null;
+    }
     return _transport.invokePlatformMethod<String>(
       'beginZeroTrustLogin',
       <String, Object>{'team_name': teamName},
@@ -595,13 +631,15 @@ class DesktopEngineClient
 
   @override
   Future<String?> consumeZeroTrustCallback() async {
-    if (!(Platform.isWindows || Platform.isLinux)) return null;
+    if (!(Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
+      return null;
+    }
     return _transport.invokePlatformMethod<String>('consumeZeroTrustCallback');
   }
 
   @override
   Future<void> cancelZeroTrustLogin() async {
-    if (!(Platform.isWindows || Platform.isLinux)) return;
+    if (!(Platform.isWindows || Platform.isLinux || Platform.isMacOS)) return;
     await _transport.invokePlatformMethod<void>('cancelZeroTrustLogin');
   }
 
@@ -653,11 +691,15 @@ class DesktopEngineClient
   Future<void> openAlwaysOnVpnSettings() async {}
 
   @override
-  Future<EngineSnapshot> connect(UsqueProfile profile) {
+  Future<EngineSnapshot> connect(
+    UsqueProfile profile, {
+    bool background = false,
+  }) {
     final intent = ++_connectionIntent;
     return _serialized(() async {
       final payload = ControlPayloadWriter()..string(1, profile.id);
       if (_continuousConnection) payload.boolean(2, true);
+      if (background) payload.boolean(3, true);
       final response = await _connectionRequest(
         12,
         payload.takeBytes(),
@@ -673,7 +715,14 @@ class DesktopEngineClient
     // Disconnect is a priority safety operation. Do not queue it behind
     // profile persistence, status reads, or other non-critical requests.
     final response = await _request(13, Uint8List(0));
-    return response.snapshot ?? const EngineSnapshot();
+    final snapshot = response.snapshot;
+    if (snapshot == null) {
+      throw const EngineException(
+        'DISCONNECT_CLEANUP_UNCONFIRMED',
+        'The Engine did not confirm disconnection cleanup. Retry Disconnect.',
+      );
+    }
+    return snapshot;
   }
 
   @override
@@ -1061,6 +1110,7 @@ class DesktopEngineClient
     int payloadField,
     Uint8List payload, {
     int? connectionIntent,
+    Duration? timeout,
   }) async {
     _checkConnectionIntent(connectionIntent);
     if (_transport.isDisposed) {
@@ -1084,14 +1134,15 @@ class DesktopEngineClient
       payload: payload,
     );
 
+    final deadline = timeout ?? _timeoutFor(payloadField);
     Object? lastError;
     for (var attempt = 0; attempt < 20; attempt++) {
       _checkConnectionIntent(connectionIntent);
       Uint8List responseFrame;
       try {
         responseFrame = await _transport
-            .exchangeFrame(frame, timeout: _timeoutFor(payloadField))
-            .timeout(_timeoutFor(payloadField));
+            .exchangeFrame(frame, timeout: deadline)
+            .timeout(deadline);
       } on TimeoutException {
         // Once a frame has reached the Engine it may still be executing.
         // Retrying a mutating request could start a second registration or
@@ -1149,9 +1200,9 @@ class DesktopEngineClient
     if (_continuousConnection && (payloadField == 12 || payloadField == 14)) {
       return const Duration(seconds: 5);
     }
-    return Platform.isLinux
-        ? linuxRequestTimeoutForPayload(payloadField)
-        : requestTimeoutForPayload(payloadField);
+    if (Platform.isLinux) return linuxRequestTimeoutForPayload(payloadField);
+    if (Platform.isMacOS) return macRequestTimeoutForPayload(payloadField);
+    return requestTimeoutForPayload(payloadField);
   }
 
   void _checkConnectionIntent(int? expected) {
@@ -1182,6 +1233,14 @@ class DesktopEngineClient
 }
 
 /// Production request deadlines by control payload field number.
+@visibleForTesting
+Duration macRequestTimeoutForPayload(int payloadField) {
+  // Stop can use 90s for the native operation, 10s for confirmation polling,
+  // and one final 10s snapshot exchange. Retain a reporting margin as well.
+  if (payloadField == 13) return const Duration(seconds: 120);
+  return requestTimeoutForPayload(payloadField);
+}
+
 @visibleForTesting
 Duration linuxRequestTimeoutForPayload(int payloadField) {
   final base = requestTimeoutForPayload(payloadField);

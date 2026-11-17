@@ -268,7 +268,14 @@ enum IdentityProvisioningMethod { register, registerWithLicense, zeroTrust }
 
 enum IdentityProvider { consumer, zeroTrust }
 
-enum ProfileIdentityState { ready, missing, invalid }
+enum ProfileIdentityState {
+  ready,
+  missing,
+  invalid,
+  locked;
+
+  bool get canConnect => this == ready || this == locked;
+}
 
 enum LicenseState { free, warpPlus, unknown, cleanupPending, notApplicable }
 

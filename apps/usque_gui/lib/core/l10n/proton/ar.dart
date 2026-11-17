@@ -1,4 +1,9 @@
 const kProtonAr = <String, String>{
+  'guest_unavailable_macos':
+      'تسجيل الدخول كضيف غير متاح على macOS. سجّل الدخول بحساب Proton.',
+  'verification_unavailable_macos':
+      'يتطلب Proton تحققًا بشريًا لا يدعمه تطبيق macOS هذا. استخدم حساب Proton آخر أو استورد إعداد WireGuard.',
+  'empty_login': 'سجّل الدخول لإضافة حساب Proton.',
   'fallback_account':
       'تعذر الوصول إلى Proton. اختر حساب WARP موجودًا وأعد المحاولة.',
   'fallback_failed':

@@ -30,6 +30,17 @@ abstract interface class InitialIdentityClient {
   Future<InitialIdentityState> getInitialIdentityState(String profileId);
 }
 
+abstract interface class MacosKeychainClient {
+  Future<EngineSnapshot> connect(
+    UsqueProfile profile, {
+    bool background = false,
+  });
+  Future<InitialIdentityState> getInitialIdentityState(
+    String profileId, {
+    bool allowKeychainInteraction = false,
+  });
+}
+
 abstract interface class OnboardingPermissionsClient {
   Future<OnboardingPermissionState> getOnboardingPermissions();
   Future<OnboardingPermissionState> prepareOnboardingPermissions();
@@ -60,6 +71,52 @@ class LinuxServiceState {
 abstract interface class LinuxServiceClient {
   Future<LinuxServiceState> getLinuxServiceState();
   Future<void> maintainLinuxService({required bool install});
+}
+
+enum MacosServiceAction { install, repair, recover, uninstall }
+
+class MacosServiceState {
+  const MacosServiceState({
+    this.installed = false,
+    this.compatible = false,
+    this.canMaintain = false,
+    this.recoveryPending = false,
+    this.protectionRetained = false,
+    this.cleanupConfirmed = false,
+    this.tunAvailable = false,
+    this.releaseApproved = false,
+    this.testTunBuild = false,
+    this.preflightPassed = false,
+    this.version = '',
+  });
+  factory MacosServiceState.fromMap(Map<Object?, Object?> map) =>
+      MacosServiceState(
+        installed: map['installed'] == true,
+        compatible: map['compatible'] == true,
+        canMaintain: map['canMaintain'] == true,
+        recoveryPending: map['recoveryPending'] == true,
+        protectionRetained: map['protectionRetained'] == true,
+        cleanupConfirmed: map['cleanupConfirmed'] == true,
+        tunAvailable: map['tunAvailable'] == true,
+        releaseApproved: map['releaseApproved'] == true,
+        testTunBuild: map['testTunBuild'] == true,
+        preflightPassed: map['preflightPassed'] == true,
+        version: map['version'] is String ? map['version']! as String : '',
+      );
+  final bool installed,
+      compatible,
+      canMaintain,
+      recoveryPending,
+      protectionRetained,
+      cleanupConfirmed;
+  final bool tunAvailable, releaseApproved, testTunBuild, preflightPassed;
+  final String version;
+}
+
+abstract interface class MacosServiceClient {
+  Future<MacosServiceState> getMacosServiceState();
+  Future<void> maintainMacosService(MacosServiceAction action);
+  Future<void> relaunchMacosAppAfterCleanup();
 }
 
 class EngineException implements Exception {

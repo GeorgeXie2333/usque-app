@@ -6,7 +6,15 @@ import 'package:flutter/widgets.dart';
 /// and system navigation only.
 bool get desktopShortcutsSupported =>
     defaultTargetPlatform == TargetPlatform.windows ||
-    defaultTargetPlatform == TargetPlatform.linux;
+    defaultTargetPlatform == TargetPlatform.linux ||
+    defaultTargetPlatform == TargetPlatform.macOS;
+
+SingleActivator primaryDesktopShortcut(LogicalKeyboardKey key) =>
+    SingleActivator(
+      key,
+      meta: defaultTargetPlatform == TargetPlatform.macOS,
+      control: defaultTargetPlatform != TargetPlatform.macOS,
+    );
 
 /// True when [context] belongs to the top route of every enclosing navigator,
 /// so a dialog, popup menu, or pushed subpage hides it from shortcuts.

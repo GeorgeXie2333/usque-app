@@ -26,7 +26,6 @@ class PreviewEngine
       ),
     ];
     if (identityReady) _identities[_activeId] = _readyIdentity;
-    _ticker = Timer.periodic(const Duration(seconds: 1), (_) => _sample());
   }
 
   static const _readyIdentity = ProfileIdentityStatus(
@@ -55,7 +54,7 @@ class PreviewEngine
   String _activeId = UsqueProfile.defaultProfileId;
   final _identities = <String, ProfileIdentityStatus>{};
   final _events = StreamController<EngineSnapshotEvent>.broadcast();
-  late final Timer _ticker;
+  Timer? _ticker;
   EngineSnapshot _current = const EngineSnapshot();
   NetworkSettingsState? _settings;
   DiagnosticSession? _diagnostics;
@@ -96,6 +95,14 @@ class PreviewEngine
       _uploaded = 0;
     }
     _publish(phase);
+    // Idle previews have no changing traffic. Avoid waking the controller and
+    // rebuilding the preview toolbar every second while disconnected.
+    if (_current.isConnected) {
+      _ticker ??= Timer.periodic(const Duration(seconds: 1), (_) => _sample());
+    } else {
+      _ticker?.cancel();
+      _ticker = null;
+    }
   }
 
   void _sample() {
@@ -456,7 +463,7 @@ class PreviewEngine
     if (_disposed) return;
     _disposed = true;
     _intent++;
-    _ticker.cancel();
+    _ticker?.cancel();
     unawaited(_events.close());
   }
 }

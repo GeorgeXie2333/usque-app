@@ -69,6 +69,7 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
   final _completedJobs = <String>{};
   final _cancelledJobs = <String>{};
   final _automaticVerifications = <(String, String)>{};
+  final _unsupportedVerificationJobs = <String>{};
   final _serverNames = <(String, String), String?>{};
   final _nameLoads = <(String, String)>{};
   final _totp = TextEditingController();
@@ -86,7 +87,11 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
   }
 
   String get _displayState =>
-      _state == 'cancelled' && _verificationError != null ? 'failed' : _state;
+      _state == 'cancelled' &&
+          _verificationError != null &&
+          _verificationFailure?.$2 != 'verification_unavailable'
+      ? 'failed'
+      : _state;
   static const _verificationCodes = {
     'PROTON_VERIFICATION_EXPIRED',
     'PROTON_VERIFICATION_NAVIGATION',
@@ -116,7 +121,15 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
   void initState() {
     super.initState();
     unawaited(_command({'action': 'get'}));
-    _timer = Timer.periodic(const Duration(seconds: 2), (_) {
+  }
+
+  void _updatePolling() {
+    if ((!_running && !_verifying) || _launchUnconfirmed) {
+      _timer?.cancel();
+      _timer = null;
+      return;
+    }
+    _timer ??= Timer.periodic(const Duration(seconds: 2), (_) {
       if ((_running || _verifying) &&
           !_launchUnconfirmed &&
           !_busy &&
@@ -165,6 +178,7 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
     'api_rejected' => 'api_rejected',
     'session_not_allowed' => 'session_not_allowed',
     'credentialless_disabled' => 'credentialless_disabled',
+    'guest_unavailable' => 'guest_unavailable_macos',
     'human_verification_invalid' => 'verification_invalid',
     'selected_server_unavailable' => 'selected_server_unavailable',
     'no_free_wireguard_nodes' => 'no_free_nodes',
@@ -177,6 +191,8 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
     'revocation_failed_remote_state_unknown' => 'remote_unknown',
     'rate_limited' => 'rate_limited',
     'api_timeout' || 'api_transport_failed' || 'api_tls_failed' => 'network',
+    'verification_unavailable' when !_app.protonHumanVerificationSupported =>
+      'verification_unavailable_macos',
     'human_verification_expired' ||
     'human_verification_failed' ||
     'verification_unavailable' => 'verification_failed',
@@ -301,10 +317,20 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
                 const {
                   'PROTON_INPUT_TOO_LARGE',
                   'PROTON_INVALID_REQUEST',
+                  'PROTON_GUEST_UNAVAILABLE',
+                  'PROTON_VERIFICATION_UNAVAILABLE',
                 }.contains(error.code));
         setState(() {
           if (recoverLaunch) _launchUnconfirmed = true;
-          _error = _launchUnconfirmed ? null : p('failed');
+          _error = _launchUnconfirmed
+              ? null
+              : switch (error is EngineException ? error.code : null) {
+                  'PROTON_GUEST_UNAVAILABLE' => _failure('guest_unavailable'),
+                  'PROTON_VERIFICATION_UNAVAILABLE' => _failure(
+                    'verification_unavailable',
+                  ),
+                  _ => p('failed'),
+                };
         });
       }
     } finally {
@@ -313,13 +339,25 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
       if (identical(_commandDone, done)) _commandDone = null;
       if (mounted) {
         setState(() => _busy = false);
-        _openAndroidVerification();
+        _updateVerification();
+        _updatePolling();
       }
     }
     if (recoverLaunch && mounted) await _command({'action': 'get'});
   }
 
-  void _openAndroidVerification() {
+  void _updateVerification() {
+    if (!_app.protonHumanVerificationSupported) {
+      final job = _job['id'];
+      if (_state == 'waiting_verification' &&
+          !_busy &&
+          !_launchUnconfirmed &&
+          job is String &&
+          _unsupportedVerificationJobs.add(job)) {
+        unawaited(_cancel(verificationFailure: 'verification_unavailable'));
+      }
+      return;
+    }
     if ((defaultTargetPlatform != TargetPlatform.android &&
             _resumeVerificationJob != _job['id']) ||
         _state != 'waiting_verification' ||
@@ -683,7 +721,12 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
   Object? _resumeVerificationJob;
 
   Future<void> _verify() async {
-    if (_busy || _launchUnconfirmed || _verifying) return;
+    if (!_app.protonHumanVerificationSupported ||
+        _busy ||
+        _launchUnconfirmed ||
+        _verifying) {
+      return;
+    }
     final jobId = _job['id'], challengeId = _job['challenge_id'];
     if (jobId == null || challengeId == null) return;
     // Manual openings consume the handoff too. A command reply may still
@@ -760,7 +803,8 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
           _verifying = false;
           _handoffLoading = false;
         });
-        _openAndroidVerification();
+        _updateVerification();
+        _updatePolling();
       }
     }
   }
@@ -788,10 +832,11 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
               // Setup leads while there is no account; afterwards adding
               // another account is a secondary action under one button.
               if (_profiles.isEmpty) ...[
-                FilledButton.tonal(
-                  onPressed: canAdd ? guest : null,
-                  child: Text(p('guest')),
-                ),
+                if (_app.protonGuestLoginSupported)
+                  FilledButton.tonal(
+                    onPressed: canAdd ? guest : null,
+                    child: Text(p('guest')),
+                  ),
                 OutlinedButton(
                   onPressed: canAdd ? login : null,
                   child: Text(p('login')),
@@ -799,7 +844,8 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
               ] else
                 MenuAnchor(
                   menuChildren: [
-                    MenuItemButton(onPressed: guest, child: Text(p('guest'))),
+                    if (_app.protonGuestLoginSupported)
+                      MenuItemButton(onPressed: guest, child: Text(p('guest'))),
                     MenuItemButton(onPressed: login, child: Text(p('login'))),
                   ],
                   builder: (context, menu, _) => OutlinedButton.icon(
@@ -830,7 +876,11 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
           if (_busy || _state == 'running' || _verifying)
             const LinearProgressIndicator(minHeight: 2),
           if (_launchUnconfirmed) Text(p('result_unconfirmed')),
-          if (_state.isNotEmpty && !_launchUnconfirmed)
+          if (_state.isNotEmpty &&
+              !_launchUnconfirmed &&
+              !(_state == 'failed' &&
+                  _job['failure'] == 'verification_unavailable' &&
+                  !_app.protonHumanVerificationSupported))
             Semantics(
               liveRegion: true,
               child: Text(
@@ -866,16 +916,23 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
               ],
             ),
           if (_state == 'waiting_verification' && !_launchUnconfirmed) ...[
-            Text(p('verification_hint')),
-            Align(
-              alignment: AlignmentDirectional.centerStart,
-              child: FilledButton(
-                onPressed: _busy || _verifying
-                    ? null
-                    : () => unawaited(_verify()),
-                child: Text(p('verify')),
+            Text(
+              p(
+                _app.protonHumanVerificationSupported
+                    ? 'verification_hint'
+                    : 'verification_unavailable_macos',
               ),
             ),
+            if (_app.protonHumanVerificationSupported)
+              Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: FilledButton(
+                  onPressed: _busy || _verifying
+                      ? null
+                      : () => unawaited(_verify()),
+                  child: Text(p('verify')),
+                ),
+              ),
           ],
           if (_state == 'waiting_node' && !_launchUnconfirmed) ...[
             Text(p('choose_node')),
@@ -901,7 +958,7 @@ class ProtonVpnPanelState extends State<ProtonVpnPanel> {
           ],
           if (_serversLoading) const LinearProgressIndicator(minHeight: 2),
           if (_profiles.isEmpty && !_running && !_launchUnconfirmed)
-            Text(p('empty')),
+            Text(p(_app.protonGuestLoginSupported ? 'empty' : 'empty_login')),
           if (_profiles.isNotEmpty) ...[
             RadioGroup<String>(
               groupValue:

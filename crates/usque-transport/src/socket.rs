@@ -43,6 +43,40 @@ impl PhysicalNetworkSnapshot {
 /// Stable reason returned when exact-generation socket setup races a network
 /// change. Callers may retry only by taking a fresh generation snapshot.
 pub const STALE_GENERATION_REASON: &str = "stale_generation";
+/// An authorized physical connect failed and its unpublished permit was revoked.
+pub const ENDPOINT_UNREACHABLE_REASON: &str = "physical_endpoint_unreachable";
+
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum SocketPrepareError {
+    #[error("stale_generation")]
+    StaleGeneration,
+    #[error("socket preparation failed: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("socket protection failed: {0}")]
+    Protection(String),
+}
+
+impl From<String> for SocketPrepareError {
+    fn from(reason: String) -> Self {
+        match reason.as_str() {
+            STALE_GENERATION_REASON => Self::StaleGeneration,
+            ENDPOINT_UNREACHABLE_REASON => {
+                Self::Io(std::io::Error::other("physical endpoint connect failed"))
+            }
+            _ => Self::Protection(reason),
+        }
+    }
+}
+
+impl SocketPrepareError {
+    pub(crate) fn into_transport_error(self) -> crate::TransportError {
+        match self {
+            Self::StaleGeneration => crate::TransportError::UnderlyingNetworkChanged,
+            Self::Io(error) => crate::TransportError::Io(error),
+            Self::Protection(error) => crate::TransportError::SocketProtection(error),
+        }
+    }
+}
 
 /// Platform-neutral representation of a socket before it connects to a
 /// MASQUE endpoint.
@@ -64,6 +98,16 @@ impl SocketHandle {
 pub enum DirectProtocol {
     Tcp,
     Udp,
+}
+
+/// The Agent authorizes each purpose independently, including during startup.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PhysicalSocketPurpose {
+    Masque,
+    BootstrapDns,
+    DirectDns,
+    Direct,
+    Control,
 }
 
 impl DirectProtocol {
@@ -181,11 +225,183 @@ impl<T: AsyncWrite + Unpin> AsyncWrite for LeasedIo<T> {
     }
 }
 
+/// A zero scope in a link-local packet is resolved by the Agent's verified
+/// interface binding. Explicit caller scopes must still match exactly.
+pub(crate) fn connected_peer_matches(peer: SocketAddr, expected: SocketAddr) -> bool {
+    if peer == expected {
+        return true;
+    }
+    #[cfg(target_os = "macos")]
+    if matches!((peer, expected), (SocketAddr::V6(a), SocketAddr::V6(b))
+        if b.ip().is_unicast_link_local() && b.scope_id() == 0
+            && a.ip() == b.ip() && a.port() == b.port())
+    {
+        return true;
+    }
+    false
+}
+
+/// Darwin rejects sendto(destination) on a connected UDP socket. Agent-owned
+/// sockets are connected before handoff, so keep the exact peer and use send.
+pub(crate) async fn send_udp_to(
+    socket: &tokio::net::UdpSocket,
+    bytes: &[u8],
+    remote: SocketAddr,
+) -> std::io::Result<usize> {
+    #[cfg(target_os = "macos")]
+    if let Ok(peer) = socket.peer_addr() {
+        if !connected_peer_matches(peer, remote) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "physical UDP peer mismatch",
+            ));
+        }
+        return socket.send(bytes).await;
+    }
+    socket.send_to(bytes, remote).await
+}
+
+/// A platform may initiate a root-owned connection before descriptor handoff.
+/// Waiting for it must not call connect a second time (EISCONN/EALREADY).
+pub enum PreparedTcpSocket {
+    Unconnected(tokio::net::TcpSocket),
+    Connecting {
+        stream: tokio::net::TcpStream,
+        remote: SocketAddr,
+    },
+}
+impl PreparedTcpSocket {
+    pub async fn connect(self, remote: SocketAddr) -> std::io::Result<tokio::net::TcpStream> {
+        match self {
+            Self::Unconnected(socket) => socket.connect(remote).await,
+            Self::Connecting {
+                stream,
+                remote: expected,
+            } => {
+                if remote != expected {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::PermissionDenied,
+                        "physical TCP destination changed",
+                    ));
+                }
+                stream.writable().await?;
+                if let Some(error) = stream.take_error()? {
+                    return Err(error);
+                }
+                let peer = stream.peer_addr()?;
+                #[cfg(target_os = "macos")]
+                let matches = connected_peer_matches(peer, remote);
+                #[cfg(not(target_os = "macos"))]
+                let matches = peer == remote;
+                if !matches {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::PermissionDenied,
+                        "physical TCP peer mismatch",
+                    ));
+                }
+                Ok(stream)
+            }
+        }
+    }
+}
+
 /// Called immediately after a socket is created and before any endpoint
 /// connection or packet is attempted.
 #[async_trait]
 pub trait SocketProtector: Send + Sync {
     fn protect(&self, socket: SocketHandle) -> Result<(), String>;
+
+    /// Platforms whose firewall attributes ownership at creation must supply
+    /// the socket itself. Callers must never fall back to a user-created FD.
+    fn requires_owned_sockets(&self) -> bool {
+        false
+    }
+
+    async fn prepare_tcp(
+        &self,
+        remote: SocketAddr,
+        purpose: PhysicalSocketPurpose,
+        generation: u64,
+    ) -> Result<(PreparedTcpSocket, DirectEgressLease), String> {
+        let socket = if remote.is_ipv4() {
+            tokio::net::TcpSocket::new_v4()
+        } else {
+            tokio::net::TcpSocket::new_v6()
+        }
+        .map_err(|e| e.to_string())?;
+        let lease = self
+            .authorize_created_socket(
+                socket_handle(&socket),
+                remote,
+                DirectProtocol::Tcp,
+                purpose,
+                generation,
+            )
+            .await?;
+        Ok((PreparedTcpSocket::Unconnected(socket), lease))
+    }
+
+    async fn prepare_udp(
+        &self,
+        remote: SocketAddr,
+        purpose: PhysicalSocketPurpose,
+        generation: u64,
+    ) -> Result<(std::net::UdpSocket, DirectEgressLease), String> {
+        let socket = std::net::UdpSocket::bind(if remote.is_ipv4() {
+            "0.0.0.0:0"
+        } else {
+            "[::]:0"
+        })
+        .map_err(|e| e.to_string())?;
+        socket.set_nonblocking(true).map_err(|e| e.to_string())?;
+        let lease = self
+            .authorize_created_socket(
+                socket_handle(&socket),
+                remote,
+                DirectProtocol::Udp,
+                purpose,
+                generation,
+            )
+            .await?;
+        Ok((socket, lease))
+    }
+
+    async fn authorize_created_socket(
+        &self,
+        socket: SocketHandle,
+        remote: SocketAddr,
+        protocol: DirectProtocol,
+        purpose: PhysicalSocketPurpose,
+        generation: u64,
+    ) -> Result<DirectEgressLease, String> {
+        if self.requires_owned_sockets() {
+            return Err("platform requires an Agent-created socket".into());
+        }
+        match purpose {
+            PhysicalSocketPurpose::Masque => {
+                self.protect_masque_endpoint_generation(socket, remote, protocol, generation)
+                    .await
+            }
+            PhysicalSocketPurpose::BootstrapDns => {
+                self.protect_endpoint_preset_dns_generation(socket, remote, protocol, generation)
+                    .await
+            }
+            PhysicalSocketPurpose::Direct => {
+                if self.network_generation().unwrap_or_default() != generation {
+                    return Err(STALE_GENERATION_REASON.into());
+                }
+                let lease = self.protect_for_target(socket, remote, protocol).await?;
+                if self.network_generation().unwrap_or_default() != generation {
+                    return Err(STALE_GENERATION_REASON.into());
+                }
+                Ok(lease.with_generation(generation))
+            }
+            PhysicalSocketPurpose::DirectDns | PhysicalSocketPurpose::Control => {
+                self.protect_for_target_generation(socket, remote, protocol, generation)
+                    .await
+            }
+        }
+    }
 
     /// Latest-value observations for reconnect scheduling. Unsupported platforms
     /// retain timed retries. Closing a subscription means Unknown, not Offline.
@@ -424,6 +640,57 @@ mod tests {
     use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
     use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
+    #[tokio::test]
+    async fn owned_socket_platform_never_falls_back_to_borrowed_fd_protection() {
+        struct OwnedOnly;
+        #[async_trait]
+        impl SocketProtector for OwnedOnly {
+            fn protect(&self, _: SocketHandle) -> Result<(), String> {
+                panic!("borrowed protection bypass")
+            }
+            fn requires_owned_sockets(&self) -> bool {
+                true
+            }
+        }
+        for purpose in [
+            PhysicalSocketPurpose::Masque,
+            PhysicalSocketPurpose::BootstrapDns,
+            PhysicalSocketPurpose::Direct,
+            PhysicalSocketPurpose::Control,
+        ] {
+            assert!(
+                OwnedOnly
+                    .prepare_tcp("127.0.0.1:443".parse().unwrap(), purpose, 0)
+                    .await
+                    .is_err()
+            );
+            assert!(
+                OwnedOnly
+                    .prepare_udp("127.0.0.1:53".parse().unwrap(), purpose, 0)
+                    .await
+                    .is_err()
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn socket_factory_rejects_a_generation_change_during_authorization() {
+        let protector = GenerationProtector {
+            generation: AtomicU64::new(7),
+            advance_during_protect: true,
+            lease_dropped: Arc::new(AtomicBool::new(false)),
+        };
+        let result = protector
+            .prepare_udp(
+                "127.0.0.1:53".parse().unwrap(),
+                PhysicalSocketPurpose::Direct,
+                7,
+            )
+            .await;
+        assert_eq!(result.unwrap_err(), STALE_GENERATION_REASON);
+        assert!(protector.lease_dropped.load(Ordering::Acquire));
+    }
+
     struct LeaseDropFlag(Arc<AtomicBool>);
 
     impl Drop for LeaseDropFlag {
@@ -603,5 +870,63 @@ mod tests {
             STALE_GENERATION_REASON
         );
         assert!(dropped.load(Ordering::Acquire));
+    }
+    #[cfg(target_os = "macos")]
+    #[tokio::test]
+    async fn connected_agent_udp_preserves_exact_peer() {
+        let peer = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let socket = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let remote = peer.local_addr().unwrap();
+        socket.connect(remote).await.unwrap();
+        send_udp_to(&socket, b"packet", remote).await.unwrap();
+        let mut bytes = [0; 8];
+        let (n, _) = peer.recv_from(&mut bytes).await.unwrap();
+        assert_eq!(&bytes[..n], b"packet");
+        let other = SocketAddr::new(remote.ip(), remote.port().wrapping_add(1));
+        assert_eq!(
+            send_udp_to(&socket, b"wrong", other)
+                .await
+                .unwrap_err()
+                .kind(),
+            std::io::ErrorKind::PermissionDenied
+        );
+    }
+    #[tokio::test]
+    async fn agent_started_tcp_finishes_without_reconnecting() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let remote = listener.local_addr().unwrap();
+        let stream = tokio::net::TcpStream::connect(remote).await.unwrap();
+        let (mut peer, _) = listener.accept().await.unwrap();
+        let mut stream = PreparedTcpSocket::Connecting { stream, remote }
+            .connect(remote)
+            .await
+            .unwrap();
+        stream.write_all(b"ok").await.unwrap();
+        let mut bytes = [0; 2];
+        peer.read_exact(&mut bytes).await.unwrap();
+        assert_eq!(&bytes, b"ok");
+        assert!(
+            PreparedTcpSocket::Connecting { stream, remote }
+                .connect(SocketAddr::new(remote.ip(), remote.port().wrapping_add(1)))
+                .await
+                .is_err()
+        );
+    }
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn link_local_peer_uses_bound_scope_but_never_changes_ip_port_or_explicit_scope() {
+        let packet = "[fe80::1]:443".parse().unwrap();
+        let scoped = "[fe80::1%4]:443".parse().unwrap();
+        assert!(connected_peer_matches(scoped, packet));
+        for other in ["[fe80::1%5]:443", "[fe80::2]:443", "[fe80::1]:53"] {
+            assert!(!connected_peer_matches(scoped, other.parse().unwrap()));
+        }
+        let mut targets = std::collections::HashMap::new();
+        targets.insert(packet, 7);
+        let normalized = connected_peer_matches(scoped, packet)
+            .then_some(packet)
+            .unwrap();
+        assert_eq!(targets[&normalized], 7);
     }
 }
