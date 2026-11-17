@@ -22,7 +22,7 @@
 </p>
 
 <p align="center">
-  Windows、Linux、Android / Android TV 向けの Cloudflare® WARP® サービスと互換性のある非公式クライアントです。<br>
+  Windows、Linux、Android / Android TV、macOS（開発プレビュー版）向けの Cloudflare® WARP® サービスと互換性のある非公式クライアントです。<br>
   ネイティブの Flutter インターフェースと Rust 製の MASQUE エンジンで動作します。
 </p>
 
@@ -32,7 +32,7 @@
 
 <p align="center">
   <a href="https://github.com/GeorgeXie2333/usque-app/releases"><img alt="累計ダウンロード数" src="https://img.shields.io/github/downloads/GeorgeXie2333/usque-app/total?color=C2500C"></a>
-  <img alt="対応プラットフォーム：Windows、Linux、Android" src="https://img.shields.io/badge/platforms-Windows%20%7C%20Linux%20%7C%20Android-555555">
+  <img alt="対応プラットフォーム：Windows、Linux、Android、macOS（プレビュー版）" src="https://img.shields.io/badge/platforms-Windows%20%7C%20Linux%20%7C%20Android%20%7C%20macOS%20%28preview%29-555555">
   <a href="LICENSE.md"><img alt="MIT ライセンス" src="https://img.shields.io/badge/license-MIT-C2500C.svg"></a>
 </p>
 
@@ -144,6 +144,7 @@ flowchart LR
 | Windows | Windows 10 2004、ビルド 19041 | x64-v2 または ARM64 の EXE インストーラー |
 | Linux（v0.3.3 以降） | Ubuntu 22.04+、Debian 12+、サポート中の Fedora；systemd | amd64 または arm64 の AppImage、deb、rpm |
 | Android / Android TV | Android 8.0、API 26 | arm64-v8a、x86_64、armeabi-v7a の APK、またはユニバーサル APK |
+| macOS（開発プレビュー版） | macOS 13 以降 | Apple Silicon（arm64）用と Intel（x86_64）用の[開発版 DMG](docs/MACOS_DEVELOPMENT_PACKAGING.md) |
 
 Windows x64 には **x86-64-v2** 対応 CPU が必要で、ARM64 Windows にはネイティブ ARM64 パッケージを使用します。Android の ABI が不明な場合は、3 種類の ABI をすべて含む、サイズの大きいユニバーサル APK を使用できます。各リリースにはアプリ内更新専用の Windows MSI も 2 個含まれます。Windows を手動でインストールする場合は EXE を使用してください。
 
@@ -237,7 +238,7 @@ VPN、SOCKS5、HTTP は既定で有効、システムプロキシは無効です
 
 [Zero Trust 登録](docs/ZERO_TRUST_EXPERIMENTAL.md)は実験的な機能です。組織の ID を使って MASQUE インターネットトンネルを構成しますが、Cloudflare One™ Client の全機能との互換性は提供しません。
 macOS には arm64 と x86_64 向けの個別の[開発用 DMG ビルド](docs/MACOS_DEVELOPMENT_PACKAGING.md)があり、デスクトップ機能とプロキシ機能を検証中です。
-システム VPN と正式版の自動インストールは、署名済みビルドの実機検証が完了するまで無効です。
+プレビュー版ではローカル HTTP / SOCKS5 プロキシを利用できます。システム VPN の検証には専用の [Agent/utun テストビルド](docs/MACOS_TUN_AGENT.md)が必要です。自動インストールは無効です。
 実装済みの機能と未完了の機能については、[macOS 機能対応表](docs/MACOS_WINDOWS_PARITY.md)を参照してください。
 現在の `dev` ソースでは macOS の接続シーン、終了前のクリーンアップ確認、VPN Gate 用の保護された一時 WARP 接続を追加しています。保存済みのチェーン設定は保持され、物理ネットワークからディレクトリを直接取得しません。既存の開発用インストーラーはこれらの変更前のもので、更新版はまだ公開していません。
 macOS では Proton のゲスト登録と内蔵認証ブラウザーを削除しました。通常のアカウントログインは利用できますが、ブラウザー認証が必要なログインは完了できません。

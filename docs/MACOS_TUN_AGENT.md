@@ -1,7 +1,7 @@
 # macOS TUN Agent
 
 The ordinary-user Engine + root LaunchDaemon Agent + Darwin utun implementation
-is integrated on `feat/macos`. It targets macOS 13+, arm64 and x86_64, using
+is integrated on `dev`. It targets macOS 13+, arm64 and x86_64, using
 ad-hoc signatures and manual user trust. It requires administrator authorization
 for installation, replacement and removal, without an Apple Developer
 subscription or disabling SIP. Account credentials remain in the user's Keychain.

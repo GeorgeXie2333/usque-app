@@ -1,9 +1,8 @@
 # Usque implementation progress
 
-This is the source-tree checklist for Windows, Linux and Android / Android TV, not a
-release changelog or a test-run report. A development branch can contain work
-not present in the latest package. macOS source is kept for later work and is
-not built, packaged, or tested for the current release.
+This checklist covers the source for Windows, Linux, Android / Android TV and
+the macOS development preview. For published packages, consult the release
+notes for the installed version.
 
 - A checked implementation item means code or test infrastructure is in the
   tree. It does not certify that every test passed at the reader's commit or
@@ -226,16 +225,22 @@ the official Proton human-verification page. Desktop UI and engine remain unpriv
 - [x] Expose Android start-on-boot, Quick Settings tile request, and a deep link to system Always-on VPN settings.
 - [ ] Sleep, network-switch, and TV lifecycle tests.
 
-### macOS (deferred; not a current release gate)
+### macOS development preview
 
 - [x] Current-user Unix Socket permissions, peer-UID validation, and protobuf engine IPC.
 - [x] Connect the Flutter macOS host to the Unix Socket client and sidecar lifecycle.
-- [ ] Minimal launch daemon/helper and authorization flow.
-- [ ] utun, route, resolver, PF Kill Switch, and recovery journal.
+- [x] Local HTTP and SOCKS5 proxies and menu bar connection controls.
+- [x] Root LaunchDaemon and administrator-authorized installation, repair and removal.
+- [x] Agent-owned utun, routes, DNS, PF protection and recovery journal in the
+  [opt-in TUN test build](MACOS_TUN_AGENT.md).
 - [x] Keychain storage for all identity record types.
 - [ ] LocalAuthentication re-authentication for reveal/copy/export operations.
-- [ ] System proxy snapshot, apply, and crash/uninstall recovery.
-- [ ] macOS 12+ Universal and macOS 10.15–11.7 Intel-compatible PKG packaging.
+- [x] System proxy lease with a root-owned receipt and compare-and-restore cleanup.
+- [x] Separate [development DMGs](MACOS_DEVELOPMENT_PACKAGING.md) for Apple
+  Silicon and Intel targeting macOS 13 and later.
+- [ ] Complete the [network acceptance matrix](MACOS_TUN_AGENT.md#validation-and-release-gate)
+  before enabling production TUN.
+- [ ] Developer ID signing, notarization and official DMG publication.
 
 ### Linux desktop
 

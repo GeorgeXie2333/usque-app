@@ -22,7 +22,7 @@
 </p>
 
 <p align="center">
-  兼容 Cloudflare® WARP® 服务的非官方客户端，支持 Windows、Linux 和 Android / Android TV，<br>
+  兼容 Cloudflare® WARP® 服务的非官方客户端，支持 Windows、Linux、Android / Android TV 和 macOS（开发预览版），<br>
   采用原生 Flutter 界面与 Rust MASQUE 引擎。
 </p>
 
@@ -32,7 +32,7 @@
 
 <p align="center">
   <a href="https://github.com/GeorgeXie2333/usque-app/releases"><img alt="总下载量" src="https://img.shields.io/github/downloads/GeorgeXie2333/usque-app/total?color=C2500C"></a>
-  <img alt="平台：Windows、Linux、Android" src="https://img.shields.io/badge/platforms-Windows%20%7C%20Linux%20%7C%20Android-555555">
+  <img alt="平台：Windows、Linux、Android、macOS（预览版）" src="https://img.shields.io/badge/platforms-Windows%20%7C%20Linux%20%7C%20Android%20%7C%20macOS%20%28preview%29-555555">
   <a href="LICENSE.md"><img alt="MIT 许可证" src="https://img.shields.io/badge/license-MIT-C2500C.svg"></a>
 </p>
 
@@ -144,6 +144,7 @@ flowchart LR
 | Windows | Windows 10 2004，Build 19041 | x64-v2 或 ARM64 安装程序 EXE |
 | Linux（自 v0.3.3 起） | Ubuntu 22.04+、Debian 12+、受支持的 Fedora；systemd | amd64 或 arm64 的 AppImage、deb 或 rpm |
 | Android / Android TV | Android 8.0，API 26 | arm64-v8a、x86_64 或 armeabi-v7a APK，或通用 APK |
+| macOS（开发预览版） | macOS 13 或更高版本 | 分别适用于 Apple Silicon（arm64）和 Intel（x86_64）的[开发版 DMG](docs/MACOS_DEVELOPMENT_PACKAGING.md) |
 
 Windows x64 需要支持 **x86-64-v2** 的 CPU；ARM64 Windows 使用原生 ARM64 安装包。不清楚 Android 设备架构时，可使用体积更大、包含全部三种 ABI 的通用 APK。每个版本另有两个仅供应用内更新使用的 Windows MSI 文件；手动安装 Windows 版请使用 EXE。
 
@@ -238,7 +239,7 @@ VPN、SOCKS5 和 HTTP 默认开启，系统代理默认关闭。它们共用一�
 [Zero Trust 注册](docs/ZERO_TRUST_EXPERIMENTAL.md)仍属实验性功能：可以用组织身份建立 MASQUE 公网隧道，
 但不提供完整的 Cloudflare One™ Client 功能。macOS 提供独立的 arm64 和 x86_64
 [开发版 DMG 构建](docs/MACOS_DEVELOPMENT_PACKAGING.md)，桌面与代理功能仍在验证中。
-系统 VPN 和生产版本自动安装保持关闭，等待签名后的真机验收。
+预览版可使用本地 HTTP 或 SOCKS5 代理。测试系统 VPN 需要专用的 [Agent/utun 测试构建](docs/MACOS_TUN_AGENT.md)。自动安装保持关闭。
 已实现与待完成的功能请参阅 [macOS 功能对照表](docs/MACOS_WINDOWS_PARITY.md)。
 当前也不提供 iOS 版本、应用商店分发或公开命令行工具。
 
@@ -257,7 +258,7 @@ macOS 13+ **历史 v0.3.3 非官方 dev 预发布包**：
 
 [macOS 测试清单](docs/MACOS_QA_CHECKLIST.md)分别记录隔离测试与真机验收。以下项目仍未完成：
 
-- **系统 VPN／虚拟网卡：** 开发包保持关闭，签名后的路由、DNS 和断网保护尚未通过真机验收。仅代理模式不提供系统级断网保护。
+- **系统 VPN／虚拟网卡：** 常规 DMG 默认关闭。Agent 的路由、DNS 和断网保护仍待真机验收。代理模式只处理应用发往代理的流量。
 - **系统代理与链式出口：** 隔离的配置、恢复和传输测试不能证明实网连接成功；真实授权及各类外部出口仍待验收。当前 macOS 源码复用 WARP 或自动建立临时 WARP 连接来刷新 VPN Gate，保留已保存的链式设置；不会回退到物理网络直接下载清单。
 - **Zero Trust：** 回调校验及取消后重试使用模拟数据；真实组织登录与回调仍未验证。
 - **Proton 账号：** macOS 已移除游客登录和内置验证浏览器；保留普通账号登录、身份验证器代码及已保存账号管理。若登录要求浏览器人机验证，此 macOS 版本无法完成；真实登录与流量仍待实机验证。

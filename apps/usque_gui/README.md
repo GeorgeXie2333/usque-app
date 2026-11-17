@@ -1,7 +1,10 @@
 # Usque GUI
 
-Flutter UI for Windows, Linux, Android and Android TV. macOS source is retained for
-future work but is not built, tested or released for the current product.
+Flutter UI for Windows, Linux, Android and Android TV, with a desktop preview
+for macOS 13 and later. The Mac preview runs the user Engine for local HTTP and
+SOCKS5 proxies and provides menu bar controls. Apple Silicon and Intel each have
+a [development DMG](../../docs/MACOS_DEVELOPMENT_PACKAGING.md). Ordinary builds
+keep system-wide TUN disabled.
 The UI uses native Flutter widgets. An isolated native WebView is reserved for
 the official Proton human-verification page on Android, Windows and Linux when the user completes its puzzle;
 account passwords and all other application UI stay in native widgets.
@@ -229,8 +232,7 @@ icons both have the same full brand-colour background. Android 13+ themed icons
 use the system's palette and background. The monochrome layer and notification
 icon contain the U/star lines on transparency, rather than the solid circular
 background. Notifications retain the `ic_stat_usque` resource name.
-The retained macOS icons are refreshed
-by the generator, without establishing macOS product support.
+The generator also refreshes the app icons used by the macOS runner.
 
 品牌母版是唯一可编辑图形。应用图标固定使用浅色配色；页面 Logo 随主题切换，
 内部线条和透明边缘保持一致。Android 彩色启动图标使用不透明的品牌橙色满底，

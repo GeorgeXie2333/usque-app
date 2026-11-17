@@ -35,6 +35,11 @@ before distribution. Developer verification does not authorize key rotation.
 
 ## What is signed
 
+The macOS 13+ [development DMGs](MACOS_DEVELOPMENT_PACKAGING.md) use ad-hoc
+signatures. The current tag workflow publishes Windows, Linux and Android
+packages. A future official Mac release needs a Developer ID Application
+signature and Apple notarization for each architecture.
+
 | Artifact | Signer |
 | --- | --- |
 | Official Windows installer bundle, its detached Burn engine and embedded native setup EXE | project Authenticode identity |
@@ -90,6 +95,42 @@ not that evidence. The checked-in workflow targets `v0.3.4`, gated by the exact 
 and both approvals;
 see [Release process](RELEASE.md). Documentation preparation
 does not authorize key access, signing or publication.
+
+## Preparing the first macOS release
+
+For DMGs distributed outside the Mac App Store, the Apple Developer Program
+Account Holder creates a [Developer ID Application certificate](https://developer.apple.com/help/account/certificates/create-developer-id-certificates/).
+Export that identity with its private key as a password-protected PKCS#12 file.
+For notarization, create a dedicated [App Store Connect team API key](https://developer.apple.com/help/app-store-connect/get-started/app-store-connect-api/)
+and retain its private `.p8`, Key ID and Issuer ID. Use the Team ID from the
+Apple Developer account to verify signatures and the Issuer ID from App Store
+Connect to authenticate notarization requests.
+
+In **Settings → Environments → release-signing**, restrict deployments to the
+intended release tags and retain maintainer review. The following names are
+proposed inputs for a future Mac job. The current workflow does not read them.
+
+| GitHub environment setting | Value |
+| --- | --- |
+| Secret `MACOS_SIGNING_P12_BASE64` | Base64 of the exported certificate and private key |
+| Secret `MACOS_SIGNING_P12_PASSWORD` | Password used for the export |
+| Secret `MACOS_NOTARY_KEY_P8_BASE64` | Base64 of the team API private key used for notarization |
+| Variables `MACOS_NOTARY_KEY_ID`, `MACOS_NOTARY_ISSUER_ID` | App Store Connect identifiers for that key |
+| Variables `MACOS_TEAM_ID`, `MACOS_SIGNER_SHA256` | Apple Developer Team ID and expected SHA-256 of the leaf certificate in DER form |
+
+The tag workflow needs a protected Mac signing job that imports the identity
+into a [temporary runner keychain](https://docs.github.com/en/actions/how-tos/deploy/deploy-to-third-party-platforms/sign-xcode-applications).
+For each architecture, verify the identity, sign the nested code and app with
+hardened runtime and secure timestamps, then build and sign the DMG.
+Submit the DMG with `notarytool`, require an accepted result, staple and
+validate the ticket, and verify the app and DMG with Gatekeeper.
+Generate hashes, inventories and attestations from the final stapled artifacts.
+See [Apple's notarization workflow](https://developer.apple.com/documentation/security/customizing-the-notarization-workflow).
+
+Before the first Mac tag, extend the [release manifest contract](../tool/release_contract.py)
+and the [signing review batch](../tool/release_signing_review.py) to cover both
+DMGs. Publication still requires the separate `release-publish` approval.
+Enabling system-wide TUN has its own [network acceptance criteria](MACOS_TUN_AGENT.md#validation-and-release-gate).
 
 ## What users should check
 

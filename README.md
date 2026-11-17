@@ -22,7 +22,7 @@
 </p>
 
 <p align="center">
-  An unofficial client compatible with Cloudflare® WARP® services for Windows, Linux and Android / Android TV,<br>
+  An unofficial client compatible with Cloudflare® WARP® services for Windows, Linux, Android / Android TV and macOS (development preview),<br>
   with a native Flutter interface and a Rust MASQUE engine.
 </p>
 
@@ -32,7 +32,7 @@
 
 <p align="center">
   <a href="https://github.com/GeorgeXie2333/usque-app/releases"><img alt="Total downloads" src="https://img.shields.io/github/downloads/GeorgeXie2333/usque-app/total?color=C2500C"></a>
-  <img alt="Platforms: Windows, Linux, Android" src="https://img.shields.io/badge/platforms-Windows%20%7C%20Linux%20%7C%20Android-555555">
+  <img alt="Platforms: Windows, Linux, Android, macOS (preview)" src="https://img.shields.io/badge/platforms-Windows%20%7C%20Linux%20%7C%20Android%20%7C%20macOS%20%28preview%29-555555">
   <a href="LICENSE.md"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-C2500C.svg"></a>
 </p>
 
@@ -144,6 +144,7 @@ Version **v0.3.4** adds local connection scenes and improves setup, routing and 
 | Windows | Windows 10 2004, build 19041 | x64-v2 or ARM64 installer EXE |
 | Linux (since v0.3.3) | Ubuntu 22.04+, Debian 12+, supported Fedora; systemd | amd64 or arm64 AppImage, deb or rpm |
 | Android / Android TV | Android 8.0, API 26 | arm64-v8a, x86_64 or armeabi-v7a APK, or the universal APK |
+| macOS (development preview) | macOS 13 or later | [Development DMGs](docs/MACOS_DEVELOPMENT_PACKAGING.md) for Apple Silicon (arm64) and Intel (x86_64) |
 
 Windows x64 requires a CPU supporting **x86-64-v2**; ARM64 Windows uses the native ARM64 package. When the Android ABI is unknown, use the larger universal APK, which contains all three ABIs. Each release also includes two Windows MSI files reserved for in-app updates; install Windows manually with the EXE.
 
@@ -239,8 +240,9 @@ VPN, SOCKS5 and HTTP are enabled by default; system proxy is off. They share one
 an organization identity for the MASQUE Internet tunnel and does not provide full
 Cloudflare One™ Client compatibility. macOS has separate arm64 and x86_64
 [development DMG builds](docs/MACOS_DEVELOPMENT_PACKAGING.md), with desktop and
-proxy features under validation. The system VPN and production automatic
-installation remain disabled pending signed device acceptance. See the
+proxy features under validation. Use local HTTP or SOCKS5 proxies in the
+preview. System VPN requires the opt-in [Agent/utun test build](docs/MACOS_TUN_AGENT.md).
+Automatic installation is disabled. See the
 [macOS parity matrix](docs/MACOS_WINDOWS_PARITY.md) for implemented and pending
 features. iOS, store distribution and a public CLI are outside this release's scope.
 
@@ -266,9 +268,9 @@ and do not include the v0.3.4 UI or features; no replacement installer has been 
 The [macOS test checklist](docs/MACOS_QA_CHECKLIST.md) separates isolated tests
 from actual device acceptance. The following items remain open:
 
-- **System VPN/TUN:** disabled in development packages. Signed provider routing,
-  DNS and Kill Switch tests have not passed device acceptance. Proxy-only mode
-  does not provide system-wide Kill Switch protection.
+- **System VPN/TUN:** ordinary DMGs keep it disabled. The Agent still requires
+  device acceptance for routing, DNS and Kill Switch protection. Proxy-only
+  mode protects traffic that applications send to the proxy.
 - **System proxy and chain exits:** isolated configuration, recovery and transport
   tests do not establish a successful live connection. Real authorization and
   each external exit still need device tests. Current macOS source reuses WARP
