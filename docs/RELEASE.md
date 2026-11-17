@@ -55,6 +55,16 @@ sixteen SPDX SBOMs, four Linux signature metadata files, the candidate
 manifest and SHA256SUMS. Protected laboratory checks remain optional and
 `not_run` when absent.
 
+The candidate temporarily retains `chrono` for UTC timestamps and RFC 3339
+parsing. [RUSTSEC-2026-0543](https://github.com/RustSec/advisory-db/blob/main/crates/chrono/RUSTSEC-2026-0543.md)
+is an unmaintained-status advisory; it identifies no vulnerable function and
+provides no patched version. Its narrowly scoped OSV exception expires on
+2026-11-30. Before expiry, migrate to a maintained alternative and verify
+the existing serialized timestamps, parsers and public interfaces. This does
+not except other advisories or change the high/critical/unknown gate. CI checks
+the current advisory text and metadata before applying the exception and fails
+closed if its identity, scope, aliases or severity change.
+
 ## Preparing v0.3.4
 
 This historical candidate used twelve Cargo packages at `0.3.4`, Flutter `0.3.4+30`, and

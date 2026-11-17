@@ -473,6 +473,9 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Revalidate the chrono maintenance-only exception
+        run: python tool/check_chrono_maintenance.py
+
       - name: Install and verify OSV-Scanner 2.3.8
         env:
           OSV_SHA256: bc98e15319ed0d515e3f9235287ba53cdc5535d576d24fd573978ecfe9ab92dc
@@ -524,6 +527,7 @@ jobs:
 
       - name: Enforce severity and exception policy
         run: |
+          python tool/check_chrono_maintenance.py
           python tool/check_osv_results.py \
             --shipping "$RUNNER_TEMP/osv-shipping.json" \
             --oracle "$RUNNER_TEMP/osv-oracle.json" \

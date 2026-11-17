@@ -6,6 +6,8 @@ import unittest
 from datetime import date
 from pathlib import Path
 
+import tomllib
+
 from check_osv_results import classify_vulnerability, summarize, validate_exceptions
 
 
@@ -44,6 +46,17 @@ class ExceptionTests(unittest.TestCase):
             errors = validate_exceptions(config, today=date(2026, 1, 1))
             self.assertEqual(1, len(errors))
             self.assertIn("expired", errors[0])
+
+    def test_reviewed_exception_is_specific_and_expires(self) -> None:
+        config = Path(__file__).resolve().parent.parent / "osv-scanner.toml"
+        entries = tomllib.loads(config.read_text(encoding="utf-8"))["IgnoredVulns"]
+        reviewed = [entry for entry in entries if entry.get("id") == "RUSTSEC-2026-0543"]
+        self.assertEqual(1, len(reviewed))
+        self.assertEqual(date(2026, 11, 30), reviewed[0]["ignoreUntil"])
+        self.assertEqual([], validate_exceptions(config, today=date(2026, 11, 17)))
+        errors = validate_exceptions(config, today=date(2026, 12, 1))
+        self.assertEqual(1, len(errors))
+        self.assertIn("2026-11-30", errors[0])
 
 
 class SummaryTests(unittest.TestCase):

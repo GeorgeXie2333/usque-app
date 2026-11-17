@@ -4,3 +4,13 @@
 # id = "GHSA-xxxx-xxxx-xxxx"
 # reason = "Why the affected code is not reachable and the planned remediation."
 # ignoreUntil = 2026-12-31
+
+# RustSec identifies no vulnerable function for this advisory: it records only
+# that chrono is unmaintained. Core and Engine still use chrono for timestamps
+# and RFC 3339 parsing; migrate to a maintained alternative with wire-format
+# compatibility tests before this short-lived exception expires. Other
+# advisories for chrono and all other packages remain subject to the policy.
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0543"
+reason = "Maintenance-status advisory; no vulnerable function is identified. Replace chrono with a maintained alternative and verify RFC 3339 compatibility."
+ignoreUntil = 2026-11-30
