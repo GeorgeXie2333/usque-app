@@ -322,6 +322,13 @@ def _thin_and_sign(app: Path, architecture: str) -> None:
         run(["xcrun", "strip", "-S", "-x", path])
         if sorted(run(["xcrun", "nm", "-gjU", path]).splitlines()) != exports:
             raise ValueError(f"Symbol stripping changed Mach-O exports: {path.name}")
+    sign_app(app, "-", None)
+
+
+def sign_app(app: Path, signer: str, keychain: Path | None) -> None:
+    arguments = ["codesign", "--force", "--sign", signer, "--timestamp=none"]
+    if keychain is not None:
+        arguments.extend(["--keychain", str(keychain)])
     bundles = [
         path
         for path in app.rglob("*")
@@ -343,20 +350,20 @@ def _thin_and_sign(app: Path, architecture: str) -> None:
         principal = bundle / executable if framework else bundle / "Contents/MacOS" / executable
         if principal.exists():
             principals.add(principal.resolve(strict=True))
-    for path in machos:
+    for path in macho_files(app):
         if path.resolve(strict=True) in principals:
             continue
-        arguments = ["codesign", "--force", "--sign", "-", "--timestamp=none"]
+        options = []
         if path.name == "usque-macos-control":
-            arguments += ["--identifier", IDENTIFIER + ".macos-control"]
+            options += ["--identifier", IDENTIFIER + ".macos-control"]
         if path.name == "usque-maintenance":
-            arguments += ["--identifier", IDENTIFIER + ".macos-maintenance"]
+            options += ["--identifier", IDENTIFIER + ".macos-maintenance"]
         if path.name in {"usque-engine", "usque-agent", "usque-agent-maintenance"}:
-            arguments += ["--options", "runtime", "--identifier", IDENTIFIER + "." + path.name]
-        run([*arguments, path])
+            options += ["--options", "runtime", "--identifier", IDENTIFIER + "." + path.name]
+        run([*arguments, *options, path])
     for bundle in sorted(bundles, key=lambda path: len(path.parts), reverse=True):
-        run(["codesign", "--force", "--sign", "-", "--timestamp=none", bundle])
-    run(["codesign", "--force", "--sign", "-", "--timestamp=none", app])
+        run([*arguments, bundle])
+    run([*arguments, app])
     run(["codesign", "--verify", "--strict", "--deep", app])
 
 

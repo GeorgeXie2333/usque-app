@@ -19,6 +19,8 @@ SIGNING_JOBS = (
     "Android and Android TV",
     "Linux signed packages / Linux amd64 AppImage deb rpm",
     "Linux signed packages / Linux arm64 AppImage deb rpm",
+    "macOS arm64",
+    "macOS x86_64",
 )
 TAG = re.compile(r"v(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-beta\.[1-9][0-9]*)?")
 
@@ -286,7 +288,7 @@ def review(candidate: Candidate, *, approve: bool = False, wait_seconds: int = 0
             time.sleep(min(15, max(0, deadline - time.monotonic())))
     if not approve:
         return ready
-    # Re-read identities and all five waiting jobs immediately before one POST.
+    # Re-read identities and every waiting job immediately before one POST.
     # No automatic retry after a changed snapshot or any approval-side error.
     if snapshot(candidate) != ready:
         raise ContractError("review batch changed before approval; inspect the run")
@@ -295,7 +297,7 @@ def review(candidate: Candidate, *, approve: bool = False, wait_seconds: int = 0
         {
             "environment_ids": [ready["environment_id"]],
             "state": "approved",
-            "comment": f"Maintainer-authorized {candidate.tag} signing batch: all five jobs ready for {candidate.commit}.",
+            "comment": f"Maintainer-authorized {candidate.tag} signing batch: all {len(SIGNING_JOBS)} jobs ready for {candidate.commit}.",
         },
     )
     if (

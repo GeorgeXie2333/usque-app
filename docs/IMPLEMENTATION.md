@@ -240,7 +240,7 @@ the official Proton human-verification page. Desktop UI and engine remain unpriv
   Silicon and Intel targeting macOS 13 and later.
 - [ ] Complete the [network acceptance matrix](MACOS_TUN_AGENT.md#validation-and-release-gate)
   before enabling production TUN.
-- [ ] Developer ID signing, notarization and official DMG publication.
+- [x] Protected tag jobs for both native DMGs, with [project self-signing](CODE_SIGNING.md#configure-and-verify-macos-release-signing), GitHub provenance and separate publication approval.
 
 ### Linux desktop
 

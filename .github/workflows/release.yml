@@ -116,7 +116,7 @@ jobs:
         shell: bash
         run: |
           {
-            echo '### Signing review: wait for all five platform jobs'
+            echo '### Signing review: wait for all seven platform jobs'
             echo 'Keep every platform protected by release-signing. Do not approve jobs as they arrive.'
             echo 'From the reviewed candidate checkout, wait for the full batch with this read-only command:'
             echo '```sh'
@@ -836,9 +836,55 @@ jobs:
             rm -f -- "$USQUE_ANDROID_KEYSTORE"
           fi
 
+  macos:
+    name: macOS ${{ matrix.arch }}
+    needs: release-gate
+    environment: release-signing
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: macos-15
+          - arch: x86_64
+            runner: macos-15-intel
+    env:
+      ARCH: ${{ matrix.arch }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12.10'
+      - name: Build the tagged macOS proxy preview
+        run: bash tool/build_macos_release_app.sh "$ARCH"
+      - name: Sign the app and DMG and verify every embedded identity
+        env:
+          MACOS_SIGNING_P12_BASE64: ${{ secrets.MACOS_SIGNING_P12_BASE64 }}
+          MACOS_SIGNING_P12_PASSWORD: ${{ secrets.MACOS_SIGNING_P12_PASSWORD }}
+        run: bash tool/sign_macos_release.sh "$ARCH" "$RELEASE_TAG" release
+      - name: Attest the verified native DMG
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: ${{ runner.temp }}/mac-dmg/usque-${{ env.RELEASE_TAG }}-macos-${{ matrix.arch }}.dmg
+      - name: Stage only the signed image
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: usque-release-macos-${{ matrix.arch }}
+          path: ${{ runner.temp }}/mac-dmg/usque-${{ env.RELEASE_TAG }}-macos-${{ matrix.arch }}.dmg
+          if-no-files-found: error
+
   stage-candidate:
     name: Stage signed packages and attest SBOMs
-    needs: [release-gate, windows, android, linux]
+    needs: [release-gate, windows, android, linux, macos]
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions:
@@ -862,6 +908,18 @@ jobs:
           pattern: usque-release-*
           path: ${{ runner.temp }}/candidate
           merge-multiple: true
+
+      - name: Verify both DMGs came from the protected tag workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for arch in arm64 x86_64; do
+            gh attestation verify "$RUNNER_TEMP/candidate/usque-$RELEASE_TAG-macos-$arch.dmg" \
+              --repo "$GITHUB_REPOSITORY" --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml" \
+              --source-ref "refs/tags/$RELEASE_TAG" --source-digest "$GITHUB_SHA" \
+              --signer-digest "$GITHUB_SHA" --predicate-type https://slsa.dev/provenance/v1 --deny-self-hosted-runners
+          done
 
       - name: Download x64 engine provenance
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -927,25 +985,36 @@ jobs:
             count=$((count + 1))
           done < <(
             find "$candidate" -maxdepth 1 -type f \
-              \( -name '*.exe' -o -name '*.msi' -o -name '*.apk' -o -name '*.AppImage' -o -name '*.deb' -o -name '*.rpm' \) \
+            \( -name '*.exe' -o -name '*.msi' -o -name '*.apk' -o -name '*.AppImage' -o -name '*.deb' -o -name '*.rpm' -o -name '*.dmg' \) \
               -print0 |
               sort -z
           )
-          test "$count" -eq 14
+          test "$count" -eq 16
 
       - name: Create immutable release manifest
         run: |
           python tool/release_contract.py create-manifest \
-            --include-linux \
+            --include-linux --include-macos \
             --directory "$RUNNER_TEMP/candidate" \
             --tag "$RELEASE_TAG" \
             --commit "$GITHUB_SHA" \
             --windows-signer-sha256 "$WINDOWS_SIGNER_SHA256" \
             --android-signer-sha256 "$ANDROID_SIGNER_SHA256" \
             --output "$RUNNER_TEMP/candidate/release-manifest.json"
-          python tool/release_contract.py verify-artifacts \
+          python tool/release_contract.py verify-artifacts --require-macos \
             --directory "$RUNNER_TEMP/candidate" \
             --manifest "$RUNNER_TEMP/candidate/release-manifest.json"
+
+      - name: Attest macOS arm64 SPDX SBOM
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: ${{ runner.temp }}/candidate/usque-${{ env.RELEASE_TAG }}-macos-arm64.dmg
+          sbom-path: ${{ runner.temp }}/candidate/usque-${{ env.RELEASE_TAG }}-macos-arm64.dmg.spdx.json
+      - name: Attest macOS x86_64 SPDX SBOM
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: ${{ runner.temp }}/candidate/usque-${{ env.RELEASE_TAG }}-macos-x86_64.dmg
+          sbom-path: ${{ runner.temp }}/candidate/usque-${{ env.RELEASE_TAG }}-macos-x86_64.dmg.spdx.json
 
       - name: Attest Linux candidate provenance
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
@@ -1399,7 +1468,7 @@ jobs:
       - name: Reverify exact artifacts before publication
         run: |
           set -euo pipefail
-          python tool/release_contract.py verify-artifacts \
+          python tool/release_contract.py verify-artifacts --require-macos \
             --directory "$RUNNER_TEMP/candidate" \
             --manifest "$RUNNER_TEMP/candidate/release-manifest.json"
           publish="$RUNNER_TEMP/publish"
@@ -1408,21 +1477,21 @@ jobs:
             cp -- "$artifact" "$publish/"
           done < <(
             find "$RUNNER_TEMP/candidate" -maxdepth 1 -type f \
-              \( -name '*.exe' -o -name '*.msi' -o -name '*.apk' -o -name '*.AppImage' -o -name '*.deb' -o -name '*.rpm' \) \
+              \( -name '*.exe' -o -name '*.msi' -o -name '*.apk' -o -name '*.AppImage' -o -name '*.deb' -o -name '*.rpm' -o -name '*.dmg' \) \
               -print0 |
               sort -z
           )
-          test "$(find "$publish" -maxdepth 1 -type f | wc -l)" -eq 14
-          test "$(find "$RUNNER_TEMP/candidate" -maxdepth 1 -type f -name '*.spdx.json' | wc -l)" -eq 14
+          test "$(find "$publish" -maxdepth 1 -type f | wc -l)" -eq 16
+          test "$(find "$RUNNER_TEMP/candidate" -maxdepth 1 -type f -name '*.spdx.json' | wc -l)" -eq 16
           cp "$RUNNER_TEMP/candidate/release-manifest.json" "$publish/"
           cp "$RUNNER_TEMP"/candidate/*.spdx.json "$publish/"
           cp "$RUNNER_TEMP"/candidate/*.manifest.json "$publish/"
           cp "$RUNNER_TEMP"/candidate/*.manifest.json.sig "$publish/"
           (
             cd "$publish"
-            sha256sum -- *.exe *.msi *.apk *.AppImage *.deb *.rpm *.manifest.json *.manifest.json.sig > SHA256SUMS
+            sha256sum -- *.exe *.msi *.apk *.AppImage *.deb *.rpm *.dmg *.manifest.json *.manifest.json.sig > SHA256SUMS
           )
-          test "$(find "$publish" -maxdepth 1 -type f | wc -l)" -eq 34
+          test "$(find "$publish" -maxdepth 1 -type f | wc -l)" -eq 38
 
       - name: Render English-first bilingual release notes
         env:

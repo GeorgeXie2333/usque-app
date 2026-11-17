@@ -7,6 +7,8 @@ executable contracts are [release.yml](../.github/workflows/release.yml) and
 
 The checked-in application metadata and workflow target `v0.3.4` /
 `0.3.4+30`. Consult GitHub Releases for the currently published Latest.
+The dual-architecture macOS workflow on `dev` is for a subsequent release with
+a fresh version and tag. The published v0.3.4 has no macOS DMGs.
 [v0.3.3](https://github.com/GeorgeXie2333/usque-app/releases/tag/v0.3.3) was
 published as the stable Latest on 2026-10-26 (UTC) from
 `1d44597ddb6dee7fca6700c0442e0d3856eea31b` with 34 public assets.
@@ -240,8 +242,8 @@ dependencies of publication.
 
 ### Batch the signing review
 
-For future tags containing the batching helper, wait until **all five** signing
-jobs (Windows x64-v2/ARM64, Android, Linux amd64/arm64) are awaiting review, then
+For the next tag, wait until **all seven** signing
+jobs (Windows x64-v2/ARM64, Android, Linux amd64/arm64 and macOS arm64/x86_64) are awaiting review, then
 approve `release-signing` together. Do not approve the first arriving job and
 then repeatedly approve later platforms. The release-gate summary supplies a
 candidate-bound command; it does not approve anything:
@@ -252,7 +254,7 @@ python tool/release_signing_review.py --repo OWNER/REPO --run-id RUN_ID --attemp
 
 This defaults to read-only observation. It requires the exact tag-push Release
 workflow, candidate and run attempt, a successful release-gate, unchanged
-annotated tag/source branch, all five job review requests and permission to
+annotated tag/source branch, all seven job review requests and permission to
 review `release-signing`. Missing/queued jobs wait within the time bound; failure,
 an already-started subset or changed identity stops without approval. Exit 2
 means the full batch is not ready; never treat it as approval or success.
@@ -260,7 +262,7 @@ means the full batch is not ready; never treat it as approval or success.
 Only with explicit maintainer authorization, add `--approve --tag-object
 RECORDED_TAG_OBJECT_SHA` to the command. It fetches the full snapshot again,
 then sends **one** environment-review request containing only `release-signing`.
-It expects five distinct approved deployments for the same candidate. A changed
+It expects seven distinct approved deployments for the same candidate. A changed
 snapshot, uncertain response, timeout or partial approval must be inspected in
 GitHub; do not automatically retry or approve the remaining jobs one by one.
 Reruns must use the explicitly reviewed attempt number, not earlier evidence.
@@ -288,6 +290,8 @@ The `release-signing` environment holds these secrets:
 | --- | --- |
 | `WINDOWS_SIGNING_PFX_BASE64` | Base64 of the stable self-signed Authenticode PFX |
 | `WINDOWS_SIGNING_PFX_PASSWORD` | PFX password |
+| `MACOS_SIGNING_P12_BASE64` | Base64 of the encrypted project self-signed identity |
+| `MACOS_SIGNING_P12_PASSWORD` | PKCS#12 password |
 | `ANDROID_RELEASE_KEYSTORE_BASE64` | Base64 of the fixed Android release keystore |
 | `ANDROID_RELEASE_STORE_PASSWORD` | Keystore password |
 | `ANDROID_RELEASE_KEY_ALIAS` | Release key alias |
@@ -324,12 +328,12 @@ bypasses the fingerprint check.
    extraction, 64-bit ELF LOAD segments must support 16 KiB alignment, and ZIP
    alignment must pass. Wrong ABIs, duplicate entries, shipped symbols and native
    debug information are rejected before candidate upload. No APK is installed.
-3. A staging job downloads those artifacts, rejects missing or extra EXE/MSI/APK/AppImage/deb/rpm files, writes an internal release manifest, generates SPDX SBOMs, and records SBOM attestations.
-4. The publish job rechecks every primary package against the immutable manifest, calculates final package checksums, and creates the GitHub release with twelve user-facing installers, two update-only MSIs, the manifest, checksums, per-package SBOMs and four Linux signature metadata files.
+3. The two native Mac jobs sign and verify the preview app and DMG with the pinned project certificate. Staging checks each DMG's GitHub provenance against the exact tag, workflow and commit, requires all sixteen packages and generates their SPDX SBOM attestations. See [macOS verification](CODE_SIGNING.md#configure-and-verify-macos-release-signing).
+4. The publish job rechecks the staged manifest, calculates final checksums and publishes fourteen user-facing installers, two update-only MSIs, the manifest, checksums, sixteen SPDX SBOMs and four Linux signature metadata files.
    Separately retain the three matching Flutter symbol artifacts for the
    supported lifetime of this release, following [Flutter release symbols](FLUTTER_SYMBOLS.md).
    Verify their source SHA, version, AOT/build-ID and symbol hashes against the
-   actual packages. Symbols stay outside the 34 public Release assets and must
+   actual packages. Symbols stay outside the 38 public Release assets and must
    not be deleted with temporary package-verification downloads.
 5. Only in a private repository, and when repository variable `RUN_PROTECTED_RELEASE_VALIDATION` is exactly `true`, five protected self-hosted runner classes separately exercise the staged candidate: separate Windows and Linux snapshot VMs, a dedicated Android device, an independent network observer, and a controlled performance lab. The public repository skips these jobs even if the variable is enabled; its Actions artifacts cannot provide a restricted evidence store.
 6. Protected validation is supplemental and does not gate publication. In the private execution context, the aggregator emits `reliability-report.json` and `device-matrix.md` only when every required report and evidence file passes its exact-candidate and isolation checks. These artifacts inherit the private repository's read permissions. Skipped or unavailable validation is `not_run`, not a pass. Missing infrastructure, `failed`, and `not_run` never become release approval.
@@ -405,10 +409,12 @@ next reviewed version (official only after approved publication):
 - `usque-vX.Y.Z-linux-arm64.AppImage`
 - `usque-vX.Y.Z-linux-arm64.deb`
 - `usque-vX.Y.Z-linux-arm64.rpm`
+- `usque-vX.Y.Z-macos-arm64.dmg`
+- `usque-vX.Y.Z-macos-x86_64.dmg`
 
-The two EXEs, four APKs and six Linux files are user-facing packages; the two MSIs are
+The two EXEs, four APKs, six Linux files and two Mac DMGs are user-facing packages; the two MSIs are
 update payloads consumed by the signed Windows updater. In addition to these
-fourteen primary artifacts, the public release includes `release-manifest.json`,
+sixteen primary artifacts, the public release includes `release-manifest.json`,
 `SHA256SUMS`, each artifact's SPDX SBOM, and two Linux manifests with detached
 Ed25519 signatures. Common release-manifest schema 1 is preserved for existing
 Windows/Android updaters; Linux entries and the public key are appended. A public

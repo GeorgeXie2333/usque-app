@@ -6,11 +6,12 @@ This policy says which Usque packages are signed, who may sign them, and how to 
 
 Only packages attached to a GitHub Release for this repository, with matching checksums and signer fingerprints, are official. Pull Request artifacts, Actions development outputs, fork builds, and local validation packages are not, even if they are signed.
 
-Pre-1.0 official packages use three fixed, project-controlled signing identities:
+The release workflow uses a dedicated project-controlled identity for each platform:
 
 - Windows Authenticode for the installer bundle, its detached Burn engine, its native setup EXE, the update MSI, and every EXE/DLL in the Windows application payload inside that MSI except the official Wintun DLL
 - an Android release certificate for every official APK
 - an Ed25519 key for Linux package manifests and AppImage service payload manifests
+- a self-signed code-signing certificate for the macOS preview app, its nested code and each native DMG
 
 Those identities are not a public CA and are not in the Windows Root or Trusted Publisher stores. Windows will show an unknown-publisher warning. That is expected. The installer does not install the certificate into the machine trust stores.
 
@@ -35,10 +36,9 @@ before distribution. Developer verification does not authorize key rotation.
 
 ## What is signed
 
-The macOS 13+ [development DMGs](MACOS_DEVELOPMENT_PACKAGING.md) use ad-hoc
-signatures. The current tag workflow publishes Windows, Linux and Android
-packages. A future official Mac release needs a Developer ID Application
-signature and Apple notarization for each architecture.
+The macOS 13+ [local development DMGs](MACOS_DEVELOPMENT_PACKAGING.md) use ad-hoc
+signatures. For a tagged build the signer seals the app, its nested code and
+the final DMG with the project certificate.
 
 | Artifact | Signer |
 | --- | --- |
@@ -46,6 +46,7 @@ signature and Apple notarization for each architecture.
 | Official Windows MSI | project Authenticode identity |
 | Every EXE/DLL in the Windows application payload inside that MSI, including Usque binaries and the Flutter engine and plugin DLLs from the Flutter release build, except the official Wintun DLL | same identity |
 | Official per-ABI and universal APKs | project Android release certificate |
+| macOS arm64 and x86_64 DMGs and bundled code | project self-signed certificate, pinned by [DER SHA-256](../packaging/macos/release-certificate.sha256) |
 | Linux amd64/arm64 AppImage, deb and rpm; AppImage service payload | Ed25519 manifests verified against the checked-in [public key](../packaging/linux/release-public-key.hex) |
 | Official Wintun DLL (`amd64` / `arm64`) | original vendor signature; Usque redistributes those files and does not re-sign them |
 | Local validation MSI/APK | a throwaway identity created on the build machine; never official |
@@ -70,7 +71,7 @@ Public fingerprints are repository or environment variables (`WINDOWS_SIGNER_SHA
 
 Only the release maintainer may approve `release-signing` and `release-publish`. A local bundle, MSI, or APK cannot replace a failed or missing GitHub Actions build.
 
-For future releases, collect all five platform signing review requests before
+For future releases, collect all seven platform signing review requests before
 approving `release-signing` as one batch. Keep each platform bound to the
 protected environment; batching does not transfer approval or secrets to an
 unprotected job. The checked-in batching helper is read-only unless the
@@ -96,41 +97,43 @@ and both approvals;
 see [Release process](RELEASE.md). Documentation preparation
 does not authorize key access, signing or publication.
 
-## Preparing the first macOS release
+## Configure and verify macOS release signing
 
-For DMGs distributed outside the Mac App Store, the Apple Developer Program
-Account Holder creates a [Developer ID Application certificate](https://developer.apple.com/help/account/certificates/create-developer-id-certificates/).
-Export that identity with its private key as a password-protected PKCS#12 file.
-For notarization, create a dedicated [App Store Connect team API key](https://developer.apple.com/help/app-store-connect/get-started/app-store-connect-api/)
-and retain its private `.p8`, Key ID and Issuer ID. Use the Team ID from the
-Apple Developer account to verify signatures and the Issuer ID from App Store
-Connect to authenticate notarization requests.
+In **Settings → Environments → release-signing**, retain the maintainer review
+and restrict deployments to the intended release tags. Set the environment
+secrets `MACOS_SIGNING_P12_BASE64` (Base64 of the password-encrypted PKCS#12)
+and `MACOS_SIGNING_P12_PASSWORD` (its password). The checked-in
+[public fingerprint](../packaging/macos/release-certificate.sha256) pins the DER
+leaf on both signing runners. PR and branch CI uses throwaway identities.
 
-In **Settings → Environments → release-signing**, restrict deployments to the
-intended release tags and retain maintainer review. The following names are
-proposed inputs for a future Mac job. The current workflow does not read them.
+Both native Mac jobs must pass before staging. Each checks the ordinary proxy
+build, signs and verifies the app, its Mach-O files and the final disk image,
+then attests the DMG digest through GitHub Actions. Staging verifies that
+provenance against the exact tag and commit. Publication has an independent
+`release-publish` review.
 
-| GitHub environment setting | Value |
-| --- | --- |
-| Secret `MACOS_SIGNING_P12_BASE64` | Base64 of the exported certificate and private key |
-| Secret `MACOS_SIGNING_P12_PASSWORD` | Password used for the export |
-| Secret `MACOS_NOTARY_KEY_P8_BASE64` | Base64 of the team API private key used for notarization |
-| Variables `MACOS_NOTARY_KEY_ID`, `MACOS_NOTARY_ISSUER_ID` | App Store Connect identifiers for that key |
-| Variables `MACOS_TEAM_ID`, `MACOS_SIGNER_SHA256` | Apple Developer Team ID and expected SHA-256 of the leaf certificate in DER form |
+The release uses project self-signing. Apple issues notarization tickets for
+Developer ID distribution. These DMGs have no Apple notarization or Gatekeeper
+publisher trust. The release manifest records `apple_notarized: false`. See
+[Apple's notarization requirements](https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution).
 
-The tag workflow needs a protected Mac signing job that imports the identity
-into a [temporary runner keychain](https://docs.github.com/en/actions/how-tos/deploy/deploy-to-third-party-platforms/sign-xcode-applications).
-For each architecture, verify the identity, sign the nested code and app with
-hardened runtime and secure timestamps, then build and sign the DMG.
-Submit the DMG with `notarytool`, require an accepted result, staple and
-validate the ticket, and verify the app and DMG with Gatekeeper.
-Generate hashes, inventories and attestations from the final stapled artifacts.
-See [Apple's notarization workflow](https://developer.apple.com/documentation/security/customizing-the-notarization-workflow).
+On a Mac, compare the downloaded DMG hash with the release checksums, then
+inspect its signature and provenance. Substitute the actual file, tag and full
+commit from the release. Compare the certificate hash with the pinned value
+at that tag. The temporary directory below contains only the public certificate.
 
-Before the first Mac tag, extend the [release manifest contract](../tool/release_contract.py)
-and the [signing review batch](../tool/release_signing_review.py) to cover both
-DMGs. Publication still requires the separate `release-publish` approval.
-Enabling system-wide TUN has its own [network acceptance criteria](MACOS_TUN_AGENT.md#validation-and-release-gate).
+```sh
+set -eu
+image="usque-${tag}-macos-arm64.dmg"
+certdir=$(mktemp -d)
+codesign --verify --strict "$image"
+codesign --display --extract-certificates="$certdir/leaf" "$image"
+shasum -a 256 "$certdir/leaf0"
+gh attestation verify "$image" --repo GeorgeXie2333/usque-app \
+  --signer-workflow GeorgeXie2333/usque-app/.github/workflows/release.yml \
+  --source-ref "refs/tags/$tag" --source-digest "$commit" --signer-digest "$commit" \
+  --predicate-type https://slsa.dev/provenance/v1 --deny-self-hosted-runners
+```
 
 ## What users should check
 

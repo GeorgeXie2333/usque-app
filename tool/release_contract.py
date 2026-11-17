@@ -46,6 +46,7 @@ RELEASE_TEMPLATE_TOKENS = {
     "windows_signer_sha256",
     "android_signer_sha256",
     "linux_ed25519_public_key",
+    "macos_signer_sha256",
 }
 RELEASE_NOTES_REQUIRED_HEADINGS = (
     "## Highlights / 更新亮点",
@@ -88,7 +89,9 @@ def load_json(path: Path) -> dict[str, Any]:
     return value
 
 
-def expected_artifact_names(tag: str, *, include_linux: bool = False) -> dict[str, tuple[str, str]]:
+def expected_artifact_names(
+    tag: str, *, include_linux: bool = False, include_macos: bool = False
+) -> dict[str, tuple[str, str]]:
     if not TAG_PATTERN.fullmatch(tag):
         raise ContractError(f"unsupported release tag: {tag}")
     expected: dict[str, tuple[str, str]] = {}
@@ -101,7 +104,15 @@ def expected_artifact_names(tag: str, *, include_linux: bool = False) -> dict[st
         for architecture in ("amd64", "arm64"):
             for extension in ("AppImage", "deb", "rpm"):
                 expected[f"usque-{tag}-linux-{architecture}.{extension}"] = ("linux", architecture)
+    if include_macos:
+        for architecture in ("arm64", "x86_64"):
+            expected[f"usque-{tag}-macos-{architecture}.dmg"] = ("macos", architecture)
     return expected
+
+
+def macos_signer_sha256() -> str:
+    pin = Path(__file__).resolve().parents[1] / "packaging/macos/release-certificate.sha256"
+    return normalize_sha256(pin.read_text(encoding="ascii"), "macOS signing certificate")
 
 
 def normalize_sha256(value: Any, label: str) -> str:
@@ -209,6 +220,7 @@ def render_release_notes(
         "repository": repository,
         "windows_signer_sha256": windows_signer,
         "android_signer_sha256": android_signer,
+        "macos_signer_sha256": macos_signer_sha256(),
         "linux_ed25519_public_key": normalize_sha256(
             (Path(__file__).resolve().parents[1] / "packaging/linux/release-public-key.hex")
             .read_text()
@@ -342,9 +354,12 @@ def create_manifest(
     android_signer: str,
     *,
     include_linux: bool = False,
+    include_macos: bool = False,
 ) -> dict[str, Any]:
     directory = directory.resolve(strict=True)
-    expected = expected_artifact_names(tag, include_linux=include_linux)
+    expected = expected_artifact_names(
+        tag, include_linux=include_linux, include_macos=include_macos
+    )
     commit = normalize_commit(commit)
     windows_signer = normalize_sha256(windows_signer, "Windows signer")
     android_signer = normalize_sha256(android_signer, "Android signer")
@@ -353,7 +368,7 @@ def create_manifest(
         path.name
         for path in directory.iterdir()
         if path.is_file()
-        and path.suffix.lower() in {".exe", ".msi", ".apk", ".appimage", ".deb", ".rpm"}
+        and path.suffix.lower() in {".exe", ".msi", ".apk", ".appimage", ".deb", ".rpm", ".dmg"}
     }
     missing = sorted(set(expected) - actual_primary)
     unexpected = sorted(actual_primary - set(expected))
@@ -375,12 +390,19 @@ def create_manifest(
                 "sha256": digest,
                 "size": path.stat().st_size,
                 **({"install_format": path.suffix[1:]} if platform == "linux" else {}),
+                **(
+                    {"install_format": "dmg", "apple_notarized": False}
+                    if platform == "macos"
+                    else {}
+                ),
             }
         )
     signers = {
         "windows_certificate_sha256": windows_signer,
         "android_certificate_sha256": android_signer,
     }
+    if include_macos:
+        signers["macos_certificate_sha256"] = macos_signer_sha256()
     if include_linux:
         try:
             signers["linux_ed25519_public_key"] = verify_linux_release(directory, tag)
@@ -406,7 +428,12 @@ def artifact_index(manifest: dict[str, Any]) -> dict[str, dict[str, Any]]:
     if not isinstance(signers, dict):
         raise ContractError("manifest signers must be an object")
     include_linux = "linux_ed25519_public_key" in signers
-    expected = expected_artifact_names(str(manifest.get("tag", "")), include_linux=include_linux)
+    include_macos = "macos_certificate_sha256" in signers
+    expected = expected_artifact_names(
+        str(manifest.get("tag", "")), include_linux=include_linux, include_macos=include_macos
+    )
+    if include_macos and signers["macos_certificate_sha256"] != macos_signer_sha256():
+        raise ContractError("macOS signer differs from the pinned release certificate")
     normalize_sha256(signers.get("windows_certificate_sha256"), "Windows manifest signer")
     normalize_sha256(signers.get("android_certificate_sha256"), "Android manifest signer")
     if include_linux:
@@ -429,6 +456,10 @@ def artifact_index(manifest: dict[str, Any]) -> dict[str, dict[str, Any]]:
             raise ContractError(f"wrong platform or variant for {name}")
         if platform == "linux" and artifact.get("install_format") != Path(name).suffix[1:]:
             raise ContractError(f"wrong Linux installation format for {name}")
+        if platform == "macos" and (
+            artifact.get("install_format") != "dmg" or artifact.get("apple_notarized") is not False
+        ):
+            raise ContractError(f"wrong macOS distribution metadata for {name}")
         normalize_sha256(artifact.get("sha256"), f"artifact {name}")
         if not isinstance(artifact.get("size"), int) or artifact["size"] <= 0:
             raise ContractError(f"artifact {name} has an invalid size")
@@ -438,9 +469,16 @@ def artifact_index(manifest: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return index
 
 
-def verify_artifacts(directory: Path, manifest: dict[str, Any]) -> None:
+def verify_artifacts(
+    directory: Path, manifest: dict[str, Any], *, require_macos: bool = False
+) -> None:
     directory = directory.resolve(strict=True)
     index = artifact_index(manifest)
+    if require_macos and "macos_certificate_sha256" not in manifest["signers"]:
+        raise ContractError("the release candidate requires both project-signed macOS images")
+    mac_images = {name for name, item in index.items() if item["platform"] == "macos"}
+    if mac_images != {p.name for p in directory.iterdir() if p.suffix.lower() == ".dmg"}:
+        raise ContractError("macOS disk images differ from the manifest")
     if "linux_ed25519_public_key" in manifest["signers"]:
         try:
             actual_key = verify_linux_release(directory, manifest["tag"])
@@ -470,10 +508,12 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     create.add_argument("--android-signer-sha256", required=True)
     create.add_argument("--output", type=Path, required=True)
     create.add_argument("--include-linux", action="store_true")
+    create.add_argument("--include-macos", action="store_true")
 
     verify = subparsers.add_parser("verify-artifacts")
     verify.add_argument("--directory", type=Path, required=True)
     verify.add_argument("--manifest", type=Path, required=True)
+    verify.add_argument("--require-macos", action="store_true")
 
     version = subparsers.add_parser("verify-version")
     version.add_argument("--root", type=Path, required=True)
@@ -511,10 +551,13 @@ def main(argv: list[str] | None = None) -> int:
                 args.windows_signer_sha256,
                 args.android_signer_sha256,
                 include_linux=args.include_linux,
+                include_macos=args.include_macos,
             )
             write_json(args.output, manifest)
         elif args.command == "verify-artifacts":
-            verify_artifacts(args.directory, load_json(args.manifest))
+            verify_artifacts(
+                args.directory, load_json(args.manifest), require_macos=args.require_macos
+            )
         elif args.command == "verify-version":
             verify_release_version(args.root, args.tag, args.android_version_code)
         elif args.command == "verify-main-ci":

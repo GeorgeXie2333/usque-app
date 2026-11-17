@@ -23,6 +23,37 @@ env:
   FLUTTER_VERSION: 3.44.7
 
 jobs:
+  macos-package:
+    name: macOS DMG with disposable signer (${{ matrix.arch }})
+    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: macos-15
+          - arch: x86_64
+            runner: macos-15-intel
+    env:
+      ARCH: ${{ matrix.arch }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12.10'
+      - run: bash tool/build_macos_release_app.sh "$ARCH"
+      - name: Exercise signing and verify the native DMG without release credentials
+        run: |
+          set -euo pipefail
+          version=$(sed -nE 's/^version: ([^+]+)\+[0-9]+$/\1/p' apps/usque_gui/pubspec.yaml)
+          bash tool/sign_macos_release.sh "$ARCH" "v$version" fixture
+
   linux:
     name: Linux desktop and six package contracts
     if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
@@ -565,6 +596,7 @@ jobs:
       - go-oracle
       - security-audit
       - release-contract
+      - macos-package
       - windows-installer-authoring
       - linux
     runs-on: ubuntu-24.04
@@ -581,6 +613,7 @@ jobs:
           GO_ORACLE: ${{ needs.go-oracle.result }}
           SECURITY_AUDIT: ${{ needs.security-audit.result }}
           RELEASE_CONTRACT: ${{ needs.release-contract.result }}
+          MACOS_PACKAGE: ${{ needs.macos-package.result }}
           WINDOWS_AUTHORING: ${{ needs.windows-installer-authoring.result }}
           LINUX: ${{ needs.linux.result }}
         run: |
@@ -595,6 +628,7 @@ jobs:
             "$GO_ORACLE" \
             "$SECURITY_AUDIT" \
             "$RELEASE_CONTRACT" \
+            "$MACOS_PACKAGE" \
             "$LINUX" \
             "$WINDOWS_AUTHORING"; do
             test "$result" = "success"

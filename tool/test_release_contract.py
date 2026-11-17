@@ -120,6 +120,40 @@ class ReleaseContractTests(unittest.TestCase):
                 self.root, self.tag, self.commit, "not-a-digest", "c" * 64
             )
 
+    def test_macos_candidate_requires_both_images_and_pinned_identity(self) -> None:
+        def create():
+            return release_contract.create_manifest(
+                self.root, self.tag, self.commit, "b" * 64, "c" * 64, include_macos=True
+            )
+
+        legacy = release_contract.create_manifest(
+            self.root, self.tag, self.commit, "b" * 64, "c" * 64
+        )
+        with self.assertRaises(release_contract.ContractError):
+            release_contract.verify_artifacts(self.root, legacy, require_macos=True)
+        arm = self.root / f"usque-{self.tag}-macos-arm64.dmg"
+        intel = self.root / f"usque-{self.tag}-macos-x86_64.dmg"
+        arm.write_bytes(b"Apple Silicon image")
+        with self.assertRaises(release_contract.ContractError):
+            create()
+        intel.write_bytes(b"Intel image")
+        manifest = create()
+        release_contract.verify_artifacts(self.root, manifest, require_macos=True)
+        for image, arch in ((arm, "arm64"), (intel, "x86_64")):
+            entry = release_contract.artifact_index(manifest)[image.name]
+            self.assertEqual(entry["variant"], arch)
+            self.assertIs(entry["apple_notarized"], False)
+            entry["apple_notarized"] = True
+            with self.assertRaises(release_contract.ContractError):
+                release_contract.verify_artifacts(self.root, manifest, require_macos=True)
+            entry["apple_notarized"] = False
+        arm.write_bytes(b"modified")
+        with self.assertRaises(release_contract.ContractError):
+            release_contract.verify_artifacts(self.root, manifest, require_macos=True)
+        manifest["signers"]["macos_certificate_sha256"] = "0" * 64
+        with self.assertRaises(release_contract.ContractError):
+            release_contract.artifact_index(manifest)
+
     def test_manifest_rejects_an_incomplete_artifact_index(self) -> None:
         manifest = release_contract.create_manifest(
             self.root, self.tag, self.commit, "b" * 64, "c" * 64
@@ -213,10 +247,12 @@ class ReleaseNotesContractTests(unittest.TestCase):
         for start, end in zip(closings, details[1:], strict=False):
             self.assertLess(start, end)
         download = rendered[download_start:download_end]
-        expected = release_contract.expected_artifact_names("v9.8.7", include_linux=True)
+        expected = release_contract.expected_artifact_names(
+            "v9.8.7", include_linux=True, include_macos=True
+        )
         installers = {name for name in expected if not name.endswith(".msi")}
         linked = re.findall(r"/releases/download/v9\.8\.7/(usque-[^)]+)", download)
-        self.assertEqual(len(linked), 12)
+        self.assertEqual(len(linked), 14)
         self.assertEqual(set(linked), installers)
         badges = re.findall(r"!\[([^\]]+)\]\(([^)]+)\)", download)
         self.assertEqual(len(badges), 15)
@@ -356,13 +392,19 @@ class ReleaseWorkflowPolicyTests(unittest.TestCase):
         self.assertIn("needs: stage-candidate", publish)
         self.assertNotIn("protected-reliability-summary", publish)
         self.assertIn(
-            "sha256sum -- *.exe *.msi *.apk *.AppImage *.deb *.rpm *.manifest.json *.manifest.json.sig > SHA256SUMS",
+            "sha256sum -- *.exe *.msi *.apk *.AppImage *.deb *.rpm *.dmg *.manifest.json *.manifest.json.sig > SHA256SUMS",
             publish,
         )
-        self.assertIn('wc -l)" -eq 34', publish)
+        self.assertIn('wc -l)" -eq 38', publish)
+        self.assertIn("verify-artifacts --require-macos", publish)
+        stage = self.job("stage-candidate")
+        self.assertIn("--include-linux --include-macos", stage)
+        self.assertIn("--predicate-type https://slsa.dev/provenance/v1", stage)
+        for arch in ("arm64", "x86_64"):
+            self.assertIn("macos-" + arch + ".dmg.spdx.json", stage)
 
     def test_signing_batch_retains_per_platform_protection_and_separate_publish(self) -> None:
-        for name in ("windows", "android"):
+        for name in ("windows", "android", "macos"):
             job = self.job(name)
             self.assertIn("needs: release-gate", job)
             self.assertIn("environment: release-signing", job)

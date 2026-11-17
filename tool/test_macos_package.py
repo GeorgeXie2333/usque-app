@@ -11,6 +11,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import macos_package
+import macos_release
 
 
 def macho(
@@ -96,6 +97,19 @@ def prototype_fixture(app: Path, architecture="arm64") -> None:
 
 
 class MacOSPackageTests(unittest.TestCase):
+    def test_release_rejects_an_unpinned_leaf_even_if_codesign_verifies(self):
+        def fake_codesign(arguments):
+            if "--display" in arguments:
+                prefix = arguments[2].removeprefix("--extract-certificates=")
+                Path(prefix + "0").write_bytes(b"different certificate")
+            return ""
+
+        with (
+            patch.object(macos_release, "run", side_effect=fake_codesign),
+            self.assertRaisesRegex(ValueError, "Incorrect macOS signing certificate"),
+        ):
+            macos_release.verify_signature(Path("fixture.dmg"), "f" * 64)
+
     def test_symlink_capability_guard_skips_permission_errors_only(self) -> None:
         with patch.object(Path, "symlink_to", side_effect=PermissionError(errno.EPERM, "denied")):
             with self.assertRaises(unittest.SkipTest):
@@ -124,6 +138,12 @@ class MacOSPackageTests(unittest.TestCase):
                     agent_maintenance=root / "maintenance",
                 )
             packaged = root / "out.app"
+            self.assertEqual(
+                macos_release.check_source(packaged, "arm64", "v0.3.4"),
+                "usque-v0.3.4-macos-arm64.dmg",
+            )
+            with self.assertRaisesRegex(ValueError, "exact tagged"):
+                macos_release.check_source(packaged, "arm64", "v0.3.5")
             self.assertFalse((packaged / "Contents/Library/SystemExtensions").exists())
             self.assertTrue((packaged / "Contents/Helpers/usque-agent").is_file())
             (packaged / "Contents/Helpers/usque-agent").unlink()

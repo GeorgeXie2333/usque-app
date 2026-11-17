@@ -59,7 +59,7 @@ class SigningReviewTests(unittest.TestCase):
             for index, name in enumerate(review.SIGNING_JOBS)
         ] + [
             {
-                "id": 6,
+                "id": len(review.SIGNING_JOBS) + 1,
                 "run_id": 42,
                 "run_attempt": 1,
                 "head_sha": "a" * 40,
@@ -132,9 +132,9 @@ class SigningReviewTests(unittest.TestCase):
             with self.subTest(changes=changes), self.assertRaises(ContractError):
                 self.verify(**changes)
 
-    def test_requires_all_five_waiting_jobs_and_successful_gate(self):
-        self.assertEqual(len(self.ready()["jobs"]), 5)
-        for index in range(5):
+    def test_requires_all_seven_waiting_jobs_and_successful_gate(self):
+        self.assertEqual(len(self.ready()["jobs"]), 7)
+        for index in range(len(review.SIGNING_JOBS)):
             for state in ("queued", "pending", "requested"):
                 jobs = copy.deepcopy(self.jobs)
                 jobs[index]["status"] = state
@@ -195,7 +195,7 @@ class SigningReviewTests(unittest.TestCase):
                 "sha": self.candidate.commit,
                 "ref": self.candidate.tag,
             }
-            for index in range(5)
+            for index in range(len(review.SIGNING_JOBS))
         ]
         with (
             patch.object(review, "snapshot", return_value=ready) as snapshot,
@@ -230,7 +230,7 @@ class SigningReviewTests(unittest.TestCase):
         api.assert_not_called()
         for response in (
             [],
-            [{"environment": "release-publish"}] * 5,
+            [{"environment": "release-publish"}] * len(review.SIGNING_JOBS),
             [{"environment": "release-signing"}],
         ):
             with (
@@ -322,7 +322,7 @@ class SigningReviewTests(unittest.TestCase):
             review.review(self.candidate, approve=True)
         api.assert_not_called()
 
-    def test_post_must_cover_five_distinct_exact_candidate_deployments(self):
+    def test_post_must_cover_seven_distinct_exact_candidate_deployments(self):
         deployments = [
             {
                 "id": index + 1,
@@ -330,7 +330,7 @@ class SigningReviewTests(unittest.TestCase):
                 "sha": self.candidate.commit,
                 "ref": self.candidate.tag,
             }
-            for index in range(5)
+            for index in range(len(review.SIGNING_JOBS))
         ]
         for change in (
             {"sha": "c" * 40},
@@ -369,8 +369,8 @@ class SigningReviewTests(unittest.TestCase):
             self.tag_ref,
             self.tag,
             self.branch,
-            {"jobs": self.jobs + filler[:94]},
-            {"jobs": filler[94:]},
+            {"jobs": self.jobs + filler[: 100 - len(self.jobs)]},
+            {"jobs": filler[100 - len(self.jobs) :]},
             self.pending,
         ]
         with patch.object(review, "gh_json", side_effect=replies) as api:
@@ -393,12 +393,16 @@ class SigningReviewTests(unittest.TestCase):
                 self.assertEqual(review.main(args + extra), 1)
             api.assert_not_called()
 
-    def test_all_five_job_names_match_the_unchanged_workflow_matrix(self):
+    def test_all_seven_job_names_match_the_workflow_matrix(self):
         root = Path(__file__).resolve().parents[1]
         workflow = (root / ".github/workflows/release.yml").read_text(encoding="utf-8")
         linux = (root / ".github/workflows/linux.yml").read_text(encoding="utf-8")
         self.assertIn("name: Windows ${{ matrix.variant }}", workflow)
         self.assertIn("name: Android and Android TV", workflow)
+        self.assertIn("name: macOS ${{ matrix.arch }}", workflow)
+        for arch in ("arm64", "x86_64"):
+            self.assertIn(f"macOS {arch}", review.SIGNING_JOBS)
+            self.assertIn(f"arch: {arch}", workflow)
         self.assertIn("name: Linux signed packages", workflow)
         self.assertIn("name: Linux ${{ matrix.architecture }} AppImage deb rpm", linux)
         for name in review.SIGNING_JOBS[:2]:

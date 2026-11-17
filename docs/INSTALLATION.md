@@ -60,6 +60,7 @@ lists the historical preview and explains how to build the current source.
 Development DMGs use ad-hoc signatures and lack Apple notarization. The preview
 supports local HTTP and SOCKS5 proxies. Ordinary builds keep system-wide TUN
 disabled. The official v0.3.4 package list below covers Windows, Linux and Android.
+When a later release lists a macOS DMG, use its [signature and GitHub provenance checks](CODE_SIGNING.md#configure-and-verify-macos-release-signing).
 
 ### Package names (v0.3.4)
 
