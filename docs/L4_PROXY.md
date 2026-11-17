@@ -36,7 +36,7 @@ existing application connections are not preserved across those changes.
 Listener and authentication edits apply as in other modes. Congestion control
 remains a saved preference for the next manual connection.
 
-In the same page, **MASQUE connections** accepts **1–16**, default **3**. Apply a
+In the same page, **MASQUE multiplexed connections** accepts **1–8**, default **1**. Apply a
 changed count to reconnect with that many independent HTTP/3 connections. New TCP
 CONNECT streams rotate across ready members; each established stream stays on
 its member. Initial startup waits for every requested member. During recovery,
@@ -161,8 +161,7 @@ handling. See the [backpressure and stop follow-up](L4_BACKPRESSURE_FIX.md).
 The receive-window ceiling is divided by **connection count + 1** before
 advertisement; one slot is reserved for a draining/replacement session. Initial
 connection/stream credit and the stream window are capped to that share. The
-default count of three uses one quarter of the ceiling per session; an explicit
-count of one retains the previous half-ceiling behavior.
+default count of one retains the previous half-ceiling behavior.
 Already advertised QUIC credit cannot be revoked when a replacement appears.
 Global stream counts and the application buffer budget remain unchanged.
 Actual stream admission is also bounded

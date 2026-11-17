@@ -40,10 +40,10 @@ pub use routing::{
 pub use tls_fingerprint::TlsFingerprint;
 
 pub const CURRENT_SCHEMA_VERSION: u32 = 28;
-pub const MAX_MASQUE_CONNECTIONS: u8 = 16;
+pub const MAX_MASQUE_CONNECTIONS: u8 = 8;
 
 pub const fn default_masque_connections() -> u8 {
-    3
+    1
 }
 /// Vault namespace for device-wide proxy-listener secrets. Never a profile id.
 pub const SHARED_NETWORK_SECRET_ID: Uuid =
@@ -1566,7 +1566,7 @@ pub enum ConfigError {
     InvalidUdpIdleTimeout(u32),
     #[error("MTU must be between 1280 and 9000, got {0}")]
     InvalidMtu(u16),
-    #[error("MASQUE connection count must be between 1 and 16, got {0}")]
+    #[error("MASQUE connection count must be between 1 and 8, got {0}")]
     InvalidMasqueConnections(u8),
     #[error("at least one DNS server is required")]
     MissingDnsServer,

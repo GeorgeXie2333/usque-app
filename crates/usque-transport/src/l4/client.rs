@@ -210,7 +210,7 @@ impl L4Client {
         }
         if !(1..=usque_core::MAX_MASQUE_CONNECTIONS).contains(&profile.masque_connections) {
             return Err(TransportError::Netstack(
-                "MASQUE connection count must be 1–16".into(),
+                "MASQUE connection count must be 1–8".into(),
             ));
         }
         let limits = Limits::platform();

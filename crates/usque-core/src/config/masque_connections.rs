@@ -1,16 +1,16 @@
 use super::*;
 
 #[test]
-fn defaults_and_missing_json_fields_use_three_connections() {
+fn defaults_and_missing_json_fields_use_one_connection() {
     let profile = Profile::default();
-    assert_eq!(profile.masque_connections, 3);
+    assert_eq!(profile.masque_connections, 1);
     let mut value = serde_json::to_value(&profile).unwrap();
     value.as_object_mut().unwrap().remove("masque_connections");
     assert_eq!(
         serde_json::from_value::<Profile>(value)
             .unwrap()
             .masque_connections,
-        3
+        1
     );
     let mut shared = serde_json::to_value(SharedNetworkSettings::default()).unwrap();
     shared.as_object_mut().unwrap().remove("masque_connections");
@@ -18,14 +18,14 @@ fn defaults_and_missing_json_fields_use_three_connections() {
         serde_json::from_value::<SharedNetworkSettings>(shared)
             .unwrap()
             .masque_connections,
-        3
+        1
     );
 }
 
 #[test]
 fn range_shared_settings_and_scenes_preserve_the_count() {
-    assert_eq!(MAX_MASQUE_CONNECTIONS, 16);
-    for count in 1..=16 {
+    assert_eq!(MAX_MASQUE_CONNECTIONS, 8);
+    for count in 1..=MAX_MASQUE_CONNECTIONS {
         let profile = Profile {
             masque_connections: count,
             ..Default::default()
@@ -48,7 +48,7 @@ fn range_shared_settings_and_scenes_preserve_the_count() {
             .unwrap();
         assert_eq!(inherited.masque_connections, count);
     }
-    for count in [0, 17, 255] {
+    for count in [0, 9, 255] {
         let profile = Profile {
             masque_connections: count,
             ..Default::default()
@@ -78,11 +78,11 @@ fn editing_connection_count_requires_a_reconnect() {
 #[test]
 fn migration_defaults_old_schemas_and_preserves_explicit_schema_28_counts() {
     for (schema, count, expected) in [
-        (27, None, 3),
-        (27, Some(1), 3),
-        (28, None, 3),
+        (27, None, 1),
+        (27, Some(1), 1),
+        (28, None, 1),
         (28, Some(1), 1),
-        (28, Some(16), 16),
+        (28, Some(8), 8),
     ] {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("config.json");

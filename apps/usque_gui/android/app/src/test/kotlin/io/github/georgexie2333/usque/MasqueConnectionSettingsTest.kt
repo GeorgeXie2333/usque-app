@@ -7,8 +7,8 @@ import org.junit.Test
 class MasqueConnectionSettingsTest {
     @Test
     fun explicitIntegerLimitsSurviveTheNativeCapabilityDocument() {
-        assertEquals(16, MasqueConnectionSettings.maximum(expandedNativeCapabilities()))
-        for (count in 1..16) {
+        assertEquals(8, MasqueConnectionSettings.maximum(expandedNativeCapabilities()))
+        for (count in 1..8) {
             assertEquals(count, MasqueConnectionSettings.maximum("""{"max_masque_connections":$count}"""))
         }
     }
@@ -19,7 +19,7 @@ class MasqueConnectionSettingsTest {
             assertEquals(0, MasqueConnectionSettings.maximum(value))
         }
         val invalidLimits =
-            listOf("0", "-1", "17", "255", "4294967296", "16.0", "16.1", "\"16\"", "true", "null", "[]", "{}")
+            listOf("0", "-1", "9", "255", "4294967296", "8.0", "8.1", "\"8\"", "true", "null", "[]", "{}")
         for (value in invalidLimits) {
             assertEquals(0, MasqueConnectionSettings.maximum("""{"max_masque_connections":$value}"""))
         }

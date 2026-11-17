@@ -888,8 +888,8 @@ class ProxySettings {
 }
 
 class UsqueProfile {
-  static const defaultMasqueConnections = 3;
-  static const maxMasqueConnections = 16;
+  static const defaultMasqueConnections = 1;
+  static const maxMasqueConnections = 8;
 
   const UsqueProfile({
     required this.id,

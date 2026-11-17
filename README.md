@@ -299,7 +299,7 @@ changed by this background validation. Development packages are not notarized.
 | Port / SNI | `443` / `speed.cloudflare.com` |
 | Transport | Auto: HTTP/3, then HTTP/2 |
 | HTTP/3 congestion control | `cubic`; BBRv2, experimental BBRv3, and `reno` are selectable |
-| MASQUE connections | `3`; manually configurable from `1` to `16` for HTTP/2 and HTTP/3 / L4 |
+| MASQUE multiplexed connections | `1`; manually configurable from `1` to `8` for HTTP/2 and HTTP/3 / L4 |
 | QUIC UDP receive buffer | [2 MiB target](docs/UDP_RECEIVE_BUFFER.md) on Windows/Android for H3 and L4; actual capacity is OS-dependent |
 | TUN MTU | `1280` |
 | Fallback DNS | `1.1.1.1`, `2606:4700:4700::1111` |
@@ -315,7 +315,7 @@ Proxy address and port edits are drafts until applied. Proxy DNS uses the curren
 
 Advanced settings reset loads defaults into the draft; it does not apply them immediately.
 
-In **Advanced network settings → MASQUE connections**, enter **1–16** (default **3**), then **Apply changes**. A changed count reconnects the session. Separate flows use different MASQUE connections; each flow stays on one connection. The setting applies to HTTP/2/HTTP/3 CONNECT-IP and L4 (HTTP/3 TCP CONNECT). See [connection behavior](docs/NETWORK_SETTINGS.md#parallel-masque-connections).
+In **Advanced network settings → MASQUE multiplexed connections**, enter **1–8** (default **1**), then **Apply changes**. A changed count reconnects the session. Separate flows use different MASQUE connections; each flow stays on one connection. The setting applies to HTTP/2/HTTP/3 CONNECT-IP and L4 (HTTP/3 TCP CONNECT). See [connection behavior](docs/NETWORK_SETTINGS.md#parallel-masque-connections).
 
 In Advanced network settings, Automatic selection races eligible account endpoints; Custom keeps manual addresses. Port and SNI remain editable. See [automatic endpoints](docs/NETWORK_SETTINGS.md#automatic-endpoints--自动选择端点).
 

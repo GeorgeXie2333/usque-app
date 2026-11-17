@@ -20,13 +20,13 @@ and registers JNI. Linux packaging continues to reject missing ELF dependencies.
 Windows bundle installation also removes a stale `dartjni.dll` left by an older
 plugin graph; the other plugin libraries keep their normal install rules.
 
-Advanced network settings includes **MASQUE connections**, a manually entered
-integer from 1 to 16 (default 3) for HTTP/2/HTTP/3 CONNECT-IP and L4 TCP CONNECT.
+Advanced network settings includes **MASQUE multiplexed connections**, a manually entered
+integer from 1 to 8 (default 1) for HTTP/2/HTTP/3 CONNECT-IP and L4 TCP CONNECT.
 Applying a changed count reconnects through the normal settings transaction.
 Older native components keep unsupported settings read-only; L4 support is
 advertised separately. See [network settings](../../docs/NETWORK_SETTINGS.md#parallel-masque-connections).
 
-高级网络设置中的 **MASQUE 连接数** 可手动填写 1–16，默认 3。HTTP/2、HTTP/3
+高级网络设置中的 **MASQUE 多路复用连接数** 可手动填写 1–8，默认 1。HTTP/2、HTTP/3
 CONNECT-IP 和 L4 TCP CONNECT 均支持；应用修改后按正常设置事务重新连接。
 不支持此项的旧版本中只读，L4 能力独立检查。
 

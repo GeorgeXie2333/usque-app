@@ -256,7 +256,7 @@ macOS에서는 Proton 게스트 등록과 내장 인증 브라우저를 제거�
 | 포트 / SNI | `443` / `speed.cloudflare.com` |
 | 전송 | 자동: HTTP/3, 그다음 HTTP/2 |
 | HTTP/3 혼잡 제어 | `cubic`. BBRv2, 실험적 BBRv3, `reno`도 선택 가능 |
-| MASQUE 연결 수 | `3`; HTTP/2와 HTTP/3 / L4에서 `1–16`을 직접 입력 가능 |
+| MASQUE 다중화 연결 수 | `1`; HTTP/2와 HTTP/3 / L4에서 `1–8`을 직접 입력 가능 |
 | QUIC UDP 수신 버퍼 | Windows/Android의 H3와 L4에서 [2 MiB를 목표](docs/UDP_RECEIVE_BUFFER.md)로 요청. 실제 용량은 OS에 따라 다름 |
 | TUN MTU | `1280` |
 | 폴백 DNS | `1.1.1.1`, `2606:4700:4700::1111` |
@@ -272,7 +272,7 @@ macOS에서는 Proton 게스트 등록과 내장 인증 브라우저를 제거�
 
 고급 설정의 초기화는 기본값을 초안에 불러올 뿐 즉시 적용하지 않습니다.
 
-**고급 네트워크 설정 → MASQUE 연결 수**에 **1~16**(기본값 **3**)을 입력한 뒤 변경 사항을 적용하세요. 연결 수를 바꾸면 다시 연결합니다. 서로 다른 흐름을 여러 MASQUE 연결에 분산하며 각 흐름은 같은 연결을 유지합니다. HTTP/2, HTTP/3 CONNECT-IP와 L4(HTTP/3 TCP CONNECT)에 적용됩니다. [연결 동작](docs/NETWORK_SETTINGS.md#parallel-masque-connections)을 참고하세요.
+**고급 네트워크 설정 → MASQUE 다중화 연결 수**에 **1~8**(기본값 **1**)을 입력한 뒤 변경 사항을 적용하세요. 연결 수를 바꾸면 다시 연결합니다. 서로 다른 흐름을 여러 MASQUE 연결에 분산하며 각 흐름은 같은 연결을 유지합니다. HTTP/2, HTTP/3 CONNECT-IP와 L4(HTTP/3 TCP CONNECT)에 적용됩니다. [연결 동작](docs/NETWORK_SETTINGS.md#parallel-masque-connections)을 참고하세요.
 
 고급 네트워크 설정의 자동 선택은 계정에서 사용 가능한 엔드포인트에 병렬로 연결을 시도하며, 사용자 지정은 수동 주소를 유지합니다. 포트와 SNI는 두 모드 모두 수정할 수 있습니다. [자동 엔드포인트 선택](docs/NETWORK_SETTINGS.md#automatic-endpoints--自动选择端点)을 참고하세요.
 

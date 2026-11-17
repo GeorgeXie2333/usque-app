@@ -1400,7 +1400,7 @@ async fn connect_with_policy(
     let count = profile.masque_connections;
     if !(1..=usque_core::MAX_MASQUE_CONNECTIONS).contains(&count) {
         return Err(TransportError::Netstack(
-            "MASQUE connection count must be 1–16".into(),
+            "MASQUE connection count must be 1–8".into(),
         ));
     }
     let (first, family) = Box::pin(connect_single_with_policy(

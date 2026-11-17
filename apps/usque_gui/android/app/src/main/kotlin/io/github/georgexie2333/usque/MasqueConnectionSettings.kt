@@ -4,6 +4,6 @@ package io.github.georgexie2333.usque
 internal object MasqueConnectionSettings {
     fun maximum(value: String?): Int {
         val count = NetworkQualityFields.capabilityObject(value)?.opt("max_masque_connections") as? Int
-        return count?.takeIf { it in 1..16 } ?: 0
+        return count?.takeIf { it in 1..8 } ?: 0
     }
 }

@@ -30,9 +30,9 @@ GEO 校验在内存中保留一份已解析规则，每次保存仍读取规则�
 
 ## Parallel MASQUE connections
 
-Open **Advanced network settings → MASQUE connections**, enter **1–16** (default
-**3**), then **Apply changes**. Changing the count uses the existing reconnect
-transaction. Reset stages `3` in the draft. This is a shared advanced setting;
+Open **Advanced network settings → MASQUE multiplexed connections**, enter **1–8** (default
+**1**), then **Apply changes**. Changing the count uses the existing reconnect
+transaction. Reset stages `1` in the draft. This is a shared advanced setting;
 changing accounts or applying a scene retains it. HTTP/2/HTTP/3 CONNECT-IP and
 L4 TCP CONNECT use the same count.
 Older native components without the capability leave the input read-only and
@@ -71,24 +71,23 @@ describe one representative active member; traffic and application counters cove
 the pool.
 
 Schema 28 adds `masque_connections` to shared settings. Configurations from
-versions before schema 28 migrate to `3`; schema 28 retains saved counts, including
-an explicitly saved `1`. Missing JSON fields also default to `3`. Core validation
-rejects values outside `1–16`. Profile protobuf field 27 is optional, so absent
-means `3` and explicit `0` is rejected. Capability field 56 advertises
-`max_masque_connections = 16`; capability field 57, `l4_masque_connections`, separately
+versions before schema 28 migrate to `1`; missing JSON fields also default to `1`.
+Core validation rejects values outside `1–8`. Profile protobuf field 27 is optional,
+so absent means `1` and explicit `0` is rejected. Capability field 56 advertises
+`max_masque_connections = 8`; capability field 57, `l4_masque_connections`, separately
 gates L4 editing. Older native components that advertise a lower maximum retain
 that limit in the input and its help text. Missing capabilities mean unsupported.
 Android JSON uses the same names and validation. No packet addresses, flow keys or credentials
 are added to logs. Socket protection, endpoint authorization and native cleanup
 remain owned by the existing platform interfaces.
 Windows bounds automatic/preset MASQUE endpoint permits at four times the maximum
-connection count (64), accommodating pools and bounded recovery/racing work.
+connection count (32), accommodating pools and bounded recovery/racing work.
 Permits remain scoped to exact authorized endpoints, operations and network
 generations, with reference-counted release and the existing global target cap.
 
-打开 **高级网络设置 → MASQUE 连接数**，填写 **1–16**（默认 **3**），点击
-**应用修改** 后，连接数变化会通过现有事务重新连接。重置只将 `3` 放入草稿。
-不支持自定义连接数的旧版本升级后默认使用 `3`，已支持该设置的版本保留用户保存的值。
+打开 **高级网络设置 → MASQUE 多路复用连接数**，填写 **1–8**（默认 **1**），点击
+**应用修改** 后，连接数变化会通过现有事务重新连接。重置只将 `1` 放入草稿。
+不支持自定义连接数的旧版本升级后默认使用 `1`，已支持该设置的版本保留有效的已保存值。
 此项是全局高级设置，切换账号或应用场景会保留它。不同流可分配到
 不同连接，同一条流及其分片固定使用同一连接。任一成员失败会关闭整组并由现有监督器
 重连。并行数增加会使用更多内存和套接字，实际吞吐取决于并发流和网络条件。
