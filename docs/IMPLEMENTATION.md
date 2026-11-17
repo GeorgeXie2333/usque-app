@@ -1,7 +1,7 @@
 # Usque implementation progress
 
 This checklist covers the source for Windows, macOS, Linux and Android / Android TV.
-The macOS app is scheduled for v0.3.5. For published packages, consult the release
+The v0.3.5 candidate includes a macOS app. For published packages, consult the release
 notes for the installed version.
 
 - A checked implementation item means code or test infrastructure is in the
@@ -16,9 +16,20 @@ The [documentation index](README.md) separates current contracts from historical
 records. [Reliability testing](RELIABILITY_TESTING.md) defines environments and
 evidence requirements; [Release process](RELEASE.md) defines publication.
 
-## v0.3.4 candidate changes since v0.3.3
+## v0.3.5 candidate changes since v0.3.4
 
-These changes are prepared for v0.3.4 and are not present in the published
+- macOS: Apple Silicon and Intel DMGs provide the desktop app and local proxy
+  mode; production system-wide TUN remains disabled. See
+  [macOS feature coverage](MACOS_WINDOWS_PARITY.md).
+- [Network settings](NETWORK_SETTINGS.md#parallel-masque-connections): one to
+  eight connections can distribute concurrent flows. Schema 28 defaults older
+  configurations to one connection and cannot be read by v0.3.4.
+- Profiles streamline scene switching; Windows recovery handles an already
+  unavailable adapter idempotently.
+
+## v0.3.4 changes since v0.3.3
+
+These changes were introduced in v0.3.4 and are not present in the published
 v0.3.3 packages. Candidate checks and publication are recorded separately;
 see [v0.3.4 preparation](RELEASE.md#preparing-v034).
 

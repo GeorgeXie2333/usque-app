@@ -5,16 +5,15 @@ record that the current checkout has been published. The authoritative
 executable contracts are [release.yml](../.github/workflows/release.yml) and
 [release_contract.py](../tool/release_contract.py).
 
-The checked-in application metadata and workflow target `v0.3.4` /
-`0.3.4+30`. Consult GitHub Releases for the currently published Latest.
-v0.3.5 will be the first release with macOS DMGs for Apple Silicon and Intel.
-Its release preparation must align the version metadata and exact tag trigger.
+The checked-in application metadata and workflow target `v0.3.5` /
+`0.3.5+31`. Consult GitHub Releases for the currently published Latest.
+This candidate adds macOS DMGs for Apple Silicon and Intel.
 [v0.3.3](https://github.com/GeorgeXie2333/usque-app/releases/tag/v0.3.3) was
 published as the stable Latest on 2026-10-26 (UTC) from
 `1d44597ddb6dee7fca6700c0442e0d3856eea31b` with 34 public assets.
 [v0.3.2](https://github.com/GeorgeXie2333/usque-app/releases/tag/v0.3.2) was
 published on 2026-10-17 from `02685ee399debf93731751f59b33cdfaef49dcdf`.
-See [Preparing v0.3.4](#preparing-v034). The published `v0.3.3` tag must not
+See [Preparing v0.3.5](#preparing-v035). Published release tags must not
 be moved or reused. A stable tag must match the current main tip and its
 successful CI and CodeQL push runs. On promotion, those runs can verify
 completed dev checks for the same commit. Only the maintainer creates the tag.
@@ -32,16 +31,40 @@ published tag; a subsequent release needs a separately reviewed version and
 workflow update and the existing approval gates. Static and compile-only
 checks are not evidence of a successful real-machine upgrade.
 
+## Preparing v0.3.5
+
+The candidate uses thirteen Cargo packages at `0.3.5`, Flutter `0.3.5+31`,
+and 21 catalogs. Android universal/ARMv7/ARM64/x86_64 version codes are
+31000/31001/31002/31004. The MSI ProductVersion is `0.3.599`, Agent PE is
+`0.3.599.0`, and Windows bundle and Linux package versions are `0.3.5`.
+Configuration schema 28 adds the shared connection count with a migration
+default of one; Agent protocol 3, Windows/Linux journals 6/1 and recovery
+export 2 remain unchanged. macOS release DMGs provide local proxy mode, use
+the pinned project self-signature and are not Apple-notarized.
+
+Require exact-candidate CI, Build and CodeQL and then main push CI and
+CodeQL. The main push can reuse verified dev checks for the same commit. The
+Windows release reuses only the pinned, attested producer when its actual
+engine inputs match; a mismatch, missing artifact or provenance failure stops
+the candidate without a fresh build fallback. Retain both engine restore
+receipts, PDBs and the three existing Flutter symbol archives. Wait for all
+seven signing jobs and approve them together; publish remains a separate
+approval after staging verification. The 39 staged files include two internal
+Linux ELF reports; the final 38 public assets contain sixteen packages,
+sixteen SPDX SBOMs, four Linux signature metadata files, the candidate
+manifest and SHA256SUMS. Protected laboratory checks remain optional and
+`not_run` when absent.
+
 ## Preparing v0.3.4
 
-The candidate uses twelve Cargo packages at `0.3.4`, Flutter `0.3.4+30`, and
+This historical candidate used twelve Cargo packages at `0.3.4`, Flutter `0.3.4+30`, and
 21 catalogs. Android universal/ARMv7/ARM64/x86_64 version codes are
 30000/30001/30002/30004. The MSI ProductVersion is `0.3.499`, Agent PE version
 is `0.3.499.0`, and Windows bundle and Linux package versions are `0.3.4`.
 See the [readiness record](RELEASE_V0.3.4_READINESS.md); preparation is not
 evidence of a published release or successful final-candidate validation.
 
-The candidate uses configuration schema 27 for [connection scenes](SCENARIOS.md),
+That candidate used configuration schema 27 for [connection scenes](SCENARIOS.md),
 Agent protocol 3, Windows/Linux recovery journals 6/1 and recovery export 2.
 Require exact-candidate CI, Build and CodeQL. Wait for the main push CI and
 CodeQL results after promotion as described [below](#before-signing-starts). The

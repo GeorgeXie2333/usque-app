@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="168" height="40" viewBox="0 0 168 40" role="img" aria-labelledby="title">
+  <title id="title">DMG Apple Silicon</title>
+  <path fill="#30363d" d="M0 0h58v40H0z"/>
+  <path fill="#586276" d="M58 0h110v40H58z"/>
+  <g fill="#fff" font-family="Verdana,DejaVu Sans,sans-serif" font-size="13" text-anchor="middle">
+    <text x="29" y="25">DMG</text>
+    <text x="113" y="25">Apple Silicon</text>
+  </g>
+</svg>

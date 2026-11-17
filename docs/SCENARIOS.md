@@ -283,6 +283,7 @@ Zero Trust 账号保留其账号地址。手动换账号可以使绑定场景显
 
 Scenes are introduced in v0.3.4; the published v0.3.3 does not include them
 and cannot read schema 27.
+Version v0.3.5 migrates settings to schema 28, which v0.3.4 and older cannot read.
 Schema 27 introduces the scene library, selection and latest-switch record.
 Upgrading a configuration without scenes starts with an empty library and no
 selection, preserving existing accounts and device settings. Scenes and their
@@ -296,6 +297,7 @@ account credentials, and scene values are excluded from logs and diagnostics.
 There is no scene synchronization, import/export or automatic network trigger.
 
 场景功能在 v0.3.4 中引入；已发布的 v0.3.3 不包含该功能，也无法读取 schema 27。
+v0.3.5 将设置迁移至 schema 28，v0.3.4 及更早版本无法读取。
 Schema 27 一次引入场景库、当前选择和最近切换记录。从没有场景的配置升级时，
 场景库为空且没有选择，原账号与全局设置保持不变。场景及其快照必须包含端点和
 当前受管字段；开发期旧场景格式不提供迁移或回退。尚不支持场景的引擎仍可管理账号。

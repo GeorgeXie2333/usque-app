@@ -137,12 +137,12 @@ flowchart LR
 
 ## Download
 
-Version **v0.3.4** adds local connection scenes and improves setup, routing and the desktop and Android experience. For an installed version, follow its release notes and the documentation at its tag.
+Version **v0.3.5** adds macOS desktop support and configurable parallel connections, and makes scenes easier to switch. For an installed version, follow its release notes and the documentation at its tag.
 
 | Platform | Minimum system | Package |
 | --- | --- | --- |
 | Windows | Windows 10 2004, build 19041 | x64-v2 or ARM64 installer EXE |
-| macOS | macOS 13 or later | DMGs for Apple Silicon (arm64) and Intel (x86_64), planned for v0.3.5 |
+| macOS | macOS 13 or later | DMGs for Apple Silicon (arm64) and Intel (x86_64) |
 | Linux (since v0.3.3) | Ubuntu 22.04+, Debian 12+, supported Fedora; systemd | amd64 or arm64 AppImage, deb or rpm |
 | Android / Android TV | Android 8.0, API 26 | arm64-v8a, x86_64 or armeabi-v7a APK, or the universal APK |
 
@@ -155,7 +155,7 @@ Windows x64 requires a CPU supporting **x86-64-v2**; ARM64 Windows uses the nati
 >
 > **Never bypass a warning.** Pre-1.0 Windows and Android packages use fixed, project-controlled self-signed certificates: Windows may show an unknown-publisher warning, and Android packages are installed outside Google Play. Do not disable antivirus or the firewall, or import certificates from unofficial packages, to bypass a warning.
 
-- **Upgrades migrate configuration one way.** v0.3.2 and v0.3.3 use configuration schema 26; upgrading from v0.3.1 migrates schema 24 to 26, which v0.3.1 and older clients cannot read. v0.3.4 migrates schema 26 to 27, which v0.3.3 and older clients cannot read. Reinstalling an older package does not reverse the migration, so review [configuration compatibility](docs/INSTALLATION.md#configuration-compatibility-when-upgrading) and any required pre-upgrade backup first.
+- **Upgrades migrate configuration one way.** v0.3.2 and v0.3.3 use configuration schema 26; upgrading from v0.3.1 migrates schema 24 to 26, which v0.3.1 and older clients cannot read. v0.3.4 migrates schema 26 to 27, which v0.3.3 and older clients cannot read. Reinstalling an older package does not reverse the migration, so review [configuration compatibility](docs/INSTALLATION.md#configuration-compatibility-when-upgrading) and any required pre-upgrade backup first. v0.3.5 migrates to schema 28, which v0.3.4 and older clients cannot read.
 - **Linux:** the first AppImage VPN setup installs a background service with administrator authorization, and credentials require an unlocked Secret Service keyring. The [Linux desktop guide](docs/LINUX_DESKTOP.md) covers GNOME/KDE, X11/Wayland, recovery and the tested coverage.
 - **Updates** require confirmation before downloading and use the platform installer; there is no unattended installation.
 - [Installation and removal](docs/INSTALLATION.md) covers upgrades, uninstall, recovery and Android developer verification; [Code signing](docs/CODE_SIGNING.md) lists the official identities.
@@ -243,10 +243,7 @@ are outside this release's scope.
 
 ### macOS in v0.3.5
 
-The first macOS release will ship with v0.3.5. It supports local HTTP and SOCKS5
-proxies on macOS 13 and later. System-wide TUN requires the separate
-[Agent/utun test build](docs/MACOS_TUN_AGENT.md). See the
-[macOS feature matrix](docs/MACOS_WINDOWS_PARITY.md) for coverage and limitations.
+The macOS version supports local HTTP and SOCKS5 proxies on macOS 13 and later. System-wide TUN remains disabled in release DMGs. See the [macOS feature matrix](docs/MACOS_WINDOWS_PARITY.md) and [installation guide](docs/INSTALLATION.md#choose-a-package).
 
 Historical **unofficial v0.3.3 dev pre-release** for macOS 13+:
 [Apple Silicon (arm64)](https://github.com/JustinL330/usque-app/releases/download/macos-dev-v0.3.3-compact-12636756/usque-v0.3.3-macos-arm64.dmg)
@@ -258,12 +255,10 @@ The compact images reduce downloads by 46.6% / 43.2%; see the
 [size explanation and validation](docs/MACOS_PACKAGE_SIZE.md). These older
 downloads include CEF verification and all application languages.
 
-Current `dev` source follows v0.3.4 and includes macOS connection scenes, confirmed
-cleanup before quitting, and protected WARP preparation for VPN Gate. macOS Proton
-guest registration and its embedded verification browser have been removed.
-Ordinary account sign-in remains available; a login requiring browser verification
-cannot complete in this macOS build. The downloads above predate these changes
-and do not include the v0.3.4 UI or features; no replacement installer has been published.
+The historical downloads above predate current macOS scenes and recovery. macOS
+supports Proton account sign-in, but not guest registration or the embedded
+verification browser; import a Proton configuration when browser verification
+is required. Use official releases for current packages.
 
 The [macOS test checklist](docs/MACOS_QA_CHECKLIST.md) separates isolated tests
 from actual device acceptance. The following items remain open:

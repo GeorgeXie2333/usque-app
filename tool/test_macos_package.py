@@ -132,18 +132,18 @@ class MacOSPackageTests(unittest.TestCase):
                     None,
                     root / "out.app",
                     "arm64",
-                    "0.3.4",
+                    "0.3.5",
                     "1",
                     agent=root / "agent",
                     agent_maintenance=root / "maintenance",
                 )
             packaged = root / "out.app"
             self.assertEqual(
-                macos_release.check_source(packaged, "arm64", "v0.3.4"),
-                "usque-v0.3.4-macos-arm64.dmg",
+                macos_release.check_source(packaged, "arm64", "v0.3.5"),
+                "usque-v0.3.5-macos-arm64.dmg",
             )
             with self.assertRaisesRegex(ValueError, "exact tagged"):
-                macos_release.check_source(packaged, "arm64", "v0.3.5")
+                macos_release.check_source(packaged, "arm64", "v0.3.6")
             self.assertFalse((packaged / "Contents/Library/SystemExtensions").exists())
             self.assertTrue((packaged / "Contents/Helpers/usque-agent").is_file())
             (packaged / "Contents/Helpers/usque-agent").unlink()
@@ -167,7 +167,7 @@ class MacOSPackageTests(unittest.TestCase):
                     None,
                     root / "out",
                     "arm64",
-                    "0.3.4",
+                    "0.3.5",
                     "1",
                     agent=agent,
                     agent_maintenance=maintenance,
@@ -183,7 +183,7 @@ class MacOSPackageTests(unittest.TestCase):
             self.assertFalse(manifest["production_capable"])
             self.assertEqual(manifest["validation"]["system_utun_network_acceptance"], "not_run")
             self.assertTrue(
-                (root / "out/usque-v0.3.4-macos-arm64-tun-test.manifest.json").is_file()
+                (root / "out/usque-v0.3.5-macos-arm64-tun-test.manifest.json").is_file()
             )
 
     def test_names_are_architecture_specific_and_reject_path_injection(self) -> None:

@@ -84,15 +84,16 @@ an independent approval after exact-candidate verification. See
 The published `v0.3.2` used only the Windows and Android identities; it
 predates Linux packaging and the Linux key signed none of its assets. Linux
 packages first shipped in v0.3.3-beta.1; beta.2 and the stable v0.3.3 retain
-that identity. For the next release, v0.3.4, retain the existing
-Windows/Android identities and the fixed Linux key. Before approving signing, confirm the live environment protection
-settings, the two public certificate fingerprints, the checked-in Linux public
+that identity. For the next release, v0.3.5, retain the existing
+Windows/Android identities, the fixed Linux key and the pinned macOS project
+certificate. Before approving signing, confirm the live environment protection
+settings, the public certificate fingerprints, the checked-in Linux public
 key, and Android's **Registered** application-ID/certificate pair.
 Before approving publication, review the exact tagged commit and staged
-`release-manifest.json`; its fourteen package names, sizes, SHA-256 values and
+`release-manifest.json`; its sixteen package names, sizes, SHA-256 values and
 signer fingerprints must describe the candidate produced by that release run.
 A documentation review, a previous release's signatures or a local compile is
-not that evidence. The checked-in workflow targets `v0.3.4` and requires
+not that evidence. The checked-in workflow targets `v0.3.5` and requires
 exact-SHA main push CI and CodeQL plus both approvals. See [Release process](RELEASE.md). Documentation preparation
 does not authorize key access, signing or publication.
 

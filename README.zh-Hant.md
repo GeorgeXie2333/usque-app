@@ -137,12 +137,12 @@ flowchart LR
 
 ## 下載
 
-**v0.3.4** 新增本機連線情境，並改進設定、分流及桌面和 Android 使用體驗。安裝的版本請以對應的發行說明和版本標籤下的文件為準。
+**v0.3.5** 新增 macOS 桌面版與可設定的並行連線，並簡化連線情境切換。安裝的版本請以對應的發行說明和版本標籤下的文件為準。
 
 | 平台 | 最低系統 | 安裝套件 |
 | --- | --- | --- |
 | Windows | Windows 10 2004，Build 19041 | x64-v2 或 ARM64 安裝程式 EXE |
-| macOS | macOS 13 或以上版本 | v0.3.5 將分別提供 Apple Silicon（arm64）及 Intel（x86_64）的 DMG |
+| macOS | macOS 13 或以上版本 | Apple Silicon（arm64）及 Intel（x86_64）DMG |
 | Linux（自 v0.3.3 起） | Ubuntu 22.04+、Debian 12+、受支援的 Fedora；systemd | amd64 或 arm64 的 AppImage、deb 或 rpm |
 | Android / Android TV | Android 8.0，API 26 | arm64-v8a、x86_64 或 armeabi-v7a APK，或通用 APK |
 
@@ -155,7 +155,7 @@ Windows x64 需要支援 **x86-64-v2** 的 CPU；ARM64 Windows 使用原生 ARM6
 >
 > **不要繞過安全警告。** 1.0 之前的 Windows/Android 安裝套件使用專案自行管理的固定自我簽署憑證：Windows 可能顯示「未知發佈者」警告，Android 安裝套件不經 Google Play 發佈。不要透過關閉防毒軟體、防火牆或匯入非官方安裝套件提供的憑證來繞過警告。
 
-- **升級會單向遷移設定。** v0.3.2 和 v0.3.3 使用設定 schema 26；從 v0.3.1 升級會將 schema 24 遷移至 26，v0.3.1 及更早用戶端無法讀取。v0.3.4 會將 schema 26 遷移至 27，v0.3.3 及更早用戶端無法讀取。重新安裝舊版不會逆轉遷移，請先查看[設定相容性](docs/INSTALLATION.md#configuration-compatibility-when-upgrading)並安排所需備份。
+- **升級會單向遷移設定。** v0.3.2 和 v0.3.3 使用設定 schema 26；從 v0.3.1 升級會將 schema 24 遷移至 26，v0.3.1 及更早用戶端無法讀取。v0.3.4 會將 schema 26 遷移至 27，v0.3.3 及更早用戶端無法讀取。重新安裝舊版不會逆轉遷移，請先查看[設定相容性](docs/INSTALLATION.md#configuration-compatibility-when-upgrading)並安排所需備份。 v0.3.5 遷移至 schema 28，v0.3.4 及更早用戶端無法讀取。
 - **Linux：** AppImage 首次使用 VPN 時需要管理員授權安裝背景服務；認證資料依賴已解鎖的 Secret Service 鑰匙串。[Linux 桌面指南](docs/LINUX_DESKTOP.md) 說明 GNOME/KDE、X11/Wayland、復原流程與已測試範圍。
 - **更新**下載需要使用者確認，安裝透過平台安裝程式完成，不會未經確認自動安裝。
 - 升級、解除安裝、復原及 Android 開發者驗證說明請參閱[安裝指南](docs/INSTALLATION.md)，官方簽署身分請參閱[程式碼簽署策略](docs/CODE_SIGNING.md)。
@@ -242,8 +242,7 @@ VPN、SOCKS5 和 HTTP 預設開啟，系統代理預設關閉。它們共用一�
 
 ### v0.3.5 的 macOS 支援
 
-首個 macOS 正式版將隨 v0.3.5 發佈，支援在 macOS 13 及以上版本使用本機 HTTP 與 SOCKS5 代理。
-系統層級 VPN 仍需專用的 [Agent/utun 測試版本](docs/MACOS_TUN_AGENT.md)。各項功能的支援範圍見 [macOS 功能對照表](docs/MACOS_WINDOWS_PARITY.md)。
+v0.3.5 的 macOS 版支援在 macOS 13 及以上版本使用本機 HTTP 與 SOCKS5 代理，正式 DMG 不啟用系統層級 VPN。詳見 [macOS 功能對照表](docs/MACOS_WINDOWS_PARITY.md)和[安裝指南](docs/INSTALLATION.md#choose-a-package)。
 
 macOS 13+ **歷史 v0.3.3 非官方 dev 預發佈套件**：
 [Apple Silicon（arm64）](https://github.com/JustinL330/usque-app/releases/download/macos-dev-v0.3.3-compact-12636756/usque-v0.3.3-macos-arm64.dmg)／
@@ -253,8 +252,7 @@ macOS 13+ **歷史 v0.3.3 非官方 dev 預發佈套件**：
 上述舊版精簡套件下載量減少約 47%／43%，包含繁體中文、原有介面語言、CEF 驗證元件和 sandbox。
 體積原因與驗證結果見[macOS 安裝套件體積說明](docs/MACOS_PACKAGE_SIZE.md)。
 
-目前 `dev` 原始碼已同步 v0.3.4，並保留 macOS 連線情境、結束前確認清理，以及 VPN Gate
-自動準備受保護的 WARP 連線。上方安裝套件早於這些修改，不含 v0.3.4 介面和功能，尚未發佈替代安裝套件。
+上方歷史安裝套件早於目前的連線情境及復原功能，請使用正式 Release 取得目前安裝套件。
 
 [macOS 測試清單](docs/MACOS_QA_CHECKLIST.md)分別記錄隔離測試與實機驗收。以下項目仍未完成：
 

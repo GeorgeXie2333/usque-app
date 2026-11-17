@@ -4,7 +4,7 @@ The repository retains the dependency repair, standalone regression tests, and
 a Windows engine source-build recipe for
 [#142](https://github.com/GeorgeXie2333/usque-app/issues/142). Windows build and
 release workflows verify that the application contains this pinned engine's
-exact DLL. The v0.3.4 candidate may reuse the specifically reviewed attested
+exact DLL. The v0.3.5 candidate may reuse the specifically reviewed attested
 source-build artifacts; their original build inputs and producer identity are
 verified before extraction. The helper builds in a separate
 directory and does not replace an installed Flutter SDK. A source patch or
@@ -169,7 +169,7 @@ platform files, `sky_engine`, font tools, and tessellator needed by the framewor
 required output hashes, DLL architecture, and engine test status. Assembly checks
 the actual staged DLL against that record before signing. The build record and
 matching engine PDB join the existing separate Windows symbols artifact; they
-are not added to the installable payload. The v0.3.4 release reuses only the
+are not added to the installable payload. The v0.3.5 release reuses only the
 pinned, attested source-build producer recorded by the compatibility adapter.
 Its restore receipt is independently attested and retained with the PDB. The
 restore step receives no release PFX or password. Standard release signing
@@ -219,7 +219,7 @@ it never counts as a cache miss. Lookup or download service failures also fail
 explicitly. PRs cannot create trusted engine packages. A changed recipe or build
 tool naturally misses until a trusted producer has built the new input set.
 Artifacts are retained for 90 days; the first build before the new workflow is
-available also follows the source path. For v0.3.4, Build and Release additionally
+available also follows the source path. For v0.3.5, Build and Release additionally
 accept the two pinned artifacts from producer run `41924429831` through the
 reviewed compatibility adapter. It checks the producer is an ancestor, proves
 build inputs are unchanged apart from the old policy wording and reviewed test
@@ -230,7 +230,7 @@ status remain distinct. The release workflow does not silently rebuild on a miss
 For local engine iteration, keep the owned directory for the same recipe and
 use `-Phase Build` to retain Ninja's incremental outputs and skip dependency
 preparation. A changed source-build recipe still requires a fresh directory.
-The v0.3.4 release uses the reviewed restore path described above.
+The v0.3.5 release uses the reviewed restore path described above.
 
 ## Validation boundary
 

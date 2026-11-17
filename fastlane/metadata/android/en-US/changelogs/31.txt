@@ -1,0 +1,2 @@
+Choose multiple connections to improve overall throughput across concurrent apps and downloads.
+Switch connection scenes more easily and enjoy refined connection settings.

@@ -6,36 +6,33 @@ Rendering is not approval.
 
 ## Usque {{release_tag}} official release / Usque {{release_tag}} 正式版发布
 
-Usque {{release_tag}} introduces connection scenes, refreshes Profiles, and makes everyday connections easier to manage.
+Usque {{release_tag}} brings Usque to macOS, makes connection scenes easier to switch, and adds more control over your connections.
 
-Usque {{release_tag}} 带来连接场景和焕新的配置页面，让日常连接管理更轻松。
+Usque {{release_tag}} 将 Usque 带到 macOS，简化连接场景切换，并提供更灵活的连接设置。
 
 ## Highlights / 更新亮点 ✨
 
-- **Connection scenes** — Save your preferred account, exit and network settings together, then preview changes before switching.
-  <br>**连接场景** — 将常用账号、出口和网络设置保存为场景，切换前即可查看变化。
+- **Usque for macOS** — Use Usque on Apple Silicon and Intel Macs running macOS 13 or later.
+  <br>**macOS 版 Usque** — 现在可以在运行 macOS 13 或更高版本的 Apple Silicon 与 Intel Mac 上使用 Usque。
 
-- **Simpler setup and Profiles** — A refreshed welcome experience and a clearer Profiles page make accounts and scenes easier to manage.
-  <br>**更简洁的设置与配置** — 全新欢迎界面和更清晰的配置页面，让账号与场景管理更方便。
+- **Connection multiplexing** — Choose multiple connections in advanced network settings to increase overall throughput when several apps or downloads are active.
+  <br>**连接多路复用** — 在高级网络设置中启用多条连接，多个应用或下载同时进行时可提升整体网络吞吐速率。
 
-- **Update routing while connected** — Supported custom routing changes can apply to new connections without disconnecting.
-  <br>**连接中更新分流** — 支持的自定义分流修改可直接用于新连接，无需断开当前连接。
+- **Simpler scene switching** — Find and switch your preferred connection scenes more easily from Profiles.
+  <br>**更便捷的场景切换** — 在“配置”中更轻松地查找和切换常用连接场景。
 
-- **A smoother Windows experience** — Improved behavior when Usque is hidden or minimized, with clearer installation and removal screens.
-  <br>**更流畅的 Windows 体验** — 改进隐藏或最小化时的应用表现，并优化安装与卸载界面。
+- **Smoother Windows recovery** — Improved recovery when a network adapter is no longer available.
+  <br>**更顺畅的 Windows 恢复** — 改进网络适配器不可用时的恢复体验。
 
-- **Android and Android TV** — Hide Usque from recent tasks on Android, and navigate and edit text more comfortably with an Android TV remote.
-  <br>**Android 与 Android TV** — 可在 Android 最近任务中隐藏 Usque，并更方便地使用电视遥控器导航和输入。
-
-- **Everyday refinements** — Improved connection handling across devices and polished translations in 21 languages.
-  <br>**日常体验改进** — 改进各平台的连接处理，并完善 21 种语言的界面翻译。
+- **Everyday refinements** — Polished connection settings and the experience across devices.
+  <br>**日常体验改进** — 完善连接设置并优化多设备使用体验。
 
 ## Download / 下载 📥
 
 | Platform / 平台 | Download / 下载 |
 | :---: | :---: |
 | ![Windows](https://github.com/{{repository}}/blob/{{release_tag}}/docs/assets/release/windows.svg?raw=true)<br>**Windows 10 2004+ (build 19041)** | [![EXE x64-v2](https://github.com/{{repository}}/blob/{{release_tag}}/docs/assets/release/windows-x64-v2.svg?raw=true)](https://github.com/{{repository}}/releases/download/{{release_tag}}/usque-{{release_tag}}-windows-x64-v2.exe) [![EXE ARM64](https://github.com/{{repository}}/blob/{{release_tag}}/docs/assets/release/windows-arm64.svg?raw=true)](https://github.com/{{repository}}/releases/download/{{release_tag}}/usque-{{release_tag}}-windows-arm64.exe) |
-| **macOS 13+** | [DMG · Apple Silicon (arm64)](https://github.com/{{repository}}/releases/download/{{release_tag}}/usque-{{release_tag}}-macos-arm64.dmg) · [DMG · Intel (x86_64)](https://github.com/{{repository}}/releases/download/{{release_tag}}/usque-{{release_tag}}-macos-x86_64.dmg) |
+| **macOS 13+** | [![DMG Apple Silicon (arm64)](https://github.com/{{repository}}/blob/{{release_tag}}/docs/assets/release/macos-arm64.svg?raw=true)](https://github.com/{{repository}}/releases/download/{{release_tag}}/usque-{{release_tag}}-macos-arm64.dmg) [![DMG Intel (x86_64)](https://github.com/{{repository}}/blob/{{release_tag}}/docs/assets/release/macos-x86_64.svg?raw=true)](https://github.com/{{repository}}/releases/download/{{release_tag}}/usque-{{release_tag}}-macos-x86_64.dmg) |
 | ![Linux](https://github.com/{{repository}}/blob/{{release_tag}}/docs/assets/release/linux.svg?raw=true)<br>**Linux**<br><sub>Ubuntu 22.04+ · Debian 12+ · Fedora · systemd</sub> | [![AppImage amd64](https://github.com/{{repository}}/blob/{{release_tag}}/docs/assets/release/linux-amd64-appimage.svg?raw=true)](https://github.com/{{repository}}/releases/download/{{release_tag}}/usque-{{release_tag}}-linux-amd64.AppImage) [![deb amd64](https://github.com/{{repository}}/blob/{{release_tag}}/docs/assets/release/linux-amd64-deb.svg?raw=true)](https://github.com/{{repository}}/releases/download/{{release_tag}}/usque-{{release_tag}}-linux-amd64.deb) [![rpm amd64](https://github.com/{{repository}}/blob/{{release_tag}}/docs/assets/release/linux-amd64-rpm.svg?raw=true)](https://github.com/{{repository}}/releases/download/{{release_tag}}/usque-{{release_tag}}-linux-amd64.rpm)<br>[![AppImage arm64](https://github.com/{{repository}}/blob/{{release_tag}}/docs/assets/release/linux-arm64-appimage.svg?raw=true)](https://github.com/{{repository}}/releases/download/{{release_tag}}/usque-{{release_tag}}-linux-arm64.AppImage) [![deb arm64](https://github.com/{{repository}}/blob/{{release_tag}}/docs/assets/release/linux-arm64-deb.svg?raw=true)](https://github.com/{{repository}}/releases/download/{{release_tag}}/usque-{{release_tag}}-linux-arm64.deb) [![rpm arm64](https://github.com/{{repository}}/blob/{{release_tag}}/docs/assets/release/linux-arm64-rpm.svg?raw=true)](https://github.com/{{repository}}/releases/download/{{release_tag}}/usque-{{release_tag}}-linux-arm64.rpm) |
 | ![Android](https://github.com/{{repository}}/blob/{{release_tag}}/docs/assets/release/android.svg?raw=true)<br>**Android 8.0+ (API 26)**<br><sub>Android TV supported / 支持 Android TV</sub> | [![APK ARMv8 (arm64-v8a)](https://github.com/{{repository}}/blob/{{release_tag}}/docs/assets/release/android-arm64-v8a.svg?raw=true)](https://github.com/{{repository}}/releases/download/{{release_tag}}/usque-{{release_tag}}-android-arm64-v8a.apk) [![APK x64 (x86_64)](https://github.com/{{repository}}/blob/{{release_tag}}/docs/assets/release/android-x86_64.svg?raw=true)](https://github.com/{{repository}}/releases/download/{{release_tag}}/usque-{{release_tag}}-android-x86_64.apk)<br>[![APK ARMv7 (armeabi-v7a)](https://github.com/{{repository}}/blob/{{release_tag}}/docs/assets/release/android-armeabi-v7a.svg?raw=true)](https://github.com/{{repository}}/releases/download/{{release_tag}}/usque-{{release_tag}}-android-armeabi-v7a.apk) [![APK Universal](https://github.com/{{repository}}/blob/{{release_tag}}/docs/assets/release/android-universal.svg?raw=true)](https://github.com/{{repository}}/releases/download/{{release_tag}}/usque-{{release_tag}}-android-universal.apk) |
 
@@ -44,17 +41,21 @@ Usque {{release_tag}} 带来连接场景和焕新的配置页面，让日常连�
 >
 > 请仅从此 Release 下载。不确定选哪个 APK 时请用 **Universal**。Windows 请安装 EXE，MSI 文件仅供应用内更新。
 
+macOS provides local proxy mode in this release. System-wide VPN is not available. The app uses a project signature and is not Apple-notarized, so macOS may ask you to allow it in System Settings.
+
+此版本的 macOS 版提供本地代理模式，暂不支持系统级 VPN。应用使用项目签名，尚未经过 Apple 公证；首次打开时，macOS 可能要求你在系统设置中允许。
+
 <details>
 <summary>Usage and privacy / 使用与隐私</summary>
 
-- **Before upgrading** — Back up your data first. Settings saved by this version cannot be opened directly in v0.3.3 or earlier. [Upgrade guide](https://github.com/{{repository}}/blob/{{release_tag}}/docs/INSTALLATION.md#configuration-compatibility-when-upgrading)
-  <br>**升级前** — 请先备份数据；此版本保存的设置不能直接由 v0.3.3 或更早版本读取。[升级指南](https://github.com/{{repository}}/blob/{{release_tag}}/docs/INSTALLATION.md#configuration-compatibility-when-upgrading)
+- **Before upgrading** — Back up your data first. Settings saved by this version cannot be opened directly in v0.3.4 or earlier. [Upgrade guide](https://github.com/{{repository}}/blob/{{release_tag}}/docs/INSTALLATION.md#configuration-compatibility-when-upgrading)
+  <br>**升级前** — 请先备份数据；此版本保存的设置不能直接由 v0.3.4 或更早版本读取。[升级指南](https://github.com/{{repository}}/blob/{{release_tag}}/docs/INSTALLATION.md#configuration-compatibility-when-upgrading)
 
 - **Scenes** — Open **Profiles** to create or use a scene and review its changes before switching. [Scenes guide](https://github.com/{{repository}}/blob/{{release_tag}}/docs/SCENARIOS.md)
   <br>**场景** — 打开“配置”创建或使用场景，切换前可查看变化。[场景指南](https://github.com/{{repository}}/blob/{{release_tag}}/docs/SCENARIOS.md)
 
-- **Proton VPN** — Choose it in **Proxy → Chain proxy** and complete any verification when prompted. [Proton VPN guide](https://github.com/{{repository}}/blob/{{release_tag}}/docs/PROTON_VPN.md)
-  <br>**Proton VPN** — 在“代理 → 链式代理”中选择，并按提示完成验证。[Proton VPN 指南](https://github.com/{{repository}}/blob/{{release_tag}}/docs/PROTON_VPN.md)
+- **Proton VPN** — Choose it in **Proxy → Chain proxy**. On macOS, import a Proton configuration if sign-in requires browser verification. [Proton VPN guide](https://github.com/{{repository}}/blob/{{release_tag}}/docs/PROTON_VPN.md)
+  <br>**Proton VPN** — 在“代理 → 链式代理”中选择；在 macOS 上，如果登录需要网页验证，请导入 Proton 配置文件。[Proton VPN 指南](https://github.com/{{repository}}/blob/{{release_tag}}/docs/PROTON_VPN.md)
 
 - **Server changes** — Choose a server while connected, then select **Apply and reconnect** to use it.
   <br>**更换节点** — 连接期间可选择节点，然后点击“应用并重新连接”以使用新节点。

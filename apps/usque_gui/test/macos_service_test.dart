@@ -66,7 +66,7 @@ class ServiceEngine extends FakeEngineClient implements MacosServiceClient {
       installed: true,
       compatible: true,
       canMaintain: true,
-      version: '0.3.4',
+      version: '0.3.5',
     );
   }
 }
@@ -574,7 +574,7 @@ void main() {
           compatible: true,
           canMaintain: true,
           tunAvailable: true,
-          version: '0.3.4',
+          version: '0.3.5',
         );
       final app = AppController(engine)
         ..localePreference = LocalePreference.english;
@@ -593,7 +593,7 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      expect(find.text('Version 0.3.4'), findsOneWidget);
+      expect(find.text('Version 0.3.5'), findsOneWidget);
       expect(find.text(app.strings.get('macos_service_restore')), findsNothing);
       final more = find.byKey(const ValueKey('macos-service-more'));
       await tester.tap(more);
@@ -617,7 +617,7 @@ void main() {
       installed: true,
       compatible: true,
       canMaintain: true,
-      version: '0.3.4',
+      version: '0.3.5',
     ),
     'service_incompatible': const MacosServiceState(
       installed: true,
@@ -631,7 +631,7 @@ void main() {
       canMaintain: true,
       protectionRetained: true,
       recoveryPending: true,
-      version: '0.3.4',
+      version: '0.3.5',
     ),
     'tun_ready': const MacosServiceState(
       installed: true,
@@ -640,7 +640,7 @@ void main() {
       preflightPassed: true,
       releaseApproved: true,
       tunAvailable: true,
-      version: '0.3.4',
+      version: '0.3.5',
     ),
     'service_missing_zh': const MacosServiceState(canMaintain: true),
     'onboarding_permissions_zh': const MacosServiceState(canMaintain: true),

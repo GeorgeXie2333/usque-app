@@ -137,12 +137,12 @@ flowchart LR
 
 ## 다운로드
 
-**v0.3.4**는 로컬 연결 시나리오를 추가하고 설정, 라우팅, 데스크톱과 Android 환경을 개선합니다. 설치한 버전의 릴리스 노트와 해당 태그 문서를 확인하세요.
+**v0.3.5**는 macOS 데스크톱 앱과 병렬 연결 설정을 추가하고 연결 시나리오 전환을 간소화합니다. 설치한 버전의 릴리스 노트와 해당 태그 문서를 확인하세요.
 
 | 플랫폼 | 최소 OS | 패키지 |
 | --- | --- | --- |
 | Windows | Windows 10 2004, 빌드 19041 | x64-v2 또는 ARM64 EXE 설치 프로그램 |
-| macOS | macOS 13 이상 | v0.3.5에서 Apple Silicon(arm64)용과 Intel(x86_64)용 DMG 배포 예정 |
+| macOS | macOS 13 이상 | Apple Silicon(arm64) 및 Intel(x86_64) DMG |
 | Linux(v0.3.3부터) | Ubuntu 22.04+, Debian 12+, 지원 중인 Fedora; systemd | amd64 또는 arm64용 AppImage, deb, rpm |
 | Android / Android TV | Android 8.0, API 26 | arm64-v8a, x86_64 또는 armeabi-v7a APK, 또는 범용 APK |
 
@@ -155,7 +155,7 @@ Windows x64에는 **x86-64-v2**를 지원하는 CPU가 필요하며, ARM64 Windo
 >
 > **경고를 우회하지 마세요.** 1.0 이전 Windows/Android 패키지는 프로젝트에서 관리하는 고정된 자체 서명 인증서를 사용합니다. Windows에는 알 수 없는 게시자 경고가 나타날 수 있으며, Android 패키지는 Google Play 밖에서 설치합니다. 경고를 우회하려고 백신이나 방화벽을 끄거나 비공식 패키지에 포함된 인증서를 가져오지 마세요.
 
-- **업그레이드 시 구성은 한 방향으로만 마이그레이션됩니다.** v0.3.2와 v0.3.3은 구성 스키마 26을 사용합니다. v0.3.1에서 업그레이드하면 스키마가 24에서 26으로 바뀌며 v0.3.1 이하에서는 읽을 수 없습니다. v0.3.4는 스키마를 26에서 27로 바꾸며 v0.3.3 이하에서는 읽을 수 없습니다. 이전 버전 재설치는 마이그레이션을 되돌리지 않으므로, 먼저 [구성 호환성](docs/INSTALLATION.md#configuration-compatibility-when-upgrading)을 확인하고 필요한 백업을 준비하세요.
+- **업그레이드 시 구성은 한 방향으로만 마이그레이션됩니다.** v0.3.2와 v0.3.3은 구성 스키마 26을 사용합니다. v0.3.1에서 업그레이드하면 스키마가 24에서 26으로 바뀌며 v0.3.1 이하에서는 읽을 수 없습니다. v0.3.4는 스키마를 26에서 27로 바꾸며 v0.3.3 이하에서는 읽을 수 없습니다. 이전 버전 재설치는 마이그레이션을 되돌리지 않으므로, 먼저 [구성 호환성](docs/INSTALLATION.md#configuration-compatibility-when-upgrading)을 확인하고 필요한 백업을 준비하세요. v0.3.5는 스키마 28로 마이그레이션하며 v0.3.4 이하는 이를 읽을 수 없습니다.
 - **Linux:** AppImage에서 처음 VPN을 설정할 때 관리자 승인으로 백그라운드 서비스를 설치합니다. 인증 정보에는 잠금 해제된 Secret Service 키링이 필요합니다. GNOME/KDE, X11/Wayland, 복구 및 테스트 범위는 [Linux 데스크톱 가이드](docs/LINUX_DESKTOP.md)를 참고하세요.
 - **업데이트**는 다운로드 전에 확인이 필요하며, 플랫폼 설치 프로그램으로 설치합니다. 사용자 확인 없이 자동으로 설치하지 않습니다.
 - 업그레이드, 제거, 복구, Android 개발자 인증에 관한 설명은 [설치 및 제거](docs/INSTALLATION.md)를, 공식 서명에 사용하는 인증서 정보는 [코드 서명](docs/CODE_SIGNING.md)을 참고하세요.
@@ -241,10 +241,7 @@ iOS, 앱 스토어 배포, 공개 CLI는 이번 릴리스 범위에 포함되지
 
 ### v0.3.5의 macOS 지원
 
-macOS용 첫 정식 버전은 v0.3.5와 함께 출시될 예정입니다. 로컬 HTTP 및 SOCKS5 프록시를 사용할 수 있습니다. 시스템 VPN을 테스트하려면 별도의 [Agent/utun 테스트 빌드](docs/MACOS_TUN_AGENT.md)가 필요합니다. 자동 설치는 비활성화되어 있습니다.
-구현된 기능과 아직 완료되지 않은 기능은 [macOS 기능 비교표](docs/MACOS_WINDOWS_PARITY.md)를 참조하세요.
-현재 `dev` 소스에는 macOS 연결 시나리오, 종료 전 정리 완료 확인, VPN Gate용 보호된 임시 WARP 연결이 추가되었습니다. 저장된 체인 설정을 유지하며 물리 네트워크로 목록을 직접 내려받지 않습니다. 기존 개발용 설치 파일에는 이 변경이 포함되지 않았으며 새 설치 파일은 아직 게시하지 않았습니다.
-macOS에서는 Proton 게스트 등록과 내장 인증 브라우저를 제거했습니다. 일반 계정 로그인은 유지되지만 브라우저 인증이 필요한 로그인은 완료할 수 없습니다.
+v0.3.5 macOS 앱은 로컬 HTTP 및 SOCKS5 프록시를 지원하며 정식 DMG에서 시스템 VPN은 비활성화되어 있습니다. [macOS 기능 비교표](docs/MACOS_WINDOWS_PARITY.md)와 [설치 안내](docs/INSTALLATION.md#choose-a-package)를 참조하세요. macOS에서는 Proton 게스트 등록과 내장 인증 브라우저를 사용할 수 없습니다.
 
 ## 기본 네트워크 설정
 
