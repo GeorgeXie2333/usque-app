@@ -92,6 +92,9 @@ class BetaReleaseTests(unittest.TestCase):
         self.assertIn("draft: false", workflow)
         self.assertIn("verify-main-ci", workflow)
         self.assertIn("verify-beta-ci", workflow)
+        release_gate = workflow.split("  release-gate:\n", 1)[1].split("\n  windows:\n", 1)[0]
+        self.assertIn("for workflow in ci.yml codeql.yml; do", release_gate)
+        self.assertIn('"${verify[@]}" --workflow "$workflow"', release_gate)
         for name in ("ci.yml", "codeql.yml"):
             self.assertIn(
                 "'release/**'", (linux_package.ROOT / ".github/workflows" / name).read_text()

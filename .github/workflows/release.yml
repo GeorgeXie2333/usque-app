@@ -67,50 +67,28 @@ jobs:
             fi
           done
 
-      - name: Require this exact main commit to have a successful CI / gate workflow
-        if: ${{ !contains(env.RELEASE_TAG, '-beta.') }}
+      - name: Require exact source branch tip and successful push CI and CodeQL
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          git fetch \
-            --no-tags \
-            --depth 1 \
-            origin \
-            +refs/heads/main:refs/remotes/origin/main
-          test "$(git rev-parse refs/remotes/origin/main)" = "$GITHUB_SHA" || {
-            echo "::error::The release tag must point to the current main commit."
-            exit 1
-          }
-
-          gh api \
-            --method GET \
-            "/repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs" \
-            -f "head_sha=$GITHUB_SHA" \
-            -f "branch=main" \
-            -f "event=push" \
-            -f "status=success" \
-            -f "per_page=100" > "$RUNNER_TEMP/main-ci-runs.json"
-          python tool/release_contract.py verify-main-ci \
-            --runs "$RUNNER_TEMP/main-ci-runs.json" \
-            --commit "$GITHUB_SHA"
-
-      - name: Require exact beta release branch push CI
-        if: ${{ contains(env.RELEASE_TAG, '-beta.') }}
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          branch="release/$RELEASE_TAG"
+          branch=main
+          verify=(verify-main-ci)
+          if [[ "$RELEASE_TAG" == *-beta.* ]]; then
+            branch="release/$RELEASE_TAG"
+            verify=(verify-beta-ci --tag "$RELEASE_TAG")
+          fi
           git fetch --no-tags --depth 1 origin "+refs/heads/$branch:refs/remotes/origin/$branch"
           test "$(git rev-parse "refs/remotes/origin/$branch")" = "$GITHUB_SHA"
-          gh api --method GET "/repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs" \
-            -f "head_sha=$GITHUB_SHA" -f "branch=$branch" -f "event=push" \
-            -f "status=success" -f "per_page=100" > "$RUNNER_TEMP/beta-ci-runs.json"
-          python tool/release_contract.py verify-beta-ci \
-            --runs "$RUNNER_TEMP/beta-ci-runs.json" --commit "$GITHUB_SHA" --tag "$RELEASE_TAG"
+          for workflow in ci.yml codeql.yml; do
+            runs="$RUNNER_TEMP/$workflow-runs.json"
+            gh api --method GET "/repos/$GITHUB_REPOSITORY/actions/workflows/$workflow/runs" \
+              -f "head_sha=$GITHUB_SHA" -f "branch=$branch" -f "event=push" \
+              -f "per_page=1" > "$runs"
+            python tool/release_contract.py "${verify[@]}" --workflow "$workflow" \
+              --runs "$runs" --commit "$GITHUB_SHA"
+          done
 
       - name: Explain one-batch signing review
         shell: bash

@@ -23,9 +23,19 @@ env:
   FLUTTER_VERSION: 3.44.7
 
 jobs:
+  promotion:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      actions: read
+      contents: read
+    uses: ./.github/workflows/promotion-check.yml
+    with:
+      workflow: ci.yml
+
   macos-package:
     name: macOS DMG with disposable signer (${{ matrix.arch }})
-    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
+    needs: promotion
+    if: &run-ci ${{ !cancelled() && needs.promotion.outputs.reused != 'true' && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     permissions:
@@ -60,12 +70,14 @@ jobs:
 
   linux:
     name: Linux desktop and six package contracts
-    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
+    needs: promotion
+    if: *run-ci
     uses: ./.github/workflows/linux.yml
 
   workflow-lint:
     name: GitHub Actions syntax and security lint
-    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
+    needs: promotion
+    if: *run-ci
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -95,7 +107,8 @@ jobs:
 
   rust:
     name: Rust format, lint, and tests
-    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
+    needs: promotion
+    if: *run-ci
     runs-on: ubuntu-24.04
     timeout-minutes: 180
     steps:
@@ -140,7 +153,8 @@ jobs:
 
   tooling-quality:
     name: Multi-language tooling quality
-    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
+    needs: promotion
+    if: *run-ci
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
@@ -240,7 +254,8 @@ jobs:
 
   android-host:
     name: Android host unit tests and lint
-    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
+    needs: promotion
+    if: *run-ci
     runs-on: ubuntu-24.04
     timeout-minutes: 180
     steps:
@@ -304,7 +319,8 @@ jobs:
 
   flutter:
     name: Flutter analysis, widgets and Linux golden images
-    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
+    needs: promotion
+    if: *run-ci
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
@@ -370,7 +386,8 @@ jobs:
 
   flutter-goldens:
     name: Flutter golden images (Windows)
-    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
+    needs: promotion
+    if: *run-ci
     runs-on: windows-2025
     timeout-minutes: 60
     steps:
@@ -410,7 +427,8 @@ jobs:
 
   go-oracle:
     name: Archived Go oracle
-    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
+    needs: promotion
+    if: *run-ci
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
@@ -440,7 +458,8 @@ jobs:
 
   security-audit:
     name: Locked dependency vulnerability audit
-    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
+    needs: promotion
+    if: *run-ci
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -512,7 +531,8 @@ jobs:
 
   release-contract:
     name: Release artifact manifest contract
-    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
+    needs: promotion
+    if: *run-ci
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -545,7 +565,8 @@ jobs:
 
   windows-installer-authoring:
     name: MSI authoring (${{ matrix.arch }})
-    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
+    needs: promotion
+    if: *run-ci
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
     strategy:
@@ -591,6 +612,7 @@ jobs:
     name: CI / gate
     if: ${{ always() && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
     needs:
+      - promotion
       - workflow-lint
       - rust
       - tooling-quality
@@ -606,8 +628,10 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - name: Require every CI job
+      - name: Require every CI job or verified dev CI
         env:
+          PROMOTION: ${{ needs.promotion.result }}
+          REUSED: ${{ needs.promotion.outputs.reused }}
           WORKFLOW_LINT: ${{ needs.workflow-lint.result }}
           RUST: ${{ needs.rust.result }}
           TOOLING: ${{ needs.tooling-quality.result }}
@@ -622,6 +646,11 @@ jobs:
           LINUX: ${{ needs.linux.result }}
         run: |
           set -euo pipefail
+          expected=success
+          if [[ "$GITHUB_EVENT_NAME" == push && "$GITHUB_REF" == refs/heads/main ]]; then
+            test "$PROMOTION" = success
+            if [[ "$REUSED" == true ]]; then expected=skipped; fi
+          fi
           for result in \
             "$WORKFLOW_LINT" \
             "$RUST" \
@@ -635,5 +664,5 @@ jobs:
             "$MACOS_PACKAGE" \
             "$LINUX" \
             "$WINDOWS_AUTHORING"; do
-            test "$result" = "success"
+            test "$result" = "$expected"
           done

@@ -76,6 +76,35 @@ class MainCiContractTests(unittest.TestCase):
             with patch("sys.stderr"):
                 self.assertEqual(release_contract.main(arguments), 1)
 
+    def test_codeql_evidence_is_workflow_and_release_branch_specific(self) -> None:
+        tag = "v0.3.3-beta.2"
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "runs.json"
+            for branch, command in (
+                ("main", ["verify-main-ci"]),
+                (f"release/{tag}", ["verify-beta-ci", "--tag", tag]),
+            ):
+                args = [
+                    *command,
+                    "--commit",
+                    self.commit,
+                    "--runs",
+                    str(path),
+                    "--workflow",
+                    "codeql.yml",
+                ]
+                run = {**self.run, "head_branch": branch, "path": ".github/workflows/codeql.yml"}
+                release_contract.write_json(path, {"workflow_runs": [run]})
+                self.assertEqual(release_contract.main(args), 0)
+                for changes in (
+                    {"path": self.run["path"]},
+                    {"head_branch": "dev"},
+                    {"conclusion": "failure"},
+                ):
+                    release_contract.write_json(path, {"workflow_runs": [{**run, **changes}]})
+                    with self.subTest(branch=branch, changes=changes), patch("sys.stderr"):
+                        self.assertEqual(release_contract.main(args), 1)
+
 
 class ReleaseContractTests(unittest.TestCase):
     def setUp(self) -> None:

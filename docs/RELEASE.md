@@ -15,9 +15,9 @@ published as the stable Latest on 2026-10-26 (UTC) from
 [v0.3.2](https://github.com/GeorgeXie2333/usque-app/releases/tag/v0.3.2) was
 published on 2026-10-17 from `02685ee399debf93731751f59b33cdfaef49dcdf`.
 See [Preparing v0.3.4](#preparing-v034). The published `v0.3.3` tag must not
-be moved or reused. A stable tag must
-match the current main tip and a completed successful main push CI run for that
-exact SHA; release/dev checks cannot substitute. Only the maintainer creates the tag.
+be moved or reused. A stable tag must match the current main tip and its
+successful CI and CodeQL push runs. On promotion, those runs can verify
+completed dev checks for the same commit. Only the maintainer creates the tag.
 Signing and publish jobs run in GitHub Environments that need approval. If a
 required file, signing input, or CI result is missing, the workflow fails. A
 local bundle, MSI, or APK cannot replace a failed Actions build.
@@ -43,7 +43,8 @@ evidence of a published release or successful final-candidate validation.
 
 The candidate uses configuration schema 27 for [connection scenes](SCENARIOS.md),
 Agent protocol 3, Windows/Linux recovery journals 6/1 and recovery export 2.
-Require exact-candidate CI, Build and CodeQL and main push CI and CodeQL. The
+Require exact-candidate CI, Build and CodeQL. Wait for the main push CI and
+CodeQL results after promotion as described [below](#before-signing-starts). The
 reviewed Windows engine inputs are reused only after the pinned producer,
 artifact and provenance checks described in [engine reuse](FLUTTER_WINDOWS_TIMER.md).
 Retain both engine restore receipts, PDBs and Flutter symbol archives. Keep the
@@ -222,10 +223,17 @@ Which signatures count as official, how fingerprints are published, and what hap
 - Complete the preparation for the next version first. The accepted tag must
   match `release.yml`; a stable tag must point to the exact main tip, and a Beta
   tag to the exact `release/<tag>` tip.
-- A stable commit must already have a successful `main` `ci.yml` push run,
-  including `CI / gate`, plus CodeQL; a release-branch or dev run cannot
-  substitute. A Beta commit instead needs its `release/<tag>` push CI, CodeQL
-  and Build, and PR/main gates are not applicable.
+- Before promoting dev to main, wait for CI, CodeQL and Build on the exact
+  candidate. When both tips match, each main push workflow independently checks
+  the latest dev push of its own workflow for that SHA in the same repository.
+  CI requires a successful `CI / gate`. CodeQL requires successful Actions,
+  C/C++, Python and Rust analysis jobs. The main run summary links the verified
+  dev run attempt. A different tip, incomplete evidence or lookup error runs
+  the corresponding workflow in full.
+- CodeQL results reused from dev remain associated with dev. Scheduled and
+  manually dispatched CodeQL runs still analyze main when run on main.
+  PRs and `release/<tag>` pushes keep their normal checks. A Beta candidate
+  requires its own release-branch push CI and CodeQL and a successful Build.
 - `release-signing` and `release-publish` both require approval.
 - Android Developer Console must show `io.github.georgexie2333.usque` and the certificate fingerprint in `ANDROID_SIGNER_SHA256` as **Registered**.
 - Signing material stays in environment secrets. Do not put it in repository variables, files, artifacts, logs, or caches.
@@ -233,10 +241,10 @@ Which signatures count as official, how fingerprints are published, and what hap
 Review the live `main` ruleset, tag restrictions and both environment approval
 settings before tagging. A checked-in document cannot establish their current
 GitHub configuration. `PR Check / gate`, `CI / gate` and `Build / gate` are the
-documented merge checks. The release gate separately requires a successful
-`ci.yml` **push** run for the exact tag SHA and appropriate source branch:
-current `main` for stable, `release/<tag>` for Beta. An earlier PR, other-branch
-run or local check is insufficient. `publish` depends only on `stage-candidate`
+documented merge checks. Before signing, the tag workflow checks the latest
+`ci.yml` and `codeql.yml` **push** runs for the exact tag SHA on the current
+source branch (`main` for stable, `release/<tag>` for Beta). Both must have
+completed successfully. `publish` depends only on `stage-candidate`
 and requires `release-publish` approval; protected reliability jobs are not
 dependencies of publication.
 

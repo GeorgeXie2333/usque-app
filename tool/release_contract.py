@@ -129,50 +129,39 @@ def normalize_commit(value: Any) -> str:
     return normalized
 
 
-def verify_main_ci(runs: dict[str, Any], commit: str) -> None:
-    """Require successful, completed push CI on main for the exact candidate."""
-
+def verify_push_run(runs: dict[str, Any], commit: str, branch: str, workflow: str) -> dict:
+    """Require a successful push of the specified workflow, branch and candidate."""
     commit = normalize_commit(commit)
     workflow_runs = runs.get("workflow_runs")
-    if not isinstance(workflow_runs, list):
-        raise ContractError("CI response must contain a workflow_runs array")
+    if not isinstance(workflow_runs, list) or any(
+        not isinstance(run, dict) for run in workflow_runs
+    ):
+        raise ContractError("Actions response must contain workflow run objects")
     for run in workflow_runs:
-        if not isinstance(run, dict):
-            raise ContractError("CI workflow run must be an object")
         if (
-            run.get("path") == ".github/workflows/ci.yml"
+            run.get("path") == f".github/workflows/{workflow}"
             and run.get("head_sha") == commit
-            and run.get("head_branch") == "main"
+            and run.get("head_branch") == branch
             and run.get("event") == "push"
             and run.get("status") == "completed"
             and run.get("conclusion") == "success"
         ):
-            return
-    raise ContractError("no successful completed main push CI exists for the exact commit")
+            return run
+    raise ContractError(f"no successful completed {branch} push of {workflow} for the exact commit")
 
 
-def verify_beta_ci(runs: dict[str, Any], commit: str, tag: str) -> None:
+def verify_main_ci(runs: dict[str, Any], commit: str, workflow: str = "ci.yml") -> None:
+    verify_push_run(runs, commit, "main", workflow)
+
+
+def verify_beta_ci(runs: dict[str, Any], commit: str, tag: str, workflow: str = "ci.yml") -> None:
     """Require exact release/<beta tag> push CI, never a dev/main substitute."""
     if not TAG_PATTERN.fullmatch(tag) or "-beta." not in tag:
         raise ContractError("beta CI requires a supported beta tag")
     ordinal = tag.rsplit(".", 1)[1]
     if ordinal.startswith("0"):
         raise ContractError("beta ordinal must be canonical and positive")
-    commit = normalize_commit(commit)
-    records = runs.get("workflow_runs")
-    if not isinstance(records, list) or any(not isinstance(run, dict) for run in records):
-        raise ContractError("CI response must contain workflow run objects")
-    for run in records:
-        if (
-            run.get("path") == ".github/workflows/ci.yml"
-            and run.get("head_sha") == commit
-            and run.get("head_branch") == f"release/{tag}"
-            and run.get("event") == "push"
-            and run.get("status") == "completed"
-            and run.get("conclusion") == "success"
-        ):
-            return
-    raise ContractError("no successful completed beta release-branch push CI for exact commit")
+    verify_push_run(runs, commit, f"release/{tag}", workflow)
 
 
 def render_release_notes(
@@ -528,6 +517,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     beta_ci.add_argument("--runs", type=Path, required=True)
     beta_ci.add_argument("--commit", required=True)
     beta_ci.add_argument("--tag", required=True)
+    for check in (main_ci, beta_ci):
+        check.add_argument("--workflow", choices=("ci.yml", "codeql.yml"), default="ci.yml")
 
     notes = subparsers.add_parser("render-release-notes")
     notes.add_argument("--template", type=Path, required=True)
@@ -561,9 +552,9 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "verify-version":
             verify_release_version(args.root, args.tag, args.android_version_code)
         elif args.command == "verify-main-ci":
-            verify_main_ci(load_json(args.runs), args.commit)
+            verify_main_ci(load_json(args.runs), args.commit, args.workflow)
         elif args.command == "verify-beta-ci":
-            verify_beta_ci(load_json(args.runs), args.commit, args.tag)
+            verify_beta_ci(load_json(args.runs), args.commit, args.tag, args.workflow)
         elif args.command == "render-release-notes":
             notes = render_release_notes(
                 args.template,
