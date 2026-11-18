@@ -134,7 +134,7 @@ checks its lifetime after the last close. To run this test on separate GitHub-ho
 Apple Silicon and Intel runners, dispatch the Build workflow:
 
 ```sh
-gh workflow run build.yml --ref feat/macos -f macos_utun=true
+gh workflow run build.yml --ref dev -f macos_utun=true
 ```
 
 Both **Real utun** jobs must show the named test passing. The socket pair used
@@ -142,7 +142,7 @@ for this test lives in one process. To run the endpoint-failure and recovery
 scenarios on both architectures with a separate Linux observer:
 
 ```sh
-gh workflow run build.yml --ref feat/macos -f macos_tun_e2e=true
+gh workflow run build.yml --ref dev -f macos_tun_e2e=true
 ```
 
 The first scenario installs the Agent, provisions synthetic credentials in a
@@ -254,7 +254,28 @@ MACOSX_DEPLOYMENT_TARGET=13.0 cargo check --workspace --all-targets --target x86
 python3 tool/test_macos_package.py
 ```
 
-Real network cases remain `not_run` for arm64/x86_64 × macOS 13/current:
+The release after v0.3.5 targets production TUN in both macOS DMGs. Before
+opening the Engine and Agent release constants, complete the real-network
+matrix on the release candidate using reversible test systems and an
+independent network observer. Record the candidate commit, OS, architecture
+and observed results for each case.
+
+On November 18, 2026, `dev` commit `bedcdcb295d577e20907c3538daeaae962d77eb2`
+passed the following checks on GitHub-hosted macOS 15 runners for arm64 and
+x86_64.
+
+- The utun test verified descriptor handoff and interface release. Network
+  acceptance verified endpoint refusal, CONNECT-IP packet flow, disconnect
+  after peer loss, DNS and route restoration, and zero matching synthetic IPv4
+  and IPv6 probes during active and retained protection. The independent HTTPS
+  receiver observed both architectures' positive controls and no protected
+  requests.
+  [GitHub Actions run](https://github.com/GeorgeXie2333/usque-app/actions/runs/44214270081)
+- Live WARP acceptance verified WARP Consumer registration, TUN traffic and
+  disconnect. [GitHub Actions run](https://github.com/GeorgeXie2333/usque-app/actions/runs/44214223883)
+
+Full device acceptance for arm64/x86_64 × macOS 13/current remains `not_run`.
+The matrix covers the following scenarios:
 IPv4/IPv6 TCP/UDP, actual utun/FD handoff, bound egress without loops, same-IP
 domain decisions, DNS/DoH/DoT, automatic endpoints, chains, TUN plus proxies,
 old physical states, firewall coexistence, GUI/Engine/Agent kills, sleep/wake,
@@ -264,10 +285,8 @@ parser checks, ad-hoc signing and cross compilation do not replace these tests.
 Windows/Linux exact golden comparison remains for those hosts; only the native
 arm64 macOS baseline is recorded here. Intel runtime/golden acceptance is `not_run`.
 
-Release review must verify the matrix using an independent observer and
-reversible test systems before opening both release constants. There is no
-ordinary-user runtime flag to bypass the production gate and no unattended root
-Agent auto-update in this version.
+The test DMG uses a compile-time opt-in. Root Agent updates require
+administrator authorization.
 
 Primary implementation references: [Apple utun](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/net/if_utun.c),
 [Darwin socket shutdown](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/kern/uipc_socket.c),
