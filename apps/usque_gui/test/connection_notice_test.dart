@@ -107,11 +107,14 @@ void main() {
       expect(notices, hasLength(1));
     });
 
-    test('Kill Switch blocking requires the armed tunnel preference', () {
-      phase(ConnectionPhase.connected, armed: false);
-      phase(ConnectionPhase.error, killSwitch: 'active', armed: false);
-      expect(notices.single.killSwitchBlocking, isFalse);
-    });
+    test(
+      'Kill Switch blocking follows native active state even when preference is off',
+      () {
+        phase(ConnectionPhase.connected, armed: false);
+        phase(ConnectionPhase.error, killSwitch: 'active', armed: false);
+        expect(notices.single.killSwitchBlocking, isTrue);
+      },
+    );
 
     test('the first snapshot after start-up is not a change', () {
       phase(ConnectionPhase.error);

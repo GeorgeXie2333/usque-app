@@ -80,6 +80,8 @@ class UsqueVpnService : VpnService() {
         internal const val LAST_PROFILE = "last_profile_json"
         internal const val START_ON_BOOT = "start_on_boot"
         internal const val TILE_VPN_ACTIVE = "tile_vpn_active"
+        internal const val TILE_VPN_PROTECTION_RETAINED = "tile_vpn_protection_retained"
+        internal const val TILE_PROTECTION_ACTIVE_ERROR = "TILE_PROTECTION_ACTIVE"
         private const val MAX_PROFILE_BYTES = 256 * 1024
     }
 
@@ -1372,19 +1374,42 @@ class UsqueVpnService : VpnService() {
         request?.let(::replyWithSnapshot)
     }
 
+    private fun isVpnProtectionRetained(): Boolean = tunnel.get()?.fileDescriptor?.valid() == true
+
     private fun toggleFromTile(request: Message) {
         val anyFrontendActive = activeProfileJson.get() != null
         val vpnFrontendActive = anyFrontendActive && activeMode.get() == "vpn"
-        if (vpnFrontendActive) {
-            disconnect(stopService = true, request = request)
-        } else if (anyFrontendActive) {
-            replyControlError(
-                request,
-                "TILE_VPN_FRONTEND_INACTIVE",
-                AndroidLocaleController.getString(this, R.string.tile_proxy_only),
+        when (
+            QuickSettingsTileState.toggleAction(
+                phase = snapshotState.phase,
+                anyFrontendActive = anyFrontendActive,
+                vpnFrontendActive = vpnFrontendActive,
+                protectionRetained = isVpnProtectionRetained(),
             )
-        } else {
-            connectLastProfile(request)
+        ) {
+            QuickSettingsTileState.ToggleAction.OPEN_APP_PROTECTION_ACTIVE -> {
+                replyControlError(
+                    request,
+                    TILE_PROTECTION_ACTIVE_ERROR,
+                    AndroidLocaleController.getString(this, R.string.tile_open_app),
+                )
+            }
+
+            QuickSettingsTileState.ToggleAction.DISCONNECT -> {
+                disconnect(stopService = true, request = request)
+            }
+
+            QuickSettingsTileState.ToggleAction.ERROR_PROXY_ONLY -> {
+                replyControlError(
+                    request,
+                    "TILE_VPN_FRONTEND_INACTIVE",
+                    AndroidLocaleController.getString(this, R.string.tile_proxy_only),
+                )
+            }
+
+            QuickSettingsTileState.ToggleAction.CONNECT -> {
+                connectLastProfile(request)
+            }
         }
     }
 
@@ -1393,6 +1418,7 @@ class UsqueVpnService : VpnService() {
             QuickSettingsTileState.fromSnapshot(
                 snapshotState.phase,
                 activeProfileJson.get() != null && activeMode.get() == "vpn",
+                isVpnProtectionRetained(),
             )
         if (nextPresentation == lastTilePresentation) return
         lastTilePresentation = nextPresentation
@@ -1431,7 +1457,7 @@ class UsqueVpnService : VpnService() {
                 return
             }
         if (permissionRequired) {
-            fail(generation, "VPN permission is not granted.")
+            fail(generation, "VPN_PERMISSION_DENIED", "VPN permission is not granted.")
             return
         }
 
@@ -2820,6 +2846,7 @@ class UsqueVpnService : VpnService() {
                         )
                         if (policy.protectedCapture && confirmed && !policy.killSwitch) accountHandoff.stable()
                     }
+                    notifyTileStateChanged()
                     broadcastSnapshot()
                 }
             }
@@ -2935,6 +2962,7 @@ class UsqueVpnService : VpnService() {
                 Bundle().apply {
                     putString(ServiceSnapshotState.WireKeys.PHASE, snapshotState.phase)
                     putBoolean(TILE_VPN_ACTIVE, activeProfileJson.get() != null && activeMode.get() == "vpn")
+                    putBoolean(TILE_VPN_PROTECTION_RETAINED, isVpnProtectionRetained())
                 }
             },
             fullSnapshot = ::snapshotBundle,
@@ -2950,6 +2978,10 @@ class UsqueVpnService : VpnService() {
             putBoolean(
                 TILE_VPN_ACTIVE,
                 activeProfileJson.get() != null && activeMode.get() == "vpn",
+            )
+            putBoolean(
+                TILE_VPN_PROTECTION_RETAINED,
+                isVpnProtectionRetained(),
             )
         }
 

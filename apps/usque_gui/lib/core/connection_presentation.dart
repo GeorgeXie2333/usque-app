@@ -112,7 +112,7 @@ class ConnectionPresentation {
         mode: RingMode.scan,
         tone: StatusTone.neutral,
         labelKey: 'disconnecting',
-        actionKey: 'connecting',
+        actionKey: 'disconnecting',
         recoverable: false,
       ),
       ConnectionPhase.error => const ConnectionPresentation(

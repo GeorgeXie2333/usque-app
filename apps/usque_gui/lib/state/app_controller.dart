@@ -417,7 +417,9 @@ class AppController extends ChangeNotifier {
   /// in-flight connection remains cancellable while unrelated writes are busy.
   bool get connectionActionEnabled =>
       _exitCleanup == null &&
-      (!busy || snapshot.isTransitional) &&
+      (!busy ||
+          snapshot.isTransitional ||
+          _pendingConnection?.intent == _connectionIntent) &&
       snapshot.phase != ConnectionPhase.disconnecting &&
       snapshot.errorCode != 'WINDOWS_RECOVERY_BLOCKED';
 
@@ -451,6 +453,17 @@ class AppController extends ChangeNotifier {
   bool _startupUpdateCheckStarted = false;
   bool _disposed = false;
   int _connectionIntent = 0;
+  _ConnectionCommand? _pendingConnection;
+  int? _proxyCleanupIntent;
+  bool get hasPendingConnectionStart {
+    final command = _pendingConnection;
+    return command != null &&
+        command.intent == _connectionIntent &&
+        !command.stopping &&
+        (snapshot.isTransitional ||
+            (!command.sawChange && !command.acknowledged));
+  }
+
   Future<void>? _exitCleanup;
   final Set<Completer<void>> _pendingOperations = {};
 
@@ -622,8 +635,12 @@ class AppController extends ChangeNotifier {
   void _setSnapshot(EngineSnapshot value, {bool observeQuality = true}) {
     _snapshotRevision++;
     final becameConnected = !_snapshot.isConnected && value.isConnected;
+    final banner = _connectionBanner(value);
     _snapshot = value;
-    if (value.isConnected && _lastErrorFromConnection) lastError = null;
+    if (value.isConnected || value.phase == ConnectionPhase.disconnected) {
+      _proxyCleanupIntent = null;
+      if (_lastErrorFromConnection) lastError = null;
+    }
     if (becameConnected && initialized) {
       unawaited(maintainAdsRules());
       if (identityState(activeProfileId) == ProfileIdentityState.locked) {
@@ -634,16 +651,11 @@ class AppController extends ChangeNotifier {
         );
       }
     }
-    if (value.phase == ConnectionPhase.error &&
-        (value.errorCode != null || value.warning?.isNotEmpty == true)) {
-      _setConnectionError(
-        userFacingFailure(
-          strings,
-          code: value.errorCode,
-          details: value.warning,
-        ),
-      );
+    final errorKey = value.connectionErrorKey;
+    if (errorKey != _dismissedConnectionErrorKey) {
+      _dismissedConnectionErrorKey = null;
     }
+    if (banner != null) _setConnectionError(banner);
     quality.updateConnection(value, observeQuality: observeQuality);
   }
 
@@ -674,6 +686,7 @@ class AppController extends ChangeNotifier {
   ];
   String? _lastError;
   bool _lastErrorFromConnection = false;
+  String? _dismissedConnectionErrorKey;
   String? get lastError => _lastError;
   set lastError(String? value) {
     _lastError = value;
@@ -683,6 +696,22 @@ class AppController extends ChangeNotifier {
   void _setConnectionError(String message) {
     lastError = message;
     _lastErrorFromConnection = true;
+  }
+
+  String? _connectionBanner(EngineSnapshot next) {
+    final key = next.connectionErrorKey;
+    if (key == null || key == _dismissedConnectionErrorKey) return null;
+    // An unchanged runtime failure must not replace a separate operation's
+    // message, including during the status read following permission preflight.
+    if (!_lastErrorFromConnection && key == snapshot.connectionErrorKey) {
+      return null;
+    }
+    return userFacingFailure(
+      strings,
+      code: next.errorCode,
+      details: next.warning,
+      protonContext: next.failure?.sanitizedDetail,
+    );
   }
 
   String? lastNotice;
@@ -1743,39 +1772,121 @@ class AppController extends ChangeNotifier {
     }
   }
 
-  Future<void> connectOrDisconnect({bool background = false}) async {
-    if (!connectionActionEnabled) return;
-    final intent = ++_connectionIntent;
-    if (snapshot.isConnected || snapshot.isTransitional) {
-      snapshot = EngineSnapshot(
-        phase: ConnectionPhase.disconnecting,
-        vpnGate: snapshot.vpnGate,
-        chainExit: snapshot.chainExit,
-        killSwitchState: snapshot.killSwitchState,
-        platformLockdown: snapshot.platformLockdown,
-        alwaysOn: snapshot.alwaysOn,
-      );
-      await _run(() async {
+  bool get needsDisconnectCleanup => _needsDisconnectCleanup(snapshot);
+
+  bool _needsDisconnectCleanup(EngineSnapshot value) =>
+      value.needsDisconnectCleanup ||
+      (_proxyCleanupIntent == _connectionIntent &&
+          value.phase == ConnectionPhase.error &&
+          value.errorCode != 'WINDOWS_RECOVERY_BLOCKED');
+
+  bool get canDisconnectProtectedError =>
+      snapshot.phase == ConnectionPhase.error &&
+      snapshot.errorCode != 'WINDOWS_RECOVERY_BLOCKED' &&
+      (snapshot.killSwitchState == 'active' ||
+          snapshot.killSwitchState == 'error' ||
+          snapshot.tunnelInterfacePresent ||
+          needsDisconnectCleanup);
+
+  bool get connectionActionDisconnects =>
+      snapshot.isConnected ||
+      snapshot.isTransitional ||
+      hasPendingConnectionStart ||
+      canDisconnectProtectedError;
+
+  Future<void> disconnect() async {
+    if (_exitCleanup != null ||
+        snapshot.phase == ConnectionPhase.disconnecting) {
+      return;
+    }
+    if (!snapshot.isConnected &&
+        !snapshot.isTransitional &&
+        !hasPendingConnectionStart &&
+        !canDisconnectProtectedError) {
+      return;
+    }
+    final retryingProxyCleanup = _proxyCleanupIntent == _connectionIntent;
+    final stop = _ConnectionCommand(
+      ++_connectionIntent,
+      _pendingConnection?.latest ?? snapshot,
+      stopping: true,
+    );
+    if (retryingProxyCleanup) _proxyCleanupIntent = stop.intent;
+    _pendingConnection = stop;
+    _dismissedConnectionErrorKey = null;
+    snapshot = EngineSnapshot(
+      phase: ConnectionPhase.disconnecting,
+      vpnGate: snapshot.vpnGate,
+      chainExit: snapshot.chainExit,
+      killSwitchState: snapshot.killSwitchState,
+      tunnelInterfacePresent: snapshot.tunnelInterfacePresent,
+      platformLockdown: snapshot.platformLockdown,
+      alwaysOn: snapshot.alwaysOn,
+    );
+    await _run(
+      () async {
         _userDisconnectedThisSession = true;
-        final next = await _engine.disconnect();
-        if (intent != _connectionIntent) return;
-        snapshot = next;
+        stop.dispatch();
+        await _acceptConnectionReply(stop, await _engine.disconnect());
+        if (stop.intent != _connectionIntent) return;
         if (snapshot.phase == ConnectionPhase.disconnected &&
             !snapshotStreamDegraded) {
           _stopPolling();
         } else if (!_engine.supportsSnapshotEvents || snapshotStreamDegraded) {
           _startPolling(force: snapshotStreamDegraded);
         }
-      }, connectionIntent: intent);
+      },
+      connectionIntent: stop.intent,
+      connectionCommand: stop,
+    );
+  }
+
+  Future<void> connectOrDisconnect({bool background = false}) async {
+    if (!connectionActionEnabled) return;
+    if (snapshot.isConnected ||
+        snapshot.isTransitional ||
+        hasPendingConnectionStart ||
+        needsDisconnectCleanup) {
+      await disconnect();
       return;
     }
+    await _startConnection(retry: false, background: background);
+  }
 
-    snapshot = const EngineSnapshot(phase: ConnectionPhase.preparing);
-    _notifyListeners();
+  Future<void> retry() =>
+      needsDisconnectCleanup ? disconnect() : _startConnection(retry: true);
+
+  Future<void> _startConnection({
+    required bool retry,
+    bool background = false,
+  }) async {
+    if (_disposed || _clearing || _exitCleanup != null) return;
+    final start = _ConnectionCommand(
+      ++_connectionIntent,
+      _pendingConnection?.latest ?? snapshot,
+    );
+    _pendingConnection = start;
+    _dismissedConnectionErrorKey = null;
+    snapshot = EngineSnapshot(
+      phase: retry && snapshot.phase == ConnectionPhase.degraded
+          ? ConnectionPhase.reconnecting
+          : ConnectionPhase.preparing,
+      sessionCongestionControl: retry
+          ? snapshot.sessionCongestionControl
+          : null,
+      dataPlane: retry ? snapshot.dataPlane : null,
+      l4: retry ? snapshot.l4 : null,
+      vpnGate: snapshot.vpnGate,
+      chainExit: snapshot.chainExit,
+      killSwitchState: snapshot.killSwitchState,
+      tunnelInterfacePresent: snapshot.tunnelInterfacePresent,
+      platformLockdown: snapshot.platformLockdown,
+      alwaysOn: snapshot.alwaysOn,
+    );
     final success = await _run(
       () => withControlOperation(() async {
         await _ensureConnectionInputs();
-        if (intent != _connectionIntent) return;
+        if (start.intent != _connectionIntent) return;
         await flushProfileWrites();
         if (!await scenarios.synchronizeActivation()) {
           throw EngineException(
@@ -1783,59 +1894,77 @@ class AppController extends ChangeNotifier {
             strings.get('scenario_confirm_before_connect'),
           );
         }
-        if (intent != _connectionIntent) return;
-        if (!identityState(activeProfile.id).canConnect) {
+        if (start.intent != _connectionIntent) return;
+        if (!retry && !identityState(activeProfile.id).canConnect) {
           throw const EngineException(
             'IDENTITY_SETUP_REQUIRED',
             'This profile needs a valid Consumer WARP identity before it can connect.',
           );
         }
         _requireDataPlaneCapability(activeProfile);
+        start.dispatch();
+        final EngineSnapshot reply;
         final engine = _engine;
-        final next =
-            background &&
-                defaultTargetPlatform == TargetPlatform.macOS &&
-                engine is MacosKeychainClient
-            ? await (engine as MacosKeychainClient).connect(
-                activeProfile,
-                background: true,
-              )
-            : await engine.connect(activeProfile);
-        if (intent == _connectionIntent) snapshot = next;
+        if (retry) {
+          reply = await engine.retry();
+        } else if (background &&
+            defaultTargetPlatform == TargetPlatform.macOS &&
+            engine is MacosKeychainClient) {
+          reply = await (engine as MacosKeychainClient).connect(
+            activeProfile,
+            background: true,
+          );
+        } else {
+          reply = await engine.connect(activeProfile);
+        }
+        await _acceptConnectionReply(start, reply);
       }),
-      connectionIntent: intent,
+      connectionIntent: start.intent,
+      connectionCommand: start,
     );
-    if (success && (snapshot.isConnected || snapshot.isTransitional)) {
-      if (!_engine.supportsSnapshotEvents || snapshotStreamDegraded) {
-        _startPolling(force: snapshotStreamDegraded);
-      }
+    if (success &&
+        start.intent == _connectionIntent &&
+        (snapshot.isConnected || snapshot.isTransitional) &&
+        (!_engine.supportsSnapshotEvents || snapshotStreamDegraded)) {
+      _startPolling(force: snapshotStreamDegraded);
     }
   }
 
-  Future<void> retry() async {
-    if (_exitCleanup != null) return;
-    final intent = ++_connectionIntent;
-    final success = await _run(
-      () => withControlOperation(() async {
-        await _ensureConnectionInputs();
-        await flushProfileWrites();
-        if (!await scenarios.synchronizeActivation()) {
-          throw EngineException(
-            'SCENARIO_RESULT_UNKNOWN',
-            strings.get('scenario_confirm_before_connect'),
-          );
-        }
-        if (intent != _connectionIntent) return;
-        _requireDataPlaneCapability(activeProfile);
-        final next = await _engine.retry();
-        if (intent == _connectionIntent) snapshot = next;
-      }),
-      connectionIntent: intent,
-    );
-    if (success && (snapshot.isConnected || snapshot.isTransitional)) {
-      if (!_engine.supportsSnapshotEvents || snapshotStreamDegraded) {
-        _startPolling(force: snapshotStreamDegraded);
+  Future<void> _acceptConnectionReply(
+    _ConnectionCommand command,
+    EngineSnapshot reply,
+  ) async {
+    if (command.intent != _connectionIntent) return;
+    command.acknowledged = true;
+    final observed = command.afterDispatch;
+    // Retire polls initiated before this acknowledgement. Both control reads
+    // and stream events can carry a newer state than the command's reply.
+    _snapshotRevision++;
+    if (observed == null || observed == reply) {
+      command.latest = observed ?? reply;
+      snapshot = command.latest;
+      return;
+    }
+    if (!command.sawChange) {
+      command.latest = command.stopping && _needsDisconnectCleanup(observed)
+          ? observed
+          : reply;
+      snapshot = command.latest;
+    }
+
+    // These channels share no sequence number. Read after the reply instead
+    // of inferring chronology from Connected, Disconnected or Error.
+    _notifyListeners();
+    final observations = command.acceptedObservations;
+    try {
+      final confirmed = await _engine.snapshot();
+      if (command.intent == _connectionIntent &&
+          command.acceptedObservations == observations) {
+        command.latest = confirmed;
+        snapshot = confirmed;
       }
+    } on Exception {
+      // Keep the accepted reply or the latest independent observation.
     }
   }
 
@@ -1924,6 +2053,7 @@ class AppController extends ChangeNotifier {
         return;
       }
       _initialStatusLoaded = true;
+      if (!(_pendingConnection?.observe(next) ?? true)) return;
       _setSnapshot(
         next,
         observeQuality: uiObservation == _uiObservationGeneration,
@@ -2546,6 +2676,7 @@ class AppController extends ChangeNotifier {
   Future<bool> clearAllData() async {
     if (_clearing || _disposed) return false;
     _clearing = true;
+    _pendingConnection = null;
     _adsTimer?.cancel();
     _adsWork = null;
     adsRulesBusy = false;
@@ -2797,6 +2928,7 @@ class AppController extends ChangeNotifier {
     bool affectsConnection = true,
     int? connectionIntent,
     bool allowDuringClear = false,
+    _ConnectionCommand? connectionCommand,
   }) async {
     if (_exitCleanup != null || (_clearing && !allowDuringClear)) return false;
     final completion = Completer<void>();
@@ -2814,16 +2946,63 @@ class AppController extends ChangeNotifier {
       if (connectionIntent != null && connectionIntent != _connectionIntent) {
         return false;
       }
-      if (connectionIntent != null &&
+      final connectionStart = connectionCommand?.stopping == false
+          ? connectionCommand
+          : null;
+      final proxyRestoreFailed =
+          connectionCommand?.stopping == true &&
+          error is EngineException &&
+          (error.code.startsWith('SYSTEM_PROXY_') ||
+              error.code == 'MACOS_PROXY_AGENT_REQUIRED');
+      if (proxyRestoreFailed) _proxyCleanupIntent = connectionIntent;
+      final cleanupRejected =
+          proxyRestoreFailed ||
+          connectionCommand?.stopping == true &&
+              error is EngineException &&
+              EngineSnapshot.isDisconnectCleanupError(error.code);
+      final observed = connectionCommand?.latest;
+      if (connectionCommand?.stopping == true &&
+          observed != null &&
+          _needsDisconnectCleanup(observed) &&
+          _ConnectionCommand.replyUnavailable(error)) {
+        // Losing the reply cannot discharge cleanup known before or during Stop.
+        snapshot = observed;
+        return false;
+      }
+      if (connectionStart != null &&
           error is EngineException &&
           (error.code == 'VPN_PERMISSION_CANCELLED' ||
               error.code == 'VPN_PERMISSION_DENIED')) {
-        snapshot = const EngineSnapshot(phase: ConnectionPhase.disconnected);
-        lastError = null;
+        snapshot = connectionStart.latest;
+        if (snapshot.phase != ConnectionPhase.disconnected) {
+          unawaited(refreshSnapshot(silent: true));
+        }
+        if (snapshot.phase != ConnectionPhase.error) lastError = null;
         return false;
       }
       final message = userFacingError(strings, error);
-      if (affectsConnection && snapshot.phase != ConnectionPhase.disconnected) {
+      const preDispatchPreservingCodes = <String>{
+        'PROFILE_STORE_FAILED',
+        'VPN_PERMISSION_LAUNCH_FAILED',
+        'VPN_PERMISSION_IN_PROGRESS',
+      };
+      final preservesActiveSession =
+          connectionStart != null &&
+          (connectionStart.sawChange ||
+              (connectionStart.latest.phase != ConnectionPhase.disconnected ||
+                      connectionStart.initial.phase !=
+                          ConnectionPhase.disconnected) &&
+                  (!connectionStart.dispatched ||
+                      error is EngineException &&
+                          preDispatchPreservingCodes.contains(error.code)));
+      if (preservesActiveSession) {
+        snapshot = connectionStart.latest;
+        unawaited(refreshSnapshot(silent: true));
+        lastError = message;
+        return false;
+      }
+      if (affectsConnection &&
+          (snapshot.phase != ConnectionPhase.disconnected || cleanupRejected)) {
         snapshot = EngineSnapshot(
           phase: ConnectionPhase.error,
           sessionCongestionControl: snapshot.sessionCongestionControl,
@@ -2831,6 +3010,10 @@ class AppController extends ChangeNotifier {
           l4: snapshot.l4,
           vpnGate: snapshot.vpnGate,
           chainExit: snapshot.chainExit,
+          killSwitchState: snapshot.killSwitchState,
+          tunnelInterfacePresent: snapshot.tunnelInterfacePresent,
+          platformLockdown: snapshot.platformLockdown,
+          alwaysOn: snapshot.alwaysOn,
           warning: message,
           errorCode: error is EngineException ? error.code : null,
           errorRetryable: error is EngineException ? error.retryable : null,
@@ -2845,6 +3028,10 @@ class AppController extends ChangeNotifier {
       }
       return false;
     } finally {
+      if (connectionCommand != null &&
+          identical(_pendingConnection, connectionCommand)) {
+        _pendingConnection = null;
+      }
       _pendingOperations.remove(completion);
       completion.complete();
       if (generation == _dataGeneration) _activeOperations -= 1;
@@ -2854,6 +3041,9 @@ class AppController extends ChangeNotifier {
   }
 
   void clearError() {
+    if (_lastErrorFromConnection) {
+      _dismissedConnectionErrorKey = snapshot.connectionErrorKey;
+    }
     lastError = null;
     _notifyListeners();
   }
@@ -3559,23 +3749,14 @@ class AppController extends ChangeNotifier {
     }
     final next = event.snapshot;
     if (next != null) _initialStatusLoaded = true;
-    if (next == null) {
+    if (next == null || !(_pendingConnection?.observe(next) ?? true)) {
       if ((wasDegraded || handledNetworkQuality || handledCapabilities) &&
           !handledGeoProgress) {
         _notifyListeners();
       }
       return;
     }
-    final nextError =
-        next.phase == ConnectionPhase.error &&
-            (next.warning?.trim().isNotEmpty ?? false)
-        ? userFacingFailure(
-            strings,
-            code: next.errorCode,
-            details: next.warning,
-            protonContext: next.failure?.sanitizedDetail,
-          )
-        : null;
+    final nextError = _connectionBanner(next);
     final errorChanged = nextError != null && nextError != lastError;
     // Presentation equality intentionally ignores quality timestamps. The
     // observation stream must still ingest an unchanged, newly sampled frame,
@@ -3591,9 +3772,6 @@ class AppController extends ChangeNotifier {
       return;
     }
     snapshot = next;
-    if (errorChanged) {
-      _setConnectionError(nextError);
-    }
     _notifyListeners();
   }
 
@@ -3645,6 +3823,7 @@ class AppController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _pendingConnection = null;
     settingsNavigationRequests.dispose();
     _adsTimer?.cancel();
     _zeroTrustCurrentOwner = null;
@@ -3678,6 +3857,66 @@ class AppController extends ChangeNotifier {
     );
     super.dispose();
   }
+}
+
+/// Engine observations during one local connection command, independent of
+/// the optimistic Preparing or Disconnecting state shown before its receipt.
+class _ConnectionCommand {
+  _ConnectionCommand(this.intent, this.initial, {this.stopping = false})
+    : latest = initial;
+
+  final int intent;
+  final EngineSnapshot initial;
+  final bool stopping;
+  bool acknowledged = false;
+  EngineSnapshot latest;
+  EngineSnapshot? _atDispatch;
+  EngineSnapshot? afterDispatch;
+  int acceptedObservations = 0;
+  bool get sawChange => acceptedObservations != 0;
+  bool get dispatched => _atDispatch != null;
+
+  static bool replyUnavailable(Object error) =>
+      error is TimeoutException ||
+      error is EngineException &&
+          (error.code.startsWith('ENGINE_IPC_') ||
+              const {
+                'ENGINE_REQUEST_TIMEOUT',
+                'ENGINE_START_TIMEOUT',
+                'ENGINE_CLOSED',
+                'ENGINE_UNAVAILABLE',
+              }.contains(error.code));
+
+  void dispatch() => _atDispatch = latest;
+
+  bool observe(EngineSnapshot next) {
+    latest = next;
+    final baseline = _atDispatch ?? initial;
+    if (dispatched) afterDispatch = next;
+    if (!acknowledged &&
+        !sawChange &&
+        (sameState(baseline, next) ||
+            !stopping &&
+                baseline.phase == ConnectionPhase.error &&
+                next.phase == ConnectionPhase.disconnected)) {
+      return false;
+    }
+    if (dispatched) acceptedObservations++;
+    return true;
+  }
+
+  static bool sameState(EngineSnapshot a, EngineSnapshot b) =>
+      a.phase == b.phase &&
+      a.transport == b.transport &&
+      a.addressFamily == b.addressFamily &&
+      a.dataPlane == b.dataPlane &&
+      listEquals(a.activeListeners, b.activeListeners) &&
+      listEquals(a.frontends, b.frontends) &&
+      a.connectionErrorKey == b.connectionErrorKey &&
+      a.killSwitchState == b.killSwitchState &&
+      a.tunnelInterfacePresent == b.tunnelInterfacePresent &&
+      a.platformLockdown == b.platformLockdown &&
+      a.alwaysOn == b.alwaysOn;
 }
 
 String _newUuidV4() {

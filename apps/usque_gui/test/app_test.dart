@@ -4629,10 +4629,20 @@ void main() {
         profile: ksOff,
         snapshot: const EngineSnapshot(
           phase: ConnectionPhase.connected,
-          killSwitchState: 'active',
+          killSwitchState: 'inactive',
         ),
       ),
       'off',
+    );
+    expect(
+      killSwitchStatusKey(
+        profile: ksOff,
+        snapshot: const EngineSnapshot(
+          phase: ConnectionPhase.connected,
+          killSwitchState: 'active',
+        ),
+      ),
+      'ks_active',
     );
     expect(
       killSwitchStatusKey(
@@ -4725,6 +4735,14 @@ void main() {
       controller.activeProfile.copyWith(
         frontends: controller.activeProfile.frontends.copyWith(tunnel: false),
       ),
+    );
+    await pumpHome();
+    // Native active Kill Switch stays visible until the session releases it.
+    expect(find.text('Active'), findsOneWidget);
+
+    controller.snapshot = const EngineSnapshot(
+      phase: ConnectionPhase.connected,
+      killSwitchState: 'inactive',
     );
     await pumpHome();
     expect(find.text('Not used in proxy mode'), findsOneWidget);

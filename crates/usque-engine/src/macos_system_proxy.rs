@@ -27,6 +27,12 @@ const JOURNAL_ID: Uuid = Uuid::from_bytes([
     0x61, 0x40, 0x1b, 0x21, 0x73, 0xc7, 0x4f, 0x64, 0x9a, 0xc3, 0x82, 0xb0, 0x17, 0x12, 0xd6, 0x6c,
 ]);
 const MAX_JOURNAL_BYTES: u64 = 512 * 1024;
+pub(super) enum RecoveryRequest {
+    Startup,
+    Retry,
+    Disconnect,
+}
+
 #[derive(Clone)]
 pub(crate) struct Context {
     path: PathBuf,

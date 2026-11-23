@@ -52,6 +52,8 @@ String userFacingFailure(
   final recovery = strings.windowsRecoveryError(code, details: details);
   if (recovery != null) return recovery;
   final key = switch (code) {
+    'DISCONNECT_CLEANUP_FAILED' ||
+    'DISCONNECT_CLEANUP_UNCONFIRMED' => 'disconnect_cleanup_failed',
     'MACOS_PROXY_AGENT_REQUIRED' => 'macos_proxy_agent_required',
     'MACOS_KEYCHAIN_ACCESS_REQUIRED' => 'macos_keychain_permission',
     'MACOS_INSTALL_REQUIRED' => 'macos_install_required',
@@ -93,9 +95,15 @@ String userFacingFailure(
     'INITIAL_IDENTITY_INTERRUPTED' => 'onboarding_interrupted',
     'INITIAL_IDENTITY_CLEANUP_REQUIRED' => 'onboarding_cleanup_required',
     'VPN_PERMISSION_DENIED' => 'onboarding_vpn_required',
+    'VPN_PERMISSION_LAUNCH_FAILED' => 'vpn_permission_request_failed',
+    'VPN_PERMISSION_IN_PROGRESS' => 'vpn_permission_request_busy',
     'IDENTITY_SETUP_REQUIRED' ||
     'IDENTITY_INVALID' ||
-    'AUTHENTICATION_FAILED' => 'diag_fix_refresh_or_replace_identity',
+    'INVALID_STORED_IDENTITY' ||
+    'MISSING_CREDENTIAL' ||
+    'MISSINGCREDENTIAL' ||
+    'AUTHENTICATION_FAILED' ||
+    'AUTHENTICATIONFAILED' => 'diag_fix_refresh_or_replace_identity',
     'CONFIGURATION_INVALID' => 'diag_fix_review_configuration',
     'L4_UNSUPPORTED' => 'l4_unsupported',
     'AUTOMATIC_ENDPOINTS_UNSUPPORTED' => 'endpoint_unsupported',

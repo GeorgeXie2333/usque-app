@@ -769,10 +769,47 @@ class AndroidEngineMethodHandlerTest {
 
     @Test
     fun dispatchesRetryToControlClient() {
+        val profileId = "00000000-0000-0000-0000-000000000001"
+        engineBridge.profileCatalogJson =
+            """{"active_profile_id":"$profileId","profiles":[{"id":"$profileId","mode":"socks5","frontends":{"tunnel":false,"socks5":true,"http":false}}]}"""
         val result = RecordingResult()
         handler.handle(MethodCall("retry", null), result)
+        assertEquals(1, activityCommands.retryCount)
+        assertEquals("socks5", activityCommands.lastRetryMode)
         assertEquals(listOf(UsqueVpnService.MSG_RETRY), endpoint.whats)
         assertNull(result.errorCode)
+    }
+
+    @Test
+    fun retryFailsClosedWhenSavedProfileCannotBeLoaded() {
+        engineBridge.profileCatalogJson = """{"profiles":[{"id":"p1"}]}"""
+        val result = RecordingResult()
+        handler.handle(MethodCall("retry", mapOf("continuous" to true)), result)
+        assertEquals("PROFILE_STORE_FAILED", result.errorCode)
+        assertEquals(0, activityCommands.retryCount)
+        assertTrue(endpoint.whats.isEmpty())
+    }
+
+    @Test
+    fun retryValidatesVpnPermissionForSavedVpnProfile() {
+        val profileId = "00000000-0000-0000-0000-000000000010"
+        engineBridge.profileCatalogJson =
+            """{"active_profile_id":"$profileId","profiles":[{"id":"$profileId","mode":"vpn","frontends":{"tunnel":true,"socks5":false,"http":false}}]}"""
+        activityCommands.denyRetryPermission = true
+        val denied = RecordingResult()
+        handler.handle(MethodCall("retry", mapOf("continuous" to true)), denied)
+        assertEquals(1, activityCommands.retryCount)
+        assertEquals("vpn", activityCommands.lastRetryMode)
+        assertEquals("VPN_PERMISSION_DENIED", denied.errorCode)
+        assertTrue(endpoint.whats.isEmpty())
+
+        activityCommands.denyRetryPermission = false
+        val granted = RecordingResult()
+        handler.handle(MethodCall("retry", mapOf("continuous" to true)), granted)
+        assertEquals(2, activityCommands.retryCount)
+        assertEquals("vpn", activityCommands.lastRetryMode)
+        assertEquals(listOf(UsqueVpnService.MSG_RETRY), endpoint.whats)
+        assertNull(granted.errorCode)
     }
 
     @Test
@@ -2201,6 +2238,9 @@ class AndroidEngineMethodHandlerTest {
         var connectCount = 0
         var lastProfileJson: String? = null
         var lastMode: String? = null
+        var retryCount = 0
+        var lastRetryMode: String? = null
+        var denyRetryPermission = false
         var diagnosticsCount = 0
         var diagnosticsPayload: AndroidEngineMethodHandler.DiagnosticExportPayload? = null
 
@@ -2221,6 +2261,20 @@ class AndroidEngineMethodHandlerTest {
             lastProfileJson = profileJson
             lastMode = mode
             result.success(mapOf("phase" to "preparing"))
+        }
+
+        override fun retryAfterValidation(
+            mode: String,
+            result: MethodChannel.Result,
+            onGranted: () -> Unit,
+        ) {
+            retryCount += 1
+            lastRetryMode = mode
+            if (denyRetryPermission && mode == "vpn") {
+                result.error("VPN_PERMISSION_DENIED", "VPN permission denied.", null)
+                return
+            }
+            onGranted()
         }
 
         override fun selectDiagnosticsDestination(

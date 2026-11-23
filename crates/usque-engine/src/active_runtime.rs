@@ -75,6 +75,8 @@ pub(crate) struct HarnessRuntime {
     pub(crate) path: RuntimePath,
     pub(crate) reconnect_count: u32,
     pub(crate) vpn: bool,
+    #[cfg(target_os = "linux")]
+    pub(crate) operation_id: uuid::Uuid,
     pub(crate) listeners: Vec<SocketAddr>,
     socks5_listeners: Vec<SocketAddr>,
     http_listeners: Vec<SocketAddr>,
@@ -131,6 +133,8 @@ impl HarnessRuntime {
             fail_routing_prepare: false,
             fail_routing_publish: false,
             vpn,
+            #[cfg(target_os = "linux")]
+            operation_id: uuid::Uuid::new_v4(),
             listeners,
             socks5_listeners,
             http_listeners,
@@ -238,6 +242,14 @@ impl ActiveRuntime {
             return runtime.protection_active();
         }
         false
+    }
+
+    pub(crate) fn protection_committed(&self) -> bool {
+        #[cfg(windows)]
+        if let Self::Vpn(runtime) = self {
+            return runtime.protection_committed();
+        }
+        self.target_committed()
     }
 
     pub(crate) fn replacement_pending(&self) -> bool {

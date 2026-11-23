@@ -64,13 +64,82 @@ class QuickSettingsTileStateTest {
     }
 
     @Test
-    fun `disconnected and error phases remain actionable`() {
+    fun `disconnected and unretained error phases remain inactive and reconnect on tap`() {
         listOf("disconnected", "error").forEach { phase ->
             assertEquals(
                 QuickSettingsTileState.State.INACTIVE,
-                QuickSettingsTileState.fromSnapshot(phase, vpnFrontendActive = true).state,
+                QuickSettingsTileState.fromSnapshot(phase, vpnFrontendActive = true, protectionRetained = false).state,
+            )
+            assertEquals(
+                QuickSettingsTileState.ToggleAction.CONNECT,
+                QuickSettingsTileState.toggleAction(
+                    phase = phase,
+                    anyFrontendActive = true,
+                    vpnFrontendActive = true,
+                    protectionRetained = false,
+                ),
             )
         }
+    }
+
+    @Test
+    fun `error phase with retained protection stays active and opens app instead of disconnecting`() {
+        assertEquals(
+            QuickSettingsTileState.Presentation(QuickSettingsTileState.State.ACTIVE, "open_app"),
+            QuickSettingsTileState.fromSnapshot("error", vpnFrontendActive = true, protectionRetained = true),
+        )
+        assertEquals(
+            QuickSettingsTileState.ToggleAction.OPEN_APP_PROTECTION_ACTIVE,
+            QuickSettingsTileState.toggleAction(
+                phase = "error",
+                anyFrontendActive = true,
+                vpnFrontendActive = true,
+                protectionRetained = true,
+            ),
+        )
+    }
+
+    @Test
+    fun `a proxy handoff with an inherited tunnel keeps the protection controls until release`() {
+        for (phase in listOf("preparing", "error", "disconnected")) {
+            assertEquals(
+                QuickSettingsTileState.active("open_app"),
+                QuickSettingsTileState.fromSnapshot(phase, false, true),
+            )
+            assertEquals(
+                QuickSettingsTileState.ToggleAction.OPEN_APP_PROTECTION_ACTIVE,
+                QuickSettingsTileState.toggleAction(phase, true, false, true),
+            )
+        }
+        assertEquals(QuickSettingsTileState.inactive(), QuickSettingsTileState.fromSnapshot("error", false, false))
+        assertEquals(
+            QuickSettingsTileState.ToggleAction.ERROR_PROXY_ONLY,
+            QuickSettingsTileState.toggleAction("error", true, false, false),
+        )
+    }
+
+    @Test
+    fun `active non-error vpn phases disconnect on tap and proxy-only reports error`() {
+        listOf("connected", "degraded", "preparing", "reconnecting").forEach { phase ->
+            assertEquals(
+                QuickSettingsTileState.ToggleAction.DISCONNECT,
+                QuickSettingsTileState.toggleAction(
+                    phase = phase,
+                    anyFrontendActive = true,
+                    vpnFrontendActive = true,
+                    protectionRetained = false,
+                ),
+            )
+        }
+        assertEquals(
+            QuickSettingsTileState.ToggleAction.ERROR_PROXY_ONLY,
+            QuickSettingsTileState.toggleAction(
+                phase = "connected",
+                anyFrontendActive = true,
+                vpnFrontendActive = false,
+                protectionRetained = false,
+            ),
+        )
     }
 
     @Test

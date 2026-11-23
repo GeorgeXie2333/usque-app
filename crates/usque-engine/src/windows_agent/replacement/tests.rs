@@ -80,6 +80,7 @@ fn runtime(agent: WindowsAgentClient, operation_id: Uuid) -> WindowsVpnRuntime {
         transaction_open: true,
         held_failure: false,
         target_committed: false,
+        protection_committed: false,
         startup_error: None,
         handoff_intent: false,
         shutdown_replacement: None,
@@ -431,6 +432,197 @@ async fn missing_handoff_capability_retains_a_live_ks_off_source_until_explicit_
         matches!(task.await.unwrap().as_slice(), [agent_request::Payload::GetCapabilities(_),
         agent_request::Payload::GetState(_), agent_request::Payload::RollbackTunnel(rollback)]
         if rollback.operation_id == operation.to_string())
+    );
+}
+
+#[tokio::test]
+async fn plain_vpn_retry_failure_on_get_state_preserves_target_committed_protection() {
+    let operation = Uuid::new_v4();
+    let mut profile = Profile::default();
+    profile.frontends.tunnel = true;
+    profile.kill_switch = true;
+    profile.canonicalize_mode();
+    let (client, task) = scripted_recovery_client(vec![AgentResponse {
+        request_id: String::new(),
+        error: Some(agent_v1::AgentError {
+            code: "AGENT_BUSY".into(),
+            message: "temporary get_state failure".into(),
+            retryable: true,
+            ..Default::default()
+        }),
+        payload: None,
+    }]);
+    let mut runtime = runtime(client, operation);
+    runtime.target_committed = true;
+    runtime.protection_committed = true;
+
+    let _error = Box::pin(runtime.retry_protected_chain(
+        &profile,
+        super::super::tests::identity(),
+        Arc::new(UnusedPinRefresher),
+        Arc::new(GeoDirectPolicy::disabled()),
+        None,
+        watch::channel(Default::default()).0,
+        &CancellationToken::new(),
+        &WindowsDeviceOwner::default(),
+    ))
+    .await
+    .unwrap_err();
+    assert!(
+        !runtime.target_committed(),
+        "a failed state query must not mark the new target as committed"
+    );
+    assert!(
+        runtime.protection_committed(),
+        "a failed state query must keep prior protection committed on an open plain-VPN Kill Switch transaction"
+    );
+    assert!(runtime.transaction_open);
+    assert!(matches!(
+        task.await.unwrap().as_slice(),
+        [agent_request::Payload::GetState(_)]
+    ));
+}
+
+#[tokio::test]
+async fn http_chain_to_direct_retry_get_state_failure_preserves_old_profile_and_protection() {
+    let directory = tempfile::tempdir().unwrap();
+    let service = crate::ControlService::open_with_vault(
+        crate::ConfigStore::new(directory.path().join("config.json")),
+        Arc::new(crate::tests::MemoryVault::default()),
+    )
+    .unwrap();
+    let operation = Uuid::new_v4();
+    let mut http_profile = service.config_snapshot().await.active_profile().unwrap();
+    http_profile.frontends.tunnel = true;
+    http_profile.kill_switch = true;
+    http_profile.chain_exit = Some(usque_core::chain_exit::ChainExitSettings {
+        enabled: true,
+        source: usque_core::chain_exit::ChainSource::HttpProxy,
+        profile_id: Some(Uuid::new_v4()),
+        revision: Some(Uuid::new_v4()),
+        endpoint_override: None,
+        proton_server_id: None,
+    });
+    http_profile.canonicalize_mode();
+
+    let mut direct_profile = http_profile.clone();
+    direct_profile.chain_exit = None;
+    direct_profile.canonicalize_mode();
+
+    let mut retained_state = clean();
+    retained_state.phase = agent_v1::AgentPhase::Active as i32;
+    retained_state.operation_id = operation.to_string();
+    retained_state.kill_switch_active = true;
+    let (client, task) = scripted_recovery_client(vec![
+        AgentResponse {
+            request_id: String::new(),
+            error: Some(agent_v1::AgentError {
+                code: "AGENT_BUSY".into(),
+                message: "temporary get_state failure".into(),
+                retryable: true,
+                ..Default::default()
+            }),
+            payload: None,
+        },
+        response(retained_state),
+    ]);
+    let mut rt = runtime(client, operation);
+    rt.target_committed = true;
+    rt.protection_committed = true;
+
+    let retry_result = Box::pin(rt.retry_protected_chain(
+        &direct_profile,
+        super::super::tests::identity(),
+        Arc::new(UnusedPinRefresher),
+        Arc::new(GeoDirectPolicy::disabled()),
+        None,
+        watch::channel(Default::default()).0,
+        &CancellationToken::new(),
+        &WindowsDeviceOwner::default(),
+    ))
+    .await
+    .map_err(crate::map_windows_vpn_error);
+    assert!(retry_result.is_err());
+
+    let now = std::time::Instant::now();
+    let active = crate::ActiveDataPlane {
+        profile_id: http_profile.id,
+        profile: http_profile.clone(),
+        session_generation: 1,
+        frontends: http_profile.frontends,
+        connected_at: now,
+        last_sample_at: now,
+        last_bytes_sent: 0,
+        last_bytes_received: 0,
+        last_proxy_performance: usque_transport::ProxyPerformanceSnapshot::default(),
+        runtime: crate::ActiveRuntime::Vpn(Box::new(rt)),
+    };
+    let finished = service
+        .finish_protected_reconnect(active, &direct_profile, retry_result)
+        .await;
+    assert!(finished.is_err());
+
+    {
+        let retained = service.data_plane.lock().await;
+        let retained = retained
+            .as_ref()
+            .expect("old protected session must remain retained");
+        assert!(
+            retained.profile.chain_exit.is_some(),
+            "failed GetState during HTTP-chain -> Direct must not overwrite active.profile with Direct"
+        );
+        assert!(!retained.runtime.target_committed());
+        assert!(retained.runtime.protection_committed());
+    }
+
+    assert_eq!(
+        service.status_snapshot().await.kill_switch_state,
+        usque_core::KillSwitchState::Active
+    );
+    assert!(matches!(
+        task.await.unwrap().as_slice(),
+        [
+            agent_request::Payload::GetState(_),
+            agent_request::Payload::GetState(_)
+        ]
+    ));
+}
+
+#[test]
+fn finalization_error_never_marks_old_active_operation_as_committed_target() {
+    let operation = Uuid::new_v4();
+    let old_plan = agent_v1::TunnelPlan {
+        mtu: 1280,
+        ..Default::default()
+    };
+    let new_plan = agent_v1::TunnelPlan {
+        mtu: 1400,
+        ..Default::default()
+    };
+    let mut old_active = clean();
+    old_active.phase = agent_v1::AgentPhase::Active as i32;
+    old_active.operation_id = operation.to_string();
+    old_active.journal_generation = 10;
+    old_active.plan = Some(Box::new(old_plan));
+
+    let confirms = |state: &AgentState| {
+        target_committed_after_finalization_error(state, operation, 10, &new_plan)
+    };
+    assert!(!confirms(&old_active));
+    old_active.journal_generation = 11;
+    assert!(!confirms(&old_active));
+    old_active.plan = Some(Box::new(new_plan.clone()));
+    assert!(confirms(&old_active));
+    old_active.journal_generation = 10;
+    assert!(!confirms(&old_active));
+    assert!(WindowsVpnError::RpcTimeout.commit_reply_unknown());
+    assert!(
+        !WindowsVpnError::Remote {
+            code: "AGENT_JOURNAL".into(),
+            message: "commit failed".into(),
+            retryable: true,
+        }
+        .commit_reply_unknown()
     );
 }
 

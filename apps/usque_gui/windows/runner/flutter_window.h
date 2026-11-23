@@ -83,6 +83,7 @@ class FlutterWindow : public Win32Window {
   bool exit_pending_ = false;
   bool tray_icon_added_ = false;
   bool tray_connected_ = false;
+  bool tray_connection_enabled_ = false;
   std::wstring tray_status_ = L"Disconnected";
   std::wstring tray_open_ = L"Open Usque";
   std::wstring tray_connect_ = L"Connect Active Profile";

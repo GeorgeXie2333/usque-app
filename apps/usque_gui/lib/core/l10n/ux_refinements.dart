@@ -2,6 +2,13 @@
 /// Bypass, Network quality and onboarding.
 const kUxRefinementCatalogs = <String, Map<String, String>>{
   'en': {
+    'vpn_permission_request_failed':
+        'Android could not open or verify the VPN permission request. Try again.',
+    'vpn_permission_request_busy':
+        'A VPN permission request is already open. Finish it before trying again.',
+    'retry_disconnect': 'Retry disconnecting',
+    'disconnect_cleanup_failed':
+        'Usque could not confirm that network settings were restored. Retry disconnecting.',
     'hide_from_recents': "Hide from recent tasks",
     'hide_from_recents_help':
         "Hide Usque from the recent tasks list. Open it again using the app icon.",
@@ -25,6 +32,10 @@ const kUxRefinementCatalogs = <String, Map<String, String>>{
     'nq_attention_hint': 'Run diagnostics to find the cause.',
   },
   'zh_CN': {
+    'vpn_permission_request_failed': 'Android 无法打开或确认 VPN 权限请求。请再试一次。',
+    'vpn_permission_request_busy': '已有 VPN 权限请求待处理。请先完成该请求，再重试。',
+    'retry_disconnect': '重试断开连接',
+    'disconnect_cleanup_failed': '无法确认网络设置是否已恢复。请重试断开连接。',
     'hide_from_recents': "从最近任务中隐藏",
     'hide_from_recents_help': "在最近任务列表中隐藏 Usque，可通过应用图标重新打开。",
     'hide_recents_failed': "无法确认最近任务设置，请重试后再使用此功能。",
@@ -45,6 +56,10 @@ const kUxRefinementCatalogs = <String, Map<String, String>>{
     'nq_attention_hint': '运行诊断以定位原因。',
   },
   'zh_TW': {
+    'vpn_permission_request_failed': 'Android 無法開啟或確認 VPN 權限要求。請再試一次。',
+    'vpn_permission_request_busy': '已有 VPN 權限要求待處理。請先完成該要求，再試一次。',
+    'retry_disconnect': '重試中斷連線',
+    'disconnect_cleanup_failed': '無法確認網路設定是否已還原。請重試中斷連線。',
     'hide_from_recents': "從最近使用的應用程式中隱藏",
     'hide_from_recents_help': "在最近使用的應用程式清單中隱藏 Usque，可透過應用程式圖示重新開啟。",
     'hide_recents_failed': "無法確認最近使用的應用程式設定，請重試後再使用此功能。",
@@ -65,6 +80,10 @@ const kUxRefinementCatalogs = <String, Map<String, String>>{
     'nq_attention_hint': '執行診斷以找出原因。',
   },
   'zh_HK': {
+    'vpn_permission_request_failed': 'Android 未能開啟或確認 VPN 權限要求。請再試一次。',
+    'vpn_permission_request_busy': '已有 VPN 權限要求待處理。請先完成該要求，再試一次。',
+    'retry_disconnect': '重試中斷連線',
+    'disconnect_cleanup_failed': '未能確認網絡設定是否已還原。請重試中斷連線。',
     'hide_from_recents': "從最近使用的應用程式中隱藏",
     'hide_from_recents_help': "在最近使用的應用程式清單中隱藏 Usque，可透過應用程式圖示重新開啟。",
     'hide_recents_failed': "無法確認最近使用的應用程式設定，請重試後再使用此功能。",
@@ -85,6 +104,11 @@ const kUxRefinementCatalogs = <String, Map<String, String>>{
     'nq_attention_hint': '執行診斷以找出原因。',
   },
   'ja': {
+    'vpn_permission_request_failed':
+        'Android で VPN 権限の要求を開くか確認することができませんでした。もう一度お試しください。',
+    'vpn_permission_request_busy': 'VPN 権限の要求が開いています。操作を完了してから再試行してください。',
+    'retry_disconnect': '切断を再試行',
+    'disconnect_cleanup_failed': 'ネットワーク設定の復元を確認できませんでした。切断を再試行してください。',
     'hide_from_recents': "最近使ったアプリから非表示",
     'hide_from_recents_help': "最近使ったアプリの一覧から Usque を非表示にします。アプリアイコンから再び開けます。",
     'hide_recents_failed': "最近使ったアプリの設定を確認できません。この機能を使う前に再試行してください。",
@@ -105,6 +129,11 @@ const kUxRefinementCatalogs = <String, Map<String, String>>{
     'nq_attention_hint': '診断を実行して原因を調べます。',
   },
   'ko': {
+    'vpn_permission_request_failed':
+        'Android에서 VPN 권한 요청을 열거나 확인할 수 없습니다. 다시 시도하세요.',
+    'vpn_permission_request_busy': '이미 열린 VPN 권한 요청을 완료한 후 다시 시도하세요.',
+    'retry_disconnect': '연결 해제 다시 시도',
+    'disconnect_cleanup_failed': '네트워크 설정이 복원되었는지 확인할 수 없습니다. 연결 해제를 다시 시도하세요.',
     'hide_from_recents': "최근 앱에서 숨기기",
     'hide_from_recents_help': "최근 앱 목록에서 Usque를 숨깁니다. 앱 아이콘으로 다시 열 수 있습니다.",
     'hide_recents_failed': "최근 앱 설정을 확인할 수 없습니다. 이 기능을 사용하기 전에 다시 시도하세요.",
@@ -125,6 +154,13 @@ const kUxRefinementCatalogs = <String, Map<String, String>>{
     'nq_attention_hint': '진단을 실행해 원인을 찾으세요.',
   },
   'es': {
+    'vpn_permission_request_failed':
+        'Android no pudo abrir o verificar la solicitud de permiso de VPN. Vuelve a intentarlo.',
+    'vpn_permission_request_busy':
+        'Ya hay una solicitud de permiso de VPN abierta. Complétala antes de volver a intentarlo.',
+    'retry_disconnect': 'Reintentar la desconexión',
+    'disconnect_cleanup_failed':
+        'No se pudo confirmar que se hayan restaurado los ajustes de red. Vuelve a intentar la desconexión.',
     'hide_from_recents': "Ocultar de las aplicaciones recientes",
     'hide_from_recents_help':
         "Oculta Usque de la lista de aplicaciones recientes. Puedes volver a abrirlo con el icono de la aplicación.",
@@ -148,6 +184,13 @@ const kUxRefinementCatalogs = <String, Map<String, String>>{
     'nq_attention_hint': 'Ejecuta el diagnóstico para encontrar la causa.',
   },
   'pt': {
+    'vpn_permission_request_failed':
+        'O Android não conseguiu abrir ou verificar a solicitação de permissão de VPN. Tente novamente.',
+    'vpn_permission_request_busy':
+        'Já há uma solicitação de permissão de VPN aberta. Conclua a solicitação antes de tentar novamente.',
+    'retry_disconnect': 'Tentar desconectar novamente',
+    'disconnect_cleanup_failed':
+        'Não foi possível confirmar a restauração das configurações de rede. Tente desconectar novamente.',
     'hide_from_recents': "Ocultar dos apps recentes",
     'hide_from_recents_help':
         "Oculta o Usque da lista de apps recentes. Abra-o novamente pelo ícone do app.",
@@ -171,6 +214,13 @@ const kUxRefinementCatalogs = <String, Map<String, String>>{
     'nq_attention_hint': 'Execute o diagnóstico para encontrar a causa.',
   },
   'fr': {
+    'vpn_permission_request_failed':
+        'Android n’a pas pu ouvrir ou vérifier la demande d’autorisation VPN. Réessayez.',
+    'vpn_permission_request_busy':
+        'Une demande d’autorisation VPN est déjà ouverte. Terminez-la avant de réessayer.',
+    'retry_disconnect': 'Réessayer la déconnexion',
+    'disconnect_cleanup_failed':
+        'La restauration des paramètres réseau n’a pas pu être confirmée. Réessayez de vous déconnecter.',
     'hide_from_recents': "Masquer des applications récentes",
     'hide_from_recents_help':
         "Masque Usque dans la liste des applications récentes. Rouvrez-le avec son icône.",
@@ -195,6 +245,13 @@ const kUxRefinementCatalogs = <String, Map<String, String>>{
     'nq_attention_hint': 'Lancez le diagnostic pour en trouver la cause.',
   },
   'de': {
+    'vpn_permission_request_failed':
+        'Android konnte die VPN-Berechtigungsanfrage nicht öffnen oder prüfen. Versuche es erneut.',
+    'vpn_permission_request_busy':
+        'Eine VPN-Berechtigungsanfrage ist bereits offen. Schließe sie ab und versuche es erneut.',
+    'retry_disconnect': 'Trennen erneut versuchen',
+    'disconnect_cleanup_failed':
+        'Die Wiederherstellung der Netzwerkeinstellungen konnte nicht bestätigt werden. Versuche erneut, die Verbindung zu trennen.',
     'hide_from_recents': "Aus zuletzt verwendeten Apps ausblenden",
     'hide_from_recents_help':
         "Blendet Usque aus der Liste zuletzt verwendeter Apps aus. Über das App-Symbol kannst du es wieder öffnen.",
@@ -219,6 +276,13 @@ const kUxRefinementCatalogs = <String, Map<String, String>>{
     'nq_attention_hint': 'Starte die Diagnose, um die Ursache zu finden.',
   },
   'nl': {
+    'vpn_permission_request_failed':
+        'Android kon het verzoek om VPN-toestemming niet openen of controleren. Probeer het opnieuw.',
+    'vpn_permission_request_busy':
+        'Er staat al een verzoek om VPN-toestemming open. Rond het af en probeer het opnieuw.',
+    'retry_disconnect': 'Verbinding opnieuw verbreken',
+    'disconnect_cleanup_failed':
+        'Het herstel van de netwerkinstellingen kon niet worden bevestigd. Probeer de verbinding opnieuw te verbreken.',
     'hide_from_recents': "Verbergen in recente apps",
     'hide_from_recents_help':
         "Verberg Usque in de lijst met recente apps. Open de app opnieuw via het app-pictogram.",
@@ -242,6 +306,13 @@ const kUxRefinementCatalogs = <String, Map<String, String>>{
     'nq_attention_hint': 'Voer de diagnose uit om de oorzaak te vinden.',
   },
   'it': {
+    'vpn_permission_request_failed':
+        'Android non ha potuto aprire o verificare la richiesta di autorizzazione VPN. Riprova.',
+    'vpn_permission_request_busy':
+        'Una richiesta di autorizzazione VPN è già aperta. Completala prima di riprovare.',
+    'retry_disconnect': 'Riprova a disconnetterti',
+    'disconnect_cleanup_failed':
+        'Impossibile confermare il ripristino delle impostazioni di rete. Riprova a disconnetterti.',
     'hide_from_recents': "Nascondi dalle app recenti",
     'hide_from_recents_help':
         "Nasconde Usque dall’elenco delle app recenti. Puoi riaprirlo tramite l’icona dell’app.",
@@ -265,6 +336,13 @@ const kUxRefinementCatalogs = <String, Map<String, String>>{
     'nq_attention_hint': 'Esegui la diagnostica per trovare la causa.',
   },
   'ru': {
+    'vpn_permission_request_failed':
+        'Android не удалось открыть или проверить запрос разрешения на VPN. Попробуйте ещё раз.',
+    'vpn_permission_request_busy':
+        'Запрос разрешения на VPN уже открыт. Завершите его и повторите попытку.',
+    'retry_disconnect': 'Повторить отключение',
+    'disconnect_cleanup_failed':
+        'Не удалось подтвердить восстановление настроек сети. Повторите отключение.',
     'hide_from_recents': "Скрывать из недавних приложений",
     'hide_from_recents_help':
         "Скрывает Usque из списка недавних приложений. Открыть его снова можно через значок приложения.",
@@ -288,6 +366,13 @@ const kUxRefinementCatalogs = <String, Map<String, String>>{
     'nq_attention_hint': 'Запустите диагностику, чтобы найти причину.',
   },
   'uk': {
+    'vpn_permission_request_failed':
+        'Android не вдалося відкрити або перевірити запит дозволу на VPN. Спробуйте ще раз.',
+    'vpn_permission_request_busy':
+        'Запит дозволу на VPN вже відкрито. Завершіть його та спробуйте ще раз.',
+    'retry_disconnect': 'Повторити відключення',
+    'disconnect_cleanup_failed':
+        'Не вдалося підтвердити відновлення мережевих налаштувань. Повторіть відключення.',
     'hide_from_recents': "Приховувати з нещодавніх програм",
     'hide_from_recents_help':
         "Приховує Usque зі списку нещодавніх програм. Відкрити його знову можна через значок програми.",
@@ -311,6 +396,13 @@ const kUxRefinementCatalogs = <String, Map<String, String>>{
     'nq_attention_hint': 'Запустіть діагностику, щоб знайти причину.',
   },
   'pl': {
+    'vpn_permission_request_failed':
+        'Android nie mógł otworzyć ani sprawdzić prośby o zgodę na VPN. Spróbuj ponownie.',
+    'vpn_permission_request_busy':
+        'Prośba o zgodę na VPN jest już otwarta. Zakończ ją i spróbuj ponownie.',
+    'retry_disconnect': 'Ponów rozłączanie',
+    'disconnect_cleanup_failed':
+        'Nie udało się potwierdzić przywrócenia ustawień sieciowych. Spróbuj ponownie się rozłączyć.',
     'hide_from_recents': "Ukryj w ostatnich aplikacjach",
     'hide_from_recents_help':
         "Ukrywa Usque na liście ostatnich aplikacji. Otwórz ponownie za pomocą ikony aplikacji.",
@@ -334,6 +426,13 @@ const kUxRefinementCatalogs = <String, Map<String, String>>{
     'nq_attention_hint': 'Uruchom diagnostykę, aby znaleźć przyczynę.',
   },
   'fa': {
+    'vpn_permission_request_failed':
+        'اندروید نتوانست درخواست مجوز VPN را باز یا بررسی کند. دوباره تلاش کنید.',
+    'vpn_permission_request_busy':
+        'یک درخواست مجوز VPN باز است. ابتدا آن را تکمیل کنید و سپس دوباره تلاش کنید.',
+    'retry_disconnect': 'تلاش دوباره برای قطع اتصال',
+    'disconnect_cleanup_failed':
+        'بازیابی تنظیمات شبکه تأیید نشد. دوباره برای قطع اتصال تلاش کنید.',
     'hide_from_recents': "پنهان کردن از برنامه‌های اخیر",
     'hide_from_recents_help':
         "Usque را از فهرست برنامه‌های اخیر پنهان می‌کند. با نماد برنامه دوباره آن را باز کنید.",
@@ -357,6 +456,13 @@ const kUxRefinementCatalogs = <String, Map<String, String>>{
     'nq_attention_hint': 'برای یافتن علت، عیب‌یابی را اجرا کنید.',
   },
   'ar': {
+    'vpn_permission_request_failed':
+        'تعذّر على Android فتح طلب إذن VPN أو التحقق منه. حاول مجددًا.',
+    'vpn_permission_request_busy':
+        'يوجد طلب إذن VPN مفتوح بالفعل. أكمله قبل المحاولة مجددًا.',
+    'retry_disconnect': 'إعادة محاولة قطع الاتصال',
+    'disconnect_cleanup_failed':
+        'تعذّر تأكيد استعادة إعدادات الشبكة. حاول قطع الاتصال مرة أخرى.',
     'hide_from_recents': "الإخفاء من التطبيقات الأخيرة",
     'hide_from_recents_help':
         "يخفي Usque من قائمة التطبيقات الأخيرة. يمكنك فتحه مجددًا باستخدام أيقونة التطبيق.",
@@ -380,6 +486,13 @@ const kUxRefinementCatalogs = <String, Map<String, String>>{
     'nq_attention_hint': 'شغّل التشخيص لمعرفة السبب.',
   },
   'id': {
+    'vpn_permission_request_failed':
+        'Android tidak dapat membuka atau memverifikasi permintaan izin VPN. Coba lagi.',
+    'vpn_permission_request_busy':
+        'Permintaan izin VPN sudah terbuka. Selesaikan permintaan itu sebelum mencoba lagi.',
+    'retry_disconnect': 'Coba putuskan lagi',
+    'disconnect_cleanup_failed':
+        'Pemulihan pengaturan jaringan belum dapat dikonfirmasi. Coba putuskan koneksi lagi.',
     'hide_from_recents': "Sembunyikan dari aplikasi terbaru",
     'hide_from_recents_help':
         "Sembunyikan Usque dari daftar aplikasi terbaru. Buka kembali melalui ikon aplikasi.",
@@ -403,6 +516,13 @@ const kUxRefinementCatalogs = <String, Map<String, String>>{
     'nq_attention_hint': 'Jalankan diagnostik untuk menemukan penyebabnya.',
   },
   'vi': {
+    'vpn_permission_request_failed':
+        'Android không thể mở hoặc xác minh yêu cầu cấp quyền VPN. Hãy thử lại.',
+    'vpn_permission_request_busy':
+        'Đã có một yêu cầu cấp quyền VPN đang mở. Hãy hoàn tất yêu cầu đó trước khi thử lại.',
+    'retry_disconnect': 'Thử ngắt kết nối lại',
+    'disconnect_cleanup_failed':
+        'Không thể xác nhận cài đặt mạng đã được khôi phục. Hãy thử ngắt kết nối lại.',
     'hide_from_recents': "Ẩn khỏi ứng dụng gần đây",
     'hide_from_recents_help':
         "Ẩn Usque khỏi danh sách ứng dụng gần đây. Mở lại bằng biểu tượng ứng dụng.",
@@ -426,6 +546,13 @@ const kUxRefinementCatalogs = <String, Map<String, String>>{
     'nq_attention_hint': 'Chạy chẩn đoán để tìm nguyên nhân.',
   },
   'tr': {
+    'vpn_permission_request_failed':
+        'Android VPN izin isteğini açamadı veya doğrulayamadı. Yeniden deneyin.',
+    'vpn_permission_request_busy':
+        'Bir VPN izin isteği zaten açık. Yeniden denemeden önce bu isteği tamamlayın.',
+    'retry_disconnect': 'Bağlantıyı kesmeyi yeniden dene',
+    'disconnect_cleanup_failed':
+        'Ağ ayarlarının geri yüklendiği doğrulanamadı. Bağlantıyı kesmeyi yeniden deneyin.',
     'hide_from_recents': "Son uygulamalardan gizle",
     'hide_from_recents_help':
         "Usque uygulamasını son uygulamalar listesinden gizler. Uygulama simgesinden yeniden açabilirsiniz.",
@@ -449,6 +576,13 @@ const kUxRefinementCatalogs = <String, Map<String, String>>{
     'nq_attention_hint': 'Nedeni bulmak için tanılamayı çalıştırın.',
   },
   'th': {
+    'vpn_permission_request_failed':
+        'Android เปิดหรือตรวจสอบคำขอสิทธิ์ VPN ไม่ได้ โปรดลองอีกครั้ง',
+    'vpn_permission_request_busy':
+        'มีคำขอสิทธิ์ VPN เปิดอยู่ โปรดดำเนินการให้เสร็จก่อนลองอีกครั้ง',
+    'retry_disconnect': 'ลองตัดการเชื่อมต่ออีกครั้ง',
+    'disconnect_cleanup_failed':
+        'ยืนยันไม่ได้ว่าคืนค่าการตั้งค่าเครือข่ายแล้ว โปรดลองตัดการเชื่อมต่ออีกครั้ง',
     'hide_from_recents': "ซ่อนจากแอปล่าสุด",
     'hide_from_recents_help':
         "ซ่อน Usque จากรายการแอปล่าสุด เปิดอีกครั้งได้จากไอคอนแอป",

@@ -90,7 +90,11 @@ class PlatformShellBridge {
       case 'toggle':
         if (_controller.initialized &&
             _controller.nativeNetworkActionsAllowed) {
-          await _controller.connectOrDisconnect();
+          if (_controller.connectionActionDisconnects) {
+            await _controller.disconnect();
+          } else {
+            await _controller.connectOrDisconnect();
+          }
         }
       case 'disconnectAndExit':
         try {
@@ -130,9 +134,7 @@ class PlatformShellBridge {
       snapshot,
       killSwitchArmed: profile.frontends.tunnel && profile.killSwitch,
     );
-    final connected =
-        snapshot.phase != ConnectionPhase.disconnected &&
-        snapshot.phase != ConnectionPhase.error;
+    final connected = _controller.connectionActionDisconnects;
     final status = strings.get(
       ConnectionPresentation.of(snapshot.phase).labelKey,
     );

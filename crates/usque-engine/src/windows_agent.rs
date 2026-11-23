@@ -1094,6 +1094,7 @@ pub(crate) struct WindowsVpnRuntime {
     transaction_open: bool,
     held_failure: bool,
     target_committed: bool,
+    protection_committed: bool,
     startup_error: Option<WindowsVpnError>,
     handoff_intent: bool,
     shutdown_replacement: Option<Box<agent_v1::TunnelReplacementStatus>>,
@@ -1242,6 +1243,7 @@ impl WindowsVpnRuntime {
             transaction_open: true,
             held_failure: false,
             target_committed: false,
+            protection_committed: false,
             startup_error: None,
             handoff_intent: false,
             shutdown_replacement: None,
@@ -1524,6 +1526,7 @@ impl WindowsVpnRuntime {
                 transaction_open: true,
                 held_failure: false,
                 target_committed: false,
+                protection_committed: false,
                 startup_error: None,
                 handoff_intent: false,
                 shutdown_replacement: None,
@@ -1818,6 +1821,7 @@ impl WindowsVpnRuntime {
             )
             .into());
         }
+        let mut unacknowledged_commit = None;
         let finalization = async {
             let network = tunnel.network_parameters();
             let mut final_profile = profile.clone();
@@ -1843,7 +1847,10 @@ impl WindowsVpnRuntime {
             plan.split_dns = final_values.split_dns;
             plan.mtu = final_values.mtu;
             plan.defer_network_configuration = false;
-            self.agent.finalize_tunnel(self.operation_id, plan).await?;
+            let prepared = self
+                .agent
+                .finalize_tunnel(self.operation_id, plan.clone())
+                .await?;
             let io = tunnel.attach_tun()?;
             let handles = self
                 .agent
@@ -1861,8 +1868,14 @@ impl WindowsVpnRuntime {
                 self.cancellation.clone(),
                 self.pump_failure_tx.clone(),
             );
-            let committed = self.agent.commit(self.operation_id).await?;
+            unacknowledged_commit = Some((prepared.journal_generation, plan));
+            let reply = self.agent.commit(self.operation_id).await;
+            if !matches!(&reply, Err(error) if error.commit_reply_unknown()) {
+                unacknowledged_commit = None;
+            }
+            let committed = reply?;
             self.target_committed = replacement::target_is_committed(&committed, self.operation_id);
+            self.protection_committed |= self.target_committed;
             if !self.target_committed {
                 return Err(WindowsVpnError::RecoveryConflict);
             }
@@ -1922,11 +1935,18 @@ impl WindowsVpnRuntime {
                 mapping.signal_shutdown();
             }
             // A lost Commit reply may hide an applied target preference.
-            // Query only after closing all final admission and packet pumps.
-            if !self.target_committed
+            // Query only after closing all final admission and packet pumps,
+            // and only if Commit for this target was actually attempted.
+            if let Some((prepared_generation, plan)) = unacknowledged_commit
                 && let Ok(state) = self.agent.get_state().await
             {
-                self.target_committed = replacement::target_is_committed(&state, self.operation_id);
+                self.target_committed = replacement::target_committed_after_finalization_error(
+                    &state,
+                    self.operation_id,
+                    prepared_generation,
+                    &plan,
+                );
+                self.protection_committed |= self.target_committed;
             }
             let reason = error.gate_failure();
             tunnel.fail_gate(reason).await;
@@ -2625,6 +2645,7 @@ async fn bind_agent_session(
         transaction_open: true,
         held_failure: false,
         target_committed: true,
+        protection_committed: true,
         startup_error: None,
         handoff_intent: false,
         shutdown_replacement: None,
@@ -4513,6 +4534,21 @@ pub(crate) enum WindowsVpnError {
 }
 
 impl WindowsVpnError {
+    fn commit_reply_unknown(&self) -> bool {
+        matches!(
+            self,
+            Self::Io(_)
+                | Self::RpcTimeout
+                | Self::Frame(_)
+                | Self::FrameTooLarge(_)
+                | Self::MissingResponse
+                | Self::ResponseIdMismatch
+                | Self::UnexpectedResponse(_)
+        )
+    }
+}
+
+impl WindowsVpnError {
     fn gate_failure(&self) -> usque_core::vpngate::GateFailure {
         use usque_core::vpngate::GateFailure;
         match self {
@@ -5560,6 +5596,57 @@ mod tests {
             request,
             agent_request::Payload::RestartAutomaticRecovery(_)
         )));
+        service.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn continuous_retry_restarts_exhausted_windows_recovery_once() {
+        let (_directory, service, profile_id) = recovery_entry_service().await;
+        let (client, task) = scripted_recovery_client(vec![
+            recovery_capabilities_response(),
+            automatic_recovery_state_response(agent_v1::AutomaticRecoveryPhase::Exhausted),
+            automatic_recovery_state_response(agent_v1::AutomaticRecoveryPhase::Running),
+        ]);
+        *service.test_windows_agent.lock().await = Some(client);
+
+        let response = service
+            .handle(usque_ipc::v1::ControlRequest {
+                request_id: "continuous-retry-exhausted".to_owned(),
+                payload: Some(usque_ipc::v1::control_request::Payload::Retry(
+                    usque_ipc::v1::RetryRequest { continuous: true },
+                )),
+            })
+            .await;
+        assert!(response.error.is_none());
+
+        let requests = tokio::time::timeout(Duration::from_secs(2), task)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            requests
+                .iter()
+                .filter(|request| matches!(
+                    request,
+                    agent_request::Payload::RestartAutomaticRecovery(_)
+                ))
+                .count(),
+            1
+        );
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                if service.status_snapshot().await.phase
+                    == usque_core::ConnectionPhase::Reconnecting
+                    && service.windows_recovery.lock().await.pending.is_some()
+                {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        let _ = profile_id;
         service.shutdown().await.unwrap();
     }
 

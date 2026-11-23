@@ -594,6 +594,8 @@ async fn failed_start_and_failed_rollback_register_recovery_before_connect_or_ke
     );
     assert!(path.exists());
     assert!(service.macos_proxy_recovery_error.lock().await.is_some());
+    let status = service.event_snapshot().await;
+    assert_eq!(status.error.unwrap().code, "DISCONNECT_CLEANUP_FAILED");
     let response = service.handle(disconnect()).await;
     assert!(response.error.is_none());
     let Some(control_response::Payload::Status(snapshot)) = response.payload else {
@@ -603,5 +605,60 @@ async fn failed_start_and_failed_rollback_register_recovery_before_connect_or_ke
     assert!(snapshot.error.is_none());
     assert!(!path.exists());
     assert!(service.macos_proxy_recovery_error.lock().await.is_none());
+    assert_eq!(backend.state.lock().unwrap().services[0].values, original);
+}
+
+#[tokio::test]
+async fn retry_after_restart_finishes_a_cancelled_stop_without_connecting() {
+    use usque_core::storage::ConfigStore;
+    use usque_ipc::v1::{self, control_request, control_response};
+
+    let (directory, path, cipher, backend) = fixture();
+    let original = backend.state.lock().unwrap().services[0].values.clone();
+    let open = || {
+        let mut service = crate::ControlService::open_with_vault(
+            ConfigStore::new(directory.path().join("config.json")),
+            Arc::new(crate::tests::MemoryVault::default()),
+        )
+        .unwrap();
+        Arc::get_mut(&mut service.inner)
+            .unwrap()
+            .macos_proxy_context = Context {
+            path: path.clone(),
+            cipher: cipher.clone(),
+            backend: backend.clone(),
+            pending_lease: Default::default(),
+        };
+        service
+    };
+    let transaction =
+        Transaction::start(path.clone(), cipher.clone(), backend.clone(), listener()).unwrap();
+    backend.state.lock().unwrap().fail_restore = true;
+    drop(transaction);
+    assert!(path.exists());
+    let first = open();
+    backend.state.lock().unwrap().cancel_once = true;
+    assert!(first.disconnect_confirmed().await.is_err());
+    drop(first);
+
+    let restarted = open();
+    assert!(restarted.recover_macos_user_state().await.is_err());
+    assert_eq!(
+        restarted.event_snapshot().await.error.unwrap().code,
+        "DISCONNECT_CLEANUP_FAILED"
+    );
+    let reply = restarted
+        .handle_payload(control_request::Payload::Retry(v1::RetryRequest {
+            continuous: true,
+        }))
+        .await
+        .unwrap();
+    let control_response::Payload::Status(status) = reply else {
+        panic!("status expected")
+    };
+    assert_eq!(status.phase, v1::ConnectionPhase::Disconnected as i32);
+    assert!(restarted.continuous_connection.lock().await.is_none());
+    assert!(restarted.data_plane.lock().await.is_none());
+    assert!(!path.exists());
     assert_eq!(backend.state.lock().unwrap().services[0].values, original);
 }

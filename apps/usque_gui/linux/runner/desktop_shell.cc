@@ -239,9 +239,11 @@ GVariant* menu_properties(Shell* self, int id) {
         (boolean(self->tray, "connected") ? "disconnect" : "connect") :
         id == 3 ? "tunnel_label" : id == 4 ? "system_proxy_label" : "disconnect_exit";
     g_variant_builder_add(&properties, "{sv}", "label", g_variant_new_string(string(self->tray, key, "Usque")));
-    bool enabled = id < 3 || id == 5 || (boolean(self->tray, "outputs_enabled") &&
-        (id != 3 || boolean(self->tray, "tunnel") || boolean(self->tray, "tunnel_available")) &&
-        (id != 4 || boolean(self->tray, "system_proxy") || boolean(self->tray, "system_proxy_available")));
+    bool enabled = id == 1 || id == 5 ||
+        (id == 2 && boolean(self->tray, "connection_enabled")) ||
+        (id != 2 && boolean(self->tray, "outputs_enabled") &&
+            (id != 3 || boolean(self->tray, "tunnel") || boolean(self->tray, "tunnel_available")) &&
+            (id != 4 || boolean(self->tray, "system_proxy") || boolean(self->tray, "system_proxy_available")));
     g_variant_builder_add(&properties, "{sv}", "enabled", g_variant_new_boolean(enabled));
     g_variant_builder_add(&properties, "{sv}", "visible", g_variant_new_boolean(
         (id != 3 && id != 4) || strlen(string(self->tray, key)) != 0));
@@ -302,7 +304,7 @@ bool menu_event(Shell* self, int id, const char* event) {
   if (id < 0 || id > 5) return false;
   if (strcmp(event, "clicked") != 0) return true;
   if (id == 1) show_window(self);
-  if (id == 2) tray_command(self, "toggle");
+  if (id == 2 && boolean(self->tray, "connection_enabled")) tray_command(self, "toggle");
   if (id == 3 && boolean(self->tray, "outputs_enabled") &&
       (boolean(self->tray, "tunnel") || boolean(self->tray, "tunnel_available")))
     tray_command(self, "toggleTunnel");

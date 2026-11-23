@@ -734,6 +734,8 @@ pub struct JournalStore {
     #[cfg(test)]
     fail_clean_save: std::sync::Arc<std::sync::atomic::AtomicUsize>,
     #[cfg(test)]
+    fail_active_save: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    #[cfg(test)]
     fail_replacement_completion_save: std::sync::Arc<std::sync::atomic::AtomicBool>,
     #[cfg(test)]
     fail_replacement_intent_save: std::sync::Arc<std::sync::atomic::AtomicBool>,
@@ -745,6 +747,8 @@ impl JournalStore {
             path: path.into(),
             #[cfg(test)]
             fail_clean_save: std::sync::Arc::default(),
+            #[cfg(test)]
+            fail_active_save: std::sync::Arc::default(),
             #[cfg(test)]
             fail_replacement_completion_save: std::sync::Arc::default(),
             #[cfg(test)]
@@ -834,6 +838,14 @@ impl JournalStore {
             .ok_or(JournalError::GenerationOverflow)?;
         journal.validate()?;
         #[cfg(test)]
+        if journal.phase == RecoveryPhase::Active
+            && self
+                .fail_active_save
+                .swap(false, std::sync::atomic::Ordering::AcqRel)
+        {
+            return Err(io::Error::other("injected Active journal save failure").into());
+        }
+        #[cfg(test)]
         if journal
             .replacement
             .as_ref()
@@ -884,6 +896,12 @@ impl JournalStore {
         replace_file(temporary.path(), &self.path)?;
         let _ = temporary.keep();
         Ok(())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn fail_next_active_save(&self) {
+        self.fail_active_save
+            .store(true, std::sync::atomic::Ordering::Release);
     }
 
     #[cfg(test)]

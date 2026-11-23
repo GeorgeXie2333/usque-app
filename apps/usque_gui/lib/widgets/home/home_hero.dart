@@ -22,7 +22,10 @@ typedef _HeroView = ({
   ConnectionPhase phase,
   bool busy,
   bool canAct,
+  bool pendingConnectionStart,
   String? errorCode,
+  bool canDisconnectProtectedError,
+  bool needsDisconnectCleanup,
   String profileName,
   bool identityReady,
   bool chainEnabled,
@@ -36,7 +39,10 @@ _HeroView _heroView(AppController controller) => (
   phase: controller.snapshot.phase,
   busy: controller.busy,
   canAct: controller.connectionActionEnabled,
+  pendingConnectionStart: controller.hasPendingConnectionStart,
   errorCode: controller.snapshot.errorCode,
+  canDisconnectProtectedError: controller.canDisconnectProtectedError,
+  needsDisconnectCleanup: controller.needsDisconnectCleanup,
   profileName: controller.strings.accountName(controller.activeProfile),
   identityReady: controller
       .identityState(controller.activeProfileId)
@@ -106,12 +112,18 @@ class HomeConnectionHero extends StatelessWidget {
     final status = chainStatus.drivesHome
         ? chainStatus.label(strings)
         : strings.get(connection.labelKey);
-    final error = view.phase == ConnectionPhase.error;
+    final pendingStart = view.pendingConnectionStart;
+    final error = view.phase == ConnectionPhase.error && !pendingStart;
     final recoveryBlocked =
         error && view.errorCode == 'WINDOWS_RECOVERY_BLOCKED';
     final primaryRetry = error && !recoveryBlocked && view.identityReady;
+    final retryCleanup = error && view.needsDisconnectCleanup;
     final action = strings.get(
-      primaryRetry
+      pendingStart
+          ? 'cancel'
+          : retryCleanup
+          ? 'retry_disconnect'
+          : primaryRetry
           ? 'retry'
           : error && !recoveryBlocked && !view.identityReady
           ? 'configure_identity'
@@ -134,6 +146,8 @@ class HomeConnectionHero extends StatelessWidget {
         compactControl: compact,
         onPressed: !canAct
             ? null
+            : pendingStart || retryCleanup
+            ? controller.disconnect
             : primaryRetry
             ? controller.retry
             : () => _connectOrRepairIdentity(context),
@@ -153,11 +167,20 @@ class HomeConnectionHero extends StatelessWidget {
           ? theme.textTheme.headlineSmall
           : theme.textTheme.headlineMedium,
     );
+    final canDisconnectProtectedError =
+        view.canDisconnectProtectedError && !pendingStart && !retryCleanup;
     final retry = connection.recoverable && !error
         ? OutlinedButton.icon(
             onPressed: view.busy ? null : controller.retry,
             icon: const Icon(LucideIcons.refreshCw, size: 18),
             label: Text(strings.get('retry')),
+          )
+        : canDisconnectProtectedError
+        ? OutlinedButton.icon(
+            key: const ValueKey('home-error-disconnect'),
+            onPressed: view.busy ? null : controller.disconnect,
+            icon: const Icon(LucideIcons.powerOff, size: 18),
+            label: Text(strings.get('disconnect')),
           )
         : null;
 
@@ -253,7 +276,9 @@ class HomeConnectionHero extends StatelessWidget {
   }
 
   Future<void> _connectOrRepairIdentity(BuildContext context) async {
-    if (controller.snapshot.isConnected) {
+    if (controller.snapshot.isConnected ||
+        controller.snapshot.isTransitional ||
+        controller.hasPendingConnectionStart) {
       await controller.connectOrDisconnect();
       return;
     }

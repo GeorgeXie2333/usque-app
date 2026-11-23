@@ -101,6 +101,14 @@ internal class AndroidEngineMethodHandler(
             result: MethodChannel.Result,
         )
 
+        fun retryAfterValidation(
+            mode: String,
+            result: MethodChannel.Result,
+            onGranted: () -> Unit,
+        ) {
+            onGranted()
+        }
+
         fun selectDiagnosticsDestination(
             result: MethodChannel.Result,
             payload: DiagnosticExportPayload,
@@ -544,12 +552,7 @@ internal class AndroidEngineMethodHandler(
             }
 
             "retry" -> {
-                connectionIntent.incrementAndGet()
-                activityCommands.cancelPendingVpnConnection(
-                    "VPN_PERMISSION_CANCELLED",
-                    "A newer connection was requested.",
-                )
-                controlClient.requestRetry(result, call.argument<Boolean>("continuous") == true)
+                retry(call, result)
             }
 
             "connect" -> {
@@ -3273,6 +3276,58 @@ internal class AndroidEngineMethodHandler(
 
             else -> {
                 StoredIdentityProvider("consumer", valid = false, repairable = false)
+            }
+        }
+    }
+
+    private fun retry(
+        call: MethodCall,
+        result: MethodChannel.Result,
+    ) {
+        if (!engineBridge.isReady()) {
+            result.error(
+                "ENGINE_UNAVAILABLE",
+                "The Rust data channel is not available; no VPN interface was created.",
+                null,
+            )
+            return
+        }
+        val continuous = call.argument<Boolean>("continuous") == true
+        val intent = connectionIntent.incrementAndGet()
+        activityCommands.cancelPendingVpnConnection(
+            "VPN_PERMISSION_CANCELLED",
+            "A newer connection was requested.",
+        )
+        identityExecutor.execute {
+            val mode =
+                try {
+                    val catalog =
+                        requireNotNull(
+                            engineBridge.applyProfileCommand(profileConfigPath, """{"command":"list_profiles"}"""),
+                        )
+                    val profileJson = requireNotNull(CurrentAccountProfile.read(catalog))
+                    VpnReconfigure.canonicalMode(VpnReconfigure.tunnelFrontendEnabled(profileJson))
+                } catch (_: Exception) {
+                    null
+                }
+            mainScheduler.post {
+                if (intent != connectionIntent.get() || controlClient.isClosed) {
+                    result.error("ENGINE_REQUEST_CANCELLED", "The connection request was cancelled.", null)
+                } else if (mode == null) {
+                    result.error(
+                        "PROFILE_STORE_FAILED",
+                        "The saved account could not be loaded.",
+                        null,
+                    )
+                } else {
+                    activityCommands.retryAfterValidation(mode, result) {
+                        if (intent != connectionIntent.get() || controlClient.isClosed) {
+                            result.error("ENGINE_REQUEST_CANCELLED", "The connection request was cancelled.", null)
+                        } else {
+                            controlClient.requestRetry(result, continuous)
+                        }
+                    }
+                }
             }
         }
     }

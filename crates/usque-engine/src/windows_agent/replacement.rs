@@ -84,6 +84,17 @@ pub(super) fn target_is_committed(state: &AgentState, operation_id: Uuid) -> boo
         && pending_replacement(state).is_ok_and(|pending| pending.is_none())
 }
 
+pub(super) fn target_committed_after_finalization_error(
+    state: &AgentState,
+    operation_id: Uuid,
+    prepared_generation: u64,
+    expected_plan: &agent_v1::TunnelPlan,
+) -> bool {
+    target_is_committed(state, operation_id)
+        && state.journal_generation > prepared_generation
+        && state.plan.as_deref() == Some(expected_plan)
+}
+
 pub(super) fn abort_completed(
     state: &AgentState,
     expected: &agent_v1::TunnelReplacementStatus,
@@ -157,6 +168,9 @@ impl WindowsVpnRuntime {
     }
     pub(crate) fn target_committed(&self) -> bool {
         self.target_committed
+    }
+    pub(crate) fn protection_committed(&self) -> bool {
+        self.protection_committed || self.target_committed
     }
 
     pub(crate) fn take_startup_error(&mut self) -> Option<WindowsVpnError> {
@@ -273,6 +287,7 @@ impl WindowsVpnRuntime {
         device: &WindowsDeviceOwner,
     ) -> Result<(), WindowsVpnError> {
         if self.target_committed {
+            self.protection_committed = true;
             self.handoff_intent = false;
             self.replacement_request = None;
         }
@@ -352,6 +367,7 @@ impl WindowsVpnRuntime {
         cancellation: &CancellationToken,
         device: &WindowsDeviceOwner,
     ) -> Result<(), WindowsVpnError> {
+        self.protection_committed |= self.target_committed;
         self.target_committed = false;
         // A requested live handoff owns its source protection even before an
         // old Agent can acknowledge the capability. This intent is distinct
@@ -442,6 +458,7 @@ impl WindowsVpnRuntime {
                     self.operation_id = Uuid::parse_str(&operation_id)
                         .map_err(|_| WindowsVpnError::InvalidAgentOperationId)?;
                     self.target_committed = target_is_committed(&current, self.operation_id);
+                    self.protection_committed |= self.target_committed;
                     self.discard_retired_sidecar(&current);
                 }
                 return Err(error);
@@ -459,6 +476,7 @@ impl WindowsVpnRuntime {
             protector.monitor_cancel.cancel();
         }
         self.target_committed = target_is_committed(&prepared, self.operation_id);
+        self.protection_committed |= self.target_committed;
         if cancellation.is_cancelled() {
             return Err(TransportError::TunnelClosed.into());
         }

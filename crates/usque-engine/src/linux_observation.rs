@@ -8,6 +8,57 @@ use usque_ipc::agent_v1::AgentPhase;
 
 const MAX_AGE: Duration = Duration::from_secs(10);
 
+#[derive(Default)]
+pub(crate) struct LinuxObservationCache {
+    latest: Option<LinuxPlatformObservation>,
+    // A shutdown owner may be waiting on the Agent or retained after failure.
+    // Its observations are not evidence of a separate orphan transaction.
+    cleaning: std::collections::HashSet<uuid::Uuid>,
+    // A read can span both Agent status and physical-network requests. A
+    // confirmed cleanup fences reads that were already in flight.
+    cleanup_epoch: u64,
+}
+
+impl LinuxObservationCache {
+    pub(super) fn begin_cleanup(&mut self, operations: [Option<uuid::Uuid>; 3]) {
+        self.cleaning.extend(operations.into_iter().flatten());
+    }
+
+    fn publish(&mut self, epoch: u64, observation: LinuxPlatformObservation) -> bool {
+        if self.cleanup_epoch != epoch {
+            return false;
+        }
+        self.latest = Some(observation);
+        true
+    }
+
+    pub(super) fn retire(&mut self, operations: [Option<uuid::Uuid>; 3]) {
+        for id in operations.iter().flatten() {
+            self.cleaning.remove(id);
+        }
+        self.cleanup_epoch += 1;
+        if self.latest.as_ref().is_some_and(|observed| {
+            uuid::Uuid::parse_str(&observed.state.operation_id)
+                .is_ok_and(|id| operations.contains(&Some(id)))
+        }) {
+            self.latest = None;
+        }
+    }
+}
+
+impl crate::ActiveRuntime {
+    pub(super) fn linux_cleanup_operations(&self) -> [Option<uuid::Uuid>; 3] {
+        match self {
+            crate::ActiveRuntime::Vpn(vpn) => vpn.cleanup_operations(),
+            #[cfg(test)]
+            crate::ActiveRuntime::Harness(runtime) if runtime.vpn => {
+                [Some(runtime.operation_id), None, None]
+            }
+            _ => [None; 3],
+        }
+    }
+}
+
 impl ControlService {
     #[cfg(not(test))]
     pub(crate) async fn recover_linux_orphan_on_disconnect(
@@ -17,6 +68,7 @@ impl ControlService {
             .linux_platform
             .lock()
             .await
+            .latest
             .as_ref()
             .is_some_and(|v| v.state.phase != AgentPhase::Clean as i32);
         if !pending {
@@ -37,7 +89,9 @@ impl ControlService {
             if observed.state.phase != AgentPhase::Clean as i32 {
                 return Err(std::io::Error::other("Linux recovery remains pending"));
             }
-            *self.linux_platform.lock().await = Some(observed);
+            let mut cache = self.linux_platform.lock().await;
+            cache.cleanup_epoch += 1;
+            cache.latest = Some(observed);
             Ok::<_, std::io::Error>(())
         }
         .await;
@@ -51,6 +105,7 @@ impl ControlService {
     ) {
         let observed = self.linux_platform.lock().await;
         let Some(observed) = observed
+            .latest
             .as_ref()
             .filter(|v| v.state.operation_id == operation.to_string())
         else {
@@ -67,6 +122,7 @@ impl ControlService {
     pub async fn run_linux_observation_monitor(self: Arc<Self>) {
         let mut client = None;
         loop {
+            let epoch = self.linux_platform.lock().await.cleanup_epoch;
             let result = tokio::time::timeout(Duration::from_secs(5), async {
                 if client.is_none() {
                     client = Some(LinuxAgentClient::connect().await?);
@@ -80,7 +136,10 @@ impl ControlService {
             })
             .await;
             if let Ok(Ok(observation)) = result {
-                *self.linux_platform.lock().await = Some(observation);
+                if !self.linux_platform.lock().await.publish(epoch, observation) {
+                    // Cleanup overtook this sample. Read the current owner immediately.
+                    continue;
+                }
             } else {
                 // Retain evidence when the service disappears. Old guard
                 // observations become unknown instead of claiming safety.
@@ -92,6 +151,8 @@ impl ControlService {
 
     pub(crate) async fn linux_diagnostic_observation(&self) -> Option<LinuxPlatformObservation> {
         #[cfg(not(test))]
+        let epoch = self.linux_platform.lock().await.cleanup_epoch;
+        #[cfg(not(test))]
         if let Ok(Ok(observation)) = tokio::time::timeout(Duration::from_secs(5), async {
             capture(
                 &LinuxAgentClient::connect().await?,
@@ -101,14 +162,27 @@ impl ControlService {
             .await
         })
         .await
+            && self.linux_platform.lock().await.cleanup_epoch == epoch
         {
             return Some(observation);
         }
-        self.linux_platform.lock().await.clone()
+        self.linux_platform.lock().await.latest.clone()
     }
 
     pub(crate) async fn project_linux_recovery(&self, snapshot: &mut ConnectionSnapshot) {
-        if let Some(observation) = self.linux_platform.lock().await.as_ref() {
+        if snapshot
+            .error
+            .as_ref()
+            .is_some_and(|error| error.code == ErrorCode::DisconnectCleanupFailed)
+        {
+            // A different Agent transaction cannot discharge the local shutdown owner either.
+            return;
+        }
+        let cache = self.linux_platform.lock().await;
+        if let Some(observation) = &cache.latest
+            && !uuid::Uuid::parse_str(&observation.state.operation_id)
+                .is_ok_and(|id| cache.cleaning.contains(&id))
+        {
             project(observation, snapshot);
         }
     }
@@ -339,5 +413,101 @@ mod tests {
         let mut clean = ConnectionSnapshot::default();
         project(&observation, &mut clean);
         assert_eq!(clean.phase, ConnectionPhase::Disconnected);
+    }
+
+    #[tokio::test]
+    async fn confirmed_vpn_cleanup_retires_cached_and_in_flight_agent_state() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = ControlService::open_with_vault(
+            usque_core::storage::ConfigStore::new(dir.path().join("config.json")),
+            Arc::new(crate::tests::MemoryVault::default()),
+        )
+        .unwrap();
+        let mut profile = service.config_snapshot().await.active_profile().unwrap();
+        profile.frontends.tunnel = true;
+        profile.kill_switch = true;
+        profile.canonicalize_mode();
+        service
+            .install_test_session(profile, true, 0)
+            .await
+            .unwrap();
+        let release = tokio_util::sync::CancellationToken::new();
+        let operation = {
+            let mut active = service.data_plane.lock().await;
+            let crate::ActiveRuntime::Harness(runtime) = &mut active.as_mut().unwrap().runtime
+            else {
+                unreachable!()
+            };
+            runtime.shutdown_failures = 1;
+            runtime.shutdown_release = Some(release.clone());
+            runtime.operation_id
+        };
+        let sample = LinuxPlatformObservation {
+            state: usque_ipc::agent_v1::AgentState {
+                phase: AgentPhase::Active as i32,
+                operation_id: operation.to_string(),
+                kill_switch_active: true,
+                ..Default::default()
+            },
+            physical: None,
+            captured_at: tokio::time::Instant::now(),
+            session_generation: service
+                .session_generation
+                .load(std::sync::atomic::Ordering::Acquire),
+        };
+        let initial_epoch = {
+            let mut cache = service.linux_platform.lock().await;
+            let epoch = cache.cleanup_epoch;
+            cache.publish(epoch, sample.clone());
+            epoch
+        };
+        let _lifecycle = service.mutation_lock.lock().await;
+        service.teardown_for_reconnect_locked().await.unwrap();
+        assert_eq!(
+            service.status_snapshot().await.phase,
+            ConnectionPhase::Reconnecting
+        );
+        release.cancel();
+        assert!(service.await_disconnect_cleanup().await.is_err());
+        assert_eq!(
+            service.linux_platform.lock().await.cleanup_epoch,
+            initial_epoch
+        );
+        assert!(service.linux_platform.lock().await.latest.is_some());
+        let failed = service.event_snapshot().await;
+        assert_eq!(failed.error.unwrap().code, "DISCONNECT_CLEANUP_FAILED");
+        assert_eq!(
+            failed.kill_switch_state,
+            usque_ipc::v1::KillSwitchState::Error as i32
+        );
+        assert!(service.retry_disconnect_cleanup().await);
+        service.await_disconnect_cleanup().await.unwrap();
+        assert!(service.disconnect_owners.lock().await.is_empty());
+        assert!(service.linux_platform.lock().await.latest.is_none());
+        service
+            .linux_platform
+            .lock()
+            .await
+            .publish(initial_epoch, sample.clone());
+        assert_eq!(
+            service.event_snapshot().await.kill_switch_state,
+            usque_ipc::v1::KillSwitchState::NotApplicable as i32
+        );
+
+        // A distinct Agent transaction still projects a real recovery state,
+        // even if an earlier sample arrives after the new one.
+        let mut other = sample.clone();
+        other.state.operation_id = uuid::Uuid::new_v4().to_string();
+        other.state.phase = AgentPhase::RecoveryRequired as i32;
+        {
+            let mut cache = service.linux_platform.lock().await;
+            let epoch = cache.cleanup_epoch;
+            cache.publish(epoch, other);
+            cache.publish(initial_epoch, sample);
+            cache.retire([Some(operation), None, None]);
+        }
+        let status = service.status_snapshot().await;
+        assert_eq!(status.phase, ConnectionPhase::Error);
+        assert_eq!(status.kill_switch_state, KillSwitchState::Active);
     }
 }

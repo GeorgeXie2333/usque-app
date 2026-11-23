@@ -25,14 +25,14 @@ fn can_handoff(active: &ActiveDataPlane) -> bool {
     active.runtime.is_vpn()
         && (is_proxy_vpn(&active.profile)
             || active.runtime.replacement_pending()
-            || active.profile.kill_switch && active.runtime.target_committed())
+            || active.profile.kill_switch && active.runtime.protection_committed())
 }
 
 fn retains_protection(active: &ActiveDataPlane) -> bool {
     active.runtime.is_vpn()
         && (requires_failure_retention(&active.profile)
             || active.runtime.replacement_pending()
-            || active.profile.kill_switch && active.runtime.target_committed())
+            || active.profile.kill_switch && active.runtime.protection_committed())
 }
 
 impl ControlService {
@@ -50,6 +50,26 @@ impl ControlService {
         profile_id: uuid::Uuid,
         cancellation: &tokio_util::sync::CancellationToken,
         retry_connected: bool,
+    ) -> Result<Option<usque_core::ConnectionSnapshot>, ControlServiceError> {
+        let mut startup_lock = None;
+        self.retry_protected_target_with_lock(
+            profile_id,
+            cancellation,
+            retry_connected,
+            false,
+            &mut startup_lock,
+        )
+        .await
+    }
+
+    #[cfg(any(windows, target_os = "linux"))]
+    pub(crate) async fn retry_protected_target_with_lock(
+        &self,
+        profile_id: uuid::Uuid,
+        cancellation: &tokio_util::sync::CancellationToken,
+        retry_connected: bool,
+        restart_exhausted_recovery: bool,
+        startup_lock: &mut Option<tokio::sync::OwnedMutexGuard<()>>,
     ) -> Result<Option<usque_core::ConnectionSnapshot>, ControlServiceError> {
         let eligible = self.data_plane.lock().await.as_ref().is_some_and(|active| {
             can_handoff(active)
@@ -76,14 +96,28 @@ impl ControlService {
             if cancellation.is_cancelled() {
                 return Ok(Some(self.state.lock().await.snapshot().clone()));
             }
-            self.disconnect_locked().await?;
+            self.teardown_for_reconnect_locked().await?;
             self.await_disconnect_cleanup().await?;
+            self.state
+                .lock()
+                .await
+                .update_safety_state(KillSwitchState::NotApplicable, LockdownState::NotSupported);
             *self.session_profile.lock().await = None;
             *self.session_congestion_control.lock().await = None;
+            if let Some(lock) = startup_lock.take() {
+                return Box::pin(self.connect_with_startup_lock(
+                    profile_id,
+                    cancellation.clone(),
+                    restart_exhausted_recovery,
+                    Some(lock),
+                ))
+                .await
+                .map(Some);
+            }
             return Box::pin(self.connect_with_cancellation_locked(
                 profile_id,
                 cancellation.clone(),
-                false,
+                restart_exhausted_recovery,
             ))
             .await
             .map(Some);
@@ -228,7 +262,8 @@ impl ControlService {
         #[cfg(target_os = "linux")]
         let result = {
             let _ = previous;
-            Box::pin(runtime.replace_connection(
+            let mut retired = runtime.cleanup_operations();
+            let result = Box::pin(runtime.replace_connection(
                 target,
                 identity,
                 refresher,
@@ -245,7 +280,18 @@ impl ControlService {
                 },
             ))
             .await
-            .map_err(crate::linux_runtime::map_error)
+            .map_err(crate::linux_runtime::map_error);
+            if result.is_ok() {
+                // A retry may adopt an already prepared target. Only its
+                // predecessor's samples become obsolete at this handoff.
+                for id in &mut retired {
+                    if *id == Some(runtime.operation_id()) {
+                        *id = None;
+                    }
+                }
+                self.linux_platform.lock().await.retire(retired);
+            }
+            result
         };
         let mut snapshot = self
             .finish_protected_reconnect(active, target, result)
@@ -259,7 +305,7 @@ impl ControlService {
     }
 
     #[cfg(any(windows, target_os = "linux"))]
-    async fn finish_protected_reconnect(
+    pub(crate) async fn finish_protected_reconnect(
         &self,
         mut active: ActiveDataPlane,
         target: &Profile,

@@ -71,7 +71,14 @@ impl ControlService {
         &self,
         profile_id: Uuid,
     ) -> Result<ConnectionSnapshot, ControlServiceError> {
-        self.accept_continuous(profile_id, None).await
+        self.accept_continuous(profile_id, None, false).await
+    }
+
+    pub(super) async fn retry_continuously(
+        &self,
+        profile_id: Uuid,
+    ) -> Result<ConnectionSnapshot, ControlServiceError> {
+        self.accept_continuous(profile_id, None, true).await
     }
 
     pub(super) async fn restart_continuously(
@@ -79,13 +86,15 @@ impl ControlService {
         profile_id: Uuid,
         cancellation: CancellationToken,
     ) -> Result<ConnectionSnapshot, ControlServiceError> {
-        self.accept_continuous(profile_id, Some(cancellation)).await
+        self.accept_continuous(profile_id, Some(cancellation), false)
+            .await
     }
 
     fn accept_continuous(
         &self,
         profile_id: Uuid,
         inherited: Option<CancellationToken>,
+        explicit_retry: bool,
     ) -> std::pin::Pin<
         Box<
             dyn std::future::Future<Output = Result<ConnectionSnapshot, ControlServiceError>>
@@ -112,6 +121,7 @@ impl ControlService {
                 return Ok(snapshot);
             }
             if inherited.is_none()
+                && !explicit_retry
                 && let Some(intent) = owner.as_ref()
                 && intent.enabled
                 && intent.profile_id == profile_id
@@ -128,11 +138,17 @@ impl ControlService {
                 }
                 return Ok(snapshot);
             }
-            if let Some(active) = self.data_plane.lock().await.as_ref()
-                && active.profile_id != profile_id
-            {
-                return Err(ControlServiceError::AlreadyConnected(active.profile_id));
-            }
+            let allow_protected_handoff = explicit_retry || self.protected_chain_present().await;
+            let superseded_generation = match self.data_plane.lock().await.as_ref() {
+                Some(active) if active.profile_id != profile_id && !allow_protected_handoff => {
+                    return Err(ControlServiceError::AlreadyConnected(active.profile_id));
+                }
+                Some(active) if explicit_retry || active.profile_id != profile_id => {
+                    active.session_generation
+                }
+                None if explicit_retry => self.session_generation.load(Ordering::Acquire),
+                _ => 0,
+            };
             let mut registered = self.gate_startup_cancel.lock().await;
             if inherited
                 .as_ref()
@@ -140,6 +156,27 @@ impl ControlService {
             {
                 return Ok(snapshot);
             }
+            let snapshot = {
+                let mut state = self.state.lock().await;
+                let phase = if matches!(
+                    state.snapshot().phase,
+                    ConnectionPhase::ConnectingHttp3
+                        | ConnectionPhase::ConnectingHttp2
+                        | ConnectionPhase::Connected
+                        | ConnectionPhase::Degraded
+                        | ConnectionPhase::Reconnecting
+                ) {
+                    ConnectionPhase::Reconnecting
+                } else {
+                    ConnectionPhase::Preparing
+                };
+                if state.snapshot().phase != phase {
+                    state.transition(phase)?;
+                }
+                self.superseded_session_generation
+                    .store(superseded_generation, Ordering::Release);
+                state.snapshot().clone()
+            };
             let retiring = owner.take().map(|previous| {
                 previous.cancellation.cancel();
                 previous.task
@@ -153,23 +190,8 @@ impl ControlService {
             let worker_wake = wake.clone();
             let weak = Arc::downgrade(&self.inner);
             let mut new_connection = inherited.is_none();
-            let snapshot = {
-                let mut state = self.state.lock().await;
-                let phase = if matches!(
-                    state.snapshot().phase,
-                    ConnectionPhase::Connected
-                        | ConnectionPhase::Degraded
-                        | ConnectionPhase::Reconnecting
-                ) {
-                    ConnectionPhase::Reconnecting
-                } else {
-                    ConnectionPhase::Preparing
-                };
-                if state.snapshot().phase != phase {
-                    state.transition(phase)?;
-                }
-                state.snapshot().clone()
-            };
+            let mut restart_exhausted_recovery = inherited.is_none();
+            let mut force_retry_once = explicit_retry;
             #[cfg(target_os = "macos")]
             let mut interactive = usque_platform::macos_keychain::interaction_allowed();
             let task = tokio::spawn(async move {
@@ -194,37 +216,56 @@ impl ControlService {
                             service.reset_proton_selection();
                             new_connection = false;
                         }
+                        let restart_exhausted = std::mem::take(&mut restart_exhausted_recovery);
+                        let force_retry = std::mem::take(&mut force_retry_once);
                         match service.stop_failed_gate_locked().await {
                             Ok(()) => {
-                                let failed = service.data_plane.lock().await.as_ref().is_some_and(
-                                    |active| {
-                                        matches!(
-                                            active.runtime.health(),
-                                            RuntimeHealth::Failed { .. }
-                                        )
-                                    },
-                                );
-                                if failed {
-                                    Box::pin(
-                                        service.retry_connection_locked(
-                                            profile_id,
-                                            worker_cancel.clone(),
-                                        ),
-                                    )
+                                let should_retry_session = {
+                                    let data_plane = service.data_plane.lock().await;
+                                    data_plane.as_ref().is_some_and(|active| {
+                                        force_retry
+                                            || active.profile_id != profile_id
+                                            || matches!(
+                                                active.runtime.health(),
+                                                RuntimeHealth::Failed { .. }
+                                            )
+                                    })
+                                };
+                                if should_retry_session {
+                                    Box::pin(service.retry_connection_step_locked(
+                                        profile_id,
+                                        worker_cancel.clone(),
+                                        restart_exhausted,
+                                        Some(mutation),
+                                        #[cfg(target_os = "macos")]
+                                        Some(&worker_wake),
+                                    ))
                                     .await
                                 } else {
+                                    if force_retry {
+                                        *service.session_congestion_control.lock().await = None;
+                                        *service.session_profile.lock().await = None;
+                                    }
                                     #[cfg(windows)]
-                                    service.begin_windows_connection_intent(profile_id).await;
-                                    service
+                                    let intent_generation =
+                                        service.begin_windows_connection_intent(profile_id).await;
+                                    let result = service
                                         .connect_with_startup_lock(
                                             profile_id,
                                             worker_cancel.clone(),
-                                            false,
+                                            restart_exhausted,
                                             Some(mutation),
                                             #[cfg(target_os = "macos")]
                                             Some(&worker_wake),
                                         )
-                                        .await
+                                        .await;
+                                    #[cfg(windows)]
+                                    if result.is_err() {
+                                        service
+                                            .clear_windows_connection_intent_if(intent_generation)
+                                            .await;
+                                    }
+                                    result
                                 }
                             }
                             Err(error) => Err(error),
@@ -534,5 +575,129 @@ mod tests {
         assert!(service.continuous_connection.lock().await.is_none());
         assert!(service.continuous_retirement.lock().await.is_none());
         assert!(service.disconnect_owners.lock().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn retry_during_handshake_transitions_to_reconnecting_without_orphaning_worker() {
+        for handshake_phase in [
+            ConnectionPhase::ConnectingHttp3,
+            ConnectionPhase::ConnectingHttp2,
+        ] {
+            let directory = tempfile::tempdir().unwrap();
+            let service = ControlService::open_with_vault(
+                ConfigStore::new(directory.path().join("config.json")),
+                Arc::new(crate::tests::MemoryVault::default()),
+            )
+            .unwrap();
+            let profile_id = service.config_snapshot().await.active_profile_id.unwrap();
+            let mutation = service.mutation_lock.lock().await;
+            service.connect_continuously(profile_id).await.unwrap();
+            {
+                let mut state = service.state.lock().await;
+                state.transition(handshake_phase).unwrap();
+            }
+            let accepted = service.retry_continuously(profile_id).await.unwrap();
+            assert_eq!(accepted.phase, ConnectionPhase::Reconnecting);
+            assert!(
+                service
+                    .continuous_connection
+                    .lock()
+                    .await
+                    .as_ref()
+                    .is_some_and(ConnectionIntent::is_active)
+            );
+            drop(mutation);
+            service.disconnect().await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn rejected_state_transition_does_not_cancel_existing_continuous_worker() {
+        let directory = tempfile::tempdir().unwrap();
+        let service = ControlService::open_with_vault(
+            ConfigStore::new(directory.path().join("config.json")),
+            Arc::new(crate::tests::MemoryVault::default()),
+        )
+        .unwrap();
+        let profile_id = service.config_snapshot().await.active_profile_id.unwrap();
+        let mutation = service.mutation_lock.lock().await;
+        service.connect_continuously(profile_id).await.unwrap();
+        {
+            let mut state = service.state.lock().await;
+            state.transition(ConnectionPhase::Disconnecting).unwrap();
+        }
+        assert!(service.retry_continuously(profile_id).await.is_err());
+        assert!(
+            service
+                .continuous_connection
+                .lock()
+                .await
+                .as_ref()
+                .is_some_and(ConnectionIntent::is_active),
+            "rejected transition must not cancel or drop the existing worker"
+        );
+        drop(mutation);
+        service.disconnect().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn accepted_retry_stays_reconnecting_while_the_old_runtime_is_healthy() {
+        let directory = tempfile::tempdir().unwrap();
+        let service = ControlService::open_with_vault(
+            ConfigStore::new(directory.path().join("config.json")),
+            Arc::new(crate::tests::MemoryVault::default()),
+        )
+        .unwrap();
+        let profile = service.config_snapshot().await.active_profile().unwrap();
+        service
+            .install_test_session(profile.clone(), false, 0)
+            .await
+            .unwrap();
+        let mutation = service.mutation_lock.lock().await;
+        let accepted = service.retry_continuously(profile.id).await.unwrap();
+        assert_eq!(accepted.phase, ConnectionPhase::Reconnecting);
+        assert_eq!(
+            service.status_snapshot().await.phase,
+            ConnectionPhase::Reconnecting
+        );
+        drop(mutation);
+        service.disconnect().await.unwrap();
+        service.await_disconnect_cleanup().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn proxy_retry_teardown_stays_reconnecting_without_flashing_disconnected() {
+        let directory = tempfile::tempdir().unwrap();
+        let service = ControlService::open_with_vault(
+            ConfigStore::new(directory.path().join("config.json")),
+            Arc::new(crate::tests::MemoryVault::default()),
+        )
+        .unwrap();
+        let mut profile = service.config_snapshot().await.active_profile().unwrap();
+        profile.frontends = FrontendSettings {
+            tunnel: false,
+            socks5: true,
+            http: true,
+        };
+        profile.canonicalize_mode();
+        service
+            .install_test_session(profile.clone(), false, 0)
+            .await
+            .unwrap();
+        let _mutation = service.mutation_lock.lock().await;
+        let before = service.status_snapshot().await;
+        assert!(before.transport.is_some());
+        assert!(!before.frontends.is_empty());
+        let snapshot = service.teardown_for_reconnect_locked().await.unwrap();
+        assert_eq!(snapshot.phase, ConnectionPhase::Reconnecting);
+        service.await_disconnect_cleanup().await.unwrap();
+        let after = service.status_snapshot().await;
+        assert_eq!(after.phase, ConnectionPhase::Reconnecting);
+        assert!(after.transport.is_none() && after.address_family.is_none());
+        assert!(!after.ipv4_available && !after.ipv6_available);
+        assert!(after.active_listeners.is_empty() && after.frontends.is_empty());
+        assert_eq!(after.statistics, Statistics::default());
+        drop(_mutation);
+        service.disconnect().await.unwrap();
     }
 }

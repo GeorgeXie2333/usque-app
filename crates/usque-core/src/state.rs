@@ -211,6 +211,7 @@ pub enum ErrorCode {
     MacosAgentRecoveryUnconfirmed,
     MacosProxyAgentRequired,
     MacosKeychainAccessRequired,
+    DisconnectCleanupFailed,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -240,25 +241,30 @@ impl StateMachine {
             self.snapshot.failure = None;
         }
         if phase == ConnectionPhase::Disconnected {
-            self.snapshot.data_plane = None;
-            self.snapshot.l4 = None;
-            self.snapshot.session_congestion_control = None;
-            self.snapshot.transport = None;
-            self.snapshot.address_family = None;
-            self.snapshot.endpoint_source = None;
-            self.snapshot.ipv4_available = false;
-            self.snapshot.ipv6_available = false;
-            self.snapshot.exit = None;
-            self.snapshot.statistics = Statistics::default();
+            self.clear_session_metadata();
             self.snapshot.kill_switch_state = KillSwitchState::NotApplicable;
             self.snapshot.lockdown_state = LockdownState::NotSupported;
-            self.snapshot.reconnect_count = 0;
-            self.snapshot.active_listeners.clear();
-            self.snapshot.warnings.clear();
-            self.snapshot.ads_rule_revision.clear();
-            self.snapshot.frontends.clear();
         }
         Ok(&self.snapshot)
+    }
+
+    /// The data plane stopped forwarding. Platform protection may still be owned.
+    pub fn clear_session_metadata(&mut self) {
+        self.snapshot.data_plane = None;
+        self.snapshot.l4 = None;
+        self.snapshot.session_congestion_control = None;
+        self.snapshot.transport = None;
+        self.snapshot.address_family = None;
+        self.snapshot.endpoint_source = None;
+        self.snapshot.ipv4_available = false;
+        self.snapshot.ipv6_available = false;
+        self.snapshot.exit = None;
+        self.snapshot.statistics = Statistics::default();
+        self.snapshot.reconnect_count = 0;
+        self.snapshot.active_listeners.clear();
+        self.snapshot.warnings.clear();
+        self.snapshot.ads_rule_revision.clear();
+        self.snapshot.frontends.clear();
     }
 
     pub fn mark_connected(

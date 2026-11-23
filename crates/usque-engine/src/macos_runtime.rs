@@ -1010,10 +1010,10 @@ impl ControlService {
                     )
                     .await
                     .map_err(crate::macos_agent_runtime::map_error)?;
-                active.session_generation = self.next_session_generation();
             }
             _ => return Err(error("macos_tun_owner_changed")),
         }
+        active.session_generation = self.next_session_generation();
         active.profile_id = target.id;
         active.profile = target.clone();
         active.frontends = target.frontends;
