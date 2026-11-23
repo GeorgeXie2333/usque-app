@@ -506,6 +506,9 @@ impl MacAgentRuntime {
         *self = replacement;
         Ok(())
     }
+    pub(super) fn fence(&self) -> &p::MacosFence {
+        &self.fence
+    }
     pub async fn retain_failed_gate(
         &mut self,
         reason: usque_core::vpngate::GateFailure,

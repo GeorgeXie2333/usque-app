@@ -713,6 +713,71 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_borrowed_vpn_remains_cancellable_and_returns_the_exact_cleanup_owner() {
+        let directory = tempfile::tempdir().unwrap();
+        let service = ControlService::open_with_vault(
+            ConfigStore::new(directory.path().join("config.json")),
+            Arc::new(crate::tests::MemoryVault::default()),
+        )
+        .unwrap();
+        let mut profile = service.config_snapshot().await.active_profile().unwrap();
+        profile.frontends.tunnel = true;
+        profile.kill_switch = true;
+        profile.canonicalize_mode();
+        service
+            .install_test_session(profile.clone(), true, 0)
+            .await
+            .unwrap();
+        let lifecycle = service.mutation_lock.lock().await;
+        service.connect_continuously(profile.id).await.unwrap();
+        let first = service.gate_startup_cancel.lock().await.clone();
+        let mut owner = service
+            .data_plane
+            .borrow_vpn_for_replacement()
+            .await
+            .unwrap();
+        let generation = owner.active().session_generation;
+        let ActiveRuntime::Harness(runtime) = &owner.active().runtime else {
+            unreachable!()
+        };
+        let stopped = runtime.stopped.clone();
+        assert!(service.data_plane.lock_for_status().await.1);
+        let observed = tokio::time::timeout(Duration::from_secs(1), service.status_snapshot())
+            .await
+            .unwrap();
+        assert_eq!(observed.phase, ConnectionPhase::Reconnecting);
+        assert_eq!(observed.kill_switch_state, KillSwitchState::Active);
+        tokio::time::timeout(
+            Duration::from_secs(1),
+            service.retry_continuously(profile.id),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert!(first.is_cancelled());
+        // Dropping a waiting replacement future must return the owner even
+        // when another observer currently holds the publication lock.
+        let observer = service.data_plane.lock().await;
+        drop(owner);
+        drop(observer);
+        assert_eq!(
+            service
+                .data_plane
+                .lock()
+                .await
+                .as_ref()
+                .unwrap()
+                .session_generation,
+            generation
+        );
+        service.gate_startup_cancel.lock().await.cancel();
+        drop(lifecycle);
+        service.disconnect().await.unwrap();
+        service.await_disconnect_cleanup().await.unwrap();
+        assert!(stopped.is_cancelled());
+    }
+
+    #[tokio::test]
     async fn accepted_retry_stays_reconnecting_while_the_old_runtime_is_healthy() {
         let directory = tempfile::tempdir().unwrap();
         let service = ControlService::open_with_vault(
