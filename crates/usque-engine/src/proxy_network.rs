@@ -144,7 +144,7 @@ fn default_interfaces() -> Vec<(u32, u32)> {
         return Vec::new();
     }
     // SAFETY: the successful API call owns a flexible array with NumEntries rows.
-    let result = unsafe {
+    let mut result: Vec<(u32, u32)> = unsafe {
         let rows =
             std::slice::from_raw_parts((*table).Table.as_ptr(), (*table).NumEntries as usize);
         rows.iter()
@@ -156,5 +156,7 @@ fn default_interfaces() -> Vec<(u32, u32)> {
     unsafe {
         FreeMibTable(table.cast());
     }
+    // Enumeration order is not a route change.
+    result.sort_unstable();
     result
 }

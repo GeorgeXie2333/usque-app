@@ -555,3 +555,79 @@ async fn cancelling_lease_readback_closes_the_acquired_lease_pipe() {
     drop(readback);
     timeout(TEST_WAIT, server).await.unwrap().unwrap();
 }
+
+#[tokio::test]
+async fn stale_direct_egress_rejection_refreshes_cached_generation_without_authorizing_socket() {
+    let (client, mut first, name) = fixture();
+    let operation = Uuid::new_v4();
+    let remote: SocketAddr = "198.51.100.8:443".parse().unwrap();
+    let server = tokio::spawn(async move {
+        first.connect().await.unwrap();
+        let mut second = ServerOptions::new().create(&name).unwrap();
+        let acquire = read_request(&mut first).await;
+        assert!(matches!(
+            acquire.payload,
+            Some(agent_request::Payload::AcquireDirectEgress(ref request))
+                if request.expected_generation == 7
+                    && request.operation_id == operation.to_string()
+                    && request.remote_endpoint == remote.to_string()
+                    && request.protocol == 17
+        ));
+        first
+            .write_all(
+                &encode_frame(&AgentResponse {
+                    request_id: acquire.request_id,
+                    payload: None,
+                    error: Some(agent_v1::AgentError {
+                        code: "AGENT_STALE_GENERATION".into(),
+                        retryable: true,
+                        ..Default::default()
+                    }),
+                })
+                .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eof(&mut first).await;
+        drop(first);
+
+        second.connect().await.unwrap();
+        let refresh = read_request(&mut second).await;
+        assert!(matches!(
+            refresh.payload,
+            Some(agent_request::Payload::GetPhysicalNetworkInfo(ref request))
+                if request.operation_id == operation.to_string()
+        ));
+        write_response(
+            &mut second,
+            refresh.request_id,
+            agent_response::Payload::PhysicalNetworkInfo(physical_info(8)),
+        )
+        .await;
+        assert_eof(&mut second).await;
+    });
+
+    let protector = protector(client, operation);
+    let mut observations = protector.subscribe_physical_network().unwrap();
+    // Acquisition fails before native interface binding or packet I/O, and the
+    // rejected local UDP socket is closed immediately on error.
+    let Err(error) = protector
+        .prepare_udp(remote, usque_transport::PhysicalSocketPurpose::Masque, 10)
+        .await
+    else {
+        panic!("stale direct egress request must not authorize a socket");
+    };
+    assert_eq!(error, STALE_GENERATION_REASON);
+    assert_eq!(protector.network_generation(), Some(11));
+    assert_eq!(protector.physical.read().unwrap().agent_generation, Some(8));
+    let snapshot = *observations.borrow_and_update();
+    assert_eq!(snapshot.generation, 11);
+    assert_eq!(
+        snapshot.availability,
+        PhysicalNetworkAvailability::Online {
+            ipv4: true,
+            ipv6: false,
+        }
+    );
+    timeout(TEST_WAIT, server).await.unwrap().unwrap();
+}

@@ -390,20 +390,31 @@ pub fn current_physical_interface(
     if info.interface_index != interface.InterfaceIndex {
         return Err(NetworkError::RouteSnapshotChanged);
     }
+    info.address_family_mask = if target.is_ipv4() { 1 } else { 2 };
+    info.route_fingerprint = route_fingerprint(source_ip, source_scope, &route, &interface)?;
+    Ok(info)
+}
+
+/// Computes an Agent-local fingerprint for the already selected physical route.
+/// Route and interface metrics rank candidate paths during selection, but an
+/// automatic-metric change that keeps the same interface, source, prefix, next
+/// hop, and MTU is not a physical network change.
+fn route_fingerprint(
+    source_ip: IpAddr,
+    source_scope: u32,
+    route: &MIB_IPFORWARD_ROW2,
+    interface: &MIB_IPINTERFACE_ROW,
+) -> Result<u64, NetworkError> {
     let mut fingerprint = DefaultHasher::new();
-    interface_luid.hash(&mut fingerprint);
-    info.interface_index.hash(&mut fingerprint);
+    luid_value(route.InterfaceLuid).hash(&mut fingerprint);
+    interface.InterfaceIndex.hash(&mut fingerprint);
     source_ip.hash(&mut fingerprint);
     source_scope.hash(&mut fingerprint);
     ip_from_sockaddr(&route.DestinationPrefix.Prefix)?.hash(&mut fingerprint);
     route.DestinationPrefix.PrefixLength.hash(&mut fingerprint);
     ip_from_sockaddr(&route.NextHop)?.hash(&mut fingerprint);
-    route.Metric.hash(&mut fingerprint);
-    interface.Metric.hash(&mut fingerprint);
     interface.NlMtu.hash(&mut fingerprint);
-    info.address_family_mask = if target.is_ipv4() { 1 } else { 2 };
-    info.route_fingerprint = fingerprint.finish();
-    Ok(info)
+    Ok(fingerprint.finish())
 }
 
 struct ObservedRouteTable(NonNull<MIB_IPFORWARD_TABLE2>);
@@ -2023,6 +2034,125 @@ mod tests {
             ),
             Err(NetworkError::RouteSnapshotTooLarge)
         ));
+    }
+
+    #[test]
+    fn route_fingerprint_ignores_metric_flips_on_same_path_and_tracks_real_changes() {
+        let mut route = observed_route("0.0.0.0/0", 9, 0);
+        route.NextHop = sockaddr_from_ip("192.0.2.1".parse().unwrap());
+        let mut interface = observed_interface(9, AF_INET);
+        interface.Metric = 35;
+        let source_ip: IpAddr = "192.0.2.10".parse().unwrap();
+
+        let baseline = route_fingerprint(source_ip, 0, &route, &interface).unwrap();
+
+        let mut flipped_interface = interface;
+        flipped_interface.Metric = 40;
+        assert_eq!(
+            route_fingerprint(source_ip, 0, &route, &flipped_interface).unwrap(),
+            baseline
+        );
+
+        let mut flipped_route = route;
+        flipped_route.Metric = 25;
+        assert_eq!(
+            route_fingerprint(source_ip, 0, &flipped_route, &flipped_interface).unwrap(),
+            baseline
+        );
+
+        let mut other_luid = route;
+        other_luid.InterfaceLuid = luid(10);
+        assert_ne!(
+            route_fingerprint(source_ip, 0, &other_luid, &interface).unwrap(),
+            baseline
+        );
+
+        let mut other_index = interface;
+        other_index.InterfaceIndex = 10;
+        assert_ne!(
+            route_fingerprint(source_ip, 0, &route, &other_index).unwrap(),
+            baseline
+        );
+
+        assert_ne!(
+            route_fingerprint("192.0.2.11".parse().unwrap(), 0, &route, &interface).unwrap(),
+            baseline
+        );
+
+        assert_ne!(
+            route_fingerprint(source_ip, 9, &route, &interface).unwrap(),
+            baseline
+        );
+
+        let mut other_prefix = route;
+        other_prefix.DestinationPrefix = prefix_from_network("192.0.2.0/24".parse().unwrap());
+        assert_ne!(
+            route_fingerprint(source_ip, 0, &other_prefix, &interface).unwrap(),
+            baseline
+        );
+
+        let mut other_hop = route;
+        other_hop.NextHop = sockaddr_from_ip("192.0.2.254".parse().unwrap());
+        assert_ne!(
+            route_fingerprint(source_ip, 0, &other_hop, &interface).unwrap(),
+            baseline
+        );
+
+        let mut other_mtu = interface;
+        other_mtu.NlMtu = 1_400;
+        assert_ne!(
+            route_fingerprint(source_ip, 0, &route, &other_mtu).unwrap(),
+            baseline
+        );
+
+        let mut v6_route = observed_route("::/0", 9, 0);
+        v6_route.NextHop = sockaddr_from_ip_scoped("fe80::1".parse().unwrap(), 9);
+        let mut v6_interface = observed_interface(9, AF_INET6);
+        v6_interface.Metric = 35;
+        let v6_source: IpAddr = "2001:db8::10".parse().unwrap();
+        let v6_baseline = route_fingerprint(v6_source, 0, &v6_route, &v6_interface).unwrap();
+        v6_interface.Metric = 40;
+        v6_route.Metric = 10;
+        assert_eq!(
+            route_fingerprint(v6_source, 0, &v6_route, &v6_interface).unwrap(),
+            v6_baseline
+        );
+    }
+
+    #[test]
+    fn metric_change_that_switches_selected_adapter_still_changes_route_fingerprint() {
+        let mut wifi_route = observed_route("0.0.0.0/0", 9, 0);
+        wifi_route.NextHop = sockaddr_from_ip("192.0.2.1".parse().unwrap());
+        let mut ethernet_route = observed_route("0.0.0.0/0", 10, 0);
+        ethernet_route.NextHop = sockaddr_from_ip("198.51.100.1".parse().unwrap());
+        let routes = [wifi_route, ethernet_route];
+        let target: IpAddr = "203.0.113.9".parse().unwrap();
+
+        let (before_route, before_interface) =
+            select_current_physical_route(&routes, target, 7, &[], |interface_luid, family| {
+                let mut interface = observed_interface(interface_luid, family);
+                interface.Metric = if interface_luid == 9 { 20 } else { 35 };
+                Ok(interface)
+            })
+            .unwrap()
+            .unwrap();
+        assert_eq!(luid_value(before_route.InterfaceLuid), 9);
+
+        let (after_route, after_interface) =
+            select_current_physical_route(&routes, target, 7, &[], |interface_luid, family| {
+                let mut interface = observed_interface(interface_luid, family);
+                interface.Metric = if interface_luid == 9 { 40 } else { 35 };
+                Ok(interface)
+            })
+            .unwrap()
+            .unwrap();
+        assert_eq!(luid_value(after_route.InterfaceLuid), 10);
+
+        let source_ip: IpAddr = "192.0.2.10".parse().unwrap();
+        assert_ne!(
+            route_fingerprint(source_ip, 0, &before_route, &before_interface).unwrap(),
+            route_fingerprint(source_ip, 0, &after_route, &after_interface).unwrap()
+        );
     }
 
     #[test]
