@@ -7,6 +7,8 @@ pub(super) struct ConnectionIntent {
     profile_id: Uuid,
     cancellation: CancellationToken,
     wake: Arc<tokio::sync::Notify>,
+    #[cfg(target_os = "macos")]
+    macos_agent_dial: std::sync::Weak<Profile>,
     task: AbortOnDropHandle<()>,
 }
 
@@ -17,6 +19,21 @@ impl ConnectionIntent {
 }
 
 impl ControlService {
+    #[cfg(target_os = "macos")]
+    pub(super) async fn track_macos_agent_dial(
+        &self,
+        request: Option<(&tokio::sync::Notify, Profile)>,
+    ) -> Option<Arc<Profile>> {
+        let (wake, profile) = request?;
+        let mut owner = self.continuous_connection.lock().await;
+        let intent = owner
+            .as_mut()
+            .filter(|intent| intent.is_active() && std::ptr::eq(wake, intent.wake.as_ref()))?;
+        let profile = Arc::new(profile);
+        intent.macos_agent_dial = Arc::downgrade(&profile);
+        Some(profile)
+    }
+
     pub(super) async fn continuous_enabled(&self) -> bool {
         self.continuous_connection
             .lock()
@@ -103,15 +120,12 @@ impl ControlService {
         >,
     > {
         Box::pin(async move {
-            if self
+            let requested = self
                 .config
                 .read()
                 .await
                 .runtime_profile(profile_id)
-                .is_none()
-            {
-                return Err(ControlServiceError::ProfileNotFound(profile_id));
-            }
+                .ok_or(ControlServiceError::ProfileNotFound(profile_id))?;
             let mut owner = self.continuous_connection.lock().await;
             let snapshot = self.state.lock().await.snapshot().clone();
             if inherited
@@ -120,11 +134,22 @@ impl ControlService {
             {
                 return Ok(snapshot);
             }
+            // A continuous Mac Agent dial already owns the protected transaction.
+            // Wake its carrier without retiring the worker that holds the Agent connection.
+            #[cfg(target_os = "macos")]
+            if explicit_retry
+                && let Some(intent) = owner.as_ref()
+                && intent.is_active()
+                && intent.macos_agent_dial.upgrade().as_deref() == Some(&requested)
+            {
+                intent.wake.notify_one();
+                return Ok(snapshot);
+            }
             if inherited.is_none()
                 && !explicit_retry
                 && let Some(intent) = owner.as_ref()
                 && intent.enabled
-                && intent.profile_id == profile_id
+                && intent.profile_id == requested.id
                 && !intent.cancellation.is_cancelled()
                 && (!intent.task.is_finished()
                     || !matches!(
@@ -302,6 +327,8 @@ impl ControlService {
                 profile_id,
                 cancellation,
                 wake,
+                #[cfg(target_os = "macos")]
+                macos_agent_dial: Default::default(),
                 task: AbortOnDropHandle::new(task),
             });
             Ok(snapshot)
@@ -495,6 +522,8 @@ mod tests {
             profile_id,
             cancellation,
             wake: Arc::new(tokio::sync::Notify::new()),
+            #[cfg(target_os = "macos")]
+            macos_agent_dial: Default::default(),
             task: AbortOnDropHandle::new(task),
         });
         let request = service.clone();
@@ -549,6 +578,7 @@ mod tests {
             profile_id,
             cancellation,
             wake: Arc::new(tokio::sync::Notify::new()),
+            macos_agent_dial: Default::default(),
             task: AbortOnDropHandle::new(task),
         });
         let request = service.clone();
@@ -609,6 +639,48 @@ mod tests {
             drop(mutation);
             service.disconnect().await.unwrap();
         }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[tokio::test]
+    async fn macos_retry_wakes_the_current_agent_dial_until_settings_change() {
+        let directory = tempfile::tempdir().unwrap();
+        let service = ControlService::open_with_vault(
+            ConfigStore::new(directory.path().join("config.json")),
+            Arc::new(crate::tests::MemoryVault::default()),
+        )
+        .unwrap();
+        let profile = service.config_snapshot().await.active_profile().unwrap();
+        let mutation = service.mutation_lock.lock().await;
+        service.connect_continuously(profile.id).await.unwrap();
+        let (wake, cancel) = {
+            let owner = service.continuous_connection.lock().await;
+            let intent = owner.as_ref().unwrap();
+            (intent.wake.clone(), intent.cancellation.clone())
+        };
+        let _dial = service
+            .track_macos_agent_dial(Some((&wake, profile.clone())))
+            .await
+            .unwrap();
+        service
+            .state
+            .lock()
+            .await
+            .transition(ConnectionPhase::ConnectingHttp2)
+            .unwrap();
+        let ack = service.retry_continuously(profile.id).await.unwrap();
+        assert_eq!(ack.phase, ConnectionPhase::ConnectingHttp2);
+        tokio::time::timeout(Duration::from_secs(1), wake.notified())
+            .await
+            .unwrap();
+        assert!(!cancel.is_cancelled());
+
+        service.config.write().await.network.kill_switch = !profile.kill_switch;
+        let ack = service.retry_continuously(profile.id).await.unwrap();
+        assert_eq!(ack.phase, ConnectionPhase::Reconnecting);
+        assert!(cancel.is_cancelled());
+        drop(mutation);
+        service.disconnect().await.unwrap();
     }
 
     #[tokio::test]

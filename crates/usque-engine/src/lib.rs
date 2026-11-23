@@ -2586,6 +2586,10 @@ impl ControlService {
         {
             profile = session.clone();
         }
+        #[cfg(target_os = "macos")]
+        let macos_dial_request = startup_wake
+            .filter(|_| profile.frontends.tunnel)
+            .map(|wake| (wake, profile.clone()));
         self.attach_proxy_auth(&mut profile).await?;
 
         let continuous = self.continuous_requested(profile_id).await;
@@ -2908,6 +2912,7 @@ impl ControlService {
             #[cfg(target_os = "macos")]
             {
                 if !macos_runtime::provider_permitted(self.macos_provider.read().await.as_ref()) {
+                    let dial_profile = self.track_macos_agent_dial(macos_dial_request).await;
                     let telemetry = usque_transport::ConnectionTelemetry::default();
                     let startup = Box::pin(macos_agent_runtime::MacAgentRuntime::start(
                         &profile,
@@ -2926,14 +2931,15 @@ impl ControlService {
                         },
                         self.macos_proxy_context.clone(),
                     ));
-                    match macos_agent_runtime::with_startup_retries(
+                    let result = macos_agent_runtime::with_startup_retries(
                         startup,
                         startup_wake,
                         &startup_cancel,
                         || telemetry.request_recovery(),
                     )
-                    .await
-                    {
+                    .await;
+                    drop(dial_profile);
+                    match result {
                         Ok(runtime) => ActiveRuntime::Vpn(Box::new(runtime)),
                         Err(error) => {
                             let error = macos_agent_runtime::map_error(error);
