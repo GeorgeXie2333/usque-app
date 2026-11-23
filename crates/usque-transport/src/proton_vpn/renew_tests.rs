@@ -1517,6 +1517,28 @@ async fn due_certificate_renewal_uses_the_existing_session_and_publishes_the_sam
     assert_eq!(worker.await.unwrap(), Ok(()));
     assert_eq!(http.requests.lock().unwrap().len(), 3);
 }
+
+#[tokio::test]
+async fn cancelled_lease_stops_before_any_further_network_request() {
+    let (record, prepared, storage) = fixture();
+    let http = mock(Vec::new());
+    let lease = Lease {
+        current: record,
+        persistence: storage.clone(),
+        generation: Some(1),
+        http: http.clone(),
+        peer: None,
+        retry_at: None,
+    };
+    let (sender, _observer) = watch::channel(prepared.proton.unwrap());
+    let cancel = CancellationToken::new();
+    cancel.cancel();
+
+    assert_eq!(lease.run(sender, &cancel).await, Ok(()));
+    assert!(http.requests.lock().unwrap().is_empty());
+    assert!(storage.writes.lock().unwrap().is_empty());
+}
+
 #[tokio::test]
 async fn expiry_stops_a_lease_before_any_further_network_request() {
     let (mut record, prepared, storage) = fixture();

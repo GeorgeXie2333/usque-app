@@ -330,8 +330,11 @@ impl Lease {
         let mut metadata_retry_delay = Duration::from_secs(30);
         let mut admission_closed = false;
         loop {
-            self.check(cancel)
-                .map_err(|failure| gate_failure(&failure))?;
+            match self.check(cancel) {
+                Ok(()) => {}
+                Err(failure) if failure.reason == "cancelled" => return Ok(()),
+                Err(failure) => return Err(gate_failure(&failure)),
+            }
             let now = super::interaction::now();
             if now >= self.current.expires_at {
                 return Err(GateFailure::Proton(ConnectionFailure::new(
