@@ -39,8 +39,7 @@ class ConnectionNoticeTracker {
   void update(EngineSnapshot snapshot, {required bool killSwitchArmed}) {
     final previous = _phase;
     final phase = snapshot.phase;
-    _killSwitchBlocking =
-        killSwitchArmed && snapshot.killSwitchState == 'active';
+    _killSwitchBlocking = snapshot.killSwitchState == 'active';
     if (phase == previous) return;
     _phase = phase;
     if (previous == null) return;

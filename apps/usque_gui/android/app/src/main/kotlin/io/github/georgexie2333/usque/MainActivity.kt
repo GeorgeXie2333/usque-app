@@ -211,6 +211,14 @@ class MainActivity : FlutterFragmentActivity() {
                 connectWithPermission(profileJson, mode, result)
             }
 
+            override fun retryAfterValidation(
+                mode: String,
+                result: MethodChannel.Result,
+                onGranted: () -> Unit,
+            ) {
+                permissionCoordinator.connect(result, mode == "vpn", onGranted)
+            }
+
             override fun selectDiagnosticsDestination(
                 result: MethodChannel.Result,
                 payload: AndroidEngineMethodHandler.DiagnosticExportPayload,

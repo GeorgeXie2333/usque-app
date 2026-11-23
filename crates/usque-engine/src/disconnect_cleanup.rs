@@ -16,16 +16,18 @@ impl ControlService {
         generation: Option<u64>,
     ) {
         runtime.cancel_immediately();
+        #[cfg(target_os = "linux")]
+        let operations = runtime.linux_cleanup_operations();
         // There is normally one owner. A queue prevents an exceptional second
         // startup-cleanup path from overwriting the first exact transaction.
-        self.disconnect_owners
-            .lock()
-            .await
-            .push_back(ShutdownOwner {
-                runtime,
-                evidence_generation: generation,
-                last_error: None,
-            });
+        let mut owners = self.disconnect_owners.lock().await;
+        owners.push_back(ShutdownOwner {
+            runtime,
+            evidence_generation: generation,
+            last_error: None,
+        });
+        #[cfg(target_os = "linux")]
+        self.linux_platform.lock().await.begin_cleanup(operations);
     }
 
     pub(crate) async fn start_queued_shutdown(&self) {
@@ -68,9 +70,15 @@ impl ControlService {
         tokio::spawn(async move {
             let mut owners = service.disconnect_owners.lock().await;
             while let Some(owner) = owners.front_mut() {
+                #[cfg(target_os = "linux")]
+                let cleaning = owner.runtime.linux_cleanup_operations();
                 // Borrow the retained runtime across the await. Cancellation
                 // or panic cannot drop its transaction identity with the task.
                 let result = Box::pin(owner.runtime.shutdown_with_authorization(interactive)).await;
+                #[cfg(target_os = "linux")]
+                if result.is_ok() && owner.runtime.is_vpn() {
+                    service.linux_platform.lock().await.retire(cleaning);
+                }
                 if let Some(generation) = owner.evidence_generation
                     && let Some(evidence) =
                         service.retained_connection_evidence.lock().await.as_mut()
@@ -90,13 +98,13 @@ impl ControlService {
                     service
                         .disconnect_cleanup_failed
                         .store(true, std::sync::atomic::Ordering::Release);
-                    service.mark_connection_error(&error).await;
                     if owner.runtime.is_vpn() {
                         service.state.lock().await.update_safety_state(
                             KillSwitchState::Error,
                             LockdownState::NotSupported,
                         );
                     }
+                    service.mark_connection_error(&error).await;
                     return Err(error);
                 }
                 let previous_error = owner.last_error.take();
@@ -124,6 +132,7 @@ impl ControlService {
 
     pub(crate) async fn await_disconnect_cleanup(&self) -> Result<(), ControlServiceError> {
         let mut pending = self.disconnect_cleanup.lock().await;
+        let waited = pending.is_some();
         if let Some(task) = pending.as_mut() {
             // Keep the handle here when a Connect waiter is cancelled.
             let result = task
@@ -138,7 +147,6 @@ impl ControlService {
                     self.disconnect_cleanup_failed
                         .store(true, std::sync::atomic::Ordering::Release);
                 }
-                self.mark_connection_error(&error).await;
                 if self
                     .disconnect_owners
                     .lock()
@@ -151,10 +159,12 @@ impl ControlService {
                         .await
                         .update_safety_state(KillSwitchState::Error, LockdownState::NotSupported);
                 }
+                self.mark_connection_error(&error).await;
                 return Err(error);
             }
             result??;
         }
+        drop(pending);
         if let Some(owner) = self.disconnect_owners.lock().await.front() {
             // Consuming a completed error is never permission for the next
             // Connect/Retry to bypass an unconfirmed, still-owned operation.
@@ -163,6 +173,12 @@ impl ControlService {
                     "Previous runtime cleanup remains unconfirmed; retry Disconnect.".into()
                 }),
             ));
+        }
+        if waited && self.data_plane.lock().await.is_none() {
+            self.state
+                .lock()
+                .await
+                .update_safety_state(KillSwitchState::NotApplicable, LockdownState::NotSupported);
         }
         Ok(())
     }

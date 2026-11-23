@@ -367,6 +367,26 @@ class DesktopEngineClient
   Future<void> _requestTail = Future<void>.value();
   int _connectionIntent = 0;
   bool _continuousConnection = false;
+  String? _lastObservedErrorSignature;
+  int _nonErrorObservationEpoch = 0;
+
+  void _observeSnapshot(EngineSnapshot? snapshot) {
+    if (snapshot == null) return;
+    if (snapshot.phase != ConnectionPhase.error) {
+      _nonErrorObservationEpoch += 1;
+    }
+    _lastObservedErrorSignature = snapshot.connectionErrorKey;
+  }
+
+  static bool _isAuthoritativeRecoveryError(String? code) => switch (code) {
+    'WINDOWS_RECOVERY_BLOCKED' ||
+    'WINDOWS_RECOVERY_EXHAUSTED' ||
+    'WINDOWS_RECOVERY_CONFLICT' ||
+    'WINDOWS_RECOVERY_TIMEOUT' ||
+    'WINDOWS_RECOVERY_FAILED' ||
+    'WINDOWS_RECOVERY_UNSUPPORTED' => true,
+    _ => false,
+  };
 
   @override
   bool get supportsSnapshotEvents => _transport.supportsSnapshotEvents;
@@ -377,7 +397,9 @@ class DesktopEngineClient
       StreamTransformer<Uint8List, EngineSnapshotEvent>.fromHandlers(
         handleData: (Uint8List value, EventSink<EngineSnapshotEvent> sink) {
           try {
-            sink.add(_codec.decodeEvent(value));
+            final event = _codec.decodeEvent(value);
+            _observeSnapshot(event.snapshot);
+            sink.add(event);
           } on Object catch (error) {
             debugPrint('Usque: ignored invalid engine event frame ($error).');
           }
@@ -722,6 +744,7 @@ class DesktopEngineClient
         'The Engine did not confirm disconnection cleanup. Retry Disconnect.',
       );
     }
+    _observeSnapshot(snapshot);
     return snapshot;
   }
 
@@ -744,7 +767,9 @@ class DesktopEngineClient
   Future<EngineSnapshot> snapshot() {
     return _serialized(() async {
       final response = await _request(10, Uint8List(0));
-      return response.snapshot ?? const EngineSnapshot();
+      final snapshot = response.snapshot ?? const EngineSnapshot();
+      _observeSnapshot(snapshot);
+      return snapshot;
     });
   }
 
@@ -1082,12 +1107,16 @@ class DesktopEngineClient
     Uint8List payload, {
     required int connectionIntent,
   }) async {
+    final previousErrorSignature = _lastObservedErrorSignature;
+    final previousObservationEpoch = _nonErrorObservationEpoch;
     try {
-      return await _request(
+      final response = await _request(
         payloadField,
         payload,
         connectionIntent: connectionIntent,
       );
+      _observeSnapshot(response.snapshot);
+      return response;
     } on EngineException catch (error) {
       if (!_continuousConnection || error.code != 'ENGINE_REQUEST_TIMEOUT') {
         rethrow;
@@ -1098,9 +1127,19 @@ class DesktopEngineClient
         connectionIntent: connectionIntent,
       );
       final snapshot = observed.snapshot;
+      _observeSnapshot(snapshot);
       if (snapshot != null &&
           (snapshot.isTransitional || snapshot.isConnected)) {
         return observed;
+      }
+      if (snapshot != null && snapshot.phase == ConnectionPhase.error) {
+        final observedSignature = snapshot.connectionErrorKey;
+        if (observedSignature != null &&
+            (_isAuthoritativeRecoveryError(snapshot.errorCode) ||
+                observedSignature != previousErrorSignature ||
+                _nonErrorObservationEpoch != previousObservationEpoch)) {
+          return observed;
+        }
       }
       rethrow;
     }

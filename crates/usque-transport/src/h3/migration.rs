@@ -715,6 +715,12 @@ impl MigrationActor {
             return;
         };
         attempt.preparation.take();
+        tracing::debug!(
+            target_generation = attempt.target_generation,
+            phase = ?attempt.phase,
+            reason = ?reason,
+            "H3 QUIC migration aborted"
+        );
         self.quality
             .record_migration_failure(attempt.requested_at.elapsed(), reason);
         self.record(
@@ -769,6 +775,12 @@ impl MigrationActor {
 impl Drop for MigrationActor {
     fn drop(&mut self) {
         if let Some(mut attempt) = self.pending.take() {
+            tracing::debug!(
+                target_generation = attempt.target_generation,
+                phase = ?attempt.phase,
+                reason = ?MigrationReasonCode::ConnectionClosed,
+                "H3 QUIC migration aborted"
+            );
             self.quality.record_migration_failure(
                 attempt.requested_at.elapsed(),
                 MigrationReasonCode::ConnectionClosed,

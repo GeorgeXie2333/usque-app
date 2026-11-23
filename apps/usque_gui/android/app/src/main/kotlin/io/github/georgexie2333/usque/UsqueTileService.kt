@@ -154,7 +154,13 @@ class UsqueTileService : TileService() {
     ) {
         val controlError = snapshot.getString("control_error_code")
         if (controlError != null) {
-            render(QuickSettingsTileState.inactive("open_app"))
+            render(
+                if (controlError == UsqueVpnService.TILE_PROTECTION_ACTIVE_ERROR) {
+                    QuickSettingsTileState.active("open_app")
+                } else {
+                    QuickSettingsTileState.inactive("open_app")
+                },
+            )
             if (openAppOnFailure) openApp()
             if (openAppOnFailure) requestAuthoritativeRefresh()
             return
@@ -163,6 +169,7 @@ class UsqueTileService : TileService() {
             QuickSettingsTileState.fromSnapshot(
                 snapshot.getString(ServiceSnapshotState.WireKeys.PHASE),
                 snapshot.getBoolean(UsqueVpnService.TILE_VPN_ACTIVE),
+                snapshot.getBoolean(UsqueVpnService.TILE_VPN_PROTECTION_RETAINED),
             ),
         )
         if (openAppOnFailure) requestAuthoritativeRefresh()

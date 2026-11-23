@@ -21,14 +21,52 @@ internal object QuickSettingsTileState {
     // stay clickable so another tap can query the service and recover control.
     fun pending(subtitle: String) = inactive(subtitle)
 
+    enum class ToggleAction {
+        CONNECT,
+        DISCONNECT,
+        OPEN_APP_PROTECTION_ACTIVE,
+        ERROR_PROXY_ONLY,
+    }
+
+    private fun needsProtectionControls(
+        phase: String?,
+        vpnFrontendActive: Boolean,
+        protectionRetained: Boolean,
+    ) = protectionRetained && (!vpnFrontendActive || phase == "error" || phase == "disconnected")
+
+    fun toggleAction(
+        phase: String?,
+        anyFrontendActive: Boolean,
+        vpnFrontendActive: Boolean,
+        protectionRetained: Boolean,
+    ): ToggleAction =
+        when {
+            needsProtectionControls(phase, vpnFrontendActive, protectionRetained) -> {
+                ToggleAction.OPEN_APP_PROTECTION_ACTIVE
+            }
+
+            vpnFrontendActive && phase != "error" && phase != "disconnected" -> {
+                ToggleAction.DISCONNECT
+            }
+
+            anyFrontendActive && !vpnFrontendActive -> {
+                ToggleAction.ERROR_PROXY_ONLY
+            }
+
+            else -> {
+                ToggleAction.CONNECT
+            }
+        }
+
     fun fromSnapshot(
         phase: String?,
         vpnFrontendActive: Boolean,
+        protectionRetained: Boolean = false,
     ): Presentation =
-        if (!vpnFrontendActive) {
-            inactive()
-        } else {
-            fromActiveVpnPhase(phase)
+        when {
+            needsProtectionControls(phase, vpnFrontendActive, protectionRetained) -> active("open_app")
+            vpnFrontendActive -> fromActiveVpnPhase(phase)
+            else -> inactive()
         }
 
     private fun fromActiveVpnPhase(phase: String?): Presentation =

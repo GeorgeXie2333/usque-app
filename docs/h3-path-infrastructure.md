@@ -61,7 +61,11 @@ or [IPV6_UNICAST_IF](https://learn.microsoft.com/en-us/windows/win32/winsock/ipp
 and retains the existing exact-target transactional permit. No global bypass
 is added. A fresh Agent snapshot after binding must still match the expected
 generation and selected interface; otherwise both socket and lease are
-discarded. Route/source fingerprints remain Agent-local.
+discarded. Route/source fingerprints remain Agent-local. Route and interface
+metrics rank candidate selection without advancing generation when the selected
+interface, source address, prefix, next hop, MTU, and DNS are unchanged. A
+stale direct-egress rejection refreshes the cached Windows snapshot without
+authorizing the rejected socket.
 
 Dynamic permit keys include generation. Delayed old-lease release and delayed
 snapshot invalidation cannot remove a permit for a newer generation. The

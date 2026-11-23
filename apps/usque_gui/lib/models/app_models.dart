@@ -2560,6 +2560,7 @@ class EngineSnapshot {
     this.reconnectCount = 0,
     this.activeListeners = const <String>[],
     this.killSwitchState,
+    this.tunnelInterfacePresent = false,
     this.platformLockdown = false,
     this.alwaysOn = false,
     this.exit = const ExitInfo(),
@@ -2589,6 +2590,7 @@ class EngineSnapshot {
   final int reconnectCount;
   final List<String> activeListeners;
   final String? killSwitchState;
+  final bool tunnelInterfacePresent;
   final bool platformLockdown;
   final bool alwaysOn;
   final ExitInfo exit;
@@ -2601,6 +2603,22 @@ class EngineSnapshot {
 
   bool get isConnected =>
       phase == ConnectionPhase.connected || phase == ConnectionPhase.degraded;
+
+  /// Identifies the same connection failure across status reads and events.
+  String? get connectionErrorKey {
+    if (phase != ConnectionPhase.error) return null;
+    final message = warning?.trim();
+    if (errorCode == null && (message == null || message.isEmpty)) return null;
+    return '${errorCode ?? ''}\u0000${message ?? ''}\u0000${failure?.sanitizedDetail ?? ''}';
+  }
+
+  bool get needsDisconnectCleanup =>
+      phase == ConnectionPhase.error && isDisconnectCleanupError(errorCode);
+
+  static bool isDisconnectCleanupError(String? code) =>
+      code == 'DISCONNECT_CLEANUP_FAILED' ||
+      code == 'DISCONNECT_CLEANUP_UNCONFIRMED' ||
+      code == 'MACOS_AGENT_RECOVERY_UNCONFIRMED';
 
   bool get isTransitional =>
       phase == ConnectionPhase.preparing ||
@@ -2653,6 +2671,8 @@ class EngineSnapshot {
           ) ??
           const <String>[],
       killSwitchState: map['kill_switch_state'] as String?,
+      tunnelInterfacePresent:
+          map['tun_interface_present'] == true || map['tun_fd_valid'] == true,
       platformLockdown: map['platform_lockdown'] as bool? ?? false,
       alwaysOn: map['always_on'] as bool? ?? false,
       exit: ExitInfo(
@@ -2726,6 +2746,7 @@ class EngineSnapshot {
             reconnectCount == other.reconnectCount &&
             listEquals(activeListeners, other.activeListeners) &&
             killSwitchState == other.killSwitchState &&
+            tunnelInterfacePresent == other.tunnelInterfacePresent &&
             platformLockdown == other.platformLockdown &&
             alwaysOn == other.alwaysOn &&
             exit == other.exit &&
@@ -2757,6 +2778,7 @@ class EngineSnapshot {
     reconnectCount,
     Object.hashAll(activeListeners),
     killSwitchState,
+    tunnelInterfacePresent,
     platformLockdown,
     alwaysOn,
     exit,

@@ -1268,6 +1268,198 @@ void main() {
       );
       client.dispose();
     });
+
+    test(
+      'continuous connect timeout preserves observed recovery-blocked or fresh errors without swallowing stale errors',
+      () async {
+        Uint8List capabilitiesResponse(String requestId) {
+          final caps = ControlPayloadWriter()..boolean(51, true);
+          return const ControlCodec().frame(
+            (ControlPayloadWriter()
+                  ..string(1, requestId)
+                  ..message(15, caps.takeBytes()))
+                .takeBytes(),
+          );
+        }
+
+        Uint8List errorStatusResponse(
+          String requestId,
+          String code,
+          String message,
+        ) {
+          final error = ControlPayloadWriter()
+            ..string(1, code)
+            ..string(2, message)
+            ..boolean(3, false);
+          final snapshot = ControlPayloadWriter()
+            ..enumeration(1, 10) // CONNECTION_PHASE_ERROR
+            ..message(8, error.takeBytes());
+          return const ControlCodec().frame(
+            (ControlPayloadWriter()
+                  ..string(1, requestId)
+                  ..message(11, snapshot.takeBytes()))
+                .takeBytes(),
+          );
+        }
+
+        var nextId = 1;
+        var mode = 'blocked';
+        final client = DesktopEngineClient.forTest(
+          transport: DesktopEngineTransport.forTest(
+            exchange: (Uint8List request) async {
+              final id = utf8RequestIdHint(request) ?? '1';
+              final body = request.sublist(4);
+              final tagOffset = 2 + body[1];
+              final tag = body[tagOffset];
+              // field 24 = GetCapabilities (tag 0xc2 0x01)
+              if (tag == 0xc2 && body[tagOffset + 1] == 0x01) {
+                return capabilitiesResponse(id);
+              }
+              // field 12 = Connect (tag 0x62), field 14 = Retry (tag 0x72)
+              if (tag == 0x62 || tag == 0x72) {
+                return Completer<Uint8List>().future;
+              }
+              // field 10 = GetStatus
+              return switch (mode) {
+                'blocked' => errorStatusResponse(
+                  id,
+                  'WINDOWS_RECOVERY_BLOCKED',
+                  'recovery blocked',
+                ),
+                'stale' => errorStatusResponse(id, 'DNS_UNAVAILABLE', 'old'),
+                _ => errorStatusResponse(
+                  id,
+                  'AUTHENTICATION_FAILED',
+                  'fresh failure',
+                ),
+              };
+            },
+            requestIdFactory: () => '${nextId++}',
+          ),
+          requestTimeout: (field) => field == 12 || field == 14
+              ? const Duration(milliseconds: 25)
+              : const Duration(seconds: 2),
+        );
+        addTearDown(client.dispose);
+        await client.getCapabilities();
+
+        final blocked = await client.connect(_goldenProfile);
+        expect(blocked.phase, ConnectionPhase.error);
+        expect(blocked.errorCode, 'WINDOWS_RECOVERY_BLOCKED');
+
+        // Seed a non-recovery error via snapshot(), then verify a timed-out
+        // retry that observes the exact same stale error still throws timeout.
+        mode = 'stale';
+        final initial = await client.snapshot();
+        expect(initial.errorCode, 'DNS_UNAVAILABLE');
+        await expectLater(
+          client.retry(),
+          throwsA(
+            isA<EngineException>().having(
+              (e) => e.code,
+              'code',
+              'ENGINE_REQUEST_TIMEOUT',
+            ),
+          ),
+        );
+
+        // When the observed error changes, return the newly identified error.
+        mode = 'fresh';
+        final fresh = await client.retry();
+        expect(fresh.phase, ConnectionPhase.error);
+        expect(fresh.errorCode, 'AUTHENTICATION_FAILED');
+      },
+    );
+
+    test(
+      'repeated identical auth failure after a Preparing event is returned instead of timeout',
+      () async {
+        final rawEvents = StreamController<Uint8List>.broadcast();
+        addTearDown(rawEvents.close);
+
+        Uint8List capabilitiesResponse(String requestId) {
+          final caps = ControlPayloadWriter()..boolean(51, true);
+          return const ControlCodec().frame(
+            (ControlPayloadWriter()
+                  ..string(1, requestId)
+                  ..message(15, caps.takeBytes()))
+                .takeBytes(),
+          );
+        }
+
+        Uint8List authErrorSnapshotBytes() {
+          final error = ControlPayloadWriter()
+            ..string(1, 'AUTHENTICATION_FAILED')
+            ..string(2, 'auth failed')
+            ..boolean(3, false);
+          return (ControlPayloadWriter()
+                ..enumeration(1, 10) // CONNECTION_PHASE_ERROR
+                ..message(8, error.takeBytes()))
+              .takeBytes();
+        }
+
+        Uint8List stateChangedEventFrame(int seq, Uint8List snapshotBytes) {
+          final changed = ControlPayloadWriter()..message(1, snapshotBytes);
+          return const ControlCodec().frame(
+            (ControlPayloadWriter()
+                  ..unsigned(1, seq)
+                  ..message(10, changed.takeBytes()))
+                .takeBytes(),
+          );
+        }
+
+        var nextId = 1;
+        final client = DesktopEngineClient.forTest(
+          transport: DesktopEngineTransport.forTest(
+            rawEventFrames: rawEvents.stream,
+            exchange: (Uint8List request) async {
+              final id = utf8RequestIdHint(request) ?? '1';
+              final body = request.sublist(4);
+              final tagOffset = 2 + body[1];
+              final tag = body[tagOffset];
+              if (tag == 0xc2 && body[tagOffset + 1] == 0x01) {
+                return capabilitiesResponse(id);
+              }
+              if (tag == 0x72) {
+                // Simulate new attempt transitioning Preparing -> Error before
+                // the Retry RPC itself times out.
+                rawEvents.add(
+                  stateChangedEventFrame(
+                    1,
+                    (ControlPayloadWriter()..enumeration(1, 2)).takeBytes(),
+                  ),
+                );
+                rawEvents.add(
+                  stateChangedEventFrame(2, authErrorSnapshotBytes()),
+                );
+                return Completer<Uint8List>().future;
+              }
+              return const ControlCodec().frame(
+                (ControlPayloadWriter()
+                      ..string(1, id)
+                      ..message(11, authErrorSnapshotBytes()))
+                    .takeBytes(),
+              );
+            },
+            requestIdFactory: () => '${nextId++}',
+          ),
+          requestTimeout: (field) => field == 14
+              ? const Duration(milliseconds: 30)
+              : const Duration(seconds: 2),
+        );
+        addTearDown(client.dispose);
+        final sub = client.snapshotEvents.listen((_) {});
+        addTearDown(sub.cancel);
+        await client.getCapabilities();
+
+        final first = await client.snapshot();
+        expect(first.errorCode, 'AUTHENTICATION_FAILED');
+
+        final second = await client.retry();
+        expect(second.phase, ConnectionPhase.error);
+        expect(second.errorCode, 'AUTHENTICATION_FAILED');
+      },
+    );
   });
 }
 

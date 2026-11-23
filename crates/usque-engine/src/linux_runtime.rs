@@ -181,6 +181,13 @@ impl LinuxVpnRuntime {
     pub(crate) fn operation_id(&self) -> Uuid {
         self.operation
     }
+    pub(crate) fn cleanup_operations(&self) -> [Option<Uuid>; 3] {
+        [
+            Some(self.operation),
+            self.replacement_source,
+            self.replacement_target,
+        ]
+    }
 
     #[expect(
         clippy::too_many_arguments,

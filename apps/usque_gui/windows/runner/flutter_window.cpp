@@ -685,6 +685,7 @@ bool FlutterWindow::OnCreate() {
           tray_tunnel_label_ = Utf16FromUtf8(read_utf8("tunnel_label"));
           tray_system_proxy_label_ =
               Utf16FromUtf8(read_utf8("system_proxy_label"));
+          tray_connection_enabled_ = read_bool("connection_enabled");
           tray_tunnel_ = read_bool("tunnel");
           tray_system_proxy_ = read_bool("system_proxy");
           tray_outputs_enabled_ = read_bool("outputs_enabled");
@@ -1009,7 +1010,10 @@ void FlutterWindow::ShowTrayMenu() {
   ::AppendMenuW(menu, MF_STRING | MF_DISABLED, 0, tray_status_.c_str());
   ::AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
   ::AppendMenuW(menu, MF_STRING, kTrayOpen, tray_open_.c_str());
-  ::AppendMenuW(menu, MF_STRING, kTrayToggle,
+  ::AppendMenuW(menu,
+                MF_STRING |
+                    (tray_connection_enabled_ ? MF_ENABLED : MF_GRAYED),
+                kTrayToggle,
                 tray_connected_ ? tray_disconnect_.c_str()
                                 : tray_connect_.c_str());
   if (!tray_tunnel_label_.empty() || !tray_system_proxy_label_.empty()) {
@@ -1042,7 +1046,7 @@ void FlutterWindow::ShowTrayMenu() {
   ::DestroyMenu(menu);
   if (command == kTrayOpen) {
     ShowAndActivate();
-  } else if (command == kTrayToggle) {
+  } else if (command == kTrayToggle && tray_connection_enabled_) {
     InvokeTrayCommand("toggle", false);
   } else if (command == kTrayTunnel) {
     InvokeTrayCommand("toggleTunnel", false);

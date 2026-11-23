@@ -52,6 +52,12 @@ mod chain_dns_live_tests;
 mod chain_exit;
 mod connection_evidence;
 mod continuous_connection;
+#[cfg(any(target_os = "macos", test))]
+mod data_plane_slot;
+#[cfg(any(target_os = "macos", test))]
+use data_plane_slot::DataPlaneSlot;
+#[cfg(not(any(target_os = "macos", test)))]
+type DataPlaneSlot = Mutex<Option<ActiveDataPlane>>;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 mod desktop_chain;
 pub mod diagnostics;
@@ -150,13 +156,15 @@ pub struct ControlServiceState {
     pub(crate) state: Arc<Mutex<StateMachine>>,
     pub(crate) mutation_lock: Arc<Mutex<()>>,
     vault: Arc<dyn SecretVault>,
-    pub(crate) data_plane: Arc<Mutex<Option<ActiveDataPlane>>>,
+    pub(crate) data_plane: Arc<DataPlaneSlot>,
     #[cfg(target_os = "macos")]
     macos_provider: RwLock<Arc<dyn macos_runtime::ProviderControl>>,
     #[cfg(target_os = "macos")]
     macos_reserved: Mutex<Option<usque_macos_runtime::protocol::SessionKey>>,
     #[cfg(target_os = "macos")]
     macos_proxy_recovery_error: Mutex<Option<macos_system_proxy::Error>>,
+    #[cfg(target_os = "macos")]
+    macos_proxy_stop_pending: std::sync::atomic::AtomicBool,
     #[cfg(target_os = "macos")]
     macos_proxy_context: macos_system_proxy::Context,
     #[cfg(target_os = "macos")]
@@ -198,6 +206,8 @@ pub struct ControlServiceState {
     network_quality_tx: watch::Sender<usque_transport::NetworkQualitySnapshot>,
     network_quality_relay: Mutex<Option<AbortOnDropHandle<()>>>,
     session_generation: AtomicU64,
+    /// A queued handoff supersedes this runtime's health before the worker can replace it.
+    superseded_session_generation: AtomicU64,
     /// Survives internal reconnects, but is reset by a new user connection.
     session_congestion_control: Mutex<Option<(Uuid, usque_core::CongestionControlAlgorithm)>>,
     session_profile: Mutex<Option<Profile>>,
@@ -210,7 +220,7 @@ pub struct ControlServiceState {
     scenario_unconfirmed_operation: Mutex<Option<Uuid>>,
     system_proxy_applications: Mutex<network_settings::SystemProxyApplications>,
     #[cfg(target_os = "linux")]
-    linux_platform: Mutex<Option<diagnostics::LinuxPlatformObservation>>,
+    linux_platform: Mutex<linux_observation::LinuxObservationCache>,
     #[cfg(windows)]
     windows_recovery: Mutex<WindowsRecoveryRuntime>,
     #[cfg(windows)]
@@ -568,7 +578,7 @@ impl ControlService {
                 state: Arc::new(Mutex::new(StateMachine::default())),
                 mutation_lock: Arc::new(Mutex::new(())),
                 vault,
-                data_plane: Arc::new(Mutex::new(None)),
+                data_plane: Arc::default(),
                 #[cfg(target_os = "macos")]
                 macos_provider: RwLock::new(Arc::new(macos_runtime::UnavailableProvider)),
                 #[cfg(target_os = "macos")]
@@ -587,6 +597,8 @@ impl ControlService {
                 },
                 #[cfg(target_os = "macos")]
                 macos_proxy_recovery_error: Mutex::new(None),
+                #[cfg(target_os = "macos")]
+                macos_proxy_stop_pending: Default::default(),
                 #[cfg(target_os = "macos")]
                 macos_proxy_context: macos_system_proxy::Context::new(
                     &profile_dir,
@@ -615,6 +627,7 @@ impl ControlService {
                 network_quality_tx,
                 network_quality_relay: Mutex::new(None),
                 session_generation: AtomicU64::new(0),
+                superseded_session_generation: AtomicU64::new(0),
                 session_congestion_control: Mutex::new(None),
                 session_profile: Mutex::new(None),
                 settings: Mutex::new(Default::default()),
@@ -626,7 +639,7 @@ impl ControlService {
                 scenario_unconfirmed_operation: Mutex::new(None),
                 system_proxy_applications: Mutex::new(Default::default()),
                 #[cfg(target_os = "linux")]
-                linux_platform: Mutex::new(None),
+                linux_platform: Mutex::default(),
                 #[cfg(windows)]
                 windows_recovery: Mutex::new(WindowsRecoveryRuntime::default()),
                 #[cfg(windows)]
@@ -677,15 +690,34 @@ impl ControlService {
 
     #[cfg(target_os = "macos")]
     pub async fn recover_macos_user_state(&self) -> Result<(), ControlServiceError> {
-        self.recover_macos_proxy(false).await
+        self.recover_macos_proxy(macos_system_proxy::RecoveryRequest::Startup)
+            .await
     }
 
     #[cfg(target_os = "macos")]
-    async fn recover_macos_proxy(&self, interactive: bool) -> Result<(), ControlServiceError> {
-        let result = self.macos_proxy_context.recover(interactive).await;
+    async fn recover_macos_proxy(
+        &self,
+        request: macos_system_proxy::RecoveryRequest,
+    ) -> Result<(), ControlServiceError> {
+        use macos_system_proxy::RecoveryRequest;
+        let result = self
+            .macos_proxy_context
+            .recover(!matches!(request, RecoveryRequest::Startup))
+            .await;
         let previous = {
             let mut pending = self.macos_proxy_recovery_error.lock().await;
             let previous = *pending;
+            // At startup a surviving receipt belongs to the previous process.
+            // Its only remaining operation is restoring the user's preferences.
+            if result.is_ok()
+                || matches!(
+                    request,
+                    RecoveryRequest::Startup | RecoveryRequest::Disconnect
+                )
+            {
+                self.macos_proxy_stop_pending
+                    .store(result.is_err(), Ordering::Release);
+            }
             *pending = result.as_ref().err().copied();
             previous
         };
@@ -713,7 +745,8 @@ impl ControlService {
     async fn retry_macos_proxy_recovery(&self) -> Result<(), ControlServiceError> {
         let pending = self.macos_proxy_recovery_error.lock().await.is_some();
         if pending {
-            self.recover_macos_proxy(true).await?;
+            self.recover_macos_proxy(macos_system_proxy::RecoveryRequest::Retry)
+                .await?;
         }
         Ok(())
     }
@@ -1021,6 +1054,15 @@ impl ControlService {
         &self,
         payload: control_request::Payload,
     ) -> Result<control_response::Payload, ControlServiceError> {
+        #[cfg(target_os = "macos")]
+        let payload = match payload {
+            control_request::Payload::Retry(_)
+                if self.macos_proxy_stop_pending.load(Ordering::Acquire) =>
+            {
+                control_request::Payload::Disconnect(v1::DisconnectRequest {})
+            }
+            other => other,
+        };
         let _provider_lease = if matches!(
             &payload,
             control_request::Payload::Connect(_)
@@ -1090,7 +1132,7 @@ impl ControlService {
                             "an active profile is required".to_owned(),
                         )
                     })?;
-                    self.connect_continuously(id).await?
+                    self.retry_continuously(id).await?
                 } else {
                     self.retry().await?
                 };
@@ -1504,6 +1546,9 @@ impl ControlService {
         let platform_recovery_pending = self.windows_recovery.lock().await.pending.is_some();
         #[cfg(not(windows))]
         let platform_recovery_pending = false;
+        #[cfg(target_os = "macos")]
+        let (mut data_plane, replacing) = self.data_plane.lock_for_status().await;
+        #[cfg(not(target_os = "macos"))]
         let mut data_plane = self.data_plane.lock().await;
         let mut state = self.state.lock().await;
         if let Some(active) = data_plane.as_mut() {
@@ -1514,7 +1559,10 @@ impl ControlService {
             ));
             self.gate_status.send_replace(gate.clone());
             state.update_data_plane(active.profile.data_plane, active.runtime.l4_snapshot());
-            if !platform_recovery_pending {
+            if !platform_recovery_pending
+                && active.session_generation
+                    != self.superseded_session_generation.load(Ordering::Acquire)
+            {
                 match active.runtime.health() {
                     RuntimeHealth::Connected { path, .. }
                         if matches!(
@@ -1651,7 +1699,10 @@ impl ControlService {
         }
         #[cfg(target_os = "macos")]
         if let Some(error) = *self.macos_proxy_recovery_error.lock().await {
-            let error = connection_error_for(&ControlServiceError::MacSystemProxy(error));
+            let mut error = connection_error_for(&ControlServiceError::MacSystemProxy(error));
+            if self.macos_proxy_stop_pending.load(Ordering::Acquire) {
+                error.code = ErrorCode::DisconnectCleanupFailed;
+            }
             snapshot.phase = ConnectionPhase::Error;
             snapshot.error = Some(error.clone());
             snapshot
@@ -1666,7 +1717,14 @@ impl ControlService {
         }
         #[cfg(target_os = "macos")]
         {
-            let orphan = data_plane.is_none();
+            // A reconnect can still own the old proxy lease while its shutdown
+            // worker restores preferences.
+            let handoff_cleanup = snapshot.phase == ConnectionPhase::Reconnecting
+                && self
+                    .disconnect_owners
+                    .try_lock()
+                    .map_or(true, |owners| !owners.is_empty());
+            let orphan = data_plane.is_none() && !replacing && !handoff_cleanup;
             drop(state);
             drop(data_plane);
             if orphan {
@@ -2537,6 +2595,10 @@ impl ControlService {
         {
             profile = session.clone();
         }
+        #[cfg(target_os = "macos")]
+        let macos_dial_request = startup_wake
+            .filter(|_| profile.frontends.tunnel)
+            .map(|wake| (wake, profile.clone()));
         self.attach_proxy_auth(&mut profile).await?;
 
         let continuous = self.continuous_requested(profile_id).await;
@@ -2859,6 +2921,7 @@ impl ControlService {
             #[cfg(target_os = "macos")]
             {
                 if !macos_runtime::provider_permitted(self.macos_provider.read().await.as_ref()) {
+                    let dial_profile = self.track_macos_agent_dial(macos_dial_request).await;
                     let telemetry = usque_transport::ConnectionTelemetry::default();
                     let startup = Box::pin(macos_agent_runtime::MacAgentRuntime::start(
                         &profile,
@@ -2877,14 +2940,15 @@ impl ControlService {
                         },
                         self.macos_proxy_context.clone(),
                     ));
-                    match macos_agent_runtime::with_startup_retries(
+                    let result = macos_agent_runtime::with_startup_retries(
                         startup,
                         startup_wake,
                         &startup_cancel,
                         || telemetry.request_recovery(),
                     )
-                    .await
-                    {
+                    .await;
+                    drop(dial_profile);
+                    match result {
                         Ok(runtime) => ActiveRuntime::Vpn(Box::new(runtime)),
                         Err(error) => {
                             let error = macos_agent_runtime::map_error(error);
@@ -3353,11 +3417,12 @@ impl ControlService {
                 cleanup?;
             }
             #[cfg(target_os = "macos")]
-            // Check durable ownership even if a cancelled/panicking startup
-            // never reached the in-memory recovery registration.
-            self.recover_macos_proxy(true).await?;
-            #[cfg(target_os = "macos")]
             {
+                // A durable proxy receipt can outlive the runtime. Keep the
+                // native permission error for this caller and publish the
+                // outstanding Stop to other status readers.
+                self.recover_macos_proxy(macos_system_proxy::RecoveryRequest::Disconnect)
+                    .await?;
                 self.macos_probe_cache.invalidate().await;
                 if let Err(error) =
                     macos_agent::recover_on_explicit_disconnect(&self.macos_agent_install).await
@@ -3391,18 +3456,25 @@ impl ControlService {
     pub(crate) async fn disconnect_locked(
         &self,
     ) -> Result<ConnectionSnapshot, ControlServiceError> {
-        self.disconnect_locked_with_cleanup(false).await
+        self.disconnect_locked_with_cleanup(false, false).await
     }
 
     pub(crate) async fn disconnect_locked_deferred(
         &self,
     ) -> Result<ConnectionSnapshot, ControlServiceError> {
-        self.disconnect_locked_with_cleanup(true).await
+        self.disconnect_locked_with_cleanup(true, false).await
+    }
+
+    pub(crate) async fn teardown_for_reconnect_locked(
+        &self,
+    ) -> Result<ConnectionSnapshot, ControlServiceError> {
+        self.disconnect_locked_with_cleanup(false, true).await
     }
 
     async fn disconnect_locked_with_cleanup(
         &self,
         defer_cleanup: bool,
+        keep_reconnecting: bool,
     ) -> Result<ConnectionSnapshot, ControlServiceError> {
         self.gate_status.send_replace(Default::default());
         self.abort_exit_probe().await;
@@ -3418,7 +3490,7 @@ impl ControlService {
             }
             return Ok(self.state.lock().await.snapshot().clone());
         }
-        if phase == ConnectionPhase::Disconnected && data_plane.is_none() {
+        if !keep_reconnecting && phase == ConnectionPhase::Disconnected && data_plane.is_none() {
             drop(data_plane);
             if !defer_cleanup {
                 self.start_queued_shutdown().await;
@@ -3427,8 +3499,13 @@ impl ControlService {
         }
         {
             let mut state = self.state.lock().await;
-            if state.snapshot().phase != ConnectionPhase::Disconnecting {
-                state.transition(ConnectionPhase::Disconnecting)?;
+            let phase = if keep_reconnecting {
+                ConnectionPhase::Reconnecting
+            } else {
+                ConnectionPhase::Disconnecting
+            };
+            if state.snapshot().phase != phase {
+                state.transition(phase)?;
             }
         }
         let cleanup_owner = if let Some(mut active) = data_plane.take() {
@@ -3443,22 +3520,26 @@ impl ControlService {
             // rollback (routes, WFP, DNS and system proxy) can take seconds and
             // must not keep the Disconnect action or data plane alive.
             active.runtime.cancel_immediately();
-            drop(data_plane);
             Some((active.runtime, generation))
         } else {
-            drop(data_plane);
             None
         };
+        if keep_reconnecting {
+            self.state.lock().await.clear_session_metadata();
+        }
+        drop(data_plane);
         if let Some((runtime, generation)) = cleanup_owner {
             // Retain identity before any further fallible state transition.
             self.queue_runtime_shutdown(runtime, Some(generation)).await;
         }
-        let snapshot = self
-            .state
-            .lock()
-            .await
-            .transition(ConnectionPhase::Disconnected)?
-            .clone();
+        let snapshot = {
+            let mut state = self.state.lock().await;
+            if keep_reconnecting {
+                state.snapshot().clone()
+            } else {
+                state.transition(ConnectionPhase::Disconnected)?.clone()
+            }
+        };
         self.publish_settings_runtime(None, None).await;
         let retained =
             usque_core::scenarios::retained_vpn_gate_selections(&*self.config.read().await);
@@ -3508,10 +3589,45 @@ impl ControlService {
         profile_id: Uuid,
         startup_cancel: tokio_util::sync::CancellationToken,
     ) -> Result<ConnectionSnapshot, ControlServiceError> {
+        self.retry_connection_step_locked(
+            profile_id,
+            startup_cancel,
+            true,
+            None,
+            #[cfg(target_os = "macos")]
+            None,
+        )
+        .await
+    }
+
+    pub(crate) async fn retry_connection_step_locked(
+        &self,
+        profile_id: Uuid,
+        startup_cancel: tokio_util::sync::CancellationToken,
+        restart_exhausted_recovery: bool,
+        mut startup_lock: Option<tokio::sync::OwnedMutexGuard<()>>,
+        #[cfg(target_os = "macos")] startup_wake: Option<&tokio::sync::Notify>,
+    ) -> Result<ConnectionSnapshot, ControlServiceError> {
         self.stop_failed_gate_locked().await?;
+        #[cfg(target_os = "macos")]
+        if let Some(snapshot) = self
+            .replace_macos_target(profile_id, &startup_cancel)
+            .await?
+        {
+            return Ok(snapshot);
+        }
+        #[cfg(target_os = "macos")]
+        self.prepare_macos_mode_switch(profile_id, &startup_cancel)
+            .await?;
         #[cfg(any(windows, target_os = "linux"))]
         if let Some(snapshot) = self
-            .retry_protected_target(profile_id, &startup_cancel, true)
+            .retry_protected_target_with_lock(
+                profile_id,
+                &startup_cancel,
+                true,
+                restart_exhausted_recovery,
+                &mut startup_lock,
+            )
             .await?
         {
             return Ok(snapshot);
@@ -3586,9 +3702,22 @@ impl ControlService {
                 // The Agent journal remains Active and WFP stays fail-closed.
                 // `connect_locked` detects that transaction and recreates only
                 // MASQUE plus the volatile packet session.
-                let result = self
-                    .connect_with_cancellation_locked(profile_id, startup_cancel, true)
-                    .await;
+                let result = if let Some(lock) = startup_lock.take() {
+                    Box::pin(self.connect_with_startup_lock(
+                        profile_id,
+                        startup_cancel,
+                        restart_exhausted_recovery,
+                        Some(lock),
+                    ))
+                    .await
+                } else {
+                    self.connect_with_cancellation_locked(
+                        profile_id,
+                        startup_cancel,
+                        restart_exhausted_recovery,
+                    )
+                    .await
+                };
                 if result.is_err() {
                     self.clear_windows_connection_intent_if(intent_generation)
                         .await;
@@ -3597,16 +3726,31 @@ impl ControlService {
             }
         }
 
-        let disconnected = self.disconnect_locked().await;
+        let disconnected = self.teardown_for_reconnect_locked().await;
         #[cfg(windows)]
         if disconnected.is_err() {
             self.clear_windows_connection_intent_if(intent_generation)
                 .await;
         }
         disconnected?;
-        let result = self
-            .connect_with_cancellation_locked(profile_id, startup_cancel, true)
-            .await;
+        let result = if let Some(lock) = startup_lock.take() {
+            Box::pin(self.connect_with_startup_lock(
+                profile_id,
+                startup_cancel,
+                restart_exhausted_recovery,
+                Some(lock),
+                #[cfg(target_os = "macos")]
+                startup_wake,
+            ))
+            .await
+        } else {
+            self.connect_with_cancellation_locked(
+                profile_id,
+                startup_cancel,
+                restart_exhausted_recovery,
+            )
+            .await
+        };
         #[cfg(windows)]
         if result.is_err() {
             self.clear_windows_connection_intent_if(intent_generation)
@@ -5573,6 +5717,8 @@ impl ControlServiceError {
 
 fn connection_error_wire_code(code: ErrorCode) -> String {
     match code {
+        ErrorCode::AuthenticationFailed => "AUTHENTICATION_FAILED".to_owned(),
+        ErrorCode::MissingCredential => "MISSING_CREDENTIAL".to_owned(),
         ErrorCode::WindowsRecoveryFailed => "WINDOWS_RECOVERY_FAILED".to_owned(),
         ErrorCode::WindowsRecoveryExhausted => "WINDOWS_RECOVERY_EXHAUSTED".to_owned(),
         ErrorCode::WindowsRecoveryBlocked => "WINDOWS_RECOVERY_BLOCKED".to_owned(),
@@ -5582,6 +5728,7 @@ fn connection_error_wire_code(code: ErrorCode) -> String {
         ErrorCode::MacosProxyAgentRequired => "MACOS_PROXY_AGENT_REQUIRED".to_owned(),
         ErrorCode::MacosKeychainAccessRequired => "MACOS_KEYCHAIN_ACCESS_REQUIRED".to_owned(),
         ErrorCode::MacosAgentRecoveryUnconfirmed => "MACOS_AGENT_RECOVERY_UNCONFIRMED".to_owned(),
+        ErrorCode::DisconnectCleanupFailed => "DISCONNECT_CLEANUP_FAILED".to_owned(),
         // Preserve the pre-existing wire spelling for every other error.
         code => format!("{code:?}").to_ascii_uppercase(),
     }
@@ -5638,6 +5785,7 @@ fn connection_error_for(error: &ControlServiceError) -> ConnectionError {
             | TransportError::InvalidPrivateKey
             | TransportError::InvalidEndpointPin,
         ) => ErrorCode::AuthenticationFailed,
+        ControlServiceError::DisconnectCleanup(_) => ErrorCode::DisconnectCleanupFailed,
         ControlServiceError::Vault(VaultError::InteractionRequired) => {
             ErrorCode::MacosKeychainAccessRequired
         }
@@ -6698,7 +6846,7 @@ fn exit_probe_for_session(
 
 async fn apply_exit_info(
     state: &Mutex<StateMachine>,
-    data_plane: &Mutex<Option<ActiveDataPlane>>,
+    data_plane: &DataPlaneSlot,
     profile_id: Uuid,
     session_generation: u64,
     exit: ExitInfo,
@@ -7179,40 +7327,30 @@ mod tests {
 
         service.begin_windows_connection_intent(original).await;
         let mutation = service.mutation_lock.lock().await;
+        let cancelled = service.windows_recovery_notify.notified();
         let switch = {
             let service = Arc::clone(&service);
             tokio::spawn(async move { service.set_active_profile(extra.id).await })
         };
-        tokio::time::timeout(Duration::from_millis(100), async {
-            loop {
-                if service.windows_recovery.lock().await.intent.is_none() {
-                    break;
-                }
-                tokio::task::yield_now().await;
-            }
-        })
-        .await
-        .expect("profile switch must cancel recovery before the mutation lock is available");
+        tokio::time::timeout(Duration::from_secs(10), cancelled)
+            .await
+            .expect("profile switch must cancel recovery before the mutation lock is available");
+        assert!(service.windows_recovery.lock().await.intent.is_none());
         assert!(!switch.is_finished());
         drop(mutation);
         switch.await.unwrap().unwrap();
 
         service.begin_windows_connection_intent(extra.id).await;
         let mutation = service.mutation_lock.lock().await;
+        let cancelled = service.windows_recovery_notify.notified();
         let delete = {
             let service = Arc::clone(&service);
             tokio::spawn(async move { service.delete_profile(original).await })
         };
-        tokio::time::timeout(Duration::from_millis(100), async {
-            loop {
-                if service.windows_recovery.lock().await.intent.is_none() {
-                    break;
-                }
-                tokio::task::yield_now().await;
-            }
-        })
-        .await
-        .expect("profile deletion must cancel recovery before the mutation lock is available");
+        tokio::time::timeout(Duration::from_secs(10), cancelled)
+            .await
+            .expect("profile deletion must cancel recovery before the mutation lock is available");
+        assert!(service.windows_recovery.lock().await.intent.is_none());
         assert!(!delete.is_finished());
         drop(mutation);
         delete.await.unwrap().unwrap();

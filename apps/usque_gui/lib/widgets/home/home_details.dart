@@ -14,25 +14,24 @@ String killSwitchStatusKey({
   required UsqueProfile profile,
   required EngineSnapshot snapshot,
 }) {
+  if (snapshot.killSwitchState == 'active') {
+    return 'ks_active';
+  }
+  if (snapshot.killSwitchState == 'error') {
+    return 'ks_error';
+  }
   if (!profile.frontends.tunnel) {
     return 'not_used_proxy';
   }
   if (!profile.killSwitch) {
     return 'off';
   }
-  switch (snapshot.killSwitchState) {
-    case 'active':
-      return 'ks_active';
-    case 'error':
-      return 'ks_error';
-    default:
-      if (snapshot.isTransitional) return 'ks_engaging';
-      // While idle the enabled switch is armed, not failing; "Inactive" is
-      // kept for a session that is up or failed without protection.
-      return snapshot.phase == ConnectionPhase.disconnected
-          ? 'ks_standby'
-          : 'ks_inactive';
-  }
+  if (snapshot.isTransitional) return 'ks_engaging';
+  // While idle the enabled switch is armed, not failing; "Inactive" is
+  // kept for a session that is up or failed without protection.
+  return snapshot.phase == ConnectionPhase.disconnected
+      ? 'ks_standby'
+      : 'ks_inactive';
 }
 
 /// Shield glyph and tone for a [killSwitchStatusKey] value. The label always

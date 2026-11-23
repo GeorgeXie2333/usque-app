@@ -92,6 +92,7 @@ const DEFAULT_PACKET_RING_CAPACITY: u32 = 4 * 1024 * 1024;
 const PACKET_WAKE_BATCH: usize = 64;
 const PACKET_RING_RETRY_INTERVAL: Duration = Duration::from_millis(1);
 const PHYSICAL_NETWORK_POLL_INTERVAL: Duration = Duration::from_millis(500);
+const STALE_GENERATION_REFRESH_TIMEOUT: Duration = Duration::from_secs(1);
 const AUTOMATIC_RECOVERY_ATTEMPT_LIMIT: u32 = 3;
 
 mod admission;
@@ -152,6 +153,11 @@ struct DirectEgressReadback<'a> {
 
 impl WindowsPhysicalState {
     fn update(&mut self, snapshot: Option<(u64, Vec<SocketAddr>, u32)>) -> bool {
+        if let (Some(current), Some((observed, _, _))) = (self.agent_generation, &snapshot)
+            && *observed < current
+        {
+            return false;
+        }
         let (agent_generation, dns_servers, family_mask) = match snapshot {
             Some((generation, servers, mask)) => (Some(generation), servers, mask & 3),
             None => (None, Vec::new(), 0),
@@ -295,10 +301,15 @@ impl SocketProtector for WindowsVpnSocketProtector {
         let generation = self
             .egress_generation(expected_generation)?
             .ok_or_else(|| STALE_GENERATION_REASON.to_owned())?;
-        self.agent
+        if let Err(error) = self
+            .agent
             .set_preset_endpoint_candidates(self.operation_id, host, candidates, generation)
             .await
-            .map_err(|error| self.socket_setup_error("AUTHORIZE_PRESET_ENDPOINTS", error))?;
+        {
+            return Err(self
+                .handle_socket_setup_error("AUTHORIZE_PRESET_ENDPOINTS", error)
+                .await);
+        }
         self.verify_generation(expected_generation, generation)
     }
 
@@ -419,7 +430,7 @@ impl WindowsVpnSocketProtector {
                 .protect_for_target_generation(socket, remote, protocol, expected_generation)
                 .await;
         };
-        let (pipe, lease) = self
+        let (pipe, lease) = match self
             .agent
             .acquire_direct_egress(
                 self.operation_id,
@@ -429,7 +440,14 @@ impl WindowsVpnSocketProtector {
                 purpose,
             )
             .await
-            .map_err(|error| self.socket_setup_error("ACQUIRE_DIRECT_EGRESS", error))?;
+        {
+            Ok(acquired) => acquired,
+            Err(error) => {
+                return Err(self
+                    .handle_socket_setup_error("ACQUIRE_DIRECT_EGRESS", error)
+                    .await);
+            }
+        };
         self.verify_generation(expected_generation, agent_generation)?;
         bind_socket_to_interface(socket, remote, lease.interface_index)?;
         self.finish_direct_egress(
@@ -460,11 +478,19 @@ impl WindowsVpnSocketProtector {
             agent_generation,
             purpose,
         } = check;
-        let current = self
+        let current = match self
             .agent
             .get_physical_network_info_on_pipe(&mut pipe, self.operation_id, AGENT_RPC_TIMEOUT)
             .await
-            .map_err(|error| self.socket_setup_error("VERIFY_PHYSICAL_NETWORK", error))?;
+        {
+            Ok(current) => current,
+            Err(error) => {
+                drop(pipe);
+                return Err(self
+                    .handle_socket_setup_error("VERIFY_PHYSICAL_NETWORK", error)
+                    .await);
+            }
+        };
         self.observe_physical_snapshot(&current);
         if current.generation != agent_generation
             || !current
@@ -503,6 +529,11 @@ impl WindowsVpnSocketProtector {
             )
         });
         if let Ok(mut state) = self.physical.write() {
+            if let (Some(current), Some((observed, _, _))) = (state.agent_generation, &snapshot)
+                && *observed < current
+            {
+                return;
+            }
             let availability = if snapshot.is_some() {
                 PhysicalNetworkAvailability::Online {
                     ipv4: info
@@ -559,6 +590,53 @@ impl WindowsVpnSocketProtector {
             state.update(None);
             self.publish_physical_state(&mut state, availability);
         }
+    }
+
+    async fn refresh_physical_snapshot_after_stale(&self) {
+        if self.proxy_mode.load(Ordering::Acquire) {
+            return;
+        }
+        match self
+            .agent
+            .get_physical_network_info_with_timeout(
+                self.operation_id,
+                STALE_GENERATION_REFRESH_TIMEOUT,
+            )
+            .await
+        {
+            Ok(info) => self.observe_physical_snapshot(&info),
+            Err(error)
+                if matches!(
+                    &error,
+                    WindowsVpnError::Remote { code, .. }
+                        if matches!(
+                            code.as_str(),
+                            "AGENT_PHYSICAL_NETWORK_OFFLINE"
+                                | "AGENT_PHYSICAL_NETWORK_UNAVAILABLE"
+                        )
+                ) =>
+            {
+                self.observe_physical_error(&error);
+            }
+            Err(_) => {}
+        }
+    }
+
+    async fn handle_socket_setup_error(
+        &self,
+        stage: &'static str,
+        error: WindowsVpnError,
+    ) -> String {
+        if matches!(&error, WindowsVpnError::Remote { code, .. } if code == "AGENT_STALE_GENERATION")
+        {
+            // A stale exact-generation request never authorizes the rejected
+            // socket or candidate set. Refresh the cached snapshot immediately
+            // so migration observes the newer generation without waiting for
+            // the periodic monitor tick.
+            self.refresh_physical_snapshot_after_stale().await;
+            return STALE_GENERATION_REASON.to_owned();
+        }
+        self.socket_setup_error(stage, error)
     }
 
     fn socket_setup_error(&self, stage: &'static str, error: WindowsVpnError) -> String {
@@ -1094,6 +1172,7 @@ pub(crate) struct WindowsVpnRuntime {
     transaction_open: bool,
     held_failure: bool,
     target_committed: bool,
+    protection_committed: bool,
     startup_error: Option<WindowsVpnError>,
     handoff_intent: bool,
     shutdown_replacement: Option<Box<agent_v1::TunnelReplacementStatus>>,
@@ -1242,6 +1321,7 @@ impl WindowsVpnRuntime {
             transaction_open: true,
             held_failure: false,
             target_committed: false,
+            protection_committed: false,
             startup_error: None,
             handoff_intent: false,
             shutdown_replacement: None,
@@ -1524,6 +1604,7 @@ impl WindowsVpnRuntime {
                 transaction_open: true,
                 held_failure: false,
                 target_committed: false,
+                protection_committed: false,
                 startup_error: None,
                 handoff_intent: false,
                 shutdown_replacement: None,
@@ -1818,6 +1899,7 @@ impl WindowsVpnRuntime {
             )
             .into());
         }
+        let mut unacknowledged_commit = None;
         let finalization = async {
             let network = tunnel.network_parameters();
             let mut final_profile = profile.clone();
@@ -1843,7 +1925,10 @@ impl WindowsVpnRuntime {
             plan.split_dns = final_values.split_dns;
             plan.mtu = final_values.mtu;
             plan.defer_network_configuration = false;
-            self.agent.finalize_tunnel(self.operation_id, plan).await?;
+            let prepared = self
+                .agent
+                .finalize_tunnel(self.operation_id, plan.clone())
+                .await?;
             let io = tunnel.attach_tun()?;
             let handles = self
                 .agent
@@ -1861,8 +1946,14 @@ impl WindowsVpnRuntime {
                 self.cancellation.clone(),
                 self.pump_failure_tx.clone(),
             );
-            let committed = self.agent.commit(self.operation_id).await?;
+            unacknowledged_commit = Some((prepared.journal_generation, plan));
+            let reply = self.agent.commit(self.operation_id).await;
+            if !matches!(&reply, Err(error) if error.commit_reply_unknown()) {
+                unacknowledged_commit = None;
+            }
+            let committed = reply?;
             self.target_committed = replacement::target_is_committed(&committed, self.operation_id);
+            self.protection_committed |= self.target_committed;
             if !self.target_committed {
                 return Err(WindowsVpnError::RecoveryConflict);
             }
@@ -1922,11 +2013,18 @@ impl WindowsVpnRuntime {
                 mapping.signal_shutdown();
             }
             // A lost Commit reply may hide an applied target preference.
-            // Query only after closing all final admission and packet pumps.
-            if !self.target_committed
+            // Query only after closing all final admission and packet pumps,
+            // and only if Commit for this target was actually attempted.
+            if let Some((prepared_generation, plan)) = unacknowledged_commit
                 && let Ok(state) = self.agent.get_state().await
             {
-                self.target_committed = replacement::target_is_committed(&state, self.operation_id);
+                self.target_committed = replacement::target_committed_after_finalization_error(
+                    &state,
+                    self.operation_id,
+                    prepared_generation,
+                    &plan,
+                );
+                self.protection_committed |= self.target_committed;
             }
             let reason = error.gate_failure();
             tunnel.fail_gate(reason).await;
@@ -2625,6 +2723,7 @@ async fn bind_agent_session(
         transaction_open: true,
         held_failure: false,
         target_committed: true,
+        protection_committed: true,
         startup_error: None,
         handoff_intent: false,
         shutdown_replacement: None,
@@ -3334,9 +3433,22 @@ impl WindowsAgentClient {
         &self,
         operation_id: Uuid,
     ) -> Result<PhysicalNetworkInfo, WindowsVpnError> {
-        let mut pipe = self.open_pipe().await?;
-        self.get_physical_network_info_on_pipe(&mut pipe, operation_id, AGENT_RPC_TIMEOUT)
+        self.get_physical_network_info_with_timeout(operation_id, AGENT_RPC_TIMEOUT)
             .await
+    }
+
+    async fn get_physical_network_info_with_timeout(
+        &self,
+        operation_id: Uuid,
+        budget: Duration,
+    ) -> Result<PhysicalNetworkInfo, WindowsVpnError> {
+        timeout(budget, async {
+            let mut pipe = self.open_pipe().await?;
+            self.get_physical_network_info_on_pipe(&mut pipe, operation_id, budget)
+                .await
+        })
+        .await
+        .map_err(|_| WindowsVpnError::RpcTimeout)?
     }
 
     async fn get_physical_network_info_on_pipe(
@@ -4513,6 +4625,21 @@ pub(crate) enum WindowsVpnError {
 }
 
 impl WindowsVpnError {
+    fn commit_reply_unknown(&self) -> bool {
+        matches!(
+            self,
+            Self::Io(_)
+                | Self::RpcTimeout
+                | Self::Frame(_)
+                | Self::FrameTooLarge(_)
+                | Self::MissingResponse
+                | Self::ResponseIdMismatch
+                | Self::UnexpectedResponse(_)
+        )
+    }
+}
+
+impl WindowsVpnError {
     fn gate_failure(&self) -> usque_core::vpngate::GateFailure {
         use usque_core::vpngate::GateFailure;
         match self {
@@ -5564,6 +5691,57 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn continuous_retry_restarts_exhausted_windows_recovery_once() {
+        let (_directory, service, profile_id) = recovery_entry_service().await;
+        let (client, task) = scripted_recovery_client(vec![
+            recovery_capabilities_response(),
+            automatic_recovery_state_response(agent_v1::AutomaticRecoveryPhase::Exhausted),
+            automatic_recovery_state_response(agent_v1::AutomaticRecoveryPhase::Running),
+        ]);
+        *service.test_windows_agent.lock().await = Some(client);
+
+        let response = service
+            .handle(usque_ipc::v1::ControlRequest {
+                request_id: "continuous-retry-exhausted".to_owned(),
+                payload: Some(usque_ipc::v1::control_request::Payload::Retry(
+                    usque_ipc::v1::RetryRequest { continuous: true },
+                )),
+            })
+            .await;
+        assert!(response.error.is_none());
+
+        let requests = tokio::time::timeout(Duration::from_secs(2), task)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            requests
+                .iter()
+                .filter(|request| matches!(
+                    request,
+                    agent_request::Payload::RestartAutomaticRecovery(_)
+                ))
+                .count(),
+            1
+        );
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                if service.status_snapshot().await.phase
+                    == usque_core::ConnectionPhase::Reconnecting
+                    && service.windows_recovery.lock().await.pending.is_some()
+                {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        let _ = profile_id;
+        service.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
     async fn cancelled_connect_can_finish_cleanup_but_cannot_connect_or_install_a_watch() {
         for phase in [
             agent_v1::AgentPhase::Clean,
@@ -6123,6 +6301,12 @@ mod tests {
         );
         assert!(!state.update(None));
         assert!(state.update(Some((21, Vec::new(), 1))));
+        assert_eq!(
+            (state.generation, state.agent_generation, state.family_mask),
+            (13, Some(21), 1)
+        );
+        // Delayed snapshots from an older Agent generation must never regress state.
+        assert!(!state.update(Some((20, Vec::new(), 3))));
         assert_eq!(
             (state.generation, state.agent_generation, state.family_mask),
             (13, Some(21), 1)

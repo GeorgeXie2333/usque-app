@@ -6,11 +6,12 @@ use std::{
     net::SocketAddr,
     path::PathBuf,
     sync::{Arc, Mutex as StdMutex},
+    time::Instant,
 };
 use tokio::sync::{Mutex, watch};
 use tokio_util::{sync::CancellationToken, task::AbortOnDropHandle};
 use usque_core::{
-    Profile, WarpIdentity,
+    KillSwitchState, LockdownState, Profile, WarpIdentity,
     vpngate::{GateStage, GateStatus},
 };
 use usque_macos_runtime::{
@@ -22,8 +23,8 @@ use usque_macos_runtime::{
 };
 use usque_platform::{SecretRecord, SecretVault};
 use usque_transport::{
-    ConnectionTimelineSnapshot, RuntimeHealth, RuntimePath, SystemProxyRuntime, TrafficSnapshot,
-    TransportError,
+    ConnectionTimelineSnapshot, ProxyPerformanceSnapshot, RuntimeHealth, RuntimePath,
+    SystemProxyRuntime, TrafficSnapshot, TransportError,
 };
 use uuid::Uuid;
 use zeroize::Zeroizing;
@@ -878,7 +879,7 @@ impl ControlService {
             .lock()
             .await
             .as_ref()
-            .is_some_and(|active| matches!(active.runtime, crate::ActiveRuntime::Proxy(_)));
+            .is_some_and(|active| !active.runtime.is_vpn());
         if !active_proxy {
             return Ok(());
         }
@@ -896,7 +897,7 @@ impl ControlService {
             if !crate::macos_agent::connection_available().await {
                 return Err(ControlServiceError::OperatingModeUnavailable(profile.mode));
             }
-            self.disconnect_locked().await?;
+            self.teardown_for_reconnect_locked().await?;
             self.await_disconnect_cleanup().await?;
             return Ok(());
         }
@@ -926,7 +927,7 @@ impl ControlService {
         }
         // Only confirmed independent protection authorizes ending the old
         // Engine-owned channel. Start later reuses exactly this reserved key.
-        self.disconnect_locked().await?;
+        self.teardown_for_reconnect_locked().await?;
         self.await_disconnect_cleanup().await?;
         *self.session_profile.lock().await = None;
         *self.session_congestion_control.lock().await = None;
@@ -959,8 +960,12 @@ impl ControlService {
         if !profile.frontends.tunnel {
             // Releasing protection for a proxy-only target is an explicit user
             // mode change. Complete teardown before opening a proxy session.
-            self.disconnect_locked().await?;
+            self.teardown_for_reconnect_locked().await?;
             self.await_disconnect_cleanup().await?;
+            self.state
+                .lock()
+                .await
+                .update_safety_state(KillSwitchState::NotApplicable, LockdownState::NotSupported);
             return Ok(None);
         }
         self.reconnect_protected_chain(&profile, cancellation).await
@@ -978,54 +983,142 @@ impl ControlService {
         }
         let identity = self.load_warp_identity(target.id).await?;
         let selected = self.prepare_gate_selection(target)?;
-        let mut active = self.data_plane.lock().await;
-        let active = active.as_mut().ok_or_else(|| error("runtime_missing"))?;
-        match &mut active.runtime {
-            crate::ActiveRuntime::MacVpn(runtime) => {
-                runtime
-                    .replace(target, &identity, selected, cancellation)
-                    .await?;
+        let continuous = self.continuous_enabled().await;
+        let (generation, health, gate, quality, frontends, l4, reconnect_count, listeners) = {
+            let mut owner = self
+                .data_plane
+                .borrow_vpn_for_replacement()
+                .await
+                .ok_or_else(|| error("macos_tun_owner_changed"))?;
+            {
+                let mut state = self.state.lock().await;
+                if state.snapshot().phase != usque_core::ConnectionPhase::Reconnecting {
+                    state.transition(usque_core::ConnectionPhase::Reconnecting)?;
+                }
+                state.clear_exit_info();
             }
-            crate::ActiveRuntime::Vpn(runtime) => {
-                let tls = usque_transport::MasqueTlsIdentity::from_warp_identity(&identity)
-                    .map_err(ControlServiceError::Transport)?;
-                let refresher = Arc::new(crate::VaultEndpointPinRefresher {
-                    profile_id: target.id,
-                    vault: self.vault.clone(),
-                    identity: tokio::sync::Mutex::new(identity),
-                });
-                let policy = Arc::new(crate::load_geo_direct_policy(target, &self.cache_dir)?);
-                runtime
-                    .replace_connection(
-                        target,
-                        tls,
-                        refresher,
-                        policy,
-                        usque_transport::VpnGateStart {
-                            selected,
-                            status: Some(self.gate_status.clone()),
-                            cancellation: cancellation.clone(),
-                            ..Default::default()
-                        },
-                    )
-                    .await
-                    .map_err(crate::macos_agent_runtime::map_error)?;
-                active.session_generation = self.next_session_generation();
+            let active = owner.active();
+            match &mut active.runtime {
+                crate::ActiveRuntime::MacVpn(runtime) => {
+                    runtime
+                        .replace(target, &identity, selected, cancellation)
+                        .await?;
+                }
+                crate::ActiveRuntime::Vpn(runtime) => {
+                    let tls = usque_transport::MasqueTlsIdentity::from_warp_identity(&identity)
+                        .map_err(ControlServiceError::Transport)?;
+                    let refresher = Arc::new(crate::VaultEndpointPinRefresher {
+                        profile_id: target.id,
+                        vault: self.vault.clone(),
+                        identity: tokio::sync::Mutex::new(identity),
+                    });
+                    let policy = Arc::new(crate::load_geo_direct_policy(target, &self.cache_dir)?);
+                    // Resume can change the guard even if this future loses its reply.
+                    self.state
+                        .lock()
+                        .await
+                        .update_safety_state(KillSwitchState::Error, LockdownState::NotSupported);
+                    if let Err(error) = runtime
+                        .replace_connection(
+                            target,
+                            tls,
+                            refresher,
+                            policy,
+                            usque_transport::VpnGateStart {
+                                continuous,
+                                selected,
+                                status: Some(self.gate_status.clone()),
+                                cancellation: cancellation.clone(),
+                                ..Default::default()
+                            },
+                        )
+                        .await
+                    {
+                        let protection =
+                            crate::macos_agent::released_owner_protection(runtime.fence())
+                                .await
+                                .unwrap_or(KillSwitchState::Error);
+                        self.state
+                            .lock()
+                            .await
+                            .update_safety_state(protection, LockdownState::NotSupported);
+                        return Err(crate::macos_agent_runtime::map_error(error));
+                    }
+                }
+                _ => return Err(error("macos_tun_owner_changed")),
             }
-            _ => return Err(error("macos_tun_owner_changed")),
-        }
-        active.profile_id = target.id;
-        active.profile = target.clone();
-        active.frontends = target.frontends;
+            let generation = self.next_session_generation();
+            active.profile_id = target.id;
+            active.profile = target.clone();
+            active.session_generation = generation;
+            active.frontends = target.frontends;
+            active.connected_at = Instant::now();
+            active.last_sample_at = Instant::now();
+            active.last_bytes_sent = 0;
+            active.last_bytes_received = 0;
+            active.last_proxy_performance = ProxyPerformanceSnapshot::default();
+            let health = active.runtime.health();
+            let gate = active.runtime.gate_status();
+            let quality = active.runtime.subscribe_network_quality();
+            let frontends = active.runtime.frontend_statuses(target.frontends);
+            let l4 = active.runtime.l4_snapshot();
+            let reconnect_count = health.reconnect_count();
+            let listeners = active
+                .runtime
+                .listeners()
+                .iter()
+                .map(ToString::to_string)
+                .collect();
+            (
+                generation,
+                health,
+                gate,
+                quality,
+                frontends,
+                l4,
+                reconnect_count,
+                listeners,
+            )
+        };
+        let (connected, snapshot) = {
+            let mut state = self.state.lock().await;
+            state.update_data_plane(target.data_plane, l4);
+            let connected = if let RuntimeHealth::Connected { path, .. } = health {
+                state.mark_connected_with_gate(
+                    path.transport,
+                    path.endpoint_family,
+                    path.ipv4_available,
+                    path.ipv6_available,
+                    Some(&gate),
+                )?;
+                true
+            } else {
+                false
+            };
+            state.update_frontends(frontends);
+            let warnings = state.snapshot().warnings.clone();
+            state.update_runtime_metadata(reconnect_count, listeners, warnings);
+            state.update_safety_state(
+                if target.kill_switch {
+                    KillSwitchState::Active
+                } else {
+                    KillSwitchState::Inactive
+                },
+                LockdownState::NotSupported,
+            );
+            (connected, state.snapshot().clone())
+        };
+        self.gate_status.send_replace(gate);
         *self.session_profile.lock().await = Some(target.clone());
-        let mut state = self.state.lock().await;
-        if matches!(
-            state.snapshot().phase,
-            usque_core::ConnectionPhase::Connected | usque_core::ConnectionPhase::Degraded
-        ) {
-            state.transition(usque_core::ConnectionPhase::Reconnecting)?;
+        *self.session_congestion_control.lock().await =
+            Some((target.id, target.congestion_control));
+        self.install_network_quality_source(quality).await;
+        self.publish_settings_runtime(Some(target.clone()), Some(generation))
+            .await;
+        if connected {
+            self.spawn_gate_exit_probe(target.id, generation).await;
         }
-        Ok(Some(state.snapshot().clone()))
+        Ok(Some(snapshot))
     }
     pub async fn detach_macos_process(&self) -> Result<(), ControlServiceError> {
         self.macos_detaching

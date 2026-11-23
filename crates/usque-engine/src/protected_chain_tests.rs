@@ -672,8 +672,209 @@ async fn selecting_proxy_only_finishes_owned_vpn_cleanup_before_starting_the_tar
         service.config_snapshot().await.active_profile_id,
         Some(b.id)
     );
+    let final_snapshot = service.status_snapshot().await;
+    assert_eq!(final_snapshot.phase, ConnectionPhase::Error);
+    assert_eq!(
+        final_snapshot.kill_switch_state,
+        KillSwitchState::NotApplicable,
+        "confirmed teardown of the old VPN must clear KillSwitchState::Active before proxy-only startup fails"
+    );
+}
+
+#[tokio::test]
+async fn continuous_retry_applies_mtu_and_hands_off_retained_account() {
+    let (_directory, service, a) = fixture(ChainSource::HttpProxy, true, true, true).await;
+    let mut updated_a = a.clone();
+    updated_a.mtu = 1320;
+    save_network_for_next_connection(&service, &updated_a, &["mtu"]).await;
+
+    let same_account_retry = service
+        .handle(v1::ControlRequest {
+            request_id: "continuous-retry-mtu".into(),
+            payload: Some(v1::control_request::Payload::Retry(v1::RetryRequest {
+                continuous: true,
+            })),
+        })
+        .await;
+    assert!(same_account_retry.error.is_none());
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            if service
+                .data_plane
+                .lock()
+                .await
+                .as_ref()
+                .is_some_and(|active| active.profile.mtu == 1320)
+            {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+
+    // Switch A -> B fails while A retains protection, then manual continuous Retry
+    // hands off to B instead of returning ALREADY_CONNECTED.
+    let b = Profile {
+        id: Uuid::new_v4(),
+        name: "Protected target B".into(),
+        ..updated_a.clone()
+    };
+    service.upsert_profile(b.clone()).await.unwrap();
+    {
+        let mut active = service.data_plane.lock().await;
+        let ActiveRuntime::Harness(runtime) = &mut active.as_mut().unwrap().runtime else {
+            panic!("fixture must remain an in-memory runtime");
+        };
+        runtime.fail_protected_reconnect = true;
+    }
+    assert!(service.set_active_profile(b.id).await.is_err());
+    assert_eq!(
+        service
+            .data_plane
+            .lock()
+            .await
+            .as_ref()
+            .map(|active| active.profile_id),
+        Some(a.id)
+    );
+
+    {
+        let mut active = service.data_plane.lock().await;
+        let ActiveRuntime::Harness(runtime) = &mut active.as_mut().unwrap().runtime else {
+            panic!("fixture must remain an in-memory runtime");
+        };
+        runtime.fail_protected_reconnect = false;
+    }
+    let switch_retry = service
+        .handle(v1::ControlRequest {
+            request_id: "continuous-retry-switch".into(),
+            payload: Some(v1::control_request::Payload::Retry(v1::RetryRequest {
+                continuous: true,
+            })),
+        })
+        .await;
+    assert!(
+        switch_retry.error.is_none(),
+        "expected protected handoff retry, got {:?}",
+        switch_retry.error
+    );
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            if service
+                .data_plane
+                .lock()
+                .await
+                .as_ref()
+                .is_some_and(|active| active.profile_id == b.id)
+            {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    service.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn invalid_stored_identity_snapshot_serializes_authentication_failed_wire_code() {
+    let (_directory, service, _a) = fixture(ChainSource::HttpProxy, false, false, false).await;
+    service
+        .mark_connection_error(&ControlServiceError::InvalidStoredIdentity)
+        .await;
+    let snapshot = service.status_snapshot().await;
+    let proto = snapshot_to_proto(&snapshot);
+    assert_eq!(
+        proto.error.as_ref().map(|err| err.code.as_str()),
+        Some("AUTHENTICATION_FAILED")
+    );
+}
+
+#[tokio::test]
+async fn retrying_protected_tunnel_to_proxy_only_keeps_reconnecting_during_cleanup() {
+    let (_directory, service, a) = fixture(ChainSource::HttpProxy, true, true, true).await;
+    let release = CancellationToken::new();
+    let stop_requested = {
+        let mut active = service.data_plane.lock().await;
+        let ActiveRuntime::Harness(runtime) = &mut active.as_mut().unwrap().runtime else {
+            panic!("fixture must remain an in-memory runtime");
+        };
+        runtime.shutdown_release = Some(release.clone());
+        runtime.stop_requested.clone()
+    };
+
+    let mut proxy_only = a.clone();
+    proxy_only.frontends.tunnel = false;
+    proxy_only.canonicalize_mode();
+    save_network_for_next_connection(&service, &proxy_only, &["frontends.tunnel"]).await;
+
+    let response = service
+        .handle(v1::ControlRequest {
+            request_id: "retry-protected-to-proxy".into(),
+            payload: Some(v1::control_request::Payload::Retry(v1::RetryRequest {
+                continuous: true,
+            })),
+        })
+        .await;
+    assert!(
+        response.error.is_none(),
+        "expected continuous retry to start, got {:?}",
+        response.error
+    );
+
+    tokio::time::timeout(Duration::from_secs(2), stop_requested.cancelled())
+        .await
+        .expect("protected tunnel teardown should start");
+    let during_cleanup = service.status_snapshot().await;
+    assert_eq!(
+        during_cleanup.phase,
+        ConnectionPhase::Reconnecting,
+        "protected tunnel cleanup toward proxy-only must stay Reconnecting, not Disconnected"
+    );
+
+    release.cancel();
+    service.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn pure_proxy_disconnect_cleanup_failure_publishes_disconnect_cleanup_failed_wire_code() {
+    let (_directory, service, _a) = fixture(ChainSource::HttpProxy, false, false, true).await;
+    {
+        let mut active = service.data_plane.lock().await;
+        let ActiveRuntime::Harness(runtime) = &mut active.as_mut().unwrap().runtime else {
+            panic!("fixture must remain an in-memory runtime");
+        };
+        runtime.shutdown_failures = 1;
+    }
+
+    let _ = service.disconnect().await.unwrap();
+    let cleanup = service.await_disconnect_cleanup().await;
+    assert!(matches!(
+        cleanup,
+        Err(ControlServiceError::DisconnectCleanup(_))
+    ));
+
+    let snapshot = service.status_snapshot().await;
+    assert_eq!(snapshot.phase, ConnectionPhase::Error);
+    assert_eq!(snapshot.kill_switch_state, KillSwitchState::NotApplicable);
+    assert_eq!(
+        snapshot.error.as_ref().map(|err| err.code),
+        Some(usque_core::ErrorCode::DisconnectCleanupFailed)
+    );
+    let proto = snapshot_to_proto(&snapshot);
+    assert_eq!(
+        proto.error.as_ref().map(|err| err.code.as_str()),
+        Some("DISCONNECT_CLEANUP_FAILED")
+    );
+
+    // Retrying Disconnect clears the retained pure-proxy owner cleanly.
+    let _ = service.disconnect().await.unwrap();
+    service.await_disconnect_cleanup().await.unwrap();
     assert_eq!(
         service.status_snapshot().await.phase,
-        ConnectionPhase::Error
+        ConnectionPhase::Disconnected
     );
 }

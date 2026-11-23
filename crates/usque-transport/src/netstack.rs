@@ -3013,6 +3013,12 @@ async fn pump_active_tunnel(
                     observed_generation = current;
                     continue;
                 }
+                tracing::debug!(
+                    target_generation = completed.target_generation,
+                    current_generation = ?current,
+                    result = ?result,
+                    "H3 network migration did not complete; reconnecting MASQUE carrier"
+                );
                 break ActiveOutcome::Reconnect(network_change_failure(active_path));
             }
             result = wait_for_batch_send(&mut pending_send), if pending_send.is_some() => {

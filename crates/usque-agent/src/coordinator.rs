@@ -1292,8 +1292,10 @@ where
                 };
             }
         }
-        journal.phase = RecoveryPhase::Active;
-        if let Err(error) = self.store.save(&mut journal) {
+        // GetState must only acknowledge Active after its journal is durable.
+        let mut committed = journal.clone();
+        committed.phase = RecoveryPhase::Active;
+        if let Err(error) = self.store.save(&mut committed) {
             if plan.vpn_chain {
                 return Err(error.into());
             }
@@ -1306,6 +1308,7 @@ where
                 }),
             };
         }
+        *journal = committed;
         self.complete_replacement_locked(&mut journal).await?;
         Ok(journal.clone())
     }
@@ -3338,6 +3341,35 @@ mod tests {
         assert_eq!(
             coordinator.store.load_or_clean().unwrap().phase,
             RecoveryPhase::Clean
+        );
+    }
+
+    #[tokio::test]
+    async fn rejected_chain_commit_keeps_the_durable_prepared_receipt_until_retry() {
+        let (_directory, coordinator) = coordinator(Arc::new(MockBackend::default()));
+        let operation = Uuid::new_v4();
+        let owner = caller();
+        let mut chain = plan();
+        chain.vpn_chain = true;
+        coordinator
+            .prepare_legacy_fixture(operation, chain, owner.clone())
+            .await
+            .unwrap();
+        coordinator
+            .open_packet_session(operation, 1024 * 1024, &owner)
+            .await
+            .unwrap();
+        coordinator.store.fail_next_active_save();
+        assert!(coordinator.commit(operation, &owner).await.is_err());
+        let observed = coordinator.state().await;
+        let durable = coordinator.store.load_or_clean().unwrap();
+        assert_eq!(observed.phase, RecoveryPhase::Prepared);
+        assert_eq!(observed.phase, durable.phase);
+        assert_eq!(observed.generation, durable.generation);
+        coordinator.commit(operation, &owner).await.unwrap();
+        assert_eq!(
+            coordinator.store.load_or_clean().unwrap().phase,
+            RecoveryPhase::Active
         );
     }
 
