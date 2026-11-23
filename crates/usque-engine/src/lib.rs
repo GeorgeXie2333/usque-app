@@ -7327,40 +7327,30 @@ mod tests {
 
         service.begin_windows_connection_intent(original).await;
         let mutation = service.mutation_lock.lock().await;
+        let cancelled = service.windows_recovery_notify.notified();
         let switch = {
             let service = Arc::clone(&service);
             tokio::spawn(async move { service.set_active_profile(extra.id).await })
         };
-        tokio::time::timeout(Duration::from_millis(100), async {
-            loop {
-                if service.windows_recovery.lock().await.intent.is_none() {
-                    break;
-                }
-                tokio::task::yield_now().await;
-            }
-        })
-        .await
-        .expect("profile switch must cancel recovery before the mutation lock is available");
+        tokio::time::timeout(Duration::from_secs(10), cancelled)
+            .await
+            .expect("profile switch must cancel recovery before the mutation lock is available");
+        assert!(service.windows_recovery.lock().await.intent.is_none());
         assert!(!switch.is_finished());
         drop(mutation);
         switch.await.unwrap().unwrap();
 
         service.begin_windows_connection_intent(extra.id).await;
         let mutation = service.mutation_lock.lock().await;
+        let cancelled = service.windows_recovery_notify.notified();
         let delete = {
             let service = Arc::clone(&service);
             tokio::spawn(async move { service.delete_profile(original).await })
         };
-        tokio::time::timeout(Duration::from_millis(100), async {
-            loop {
-                if service.windows_recovery.lock().await.intent.is_none() {
-                    break;
-                }
-                tokio::task::yield_now().await;
-            }
-        })
-        .await
-        .expect("profile deletion must cancel recovery before the mutation lock is available");
+        tokio::time::timeout(Duration::from_secs(10), cancelled)
+            .await
+            .expect("profile deletion must cancel recovery before the mutation lock is available");
+        assert!(service.windows_recovery.lock().await.intent.is_none());
         assert!(!delete.is_finished());
         drop(mutation);
         delete.await.unwrap().unwrap();
