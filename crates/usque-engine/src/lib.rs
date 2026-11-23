@@ -52,6 +52,12 @@ mod chain_dns_live_tests;
 mod chain_exit;
 mod connection_evidence;
 mod continuous_connection;
+#[cfg(any(target_os = "macos", test))]
+mod data_plane_slot;
+#[cfg(any(target_os = "macos", test))]
+use data_plane_slot::DataPlaneSlot;
+#[cfg(not(any(target_os = "macos", test)))]
+type DataPlaneSlot = Mutex<Option<ActiveDataPlane>>;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 mod desktop_chain;
 pub mod diagnostics;
@@ -150,7 +156,7 @@ pub struct ControlServiceState {
     pub(crate) state: Arc<Mutex<StateMachine>>,
     pub(crate) mutation_lock: Arc<Mutex<()>>,
     vault: Arc<dyn SecretVault>,
-    pub(crate) data_plane: Arc<Mutex<Option<ActiveDataPlane>>>,
+    pub(crate) data_plane: Arc<DataPlaneSlot>,
     #[cfg(target_os = "macos")]
     macos_provider: RwLock<Arc<dyn macos_runtime::ProviderControl>>,
     #[cfg(target_os = "macos")]
@@ -572,7 +578,7 @@ impl ControlService {
                 state: Arc::new(Mutex::new(StateMachine::default())),
                 mutation_lock: Arc::new(Mutex::new(())),
                 vault,
-                data_plane: Arc::new(Mutex::new(None)),
+                data_plane: Arc::default(),
                 #[cfg(target_os = "macos")]
                 macos_provider: RwLock::new(Arc::new(macos_runtime::UnavailableProvider)),
                 #[cfg(target_os = "macos")]
@@ -1540,6 +1546,9 @@ impl ControlService {
         let platform_recovery_pending = self.windows_recovery.lock().await.pending.is_some();
         #[cfg(not(windows))]
         let platform_recovery_pending = false;
+        #[cfg(target_os = "macos")]
+        let (mut data_plane, replacing) = self.data_plane.lock_for_status().await;
+        #[cfg(not(target_os = "macos"))]
         let mut data_plane = self.data_plane.lock().await;
         let mut state = self.state.lock().await;
         if let Some(active) = data_plane.as_mut() {
@@ -1715,7 +1724,7 @@ impl ControlService {
                     .disconnect_owners
                     .try_lock()
                     .map_or(true, |owners| !owners.is_empty());
-            let orphan = data_plane.is_none() && !handoff_cleanup;
+            let orphan = data_plane.is_none() && !replacing && !handoff_cleanup;
             drop(state);
             drop(data_plane);
             if orphan {
@@ -6831,7 +6840,7 @@ fn exit_probe_for_session(
 
 async fn apply_exit_info(
     state: &Mutex<StateMachine>,
-    data_plane: &Mutex<Option<ActiveDataPlane>>,
+    data_plane: &DataPlaneSlot,
     profile_id: Uuid,
     session_generation: u64,
     exit: ExitInfo,

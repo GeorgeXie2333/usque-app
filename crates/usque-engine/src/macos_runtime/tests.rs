@@ -20,6 +20,7 @@ struct Evidence {
     protective: AtomicBool,
     ready: AtomicBool,
     flows: Mutex<Vec<usque_transport::SystemFlowIntent>>,
+    pause_replacement: Mutex<Option<(CancellationToken, CancellationToken)>>,
 }
 struct IsolatedBackend(Arc<Evidence>);
 #[async_trait]
@@ -101,6 +102,13 @@ impl ProviderControl for IsolatedControl {
         request: Envelope,
         _: Arc<dyn CredentialBroker>,
     ) -> Result<Reply, String> {
+        if matches!(&request.command, Command::Replace { .. }) {
+            let pause = self.evidence.pause_replacement.lock().await.take();
+            if let Some((entered, resume)) = pause {
+                entered.cancel();
+                resume.cancelled().await;
+            }
+        }
         self.controller.submit(request).map_err(|e| e.to_string())
     }
     async fn network_generation(&self) -> Result<u64, String> {
@@ -338,6 +346,80 @@ async fn cold_tun_settings_keep_the_guard_and_apply_the_requested_profile() {
     assert!(evidence.protective.load(Ordering::SeqCst));
     service.disconnect().await.unwrap();
     service.await_disconnect_cleanup().await.unwrap();
+}
+
+#[tokio::test]
+async fn switching_from_proxy_to_tun_keeps_reconnecting_until_cleanup_finishes() {
+    let (_dir, service, target, _, _) = service().await;
+    let mut proxy = target.clone();
+    proxy.frontends.tunnel = false;
+    proxy.canonicalize_mode();
+    service.install_test_session(proxy, false, 0).await.unwrap();
+    service.upsert_profile_locked(target.clone()).await.unwrap();
+    let release = CancellationToken::new();
+    let stopped = {
+        let mut plane = service.data_plane.lock().await;
+        let crate::ActiveRuntime::Harness(runtime) = &mut plane.as_mut().unwrap().runtime else {
+            unreachable!()
+        };
+        runtime.shutdown_release = Some(release.clone());
+        runtime.stop_requested.clone()
+    };
+    let switching = {
+        let service = service.clone();
+        tokio::spawn(async move {
+            let _mutation = service.mutation_lock.lock().await;
+            service
+                .prepare_macos_mode_switch(target.id, &CancellationToken::new())
+                .await
+        })
+    };
+    tokio::time::timeout(std::time::Duration::from_secs(3), stopped.cancelled())
+        .await
+        .unwrap();
+    assert_eq!(
+        service.status_snapshot().await.phase,
+        usque_core::ConnectionPhase::Reconnecting
+    );
+    release.cancel();
+    switching.await.unwrap().unwrap();
+    service.disconnect_confirmed().await.unwrap();
+}
+
+#[tokio::test]
+async fn status_and_retry_remain_available_during_native_replacement() {
+    let (_dir, service, profile, evidence, _) = service().await;
+    evidence.ready.store(true, Ordering::SeqCst);
+    connect(&service, &profile).await;
+    connected(&service).await;
+
+    let entered = CancellationToken::new();
+    let resume = CancellationToken::new();
+    *evidence.pause_replacement.lock().await = Some((entered.clone(), resume.clone()));
+    service.retry_continuously(profile.id).await.unwrap();
+    let first = service.gate_startup_cancel.lock().await.clone();
+    tokio::time::timeout(std::time::Duration::from_secs(3), entered.cancelled())
+        .await
+        .unwrap();
+    let (status, retry) = tokio::time::timeout(std::time::Duration::from_secs(1), async {
+        tokio::join!(
+            service.status_snapshot(),
+            service.retry_continuously(profile.id)
+        )
+    })
+    .await
+    .unwrap();
+    assert_eq!(status.phase, usque_core::ConnectionPhase::Reconnecting);
+    assert_eq!(
+        retry.unwrap().phase,
+        usque_core::ConnectionPhase::Reconnecting
+    );
+    assert!(first.is_cancelled());
+    assert!(evidence.protective.load(Ordering::SeqCst));
+
+    resume.cancel();
+    service.disconnect_confirmed().await.unwrap();
+    assert!(!evidence.protective.load(Ordering::SeqCst));
 }
 
 #[tokio::test]

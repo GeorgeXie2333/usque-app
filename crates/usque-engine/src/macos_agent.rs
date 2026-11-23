@@ -369,12 +369,18 @@ fn retained_guard(status: &p::MacosPlatformStatus, expected: &p::MacosFence) -> 
                 && f.network >= expected.network
         })
 }
-pub async fn confirm_retained_protection(expected: &p::MacosFence) -> io::Result<()> {
-    let client = MacAgentClient::connect().await?;
+async fn observe_released_owner(
+    client: &impl RecoveryClient,
+    expected: &p::MacosFence,
+) -> io::Result<usque_core::KillSwitchState> {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
     loop {
-        if retained_guard(&client.status().await?, expected) {
-            return Ok(());
+        let status = client.recovery_status().await?;
+        if retained_guard(&status, expected) {
+            return Ok(usque_core::KillSwitchState::Active);
+        }
+        if clean(&status) {
+            return Ok(usque_core::KillSwitchState::Inactive);
         }
         if tokio::time::Instant::now() >= deadline {
             return Err(io::Error::other(
@@ -382,6 +388,18 @@ pub async fn confirm_retained_protection(expected: &p::MacosFence) -> io::Result
             ));
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+pub(super) async fn released_owner_protection(
+    expected: &p::MacosFence,
+) -> io::Result<usque_core::KillSwitchState> {
+    observe_released_owner(&MacAgentClient::connect().await?, expected).await
+}
+pub async fn confirm_retained_protection(expected: &p::MacosFence) -> io::Result<()> {
+    if released_owner_protection(expected).await? == usque_core::KillSwitchState::Active {
+        Ok(())
+    } else {
+        Err(io::Error::other("network protection was released"))
     }
 }
 pub async fn disconnect_retained(fence: p::MacosFence) -> io::Result<()> {
@@ -905,6 +923,44 @@ mod tests {
         assert!(retained_guard(&status, &fence));
         status.resumable = false;
         assert!(!retained_guard(&status, &fence));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn failed_replacement_reports_only_confirmed_protection_for_its_session() {
+        use usque_core::KillSwitchState;
+        let old = p::MacosFence {
+            session_id: Uuid::new_v4().to_string(),
+            configuration: 1,
+            network: 1,
+        };
+        let mut fake = FakeRecovery {
+            status: p::MacosPlatformStatus {
+                phase: p::AgentPhase::Clean as i32,
+                ..Default::default()
+            },
+            disconnected: Mutex::new(vec![]),
+        };
+        assert_eq!(
+            observe_released_owner(&fake, &old).await.unwrap(),
+            KillSwitchState::Inactive
+        );
+        fake.status = p::MacosPlatformStatus {
+            fence: Some(p::MacosFence {
+                configuration: 2,
+                ..old.clone()
+            }),
+            phase: p::AgentPhase::RecoveryRequired as i32,
+            protection_retained: true,
+            recovery_pending: true,
+            resumable: true,
+            ..Default::default()
+        };
+        assert_eq!(
+            observe_released_owner(&fake, &old).await.unwrap(),
+            KillSwitchState::Active
+        );
+        fake.status.fence.as_mut().unwrap().session_id = Uuid::new_v4().to_string();
+        assert!(observe_released_owner(&fake, &old).await.is_err());
     }
     #[test]
     fn dialing_engine_projects_its_owned_transaction_as_startup() {
