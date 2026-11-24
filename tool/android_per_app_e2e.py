@@ -505,11 +505,18 @@ class Device:
         raise HarnessError(f"the VPN network did not come up after {retries} retries")
 
     def open_per_app(self) -> None:
+        def is_row(node: Node) -> bool:
+            return node.has(PER_APP) and node.clickable
+
         nodes = self.dump()
         if any(node.has(MODE_LABELS["off"]) and node.clickable for node in nodes):
             return
-        self.tap(self.wait_label(SETTINGS))
-        row = self.scroll_to(lambda node: node.has(PER_APP) and node.clickable)
+        # Saving returns to Settings; the TV navigation rail is not always in
+        # the accessibility tree, so use the row when it is already on screen.
+        row = next((node for node in nodes if is_row(node)), None)
+        if row is None:
+            self.tap(self.wait_label(SETTINGS))
+            row = self.scroll_to(is_row)
         self.tap(row)
         self.wait_label(MODE_LABELS["exclude"])
 
