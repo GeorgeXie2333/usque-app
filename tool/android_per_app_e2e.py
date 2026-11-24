@@ -13,6 +13,7 @@ emulator.
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import json
 import re
 import shlex
@@ -51,14 +52,30 @@ SETUP_ADVANCE = (
 )
 
 IPV4 = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
-IPV6 = re.compile(r"\b(?:[0-9a-fA-F]{1,4}:){2,7}[0-9a-fA-F]{0,4}\b")
+IPV6_CANDIDATE = re.compile(r"(?<![0-9A-Za-z:])[0-9A-Fa-f:]*:[0-9A-Fa-f:]*:[0-9A-Fa-f:]*")
 BOUNDS = re.compile(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]")
 
 
-def redact(text: str) -> str:
-    """Remove IPv4 and IPv6 literals before anything is printed or stored."""
+def _redact_ipv6(match: re.Match[str]) -> str:
+    token = match.group(0)
+    for candidate in (token, token.rstrip(":")):
+        try:
+            ipaddress.IPv6Address(candidate)
+        except ValueError:
+            continue
+        return "[ipv6]" + token[len(candidate) :]
+    # Durations such as 00:00:12 and MAC-style values are not IPv6 addresses.
+    return token
 
-    return IPV6.sub("<ipv6>", IPV4.sub("<ipv4>", text))
+
+def redact(text: str) -> str:
+    """Remove IPv4 and IPv6 literals before anything is printed or stored.
+
+    The placeholders contain no markup characters, so a redacted UI dump stays
+    well-formed XML.
+    """
+
+    return IPV6_CANDIDATE.sub(_redact_ipv6, IPV4.sub("[ipv4]", text))
 
 
 @dataclass(frozen=True)
@@ -114,20 +131,44 @@ def parse_nodes(xml_text: str) -> list[Node]:
     return nodes
 
 
-def parse_uid_ranges(dumpsys: str, owner_uid: int) -> list[tuple[int, int]] | None:
-    """Return the UID ranges of the connected VPN network owned by `owner_uid`."""
+NETWORK_STATE = re.compile(r"ni\{(\S+) (\S+)")
+TRANSPORTS = re.compile(r"Transports: ([A-Z_|]+)")
+OWNER_UID = re.compile(r"OwnerUid: (\d+)")
+UID_RANGES = re.compile(r"Uids: <\{([^}]*)\}>")
+SINGLE_UID = re.compile(r"(?<![A-Za-z])Uid: (\d+)")
 
+
+def _network_agents(dumpsys: str):
     for line in dumpsys.splitlines():
-        if "NetworkAgentInfo" not in line or "Transports: VPN" not in line:
+        if "NetworkAgentInfo{" in line and "Transports:" in line:
+            yield line
+
+
+def _transports(line: str) -> set[str]:
+    match = TRANSPORTS.search(line)
+    return set(match.group(1).split("|")) if match else set()
+
+
+def parse_uid_ranges(dumpsys: str, owner_uid: int) -> list[tuple[int, int]] | None:
+    """Return the UID ranges of the connected VPN network owned by `owner_uid`.
+
+    A VPN network also carries its underlying transports (`WIFI|VPN`), and a
+    single UID is printed as `Uid: N` instead of a range set.
+    """
+
+    for line in _network_agents(dumpsys):
+        if "VPN" not in _transports(line):
             continue
-        if re.search(r"\bCONNECTED\b", line) is None:
+        state = NETWORK_STATE.search(line)
+        if state is None or state.group(2) != "CONNECTED":
             continue
-        owner = re.search(r"OwnerUid: (\d+)", line)
+        owner = OWNER_UID.search(line)
         if owner is None or int(owner.group(1)) != owner_uid:
             continue
-        uids = re.search(r"Uids: <\{([^}]*)\}>", line)
+        uids = UID_RANGES.search(line)
         if uids is None:
-            return []
+            single = SINGLE_UID.search(line)
+            return [(int(single.group(1)), int(single.group(1)))] if single else []
         ranges: list[tuple[int, int]] = []
         for part in uids.group(1).split(","):
             part = part.strip()
@@ -137,6 +178,31 @@ def parse_uid_ranges(dumpsys: str, owner_uid: int) -> list[tuple[int, int]] | No
             ranges.append((int(low), int(high or low)))
         return ranges
     return None
+
+
+def network_summary(dumpsys: str, owner_uid: int) -> list[dict]:
+    """Describe each network without addresses, for failure reports."""
+
+    summary: list[dict] = []
+    for line in _network_agents(dumpsys):
+        state = NETWORK_STATE.search(line)
+        owner = OWNER_UID.search(line)
+        summary.append(
+            {
+                "type": state.group(1) if state else None,
+                "state": state.group(2) if state else None,
+                "transports": sorted(_transports(line)),
+                "owned_by_usque": owner is not None and int(owner.group(1)) == owner_uid,
+                "uid_field": (
+                    "ranges"
+                    if UID_RANGES.search(line)
+                    else "single"
+                    if SINGLE_UID.search(line)
+                    else "absent"
+                ),
+            }
+        )
+    return summary
 
 
 def uid_in(ranges: list[tuple[int, int]], uid: int) -> bool:
@@ -176,6 +242,7 @@ class Device:
     serial: str
     log: list[str] = field(default_factory=list)
     last_dump: str = ""
+    last_networks: list[dict] = field(default_factory=list)
 
     def say(self, message: str) -> None:
         line = redact(message)
@@ -504,7 +571,9 @@ class Device:
     # Observations -------------------------------------------------------
 
     def vpn_ranges(self, owner_uid: int) -> list[tuple[int, int]] | None:
-        return parse_uid_ranges(self.shell("dumpsys connectivity", timeout=60), owner_uid)
+        dumpsys = self.shell("dumpsys connectivity", timeout=60)
+        self.last_networks = network_summary(dumpsys, owner_uid)
+        return parse_uid_ranges(dumpsys, owner_uid)
 
     def route(self, uid: int) -> str:
         output = self.shell(f"ip -4 route get {ROUTE_PROBE} uid {uid}", check=False)
@@ -570,6 +639,8 @@ def observe(
         }
         result["passed"] &= passed
     result["vpn_network_present"] = ranges is not None
+    if not result["passed"]:
+        result["networks"] = device.last_networks
     return result
 
 
@@ -614,6 +685,7 @@ def run(arguments: argparse.Namespace) -> dict:
         report["passed"] = all(phase["passed"] for phase in report["phases"].values())
     except (HarnessError, subprocess.TimeoutExpired) as error:
         report["error"] = redact(str(error))
+        report["networks"] = device.last_networks
         device.say(f"error: {report['error']}")
         if device.last_dump and arguments.ui_dump:
             arguments.ui_dump.write_text(redact(device.last_dump), encoding="utf-8")

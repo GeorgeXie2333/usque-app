@@ -12,6 +12,8 @@ DUMPSYS = (
     "  nc{[ Transports: VPN Capabilities: INTERNET&NOT_RESTRICTED"
     " Uids: <{0-10149, 10151-99999}> OwnerUid: 10160 AdminUids: [10160]]}}\n"
 )
+# Android 12+ merges the underlying transports into the VPN network.
+UNDERLYING = DUMPSYS.replace("Transports: VPN", "Transports: WIFI|VPN")
 
 
 class ParsingTests(unittest.TestCase):
@@ -22,11 +24,40 @@ class ParsingTests(unittest.TestCase):
         self.assertFalse(harness.uid_in(ranges, 10150))
         self.assertIsNone(harness.parse_uid_ranges(DUMPSYS, 10161))
 
+    def test_vpn_with_underlying_transports(self):
+        self.assertEqual(harness.parse_uid_ranges(UNDERLYING, 10160), [(0, 10149), (10151, 99999)])
+
     def test_single_uid_range_and_disconnected_vpn(self):
-        allow = DUMPSYS.replace("0-10149, 10151-99999", "10150-10150")
+        allow = UNDERLYING.replace("0-10149, 10151-99999", "10150-10150")
         self.assertEqual(harness.parse_uid_ranges(allow, 10160), [(10150, 10150)])
-        disconnected = DUMPSYS.replace("VPN CONNECTED", "VPN DISCONNECTED")
+        single = UNDERLYING.replace(" Uids: <{0-10149, 10151-99999}>", " Uid: 10150")
+        self.assertEqual(harness.parse_uid_ranges(single, 10160), [(10150, 10150)])
+        disconnected = UNDERLYING.replace("VPN CONNECTED", "VPN DISCONNECTED")
         self.assertIsNone(harness.parse_uid_ranges(disconnected, 10160))
+
+    def test_network_summary_has_no_addresses(self):
+        text = UNDERLYING.replace("nc{", "lp{LinkAddresses: [ 10.0.0.2/32 ]}  nc{")
+        summary = harness.network_summary(text, 10160)
+        self.assertEqual(
+            summary,
+            [
+                {
+                    "type": "MOBILE",
+                    "state": "CONNECTED",
+                    "transports": ["CELLULAR"],
+                    "owned_by_usque": False,
+                    "uid_field": "absent",
+                },
+                {
+                    "type": "VPN",
+                    "state": "CONNECTED",
+                    "transports": ["VPN", "WIFI"],
+                    "owned_by_usque": True,
+                    "uid_field": "ranges",
+                },
+            ],
+        )
+        self.assertNotIn("10.0.0.2", repr(summary))
 
     def test_route_device_class(self):
         self.assertEqual(
@@ -53,10 +84,22 @@ class ParsingTests(unittest.TestCase):
         )
 
     def test_redaction_removes_addresses(self):
-        text = harness.redact("exit 192.0.2.10 and 2001:db8:1::5 via tun0")
+        text = harness.redact("exit 192.0.2.10 and 2001:db8:1::5 via tun0, fe80::1%wlan0")
         self.assertNotIn("192.0.2.10", text)
         self.assertNotIn("2001:db8", text)
+        self.assertNotIn("fe80", text)
         self.assertIn("tun0", text)
+        self.assertIn("%wlan0", text)
+
+    def test_redaction_keeps_durations_and_xml_well_formed(self):
+        xml_text = (
+            '<hierarchy><node content-desc="Duration&#10;00:00:12" bounds="[0,0][1,1]" />'
+            '<node content-desc="Exit 192.0.2.10 2001:db8::5" bounds="[0,0][1,1]" />'
+            "</hierarchy>"
+        )
+        nodes = harness.parse_nodes(harness.redact(xml_text))
+        self.assertTrue(nodes[0].has("00:00:12"))
+        self.assertTrue(nodes[1].has("Exit [ipv4] [ipv6]"))
 
 
 class UiTests(unittest.TestCase):
