@@ -28,7 +28,9 @@ the app through adb only:
    so each has its own UID. `run-as` acts as each probe, which also works on
    the TV image, a user build without `adb root`.
 3. Connects, then saves Off, Bypass (A), Proxy only selected (A) and Off again
-   through the real per-app page. On TV the mode is chosen with the D-pad.
+   through the real per-app page. On TV the mode is chosen with the D-pad. A
+   connection error from the live endpoint is retried at most three times and
+   the count is reported as `connect_retries`.
 4. For each phase, checks the VPN network's UID set, the kernel route for each
    probe UID and Cloudflare's trace fetched as that probe: `warp=on` inside the
    VPN and `warp=off` outside it. A disconnected baseline must read `warp=off`.

@@ -129,6 +129,22 @@ class UiTests(unittest.TestCase):
         self.assertIs(harness.Device.find(nodes, "Bypass selected apps"), segment)
         self.assertIsNone(harness.Device.find(nodes, "Missing"))
 
+    def test_search_field_while_browsed_on_tv_and_while_edited(self):
+        xml_text = (
+            "<hierarchy>"
+            '<node class="android.view.View" hint="Search apps" clickable="true"'
+            ' bounds="[238,812][1840,912]" />'
+            '<node class="android.widget.EditText" text="com.example.a" hint="Search apps"'
+            ' bounds="[238,812][1840,912]" />'
+            '<node class="android.view.View" content-desc="Probe&#10;com.example.a"'
+            ' clickable="true" bounds="[238,1100][1840,1200]" />'
+            "</hierarchy>"
+        )
+        browsed, edited, row = harness.parse_nodes(xml_text)
+        self.assertTrue(harness.is_search_field(browsed))
+        self.assertTrue(harness.is_search_field(edited))
+        self.assertFalse(harness.is_search_field(row))
+
     def test_swipes_stay_inside_the_largest_scrollable_area(self):
         xml_text = (
             "<hierarchy>"

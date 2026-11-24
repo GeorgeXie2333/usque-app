@@ -44,6 +44,8 @@ MODE_LABELS = {
     "exclude": "Bypass selected apps",
 }
 SAVE = "Save"
+SEARCH = "Search apps"
+RETRY = "Retry"
 TERMS_ACCEPT = "I understand and accept these conditions."
 SETUP_ADVANCE = (
     "Continue with saved account",
@@ -212,6 +214,12 @@ def network_summary(dumpsys: str, owner_uid: int) -> list[dict]:
 
 def uid_in(ranges: list[tuple[int, int]], uid: int) -> bool:
     return any(low <= uid <= high for low, high in ranges)
+
+
+def is_search_field(node: Node) -> bool:
+    """The app search field: an EditText, or a TV field still being browsed."""
+
+    return node.class_name.endswith("EditText") or node.has(SEARCH)
 
 
 def scroll_area(nodes: list[Node]) -> tuple[int, int, int, int] | None:
@@ -447,20 +455,31 @@ class Device:
                 time.sleep(3)
         raise HarnessError("first-run setup did not reach Home")
 
-    def connect(self, owner_uid: int, timeout: float = 240) -> None:
+    def connect(self, owner_uid: int, timeout: float = 300, max_retries: int = 3) -> int:
+        """Connect and return how many times a connection error was retried."""
+
         self.tap(self.wait_label(CONNECT, timeout=60))
+        retries = 0
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             if self.vpn_ranges(owner_uid) is not None:
-                self.say("connect: VPN network is up")
-                return
+                self.say(f"connect: VPN network is up after {retries} retries")
+                return retries
+            nodes = self.dump()
+            retry = self.find(nodes, RETRY)
+            if retry is not None and retries < max_retries:
+                # The live WARP endpoint can fail transiently from hosted runners;
+                # retries are reported, never hidden.
+                retries += 1
+                self.say(f"connect: connection error, retry {retries}")
+                self.tap(retry)
             # Accept a VPN consent dialog if the appop did not suppress it.
             for label in ("OK", "Allow"):
-                node = self.find(self.dump(), label)
+                node = self.find(nodes, label)
                 if node is not None:
                     self.tap(node)
-            time.sleep(4)
-        raise HarnessError("the VPN network did not come up")
+            time.sleep(5)
+        raise HarnessError(f"the VPN network did not come up after {retries} retries")
 
     def open_per_app(self) -> None:
         nodes = self.dump()
@@ -518,27 +537,27 @@ class Device:
         raise HarnessError("D-pad focus never reached the mode selector")
 
     def set_search(self, value: str) -> None:
-        field_node = self.scroll_to(lambda node: node.class_name.endswith("EditText"))
-        self.tap(field_node)
-        self.key("KEYCODE_MOVE_END")
-        self.shell("input keyevent " + " ".join(["KEYCODE_DEL"] * 80))
-        if value:
-            self.shell(f"input text {shlex.quote(value)}")
-            time.sleep(1.5)
-            current = self.scroll_to(lambda node: node.class_name.endswith("EditText"))
-            if value not in current.labels:
-                # TV inputs start browsing; activation enables editing.
-                self.key("KEYCODE_DPAD_CENTER")
+        def clear_and_type() -> None:
+            self.key("KEYCODE_MOVE_END")
+            self.shell("input keyevent " + " ".join(["KEYCODE_DEL"] * 80))
+            if value:
                 self.shell(f"input text {shlex.quote(value)}")
-                time.sleep(1.5)
+            time.sleep(1.5)
+
+        # Tapping also starts editing a TV field, which is browsed until then.
+        self.tap(self.scroll_to(is_search_field))
+        clear_and_type()
+        current = self.scroll_to(is_search_field)
+        # Package names contain dots; the empty field shows only its hint.
+        typed = value in current.labels if value else not current.mentions(".")
+        if typed:
+            return
+        self.key("KEYCODE_DPAD_CENTER")
+        clear_and_type()
 
     def set_app(self, package: str, wanted: bool) -> None:
         def is_row(node: Node) -> bool:
-            return (
-                node.mentions(package)
-                and node.clickable
-                and not node.class_name.endswith("EditText")
-            )
+            return node.mentions(package) and node.clickable and not is_search_field(node)
 
         self.set_search(package)
         row = self.scroll_to(is_row)
@@ -684,7 +703,7 @@ def run(arguments: argparse.Namespace) -> dict:
 
         device.launch()
         device.complete_setup()
-        device.connect(owner_uid)
+        report["connect_retries"] = device.connect(owner_uid)
         dpad = arguments.device == "tv"
         phases = (
             ("off", None, [], [], {first: True, second: True}),
