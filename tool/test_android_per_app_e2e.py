@@ -129,6 +129,17 @@ class UiTests(unittest.TestCase):
         self.assertIs(harness.Device.find(nodes, "Bypass selected apps"), segment)
         self.assertIsNone(harness.Device.find(nodes, "Missing"))
 
+    def test_swipes_stay_inside_the_largest_scrollable_area(self):
+        xml_text = (
+            "<hierarchy>"
+            '<node class="android.widget.ScrollView" scrollable="true" bounds="[0,128][1080,1517]" />'
+            '<node class="android.widget.ScrollView" scrollable="true" bounds="[0,0][100,100]" />'
+            '<node class="android.view.View" bounds="[0,0][1080,2400]" />'
+            "</hierarchy>"
+        )
+        self.assertEqual(harness.scroll_area(harness.parse_nodes(xml_text)), (0, 128, 1080, 1517))
+        self.assertIsNone(harness.scroll_area(harness.parse_nodes(self.XML)))
+
 
 if __name__ == "__main__":
     unittest.main()

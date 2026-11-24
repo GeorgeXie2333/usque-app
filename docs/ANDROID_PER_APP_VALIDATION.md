@@ -23,11 +23,14 @@ the app through adb only:
 
 1. Grants VPN consent with the `ACTIVATE_VPN` appop, completes first-run setup
    through the interface and registers one live WARP Free test device.
-2. Picks two installed apps with INTERNET and their own UID as probes A and B.
+2. Installs two code-free debuggable probe apps that only request INTERNET
+   ([`tool/build_android_e2e_probes.sh`](../tool/build_android_e2e_probes.sh)),
+   so each has its own UID. `run-as` acts as each probe, which also works on
+   the TV image, a user build without `adb root`.
 3. Connects, then saves Off, Bypass (A), Proxy only selected (A) and Off again
    through the real per-app page. On TV the mode is chosen with the D-pad.
 4. For each phase, checks the VPN network's UID set, the kernel route for each
-   probe UID and Cloudflare's trace fetched as that UID: `warp=on` inside the
+   probe UID and Cloudflare's trace fetched as that probe: `warp=on` inside the
    VPN and `warp=off` outside it. A disconnected baseline must read `warp=off`.
    Reopening the page must restore the saved mode.
 

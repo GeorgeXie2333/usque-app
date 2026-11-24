@@ -73,11 +73,19 @@ jobs:
           test -s build/app/outputs/flutter-apk/app-debug.apk
           unzip -l build/app/outputs/flutter-apk/app-debug.apk | grep -F "lib/x86_64/"
 
-      - name: Keep the APK for the emulator jobs
+      - name: Build the two code-free probe apps
+        run: |
+          set -euo pipefail
+          android_sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          bash tool/build_android_e2e_probes.sh "$android_sdk" "$RUNNER_TEMP/e2e-apks"
+          cp apps/usque_gui/build/app/outputs/flutter-apk/app-debug.apk "$RUNNER_TEMP/e2e-apks/"
+          ls -l "$RUNNER_TEMP/e2e-apks"
+
+      - name: Keep the APKs for the emulator jobs
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: android-e2e-apk-${{ github.run_attempt }}
-          path: apps/usque_gui/build/app/outputs/flutter-apk/app-debug.apk
+          path: ${{ runner.temp }}/e2e-apks/
           if-no-files-found: error
           retention-days: 1
 
@@ -102,7 +110,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Download the debug APK
+      - name: Download the debug and probe APKs
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: android-e2e-apk-${{ github.run_attempt }}
@@ -184,6 +192,8 @@ jobs:
           mkdir -p "$RUNNER_TEMP/android-e2e"
           python3 tool/android_per_app_e2e.py \
             --apk "$RUNNER_TEMP/apk/app-debug.apk" \
+            --probe-apk "$RUNNER_TEMP/apk/probe-a.apk" \
+            --probe-apk "$RUNNER_TEMP/apk/probe-b.apk" \
             --device "$DEVICE" \
             --adb "$android_sdk/platform-tools/adb" \
             --report "$RUNNER_TEMP/android-e2e/report.json" \

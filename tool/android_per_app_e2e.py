@@ -3,9 +3,10 @@
 
 Drives the debug app through adb only: first-run setup with one live WARP Free
 registration, then the Off, Bypass and Proxy-only per-app modes through the
-real settings page. Each phase checks the VPN network's UID set, the kernel
-route chosen for each probe UID and Cloudflare's trace (`warp=on` or `off`)
-fetched as that UID. Reports carry booleans, interface classes and package
+real settings page. Two code-free debuggable probe apps provide the UIDs;
+`run-as` fetches Cloudflare's trace (`warp=on` or `off`) as each of them, so
+user builds without `adb root` (Android TV images) work too. Each phase also
+checks the VPN network's UID set and the kernel route chosen for each probe. Reports carry booleans, interface classes and package
 names only; addresses, trace bodies and UI text with addresses never leave the
 emulator.
 """
@@ -26,9 +27,12 @@ from pathlib import Path
 
 PACKAGE = "io.github.georgexie2333.usque"
 ACTIVITY = f"{PACKAGE}/.MainActivity"
+PROBE_PACKAGES = (
+    "io.github.georgexie2333.usque.e2e.probea",
+    "io.github.georgexie2333.usque.e2e.probeb",
+)
 TRACE_HOST = "www.cloudflare.com"
 ROUTE_PROBE = "1.1.1.1"
-INET_GID = 3003
 
 # English labels of the current interface (the emulator runs in en-US).
 CONNECT = "Connect"
@@ -39,7 +43,6 @@ MODE_LABELS = {
     "include": "Proxy only selected apps",
     "exclude": "Bypass selected apps",
 }
-SHOW_SYSTEM = "Show system apps"
 SAVE = "Save"
 TERMS_ACCEPT = "I understand and accept these conditions."
 SETUP_ADVANCE = (
@@ -88,6 +91,7 @@ class Node:
     selected: bool
     focused: bool
     class_name: str
+    scrollable: bool = False
 
     @property
     def center(self) -> tuple[int, int]:
@@ -126,6 +130,7 @@ def parse_nodes(xml_text: str) -> list[Node]:
                 selected=element.get("selected") == "true",
                 focused=element.get("focused") == "true",
                 class_name=element.get("class", ""),
+                scrollable=element.get("scrollable") == "true",
             )
         )
     return nodes
@@ -209,6 +214,19 @@ def uid_in(ranges: list[tuple[int, int]], uid: int) -> bool:
     return any(low <= uid <= high for low, high in ranges)
 
 
+def scroll_area(nodes: list[Node]) -> tuple[int, int, int, int] | None:
+    """Bounds of the largest scrollable node in a dump."""
+
+    scrollable = [node for node in nodes if node.scrollable]
+    if not scrollable:
+        return None
+    largest = max(
+        scrollable,
+        key=lambda node: (node.bounds[2] - node.bounds[0]) * (node.bounds[3] - node.bounds[1]),
+    )
+    return largest.bounds
+
+
 def parse_route_device(output: str) -> str:
     """Classify `ip route get` output as `tun`, `other` or `unknown`."""
 
@@ -278,13 +296,6 @@ class Device:
             time.sleep(3)
         raise HarnessError("emulator did not finish booting")
 
-    def become_root(self) -> None:
-        self.run("root", check=False)
-        time.sleep(3)
-        self.wait_boot()
-        if self.shell("id -u").strip() != "0":
-            raise HarnessError("adb root is unavailable; probe UIDs cannot be exercised")
-
     def prepare(self) -> None:
         for name in (
             "window_animation_scale",
@@ -296,6 +307,9 @@ class Device:
         self.shell("svc power stayon true", check=False)
         self.shell("input keyevent KEYCODE_WAKEUP", check=False)
         self.shell("wm dismiss-keyguard", check=False)
+        # The AVD has a hardware keyboard; a soft keyboard would cover the page
+        # and swallow swipes.
+        self.shell("settings put secure show_ime_with_hard_keyboard 0", check=False)
 
     def install(self, apk: Path) -> None:
         self.run("install", "-r", "-g", str(apk), timeout=300)
@@ -308,28 +322,21 @@ class Device:
                 return uid
         raise HarnessError(f"{package} is not installed")
 
-    def probe_packages(self) -> list[tuple[str, int]]:
-        """Pick two non-Usque apps with INTERNET and a UID of their own."""
+    def install_probes(self, apks: list[Path]) -> list[tuple[str, int]]:
+        """Install the code-free debuggable probe apps and check `run-as`."""
 
-        by_uid: dict[int, list[str]] = {}
-        for name, uid in parse_packages(self.shell("pm list packages -U")):
-            if uid >= 10000 and name != PACKAGE:
-                by_uid.setdefault(uid, []).append(name)
-        chosen: list[tuple[str, int]] = []
-        for uid, names in sorted(by_uid.items(), key=lambda item: sorted(item[1])[0]):
-            if len(names) != 1:
-                continue
-            permissions = self.shell(f"dumpsys package {shlex.quote(names[0])}", timeout=30)
-            if "android.permission.INTERNET: granted=true" not in permissions:
-                continue
-            chosen.append((names[0], uid))
-            if len(chosen) == 2:
-                for name, _ in chosen:
-                    # Background restrictions must not masquerade as routing results.
-                    self.shell(f"am set-standby-bucket {shlex.quote(name)} active", check=False)
-                    self.shell(f"cmd deviceidle whitelist +{shlex.quote(name)}", check=False)
-                return chosen
-        raise HarnessError("the image does not provide two probe apps with INTERNET")
+        probes: list[tuple[str, int]] = []
+        for apk in apks:
+            self.run("install", "-r", str(apk), timeout=180)
+        for package in PROBE_PACKAGES:
+            uid = self.package_uid(package)
+            if self.shell(f"run-as {package} id -u", check=False).strip() != str(uid):
+                raise HarnessError(f"run-as cannot act as {package}")
+            # Background restrictions must not masquerade as routing results.
+            self.shell(f"am set-standby-bucket {package} active", check=False)
+            self.shell(f"cmd deviceidle whitelist +{package}", check=False)
+            probes.append((package, uid))
+        return probes
 
     # UI -----------------------------------------------------------------
 
@@ -372,12 +379,19 @@ class Device:
             raise HarnessError("screen size is unavailable")
         return int(match.group(1)), int(match.group(2))
 
-    def swipe(self, upward: bool) -> None:
-        width, height = self.screen_size()
-        start, end = (int(height * 0.75), int(height * 0.3))
+    def swipe(self, nodes: list[Node], upward: bool) -> None:
+        """Swipe inside the largest scrollable area, or the screen if none."""
+
+        area = scroll_area(nodes)
+        if area is None:
+            width, height = self.screen_size()
+            area = (0, 0, width, height)
+        left, top, right, bottom = area
+        start, end = top + (bottom - top) * 4 // 5, top + (bottom - top) // 5
         if not upward:
             start, end = end, start
-        self.shell(f"input swipe {width // 2} {start} {width // 2} {end} 350")
+        x = (left + right) // 2
+        self.shell(f"input swipe {x} {start} {x} {end} 350")
         time.sleep(1.0)
 
     def wait_label(self, label: str, timeout: float = 60, clickable: bool = True) -> Node:
@@ -389,13 +403,15 @@ class Device:
             time.sleep(1.5)
         raise HarnessError(f"'{label}' did not appear")
 
-    def scroll_to(self, predicate, attempts: int = 8) -> Node:
-        for direction in (True, False):
+    def scroll_to(self, predicate, attempts: int = 8, towards_top: bool = False) -> Node:
+        directions = (False, True) if towards_top else (True, False)
+        for upward in directions:
             for _ in range(attempts):
-                for node in self.dump():
+                nodes = self.dump()
+                for node in nodes:
                     if predicate(node):
                         return node
-                self.swipe(upward=direction)
+                self.swipe(nodes, upward=upward)
         raise HarnessError("the requested row is not on this page")
 
     # Flows --------------------------------------------------------------
@@ -550,15 +566,14 @@ class Device:
             if self.current_mode() != mode:
                 raise HarnessError(f"mode {mode} was not selected")
         if mode != "off":
-            toggle = self.scroll_to(lambda node: node.has(SHOW_SYSTEM) and node.clickable)
-            if not toggle.checked:
-                self.tap(toggle)
             for package in selected:
                 self.set_app(package, True)
             for package in unselected:
                 self.set_app(package, False)
             self.set_search("")
-        save = self.scroll_to(lambda node: node.has(SAVE) and node.clickable and node.enabled)
+        save = self.scroll_to(
+            lambda node: node.has(SAVE) and node.clickable and node.enabled, towards_top=True
+        )
         self.tap(save)
         deadline = time.monotonic() + 30
         while time.monotonic() < deadline:
@@ -579,14 +594,16 @@ class Device:
         output = self.shell(f"ip -4 route get {ROUTE_PROBE} uid {uid}", check=False)
         return parse_route_device(output)
 
-    def warp(self, uid: int) -> str | None:
+    def warp(self, package: str) -> str | None:
+        """Fetch Cloudflare's trace as `package` and return its `warp` field."""
+
         request = (
             f"GET /cdn-cgi/trace HTTP/1.1\\r\\nHost: {TRACE_HOST}\\r\\n"
             "User-Agent: usque-android-e2e\\r\\nConnection: close\\r\\n\\r\\n"
         )
         # Keep stdin open so nc reads the reply before the server closes.
         script = f"(printf '{request}'; sleep 6) | nc -w 15 {TRACE_HOST} 80"
-        command = f"su {uid},{uid},{INET_GID} sh -c {shlex.quote(script)}"
+        command = f"run-as {package} sh -c {shlex.quote(script)}"
         for _ in range(3):
             value = parse_warp(self.shell(command, timeout=45, check=False))
             if value is not None:
@@ -619,7 +636,7 @@ def observe(
         route = device.route(uid)
         warp = None
         for _ in range(5):
-            warp = device.warp(uid)
+            warp = device.warp(name)
             if warp is not None and (warp != "off") == expected_vpn[name]:
                 break
             time.sleep(6)
@@ -649,18 +666,17 @@ def run(arguments: argparse.Namespace) -> dict:
     report: dict = {"device": arguments.device, "phases": {}, "passed": False}
     try:
         device.wait_boot()
-        device.become_root()
         device.prepare()
         report["sdk"] = device.shell("getprop ro.build.version.sdk").strip()
         report["characteristics"] = device.shell("getprop ro.build.characteristics").strip()
         device.install(arguments.apk)
         owner_uid = device.package_uid(PACKAGE)
-        probes = device.probe_packages()
-        (first, first_uid), (second, second_uid) = probes
+        probes = device.install_probes(arguments.probe_apk)
+        (first, _), (second, _) = probes
         report["probes"] = [first, second]
         device.say(f"probes: {first} (A), {second} (B)")
 
-        baseline = device.warp(first_uid)
+        baseline = device.warp(first)
         report["phases"]["disconnected"] = {
             "passed": baseline == "off",
             "trace_warp": baseline,
@@ -696,6 +712,13 @@ def run(arguments: argparse.Namespace) -> dict:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--apk", type=Path, required=True)
+    parser.add_argument(
+        "--probe-apk",
+        type=Path,
+        action="append",
+        required=True,
+        help="code-free debuggable probe app; pass once per probe",
+    )
     parser.add_argument("--device", choices=("phone", "tv"), required=True)
     parser.add_argument("--report", type=Path, required=True)
     parser.add_argument("--ui-dump", type=Path)
