@@ -144,9 +144,12 @@ jobs:
         run: |
           set -euo pipefail
           android_sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          export ANDROID_AVD_HOME="$RUNNER_TEMP/avd"
+          mkdir -p "$ANDROID_AVD_HOME"
           echo no | "$android_sdk/cmdline-tools/latest/bin/avdmanager" create avd \
             --name usque-e2e --package "$IMAGE" --device "$PROFILE" --force
-          config="$HOME/.android/avd/usque-e2e.avd/config.ini"
+          config="$ANDROID_AVD_HOME/usque-e2e.avd/config.ini"
+          test -f "$config"
           {
             echo "hw.keyboard=yes"
             echo "hw.ramSize=3072"
@@ -170,6 +173,13 @@ jobs:
             --adb "$android_sdk/platform-tools/adb" \
             --report "$RUNNER_TEMP/android-e2e/report.json" \
             --ui-dump "$RUNNER_TEMP/android-e2e/last-screen.xml"
+
+      - name: Show the redacted emulator log tail
+        if: ${{ failure() }}
+        run: |
+          test -f "$RUNNER_TEMP/emulator.log" || exit 0
+          tail -n 60 "$RUNNER_TEMP/emulator.log" \
+            | sed -E 's/([0-9]{1,3}\.){3}[0-9]{1,3}/<ipv4>/g; s/([0-9a-fA-F]{1,4}:){2,7}[0-9a-fA-F]{0,4}/<ipv6>/g'
 
       - name: Preserve the sanitized report
         if: ${{ always() }}
