@@ -163,12 +163,17 @@ jobs:
             echo "hw.ramSize=3072"
             echo "disk.dataPartition.size=6G"
           } >> "$config"
+          adb="$android_sdk/platform-tools/adb"
+          # The emulator hands this public key to the guest at boot. User builds
+          # such as the TV image reject adb as unauthorized without it.
+          mkdir -p "$HOME/.android"
+          test -s "$HOME/.android/adbkey" || "$adb" keygen "$HOME/.android/adbkey"
+          test -s "$HOME/.android/adbkey.pub"
+          "$adb" start-server
           nohup "$android_sdk/emulator/emulator" -avd usque-e2e -no-window -no-audio \
             -no-boot-anim -no-snapshot -no-metrics -gpu swiftshader_indirect -accel on \
             -camera-back none -camera-front none > "$RUNNER_TEMP/emulator.log" 2>&1 &
           emulator_pid=$!
-          adb="$android_sdk/platform-tools/adb"
-          "$adb" start-server
           # Bounded wait: a crashed or wedged emulator must fail this step quickly.
           for _ in $(seq 1 120); do
             if ! kill -0 "$emulator_pid" 2> /dev/null; then
@@ -180,6 +185,7 @@ jobs:
             fi
             sleep 5
           done
+          "$adb" devices | sed -E 's/^emulator-[0-9]+/emulator/'
           echo "::error::adb did not see the emulator within 10 minutes"
           exit 1
 
