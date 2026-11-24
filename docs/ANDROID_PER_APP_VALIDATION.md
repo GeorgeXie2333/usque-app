@@ -49,7 +49,43 @@ the `usque-android-device` environment runs them.
 
 ## Results / 结果
 
-No emulator run is recorded yet. Record each run with its commit, run link and
-per-device result; keep failed and `not_run` results.
+### 2026-11-25: emulator acceptance passed / 模拟器验收通过
 
-尚无模拟器运行记录。每次运行需记录提交、运行链接和各设备结果，失败与 `not_run` 结果同样保留。
+Run [45510590638](https://github.com/GeorgeXie2333/usque-app/actions/runs/45510590638)
+at `34195c99` (feature `33b6123e` plus harness commits), debug x86_64 APK,
+live WARP Free registration, no connection retries on either device.
+
+| Phase | Phone (API 34, `google_apis`) | TV (API 36, `android-tv`, D-pad) |
+|---|---|---|
+| Disconnected baseline | A `warp=off` | A `warp=off` |
+| 0 Off | A, B in VPN, `tun`, `warp=on` | A, B in VPN, `tun`, `warp=on` |
+| 1 Bypass A | A outside, `other`, `warp=off`; B in VPN, `warp=on` | same as phone |
+| 2 Proxy only A | A in VPN, `warp=on`; B outside, `other`, `warp=off` | same as phone |
+| 3 Off | A, B in VPN, `tun`, `warp=on` | A, B in VPN, `tun`, `warp=on` |
+
+Each reopened page restored the saved mode. Result: **passed** on both
+emulators. Always-on VPN, Block connections without VPN, reboot, Doze,
+upgrades and physical TV remotes remain `not_run`.
+
+### Earlier runs / 之前的运行
+
+The feature code was the same in every run; each failure was in the
+emulator setup or the harness and was fixed before the next run.
+
+| Run | Commit | Phone | TV | Cause |
+|---|---|---|---|---|
+| 45480651404 | `b8bbf90f` | failed | failed | AVD written outside the expected directory |
+| 45482738746 | `2e719d23` | failed | cancelled | VPN listed as `WIFI\|VPN` not recognised; TV adb unauthorized |
+| 45494098550 | `747e6cb1` | failed after 0 | failed | Soft keyboard blocked swipes; TV image has no `adb root` |
+| 45497204219 | `70dfc806` | failed | failed after 0 | Live endpoint connection error (no retry yet); TV search field not recognised |
+| 45499778778 | `90dc33a0` | passed | failed | adb key created after emulator boot |
+| 45503641934 | `7cb4820c` | passed | failed after 0 | Swipes did not scroll the TV page |
+| 45505953126 | `85e8e5fe` | passed | failed after 0 | Same; TV path moved to the D-pad |
+| 45508438414 | `20a048bc` | passed | failed after 1 | TV navigation rail missing from the accessibility tree |
+
+Run 45510493222 was cancelled: it was dispatched at a stale head after a
+failed push.
+
+2026-11-25 的运行 45510590638 中，手机与 TV 模拟器的全部阶段均通过；之前的失败均来自模拟器
+环境或驱动脚本，已逐一修复。始终开启的 VPN、屏蔽未使用 VPN 的连接、重启、Doze、升级和实体
+TV 遥控器仍为 `not_run`。
