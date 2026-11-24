@@ -1,0 +1,187 @@
+name: Android per-app acceptance
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  CMAKE_GENERATOR: Ninja
+  FLUTTER_COMMIT: 84fc5cbb223bc12f83d65b647ff8a56caf779ffd
+  FLUTTER_VERSION: 3.44.7
+
+jobs:
+  apk:
+    name: Android x86_64 debug APK for emulators
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Checkout untrusted source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Java
+        uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install Flutter from pinned commit
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/flutter"
+          git -C "$RUNNER_TEMP/flutter" init
+          git -C "$RUNNER_TEMP/flutter" remote add origin https://github.com/flutter/flutter.git
+          git -C "$RUNNER_TEMP/flutter" fetch --depth 1 origin \
+            "refs/tags/$FLUTTER_VERSION:refs/tags/$FLUTTER_VERSION"
+          git -C "$RUNNER_TEMP/flutter" checkout --detach "refs/tags/$FLUTTER_VERSION"
+          test "$(git -C "$RUNNER_TEMP/flutter" rev-parse HEAD)" = "$FLUTTER_COMMIT"
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+
+      - name: Install pinned Rust and Android toolchains
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.97.1 --profile minimal
+          rustup default 1.97.1
+          rustup target add x86_64-linux-android
+          android_sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          test -n "$android_sdk"
+          sdkmanager="$android_sdk/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$sdkmanager"
+          "$sdkmanager" \
+            "platforms;android-36" \
+            "build-tools;36.0.0" \
+            "ndk;29.0.14206865" \
+            "cmake;3.22.1"
+
+      - name: Resolve locked Flutter packages
+        working-directory: apps/usque_gui
+        run: flutter --suppress-analytics pub get --enforce-lockfile
+
+      - name: Build the debug APK with x86_64 JNI
+        working-directory: apps/usque_gui
+        env:
+          USQUE_ANDROID_ABI: x86_64
+        run: |
+          set -euo pipefail
+          flutter --suppress-analytics build apk --debug --no-pub \
+            --target-platform android-x64
+          test -s build/app/outputs/flutter-apk/app-debug.apk
+          unzip -l build/app/outputs/flutter-apk/app-debug.apk | grep -F "lib/x86_64/"
+
+      - name: Keep the APK for the emulator jobs
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: android-e2e-apk-${{ github.run_attempt }}
+          path: apps/usque_gui/build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
+          retention-days: 1
+
+  emulator:
+    name: Android per-app acceptance (${{ matrix.device }})
+    needs: apk
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - device: phone
+            image: system-images;android-34;google_apis;x86_64
+            profile: pixel_6
+          - device: tv
+            image: system-images;android-36;android-tv;x86_64
+            profile: tv_1080p
+    steps:
+      - name: Checkout untrusted source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download the debug APK
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: android-e2e-apk-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/apk
+
+      - name: Record the disposable runner baseline
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: |
+          set -euo pipefail
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          uname -m
+          df -h "$RUNNER_TEMP"
+          test -e /dev/kvm
+
+      - name: Allow the emulator to use KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Install the emulator and system image
+        env:
+          IMAGE: ${{ matrix.image }}
+        run: |
+          set -euo pipefail
+          android_sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          test -n "$android_sdk"
+          sdkmanager="$android_sdk/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$sdkmanager" --licenses > /dev/null || true
+          "$sdkmanager" "emulator" "platform-tools" "$IMAGE" > /dev/null
+          "$sdkmanager" --list_installed | grep -E "emulator|platform-tools|system-images"
+
+      - name: Create and boot a disposable emulator
+        env:
+          IMAGE: ${{ matrix.image }}
+          PROFILE: ${{ matrix.profile }}
+        run: |
+          set -euo pipefail
+          android_sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          echo no | "$android_sdk/cmdline-tools/latest/bin/avdmanager" create avd \
+            --name usque-e2e --package "$IMAGE" --device "$PROFILE" --force
+          config="$HOME/.android/avd/usque-e2e.avd/config.ini"
+          {
+            echo "hw.keyboard=yes"
+            echo "hw.ramSize=3072"
+            echo "disk.dataPartition.size=6G"
+          } >> "$config"
+          nohup "$android_sdk/emulator/emulator" -avd usque-e2e -no-window -no-audio \
+            -no-boot-anim -no-snapshot -no-metrics -gpu swiftshader_indirect -accel on \
+            -camera-back none -camera-front none > "$RUNNER_TEMP/emulator.log" 2>&1 &
+          "$android_sdk/platform-tools/adb" wait-for-device
+
+      - name: Exercise Off, Bypass and Proxy-only per-app modes
+        env:
+          DEVICE: ${{ matrix.device }}
+        run: |
+          set -euo pipefail
+          android_sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          mkdir -p "$RUNNER_TEMP/android-e2e"
+          python3 tool/android_per_app_e2e.py \
+            --apk "$RUNNER_TEMP/apk/app-debug.apk" \
+            --device "$DEVICE" \
+            --adb "$android_sdk/platform-tools/adb" \
+            --report "$RUNNER_TEMP/android-e2e/report.json" \
+            --ui-dump "$RUNNER_TEMP/android-e2e/last-screen.xml"
+
+      - name: Preserve the sanitized report
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: android-e2e-${{ matrix.device }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/android-e2e/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Stop the emulator
+        if: ${{ always() }}
+        run: |
+          android_sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          "$android_sdk/platform-tools/adb" emu kill || true

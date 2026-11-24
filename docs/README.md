@@ -145,6 +145,7 @@ Common terms in these references:
 | [VPN Gate validation](VPN_GATE_VALIDATION.md) | Local implementation and follow-up checks / 本地实现与后续修复检查 |
 | [Chain proxy validation](CHAIN_PROXY_VALIDATION.md) | Native builds, protocol/UI tests and size comparisons / 原生编译、协议与界面测试、体积对照 |
 | [Chain proxy fixes](CHAIN_PROXY_FIX_VALIDATION.md) | Import, DNS, queues, authentication, multiple endpoints and candidate-specific regressions / 导入、DNS、队列、认证、多端点修复与回归 |
+| [Android per-app routing validation](ANDROID_PER_APP_VALIDATION.md) | Off/Bypass/Proxy-only modes, hosted emulator acceptance and unavailable device checks / 分应用三种模式、托管模拟器验收与未运行的实机检查 |
 | [Custom bypass validation](BYPASS_SETTINGS_VALIDATION.md) | Custom target routing, configuration compatibility, editor checks and unavailable isolated validation / 自定义目标分流、兼容性、编辑器检查及未执行的隔离验证 |
 | [Windows setup validation](WINDOWS_SETUP_VALIDATION.md) | Native setup/uninstall implementation, local checks and unavailable isolated validation / 原生安装与卸载、已执行检查与未运行的隔离验证 |
 | [Continuous connection validation](CONTINUOUS_CONNECTION_VALIDATION.md) | Recovery workstation checks, deterministic evidence and unavailable isolated validation / 持续连接的开发机检查、确定性恢复证据与未运行的隔离验证 |
