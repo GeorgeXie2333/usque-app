@@ -45,6 +45,7 @@ MODE_LABELS = {
 }
 SAVE = "Save"
 SEARCH = "Search apps"
+BACK = "Back"
 RETRY = "Retry"
 TERMS_ACCEPT = "I understand and accept these conditions."
 SETUP_ADVANCE = (
@@ -577,17 +578,52 @@ class Device:
         self.key("KEYCODE_DPAD_CENTER")
         clear_and_type()
 
-    def set_app(self, package: str, wanted: bool) -> None:
+    def leave_text_field(self) -> None:
+        """Finish editing a TV text field so the D-pad moves focus again."""
+
+        for key in ("KEYCODE_ENTER", "KEYCODE_ESCAPE"):
+            editing = any(
+                node.focused and node.class_name.endswith("EditText") for node in self.dump()
+            )
+            if not editing:
+                return
+            self.key(key)
+        if any(node.focused and node.class_name.endswith("EditText") for node in self.dump()):
+            raise HarnessError("the TV search field stayed in editing mode")
+
+    def focus_onto(self, predicate, key: str, presses: int = 30) -> Node:
+        """Press `key` until a focused node satisfies `predicate`."""
+
+        for _ in range(presses):
+            nodes = self.dump()
+            focused = next((node for node in nodes if node.focused and predicate(node)), None)
+            if focused is not None:
+                return focused
+            # Back sits left of Save in the page header; step right onto Save.
+            on_back = any(node.focused and node.has(BACK) for node in nodes)
+            self.key("KEYCODE_DPAD_RIGHT" if on_back and key == "KEYCODE_DPAD_UP" else key)
+        raise HarnessError("D-pad focus did not reach the requested control")
+
+    def set_app(self, package: str, wanted: bool, dpad: bool) -> None:
         def is_row(node: Node) -> bool:
             return node.mentions(package) and node.clickable and not is_search_field(node)
 
         self.set_search(package)
-        row = self.scroll_to(is_row)
-        if row.checked != wanted:
-            self.tap(row)
+        if dpad:
+            # Real TV path: leave the field, move focus down onto the filtered
+            # row (the page scrolls it into view) and toggle it with Center.
+            self.leave_text_field()
+            row = self.focus_onto(is_row, "KEYCODE_DPAD_DOWN")
+            if row.checked != wanted:
+                self.key("KEYCODE_DPAD_CENTER")
+                row = self.focus_onto(is_row, "KEYCODE_DPAD_DOWN", presses=1)
+        else:
             row = self.scroll_to(is_row)
             if row.checked != wanted:
-                raise HarnessError(f"could not change the selection of {package}")
+                self.tap(row)
+                row = self.scroll_to(is_row)
+        if row.checked != wanted:
+            raise HarnessError(f"could not change the selection of {package}")
 
     def apply_mode(
         self,
@@ -608,14 +644,20 @@ class Device:
                 raise HarnessError(f"mode {mode} was not selected")
         if mode != "off":
             for package in selected:
-                self.set_app(package, True)
+                self.set_app(package, True, dpad)
             for package in unselected:
-                self.set_app(package, False)
+                self.set_app(package, False, dpad)
             self.set_search("")
-        save = self.scroll_to(
-            lambda node: node.has(SAVE) and node.clickable and node.enabled, towards_top=True
-        )
-        self.tap(save)
+
+        def is_save(node: Node) -> bool:
+            return node.has(SAVE) and node.clickable and node.enabled
+
+        if dpad:
+            self.leave_text_field()
+            self.focus_onto(is_save, "KEYCODE_DPAD_UP", presses=40)
+            self.key("KEYCODE_DPAD_CENTER")
+        else:
+            self.tap(self.scroll_to(is_save, towards_top=True))
         deadline = time.monotonic() + 30
         while time.monotonic() < deadline:
             if not any(node.has(MODE_LABELS["exclude"]) for node in self.dump()):
