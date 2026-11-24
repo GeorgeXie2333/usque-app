@@ -145,6 +145,24 @@ class UiTests(unittest.TestCase):
         self.assertTrue(harness.is_search_field(edited))
         self.assertFalse(harness.is_search_field(row))
 
+    def test_swipes_never_start_on_the_search_field(self):
+        xml_text = (
+            "<hierarchy>"
+            '<node class="android.widget.ScrollView" scrollable="true" bounds="[158,0][1920,1080]" />'
+            '<node class="android.widget.EditText" hint="Search apps" bounds="[238,812][1840,912]" />'
+            "</hierarchy>"
+        )
+        nodes = harness.parse_nodes(xml_text)
+        area = harness.scroll_area(nodes)
+        x, start, end = harness.swipe_path(nodes, area, upward=True)
+        self.assertEqual(x, 1039)
+        self.assertFalse(812 <= start <= 912)
+        self.assertLess(end, start)
+        x, start, end = harness.swipe_path(nodes, area, upward=False)
+        self.assertFalse(812 <= start <= 912)
+        self.assertGreater(end, start)
+        self.assertLessEqual(end, 1080)
+
     def test_swipes_stay_inside_the_largest_scrollable_area(self):
         xml_text = (
             "<hierarchy>"

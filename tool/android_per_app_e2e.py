@@ -222,6 +222,32 @@ def is_search_field(node: Node) -> bool:
     return node.class_name.endswith("EditText") or node.has(SEARCH)
 
 
+def swipe_path(
+    nodes: list[Node], area: tuple[int, int, int, int], upward: bool
+) -> tuple[int, int, int]:
+    """Return `(x, start_y, end_y)` for a swipe that does not begin on a text field.
+
+    A drag that starts on a text field selects text instead of scrolling.
+    """
+
+    left, top, right, bottom = area
+    height = bottom - top
+    x = (left + right) // 2
+    fields = [node.bounds for node in nodes if is_search_field(node)]
+
+    def clear(y: int) -> bool:
+        return not any(fl <= x <= fr and ft <= y <= fb for fl, ft, fr, fb in fields)
+
+    tenths = (8, 7, 9, 6, 5) if upward else (2, 3, 1, 4, 5)
+    starts = [top + height * tenth // 10 for tenth in tenths]
+    start = next((y for y in starts if clear(y)), starts[0])
+    if upward:
+        end = max(top + height // 10, start - height * 3 // 5)
+    else:
+        end = min(bottom - height // 10, start + height * 3 // 5)
+    return x, start, end
+
+
 def scroll_area(nodes: list[Node]) -> tuple[int, int, int, int] | None:
     """Bounds of the largest scrollable node in a dump."""
 
@@ -394,11 +420,7 @@ class Device:
         if area is None:
             width, height = self.screen_size()
             area = (0, 0, width, height)
-        left, top, right, bottom = area
-        start, end = top + (bottom - top) * 4 // 5, top + (bottom - top) // 5
-        if not upward:
-            start, end = end, start
-        x = (left + right) // 2
+        x, start, end = swipe_path(nodes, area, upward)
         self.shell(f"input swipe {x} {start} {x} {end} 350")
         time.sleep(1.0)
 
