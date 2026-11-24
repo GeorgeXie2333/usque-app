@@ -258,6 +258,7 @@ the official Proton human-verification page. Desktop UI and engine remain unpriv
 - [x] Terminate GeoIP- or GeoSite-hint-selected Android TUN TCP/UDP flows in a bounded userspace gateway and relay them through protected sockets bound to the selected physical network.
 - [x] Snapshot Android `LinkProperties.dnsServers`, publish internal Split DNS routes, and fail VPN startup if a valid physical DNS path is unavailable.
 - [x] Add device-scoped Android per-app proxy (include-only `addAllowedApplication`) stored in app settings, not the Profile.
+- [x] Add the Android per-app bypass mode (`addDisallowedApplication`) with its own package list; older clients read a bypass record as off.
 - [x] Fail-closed Android reconnect: retain the TUN fd when Kill Switch is armed and the address/DNS/MTU/route identity is unchanged; establish a replacement TUN before closing the old one when that identity changes.
 - [x] Expose Android start-on-boot, Quick Settings tile request, and a deep link to system Always-on VPN settings.
 - [ ] Sleep, network-switch, and TV lifecycle tests.

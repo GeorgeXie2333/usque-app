@@ -337,6 +337,14 @@ const Map<String, String> kFrCatalog = <String, String>{
       'Si « VPN permanent » et « Bloquer les connexions sans VPN » sont activés, les applications non sélectionnées sont bloquées, et non envoyées hors du tunnel.',
   'per_app_proxy_tunnel_hint':
       'S’applique quand le VPN est activé. Les proxys SOCKS5 et HTTP ne filtrent pas par application.',
+  'per_app_bypass_enable': 'Exclure les applications sélectionnées',
+  'per_app_bypass_on': '{count} applications exclues',
+  'per_app_bypass_help':
+      'Les applications cochées se connectent directement, hors du VPN. Toutes les autres, y compris les nouvelles, utilisent le VPN.',
+  'per_app_bypass_scope':
+      'Les applications exclues ne passent pas par Usque : son DNS, le blocage des publicités et les règles de routage ne s’y appliquent pas.',
+  'per_app_bypass_lockdown_help':
+      'Si « VPN permanent » et « Bloquer les connexions sans VPN » sont activés, les applications exclues sont bloquées au lieu de se connecter directement.',
   'per_app_search': 'Rechercher des applications',
   'per_app_show_system': 'Afficher les applications système',
   'per_app_select_visible': 'Sélectionner les visibles',

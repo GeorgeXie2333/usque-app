@@ -333,6 +333,14 @@ const Map<String, String> kEsCatalog = <String, String>{
       'Si “VPN siempre activada” y “Bloquear conexiones sin VPN” están activados, las aplicaciones que no selecciones se bloquean; no se envían fuera del túnel.',
   'per_app_proxy_tunnel_hint':
       'Se aplica cuando la VPN está activada. Los proxies SOCKS5 y HTTP no filtran por aplicación.',
+  'per_app_bypass_enable': 'Excluir aplicaciones seleccionadas',
+  'per_app_bypass_on': 'Excluyendo {count} aplicaciones',
+  'per_app_bypass_help':
+      'Las aplicaciones marcadas se conectan directamente, sin la VPN. Todas las demás, incluidas las recién instaladas, usan la VPN.',
+  'per_app_bypass_scope':
+      'Las aplicaciones excluidas no pasan por Usque, así que su DNS, el bloqueo de anuncios y las reglas de enrutamiento no se les aplican.',
+  'per_app_bypass_lockdown_help':
+      'Si “VPN siempre activada” y “Bloquear conexiones sin VPN” están activados, las aplicaciones excluidas se bloquean en lugar de conectarse directamente.',
   'per_app_search': 'Buscar aplicaciones',
   'per_app_show_system': 'Mostrar aplicaciones del sistema',
   'per_app_select_visible': 'Seleccionar visibles',

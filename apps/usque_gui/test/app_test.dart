@@ -572,8 +572,11 @@ class FakeEngineClient
       throw EngineException(error, 'Invalid per-app proxy settings.');
     }
     storedPerAppProxy = PerAppProxySettings(
-      enabled: settings.enabled,
+      mode: settings.mode,
       packageNames: PerAppProxySettings.sanitizePackages(settings.packageNames),
+      bypassPackageNames: PerAppProxySettings.sanitizePackages(
+        settings.bypassPackageNames,
+      ),
     );
     return storedPerAppProxy;
   }
@@ -4527,24 +4530,139 @@ void main() {
       );
       await tester.pumpAndSettle();
 
+      await tester.tap(find.text('Proxy only selected apps'));
+      await tester.pumpAndSettle();
       expect(find.text('Browser'), findsOneWidget);
       expect(find.text('Mail'), findsOneWidget);
       expect(find.text('Settings'), findsNothing);
       expect(find.text('io.github.georgexie2333.usque'), findsNothing);
 
-      await tester.tap(find.text('Proxy only selected apps'));
-      await tester.pump();
       await tester.tap(find.text('Select visible'));
       await tester.pump();
       await tester.tap(find.text('Save'));
       await tester.pumpAndSettle();
 
       expect(engine.calls, contains('setPerAppProxy'));
-      expect(engine.storedPerAppProxy.enabled, isTrue);
+      expect(engine.storedPerAppProxy.mode, PerAppMode.include);
       expect(engine.storedPerAppProxy.packageNames, <String>[
         'com.example.browser',
         'com.example.mail',
       ]);
+      expect(engine.storedPerAppProxy.bypassPackageNames, isEmpty);
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
+  testWidgets('Per-app bypass mode edits its own list and warns', (
+    tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    try {
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'onboarding_complete': true,
+      });
+      final engine = FakeEngineClient()
+        ..storedPerAppProxy = const PerAppProxySettings(
+          mode: PerAppMode.include,
+          packageNames: <String>['com.example.browser'],
+        );
+      final controller = AppController(engine);
+      await controller.initialize();
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: UsqueTheme.light(),
+          home: PerAppProxyScreen(controller: controller),
+        ),
+      );
+      await tester.pumpAndSettle();
+      CheckboxListTile tile(String label) => tester.widget<CheckboxListTile>(
+        find.widgetWithText(CheckboxListTile, label),
+      );
+      expect(tile('Browser').value, isTrue);
+      expect(
+        find.text(controller.strings.get('per_app_bypass_scope')),
+        findsNothing,
+      );
+
+      await tester.tap(find.text('Bypass selected apps'));
+      await tester.pumpAndSettle();
+      // The include selection does not carry over into the bypass list.
+      expect(tile('Browser').value, isFalse);
+      expect(
+        find.text(controller.strings.get('per_app_bypass_scope')),
+        findsOneWidget,
+      );
+      expect(
+        find.text(controller.strings.get('per_app_bypass_lockdown_help')),
+        findsOneWidget,
+      );
+      expect(
+        find.text(controller.strings.get('per_app_need_one')),
+        findsOneWidget,
+      );
+      expect(
+        tester
+            .widget<FilledButton>(find.widgetWithText(FilledButton, 'Save'))
+            .onPressed,
+        isNull,
+      );
+
+      await tester.ensureVisible(find.text('Mail'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Mail'));
+      await tester.pump();
+      expect(tile('Mail').value, isTrue);
+      // The page actions scroll with the content.
+      await tester.scrollUntilVisible(
+        find.text('Save'),
+        -200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.ensureVisible(find.text('Save'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+
+      expect(engine.storedPerAppProxy.mode, PerAppMode.exclude);
+      expect(engine.storedPerAppProxy.bypassPackageNames, <String>[
+        'com.example.mail',
+      ]);
+      expect(engine.storedPerAppProxy.packageNames, <String>[
+        'com.example.browser',
+      ]);
+      expect(controller.perAppProxy.mode, PerAppMode.exclude);
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
+  testWidgets('Per-app off mode hides the app list', (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    try {
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'onboarding_complete': true,
+      });
+      final controller = AppController(FakeEngineClient());
+      await controller.initialize();
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: UsqueTheme.light(),
+          home: PerAppProxyScreen(controller: controller),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byType(CheckboxListTile), findsNothing);
+      expect(
+        tester
+            .widget<FilledButton>(find.widgetWithText(FilledButton, 'Save'))
+            .onPressed,
+        isNotNull,
+      );
     } finally {
       debugDefaultTargetPlatformOverride = null;
     }
@@ -4567,6 +4685,8 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
+      await tester.tap(find.text('Bypass selected apps'));
+      await tester.pumpAndSettle();
 
       final browser = find.text('Browser');
       expect(browser, findsOneWidget);
@@ -4582,15 +4702,99 @@ void main() {
     }
   });
 
+  testWidgets('Per-app mode selector is operable with the D-pad', (
+    tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    try {
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'onboarding_complete': true,
+      });
+      final controller = AppController(FakeEngineClient());
+      await controller.initialize();
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: UsqueTheme.light(),
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(navigationMode: NavigationMode.directional),
+            child: child!,
+          ),
+          home: PerAppProxyScreen(controller: controller),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final selector = find.byKey(const ValueKey('per-app-mode'));
+      Focus.of(
+        tester.element(
+          find.descendant(
+            of: selector,
+            matching: find.text('All apps use the VPN'),
+          ),
+        ),
+      ).requestFocus();
+      await tester.pump();
+      for (var step = 0; step < 2; step++) {
+        await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+        await tester.pump();
+      }
+      await tester.sendKeyEvent(LogicalKeyboardKey.select);
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(
+        tester.widget<SegmentedButton<PerAppMode>>(selector).selected,
+        <PerAppMode>{PerAppMode.exclude},
+      );
+      expect(find.text('Browser'), findsOneWidget);
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
   test('per-app settings stay off UsqueProfile maps', () {
     final profile = UsqueProfile.defaultProfile();
     expect(profile.toMap().containsKey('per_app_proxy'), isFalse);
     expect(
       PerAppProxySettings(
-        enabled: true,
+        mode: PerAppMode.include,
         packageNames: const <String>['io.github.georgexie2333.usque'],
       ).validationError(selfPackage: 'io.github.georgexie2333.usque'),
       'ANDROID_PER_APP_EMPTY',
+    );
+    expect(
+      PerAppProxySettings(
+        mode: PerAppMode.exclude,
+        packageNames: const <String>['com.example.browser'],
+      ).validationError(),
+      'ANDROID_PER_APP_EMPTY',
+    );
+  });
+
+  test('per-app wire map keeps the legacy include flag', () {
+    const excluded = PerAppProxySettings(
+      mode: PerAppMode.exclude,
+      packageNames: <String>['com.example.browser'],
+      bypassPackageNames: <String>['com.example.mail'],
+    );
+    final map = excluded.toMap();
+    expect(map['enabled'], isFalse);
+    expect(map['mode'], 'exclude');
+    expect(PerAppProxySettings.fromMap(map), excluded);
+    expect(
+      PerAppProxySettings.fromMap(const <Object?, Object?>{
+        'enabled': true,
+        'package_names': <String>['com.example.browser'],
+      }).mode,
+      PerAppMode.include,
+    );
+    expect(
+      PerAppProxySettings.fromMap(const <Object?, Object?>{
+        'mode': 'unknown',
+      }).mode,
+      PerAppMode.off,
     );
   });
 
@@ -4600,7 +4804,7 @@ void main() {
     });
     final engine = FakeEngineClient()
       ..storedPerAppProxy = const PerAppProxySettings(
-        enabled: true,
+        mode: PerAppMode.include,
         packageNames: <String>['com.example.browser'],
       );
     await tester.pumpWidget(UsqueBootstrap(engine: engine));

@@ -212,7 +212,7 @@ VPN, SOCKS5 and HTTP are enabled by default; system proxy is off. They share one
 
 - **Windows:** tray with a status badge and TUN and system-proxy switches; background notifications for a reconnect lasting five seconds, a connection error, and recovery after a reported interruption; single-instance activation, start on boot, close-to-tray and a remembered window position. **Ctrl+1–4** selects pages, **Ctrl+S** applies changes, and **F5** refreshes VPN Gate or diagnostics. See [tray and keyboard controls](docs/INSTALLATION.md#tray-and-keyboard-controls).
 - **Android:** Quick Settings tile, launcher shortcuts, boot recovery and TV navigation.
-- **Android per-app proxy** applies to the whole app, across accounts. When off, all apps use the VPN. When on, only selected apps do; newly installed apps must be selected. With Android **Block connections without VPN**, unselected apps are blocked instead of bypassing the tunnel.
+- **Android per-app proxy** applies to the whole app, across accounts. Choose **All apps use the VPN**, **Proxy only selected apps** (newly installed apps must be selected) or **Bypass selected apps** (the selected apps connect directly without Usque's DNS, Ads or routing rules; all other apps, including new ones, use the VPN). Each mode keeps its own app list. With Android **Block connections without VPN**, apps outside the VPN are blocked instead of bypassing the tunnel.
 - **Everywhere:** twenty-one languages, with light and dark themes.
 
 ## Privacy and security

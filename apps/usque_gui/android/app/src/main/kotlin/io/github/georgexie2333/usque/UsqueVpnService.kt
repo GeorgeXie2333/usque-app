@@ -1917,6 +1917,17 @@ class UsqueVpnService : VpnService() {
                     throw PerAppProxyEmptyException()
                 }
             }
+
+            is PerAppPlan.Disallow -> {
+                for (excluded in plan.packages) {
+                    try {
+                        builder.addDisallowedApplication(excluded)
+                    } catch (_: PackageManager.NameNotFoundException) {
+                        // Uninstalled between planning and establish; it has
+                        // no traffic left to exclude, so the tunnel stays whole.
+                    }
+                }
+            }
         }
         return builder.establish()
     }

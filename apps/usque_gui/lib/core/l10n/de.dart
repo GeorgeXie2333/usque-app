@@ -333,6 +333,14 @@ const Map<String, String> kDeCatalog = <String, String>{
       'Wenn „Durchgehend aktives VPN“ und „Verbindungen ohne VPN blockieren“ aktiviert sind, werden nicht ausgewählte Apps blockiert und nicht am Tunnel vorbeigeführt.',
   'per_app_proxy_tunnel_hint':
       'Wirkt bei eingeschaltetem VPN. SOCKS5- und HTTP-Proxys filtern nicht nach App.',
+  'per_app_bypass_enable': 'Ausgewählte Apps ausnehmen',
+  'per_app_bypass_on': '{count} Apps ausgenommen',
+  'per_app_bypass_help':
+      'Markierte Apps verbinden sich direkt, ohne VPN. Alle anderen Apps, auch neu installierte, nutzen das VPN.',
+  'per_app_bypass_scope':
+      'Ausgenommene Apps laufen nicht über Usque; DNS, Werbeblocker und Routing-Regeln von Usque gelten für sie nicht.',
+  'per_app_bypass_lockdown_help':
+      'Wenn „Durchgehend aktives VPN“ und „Verbindungen ohne VPN blockieren“ aktiviert sind, werden ausgenommene Apps blockiert und nicht direkt verbunden.',
   'per_app_search': 'Apps durchsuchen',
   'per_app_show_system': 'System-Apps anzeigen',
   'per_app_select_visible': 'Sichtbare auswählen',

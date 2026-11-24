@@ -325,6 +325,14 @@ const Map<String, String> kIdCatalog = <String, String>{
       'Jika “VPN selalu aktif” dan “Memblokir koneksi tanpa VPN” aktif, aplikasi yang tidak Anda pilih akan diblokir, bukan dikirim ke luar terowongan.',
   'per_app_proxy_tunnel_hint':
       'Berlaku saat VPN aktif. Proksi SOCKS5 dan HTTP tidak memfilter per aplikasi.',
+  'per_app_bypass_enable': 'Lewati aplikasi yang dipilih',
+  'per_app_bypass_on': 'Melewati {count} aplikasi',
+  'per_app_bypass_help':
+      'Aplikasi yang dicentang terhubung langsung tanpa VPN. Semua aplikasi lain, termasuk yang baru diinstal, menggunakan VPN.',
+  'per_app_bypass_scope':
+      'Aplikasi yang dilewati tidak melalui Usque, sehingga DNS, pemblokiran iklan, dan aturan perutean Usque tidak berlaku untuknya.',
+  'per_app_bypass_lockdown_help':
+      'Jika “VPN selalu aktif” dan “Memblokir koneksi tanpa VPN” aktif, aplikasi yang dilewati akan diblokir, bukan terhubung langsung.',
   'per_app_search': 'Cari aplikasi',
   'per_app_show_system': 'Tampilkan aplikasi sistem',
   'per_app_select_visible': 'Pilih yang terlihat',

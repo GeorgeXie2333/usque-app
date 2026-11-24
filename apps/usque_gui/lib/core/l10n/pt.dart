@@ -330,6 +330,14 @@ const Map<String, String> kPtCatalog = <String, String>{
       'Se “VPN sempre ativa” e “Bloquear conexões sem VPN” estiverem ativados, os aplicativos que você não selecionar serão bloqueados, não enviados para fora do túnel.',
   'per_app_proxy_tunnel_hint':
       'Entra em vigor quando a VPN está ativada. Os proxies SOCKS5 e HTTP não filtram por aplicativo.',
+  'per_app_bypass_enable': 'Ignorar aplicativos selecionados',
+  'per_app_bypass_on': 'Ignorando {count} aplicativos',
+  'per_app_bypass_help':
+      'Os aplicativos marcados se conectam diretamente, sem a VPN. Todos os outros, inclusive os recém-instalados, usam a VPN.',
+  'per_app_bypass_scope':
+      'Aplicativos ignorados não passam pelo Usque, então o DNS, o bloqueio de anúncios e as regras de roteamento dele não se aplicam a eles.',
+  'per_app_bypass_lockdown_help':
+      'Se “VPN sempre ativa” e “Bloquear conexões sem VPN” estiverem ativados, os aplicativos ignorados serão bloqueados em vez de se conectarem diretamente.',
   'per_app_search': 'Pesquisar aplicativos',
   'per_app_show_system': 'Mostrar aplicativos do sistema',
   'per_app_select_visible': 'Selecionar visíveis',

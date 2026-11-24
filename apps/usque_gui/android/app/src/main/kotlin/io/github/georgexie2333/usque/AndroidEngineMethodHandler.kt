@@ -150,10 +150,7 @@ internal class AndroidEngineMethodHandler(
 
         fun loadPerAppProxy(): Map<String, Any?>
 
-        fun savePerAppProxy(
-            enabled: Boolean,
-            packageNames: List<String>,
-        ): Map<String, Any?>
+        fun savePerAppProxy(settings: PerAppProxySettings): Map<String, Any?>
 
         fun getUpdateCacheDirectory(): String = ""
 
@@ -841,25 +838,47 @@ internal class AndroidEngineMethodHandler(
         call: MethodCall,
         result: MethodChannel.Result,
     ) {
-        val enabled = call.argument<Boolean>("enabled")
+        val enabled = call.argument<Any?>("enabled")
+        val rawMode = call.argument<Any?>("mode")
         val rawNames = call.argument<List<*>>("package_names")
-        if (enabled == null || rawNames == null) {
+        val rawBypass =
+            if (call.hasArgument("bypass_package_names")) {
+                call.argument<Any?>("bypass_package_names")
+            } else {
+                emptyList<String>()
+            }
+        // A client that predates the mode field sends only the INCLUDE flag.
+        val mode =
+            when {
+                rawMode is String -> PerAppMode.parse(rawMode)
+                rawMode == null && enabled is Boolean -> if (enabled) PerAppMode.INCLUDE else PerAppMode.OFF
+                else -> null
+            }
+        if (mode == null || (enabled != null && enabled !is Boolean) || rawNames == null || rawBypass !is List<*>) {
             result.error("INVALID_ARGUMENT", "The per-app proxy setting is malformed.", null)
             return
         }
         val packageNames = rawNames.mapNotNull { item -> item as? String }
-        if (packageNames.size != rawNames.size) {
+        val bypassPackageNames = rawBypass.mapNotNull { item -> item as? String }
+        if (packageNames.size != rawNames.size || bypassPackageNames.size != rawBypass.size) {
             result.error("INVALID_ARGUMENT", "The per-app package list is malformed.", null)
             return
         }
         try {
-            val saved = activityCommands.savePerAppProxy(enabled, packageNames)
+            val saved =
+                activityCommands.savePerAppProxy(
+                    PerAppProxySettings(
+                        mode = mode,
+                        packageNames = packageNames,
+                        bypassPackageNames = bypassPackageNames,
+                    ),
+                )
             controlClient.notifyApplyPerApp((saved["revision"] as? Number)?.toLong() ?: 0L)
             result.success(saved)
         } catch (error: PerAppProxyStoreException) {
             val message =
                 if (error.code == ANDROID_PER_APP_EMPTY) {
-                    "Select at least one installed app before enabling per-app proxy."
+                    "Select at least one installed app before enabling per-app routing."
                 } else {
                     "The per-app proxy setting is invalid."
                 }

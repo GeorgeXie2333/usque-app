@@ -556,7 +556,11 @@ Android startup preferences, recovery records and per-app policy use separate
 versioned files. Every read and field patch takes the same stable file lock;
 writers sync a temporary file and atomically replace the data file. Old
 preferences are imported once, and clearing persists an empty record to prevent
-re-import. Per-app notifications retain the latest revision across service
+re-import. The per-app record keeps the legacy include flag and list beside
+the mode, the bypass list and a fingerprint of the legacy fields. Older versions
+read a bypass record as off; when a later legacy write changes those fields, the
+stored mode is ignored instead of restoring a stale bypass. An unknown mode
+fails closed. Per-app notifications retain the latest revision across service
 binding. Boot reads the current active account and its current auto-connect
 flag from the native catalogue after unlock, within a bounded receiver task.
 The last connected profile remains exclusively a recovery input.

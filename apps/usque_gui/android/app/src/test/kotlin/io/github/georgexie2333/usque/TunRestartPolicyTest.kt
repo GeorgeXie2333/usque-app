@@ -31,7 +31,7 @@ class TunRestartPolicyTest {
 
     @Test
     fun perAppChangeEstablishesNewBeforeClose() {
-        val changed = identity.copy(perAppEnabled = true, perAppPackages = listOf("com.example.app"))
+        val changed = identity.copy(perAppMode = PerAppMode.INCLUDE, perAppPackages = listOf("com.example.app"))
         assertEquals(
             TunRestartDecision.REPLACE_NEW_FIRST,
             TunRestartPolicy.decide(
@@ -39,6 +39,22 @@ class TunRestartPolicyTest {
                 tunnelFrontend = true,
                 hasCurrentFd = true,
                 sameIdentity = identity.sameForReuse(changed),
+                userRequestedDisconnect = false,
+            ),
+        )
+    }
+
+    @Test
+    fun perAppModeSwitchReplacesTunEvenWithTheSameApps() {
+        val included = identity.copy(perAppMode = PerAppMode.INCLUDE, perAppPackages = listOf("com.example.app"))
+        val excluded = included.copy(perAppMode = PerAppMode.EXCLUDE)
+        assertEquals(
+            TunRestartDecision.REPLACE_NEW_FIRST,
+            TunRestartPolicy.decide(
+                killSwitch = true,
+                tunnelFrontend = true,
+                hasCurrentFd = true,
+                sameIdentity = included.sameForReuse(excluded),
                 userRequestedDisconnect = false,
             ),
         )

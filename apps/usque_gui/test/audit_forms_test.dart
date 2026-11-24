@@ -133,7 +133,11 @@ void main() {
         final engine = FormEngine()
           ..pendingSave = Completer<void>()
           ..failPerApp = failure;
-        final app = appFor(engine);
+        final app = appFor(engine)
+          ..perAppProxy = const PerAppProxySettings(
+            mode: PerAppMode.include,
+            packageNames: <String>['com.example.browser'],
+          );
         await tester.pumpWidget(
           workflowHost(
             app,

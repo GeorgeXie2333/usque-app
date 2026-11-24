@@ -329,6 +329,14 @@ const Map<String, String> kNlCatalog = <String, String>{
       'Als “Always-on VPN” en “Verbindingen zonder VPN blokkeren” zijn ingeschakeld, worden apps die je niet selecteert geblokkeerd in plaats van buiten de tunnel om gestuurd.',
   'per_app_proxy_tunnel_hint':
       'Geldt als de VPN aan staat. SOCKS5- en HTTP-proxy’s filteren niet per app.',
+  'per_app_bypass_enable': 'Geselecteerde apps uitsluiten',
+  'per_app_bypass_on': '{count} apps uitgesloten',
+  'per_app_bypass_help':
+      'Aangevinkte apps maken rechtstreeks verbinding, zonder VPN. Alle andere apps, ook nieuw geïnstalleerde, gebruiken de VPN.',
+  'per_app_bypass_scope':
+      'Uitgesloten apps gaan niet via Usque, dus de DNS, advertentieblokkering en routeringsregels van Usque gelden niet voor ze.',
+  'per_app_bypass_lockdown_help':
+      'Als “Always-on VPN” en “Verbindingen zonder VPN blokkeren” zijn ingeschakeld, worden uitgesloten apps geblokkeerd in plaats van rechtstreeks verbonden.',
   'per_app_search': 'Apps zoeken',
   'per_app_show_system': 'Systeemapps tonen',
   'per_app_select_visible': 'Zichtbare apps selecteren',

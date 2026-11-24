@@ -334,6 +334,14 @@ const Map<String, String> kItCatalog = <String, String>{
       'Se “VPN sempre attiva” e “Blocca connessioni senza VPN” sono attive, le app non selezionate vengono bloccate, non inviate fuori dal tunnel.',
   'per_app_proxy_tunnel_hint':
       'Ha effetto quando la VPN è attiva. I proxy SOCKS5 e HTTP non filtrano per app.',
+  'per_app_bypass_enable': 'Escludi le app selezionate',
+  'per_app_bypass_on': '{count} app escluse',
+  'per_app_bypass_help':
+      'Le app selezionate si connettono direttamente, senza VPN. Tutte le altre, comprese quelle appena installate, usano la VPN.',
+  'per_app_bypass_scope':
+      'Le app escluse non passano da Usque, quindi DNS, blocco degli annunci e regole di instradamento di Usque non si applicano.',
+  'per_app_bypass_lockdown_help':
+      'Se “VPN sempre attiva” e “Blocca connessioni senza VPN” sono attive, le app escluse vengono bloccate invece di connettersi direttamente.',
   'per_app_search': 'Cerca app',
   'per_app_show_system': 'Mostra le app di sistema',
   'per_app_select_visible': 'Seleziona le app visibili',

@@ -179,8 +179,10 @@ override an explicit DIRECT domain decision or a custom address rule. Rejecting
 a name does not blacklist a shared CDN IP.
 Applications using their own encrypted DNS can hide names from Usque; address
 rules still apply to traffic entering its engine. LAN/system exclusions,
-Android excluded applications and tunnel control traffic retain their existing
-boundaries. This is not a system-wide firewall or TLS inspection feature.
+Android apps outside the VPN (apps left unselected by **Proxy only selected
+apps** or selected by **Bypass selected apps**) and tunnel control traffic
+never enter the engine, so these rules, Ads and Usque DNS do not apply to them.
+This is not a system-wide firewall or TLS inspection feature.
 
 Configuration schema 24 migrates legacy domain/CIDR bypass targets to DIRECT
 rules and retains countries. Those CIDRs no longer install physical routes or
@@ -270,5 +272,6 @@ Ads 误拦截可通过自定义域名 DIRECT／PROXY 放行。Ads 默认关闭�
 上游解析及出口选择保持原策略。自定义分流规则按上述版本机制用于新流；国家设置仍需重连。
 
 旧 CIDR 和域名会迁移为 DIRECT；CIDR 不再通过系统路由提前绕过引擎。
-直连支持 TCP/UDP，其他协议沿用隧道能力。应用自行使用加密 DNS、系统局域网绕过及
-Android 排除应用仍有上述可见性边界，不能将此功能视为全系统防火墙。
+直连支持 TCP/UDP，其他协议沿用隧道能力。应用自行使用加密 DNS、系统局域网绕过仍有上述可见性边界；
+Android 不经过 VPN 的应用（“仅代理选中的应用”中未勾选的应用，或“绕过选中的应用”中勾选的应用）
+不进入引擎，分流规则、Ads 和 Usque DNS 对其不生效。不能将此功能视为全系统防火墙。

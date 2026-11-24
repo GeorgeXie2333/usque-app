@@ -305,6 +305,14 @@ const Map<String, String> kJaCatalog = <String, String>{
       '「常時接続 VPN」と「VPN 以外の接続のブロック」がオンの場合、選択していないアプリはトンネルの外には送られず、ブロックされます。',
   'per_app_proxy_tunnel_hint':
       'VPN がオンのときに有効です。SOCKS5 と HTTP プロキシはアプリごとに区別しません。',
+  'per_app_bypass_enable': '選択したアプリを除外',
+  'per_app_bypass_on': '{count} 個のアプリを除外しています',
+  'per_app_bypass_help':
+      'チェックしたアプリは VPN を使わずに直接接続します。新しくインストールしたアプリを含め、他のアプリはすべて VPN を使用します。',
+  'per_app_bypass_scope':
+      '除外したアプリは Usque を経由しないため、Usque の DNS、広告ブロック、ルーティングルールは適用されません。',
+  'per_app_bypass_lockdown_help':
+      '「常時接続 VPN」と「VPN 以外の接続のブロック」がオンの場合、除外したアプリは直接接続されず、ブロックされます。',
   'per_app_search': 'アプリを検索',
   'per_app_show_system': 'システムアプリを表示',
   'per_app_select_visible': '表示中を選択',

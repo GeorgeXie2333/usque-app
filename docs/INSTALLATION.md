@@ -364,12 +364,23 @@ under **Connection & protection**.
 ### Per-app proxy
 
 This setting is shared across accounts and takes effect when the VPN is on.
-When off, every app uses the VPN. When on, only checked apps use it; newly
-installed apps must be selected. **Select visible** checks the apps currently
-shown and does not disable the filter. Usque itself is not listed.
+Choose one mode:
 
-With **Block connections without VPN** enabled, unchecked apps are blocked
-instead of using the network directly.
+- **All apps use the VPN** turns the filter off.
+- **Proxy only selected apps** sends only checked apps through the VPN; newly
+  installed apps must be selected.
+- **Bypass selected apps** lets checked apps connect directly, outside the VPN.
+  Every other app, including newly installed ones, uses the VPN. Bypassed apps
+  do not pass through Usque, so its DNS, Ads and routing rules do not apply to
+  them. If every bypassed app has been uninstalled, all apps use the VPN.
+
+Each mode keeps its own list, so switching modes does not move a selection.
+**Select visible** checks the apps currently shown in the selected mode and
+does not change the mode. Usque itself is not listed.
+
+With **Block connections without VPN** enabled, apps outside the VPN (unchecked
+apps in the first mode, checked apps in the second) are blocked instead of
+using the network directly.
 
 ### Remove the app
 
@@ -435,7 +446,7 @@ not replace a valid cached ruleset.
 | Windows shows an unknown publisher | Check the official file hash and certificate SHA-256. The fixed self-signed certificate is expected before v1.0; do not add it to a trust store. |
 | A Usque adapter remains after disconnect | It is retained for reuse. Fully exit the app to start removal. |
 | A connection reports recovery or adapter-removal failure | Keep the recovery journal. Report the error with sanitized diagnostics; do not remove services or network objects manually. |
-| Android apps cannot connect with per-app filtering | Check the selected apps and system blocking settings. Unselected apps are blocked when Block connections without VPN is on. |
+| Android apps cannot connect with per-app filtering | Check the mode, the selected apps and system blocking settings. Apps outside the VPN are blocked when Block connections without VPN is on. |
 | A setting is saved but not active | Follow the pending-state message. Some changes apply only on the next manual connection. |
 
 Use [Network Doctor](network-doctor.md) for local checks. Keep credentials and

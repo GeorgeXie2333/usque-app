@@ -302,6 +302,14 @@ const Map<String, String> kKoCatalog = <String, String>{
       '‘연결 유지 VPN’과 ‘VPN 없는 연결 차단’이 켜져 있으면, 선택하지 않은 앱은 터널 밖으로 나가지 않고 차단됩니다.',
   'per_app_proxy_tunnel_hint':
       'VPN이 켜져 있을 때 적용됩니다. SOCKS5 및 HTTP 프록시는 앱별로 구분하지 않습니다.',
+  'per_app_bypass_enable': '선택한 앱 제외',
+  'per_app_bypass_on': '{count}개 앱을 제외합니다',
+  'per_app_bypass_help':
+      '선택한 앱은 VPN을 거치지 않고 직접 연결됩니다. 새로 설치한 앱을 포함한 다른 모든 앱은 VPN을 사용합니다.',
+  'per_app_bypass_scope':
+      '제외된 앱은 Usque를 거치지 않으므로 Usque의 DNS, 광고 차단, 라우팅 규칙이 적용되지 않습니다.',
+  'per_app_bypass_lockdown_help':
+      '‘연결 유지 VPN’과 ‘VPN 없는 연결 차단’이 켜져 있으면, 제외한 앱은 직접 연결되지 않고 차단됩니다.',
   'per_app_search': '앱 검색',
   'per_app_show_system': '시스템 앱 표시',
   'per_app_select_visible': '표시된 항목 선택',

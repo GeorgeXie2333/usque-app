@@ -322,6 +322,14 @@ const Map<String, String> kViCatalog = <String, String>{
       'Nếu “VPN luôn bật” và “Chặn các đường kết nối không qua VPN” đang bật, ứng dụng bạn không chọn sẽ bị chặn, không bị gửi ra ngoài đường hầm.',
   'per_app_proxy_tunnel_hint':
       'Có hiệu lực khi bật VPN. Proxy SOCKS5 và HTTP không lọc theo ứng dụng.',
+  'per_app_bypass_enable': 'Bỏ qua các ứng dụng đã chọn',
+  'per_app_bypass_on': 'Đang bỏ qua {count} ứng dụng',
+  'per_app_bypass_help':
+      'Các ứng dụng được đánh dấu kết nối trực tiếp, không qua VPN. Mọi ứng dụng khác, kể cả ứng dụng mới cài, đều dùng VPN.',
+  'per_app_bypass_scope':
+      'Ứng dụng bị bỏ qua không đi qua Usque, nên DNS, chặn quảng cáo và quy tắc định tuyến của Usque không áp dụng cho chúng.',
+  'per_app_bypass_lockdown_help':
+      'Nếu “VPN luôn bật” và “Chặn các đường kết nối không qua VPN” đang bật, ứng dụng bị bỏ qua sẽ bị chặn thay vì kết nối trực tiếp.',
   'per_app_search': 'Tìm ứng dụng',
   'per_app_show_system': 'Hiện ứng dụng hệ thống',
   'per_app_select_visible': 'Chọn mục đang hiện',

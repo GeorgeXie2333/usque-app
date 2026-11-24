@@ -322,6 +322,14 @@ const Map<String, String> kEnCatalog = <String, String>{
       'If Always-on VPN and Block connections without VPN are on, apps you do not select are blocked, not sent outside the tunnel.',
   'per_app_proxy_tunnel_hint':
       'Takes effect when VPN is on. SOCKS5 and HTTP proxies do not filter by app.',
+  'per_app_bypass_enable': 'Bypass selected apps',
+  'per_app_bypass_on': 'Bypassing {count} apps',
+  'per_app_bypass_help':
+      'Checked apps connect directly, outside the VPN. All other apps, including newly installed ones, use the VPN.',
+  'per_app_bypass_scope':
+      'Bypassed apps do not pass through Usque, so its DNS, ad blocking and routing rules do not apply to them.',
+  'per_app_bypass_lockdown_help':
+      'If Always-on VPN and Block connections without VPN are on, apps you bypass are blocked instead of connecting directly.',
   'per_app_search': 'Search apps',
   'per_app_show_system': 'Show system apps',
   'per_app_select_visible': 'Select visible',

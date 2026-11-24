@@ -525,10 +525,27 @@ enum UpdateOperationPhase {
   failed,
 }
 
+/// INCLUDE sends only the selected apps through the VPN; EXCLUDE sends every
+/// app except the selected ones. Each mode keeps its own list, so switching
+/// modes never turns apps chosen for the tunnel into apps left outside it.
+enum PerAppMode {
+  off,
+  include,
+  exclude;
+
+  static PerAppMode? parse(Object? value) {
+    for (final mode in values) {
+      if (mode.name == value) return mode;
+    }
+    return null;
+  }
+}
+
 class PerAppProxySettings {
   const PerAppProxySettings({
-    this.enabled = false,
+    this.mode = PerAppMode.off,
     this.packageNames = const <String>[],
+    this.bypassPackageNames = const <String>[],
   });
 
   static const int maxPackages = 1024;
@@ -537,13 +554,38 @@ class PerAppProxySettings {
     r'^[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)*$',
   );
 
-  final bool enabled;
+  final PerAppMode mode;
+
+  /// Apps that use the VPN in [PerAppMode.include].
   final List<String> packageNames;
 
-  PerAppProxySettings copyWith({bool? enabled, List<String>? packageNames}) {
+  /// Apps kept outside the VPN in [PerAppMode.exclude].
+  final List<String> bypassPackageNames;
+
+  bool get enabled => mode != PerAppMode.off;
+
+  /// The list the selected mode applies; empty while per-app routing is off.
+  List<String> get activePackages => switch (mode) {
+    PerAppMode.off => const <String>[],
+    PerAppMode.include => packageNames,
+    PerAppMode.exclude => bypassPackageNames,
+  };
+
+  List<String> packagesFor(PerAppMode value) => switch (value) {
+    PerAppMode.off => const <String>[],
+    PerAppMode.include => packageNames,
+    PerAppMode.exclude => bypassPackageNames,
+  };
+
+  PerAppProxySettings copyWith({
+    PerAppMode? mode,
+    List<String>? packageNames,
+    List<String>? bypassPackageNames,
+  }) {
     return PerAppProxySettings(
-      enabled: enabled ?? this.enabled,
+      mode: mode ?? this.mode,
       packageNames: packageNames ?? this.packageNames,
+      bypassPackageNames: bypassPackageNames ?? this.bypassPackageNames,
     );
   }
 
@@ -567,40 +609,64 @@ class PerAppProxySettings {
   }
 
   String? validationError({String? selfPackage}) {
-    if (packageNames.length > maxPackages) {
-      return 'INVALID_ARGUMENT';
+    for (final names in [packageNames, bypassPackageNames]) {
+      if (names.length > maxPackages) {
+        return 'INVALID_ARGUMENT';
+      }
+      final invalid = names.any((raw) {
+        final name = raw.trim();
+        return name.isNotEmpty &&
+            name != selfPackage &&
+            (name.length > maxPackageLength ||
+                !packageNamePattern.hasMatch(name));
+      });
+      if (invalid) {
+        return 'INVALID_ARGUMENT';
+      }
     }
-    final invalid = packageNames.any((raw) {
-      final name = raw.trim();
-      return name.isNotEmpty &&
-          name != selfPackage &&
-          (name.length > maxPackageLength ||
-              !packageNamePattern.hasMatch(name));
-    });
-    if (invalid) {
-      return 'INVALID_ARGUMENT';
-    }
-    final sanitized = sanitizePackages(packageNames, selfPackage: selfPackage);
-    if (enabled && sanitized.isEmpty) {
+    final active = sanitizePackages(activePackages, selfPackage: selfPackage);
+    if (mode != PerAppMode.off && active.isEmpty) {
       return 'ANDROID_PER_APP_EMPTY';
     }
     return null;
   }
 
   factory PerAppProxySettings.fromMap(Map<Object?, Object?> map) {
-    final names = (map['package_names'] as List?)?.whereType<String>().toList(
-      growable: false,
+    List<String> names(String key) => List<String>.unmodifiable(
+      (map[key] as List?)?.whereType<String>() ?? const <String>[],
     );
+    // A record without a mode predates EXCLUDE; its flag means INCLUDE.
+    final mode =
+        PerAppMode.parse(map['mode']) ??
+        (map['enabled'] == true ? PerAppMode.include : PerAppMode.off);
     return PerAppProxySettings(
-      enabled: map['enabled'] as bool? ?? false,
-      packageNames: List<String>.unmodifiable(names ?? const <String>[]),
+      mode: mode,
+      packageNames: names('package_names'),
+      bypassPackageNames: names('bypass_package_names'),
     );
   }
 
   Map<String, Object?> toMap() => <String, Object?>{
-    'enabled': enabled,
+    // Older native code understands only this flag, which means INCLUDE.
+    'enabled': mode == PerAppMode.include,
+    'mode': mode.name,
     'package_names': packageNames,
+    'bypass_package_names': bypassPackageNames,
   };
+
+  @override
+  bool operator ==(Object other) =>
+      other is PerAppProxySettings &&
+      mode == other.mode &&
+      listEquals(packageNames, other.packageNames) &&
+      listEquals(bypassPackageNames, other.bypassPackageNames);
+
+  @override
+  int get hashCode => Object.hash(
+    mode,
+    Object.hashAll(packageNames),
+    Object.hashAll(bypassPackageNames),
+  );
 }
 
 class InstalledAppInfo {

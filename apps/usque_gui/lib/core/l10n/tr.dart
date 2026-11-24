@@ -328,6 +328,14 @@ const Map<String, String> kTrCatalog = <String, String>{
       '“Her zaman açık VPN” ve “VPN\'si olmayan bağlantıları engelle” açıksa, seçmediğiniz uygulamalar tünelin dışına gönderilmez; engellenir.',
   'per_app_proxy_tunnel_hint':
       'VPN açıkken geçerlidir. SOCKS5 ve HTTP proxy’leri uygulamaya göre filtreleme yapmaz.',
+  'per_app_bypass_enable': 'Seçilen uygulamaları hariç tut',
+  'per_app_bypass_on': '{count} uygulama hariç tutuluyor',
+  'per_app_bypass_help':
+      'İşaretlenen uygulamalar VPN olmadan doğrudan bağlanır. Yeni yüklenenler dahil diğer tüm uygulamalar VPN’i kullanır.',
+  'per_app_bypass_scope':
+      'Hariç tutulan uygulamalar Usque’den geçmez; Usque’nin DNS, reklam engelleme ve yönlendirme kuralları bunlara uygulanmaz.',
+  'per_app_bypass_lockdown_help':
+      '“Her zaman açık VPN” ve “VPN’si olmayan bağlantıları engelle” açıksa, hariç tutulan uygulamalar doğrudan bağlanmaz; engellenir.',
   'per_app_search': 'Uygulama ara',
   'per_app_show_system': 'Sistem uygulamalarını göster',
   'per_app_select_visible': 'Görünenleri seç',

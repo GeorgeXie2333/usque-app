@@ -828,8 +828,54 @@ class AndroidEngineMethodHandlerTest {
         assertEquals(listOf(UsqueVpnService.MSG_APPLY_PER_APP), endpoint.whats)
         val saved = result.successValue as Map<*, *>
         assertEquals(true, saved["enabled"])
+        assertEquals("include", saved["mode"])
         assertEquals(listOf("com.example.app"), saved["package_names"])
         assertNull(result.errorCode)
+    }
+
+    @Test
+    fun setPerAppProxyPassesTheExcludeModeAndItsOwnList() {
+        val result = RecordingResult()
+        handler.handle(
+            MethodCall(
+                "setPerAppProxy",
+                mapOf(
+                    "enabled" to false,
+                    "mode" to "exclude",
+                    "package_names" to listOf("com.bank.app"),
+                    "bypass_package_names" to listOf("com.game.app"),
+                ),
+            ),
+            result,
+        )
+        assertNull(result.errorCode)
+        assertEquals(listOf(UsqueVpnService.MSG_APPLY_PER_APP), endpoint.whats)
+        assertEquals(
+            PerAppProxySettings(
+                mode = PerAppMode.EXCLUDE,
+                packageNames = listOf("com.bank.app"),
+                bypassPackageNames = listOf("com.game.app"),
+            ),
+            activityCommands.savedPerApp,
+        )
+        val saved = result.successValue as Map<*, *>
+        assertEquals("exclude", saved["mode"])
+        assertEquals(false, saved["enabled"])
+    }
+
+    @Test
+    fun setPerAppProxyRejectsUnknownModeOrMalformedBypassList() {
+        for (arguments in listOf(
+            mapOf("mode" to "everything", "package_names" to emptyList<String>()),
+            mapOf("mode" to "exclude", "package_names" to emptyList<String>(), "bypass_package_names" to listOf(1)),
+            mapOf("mode" to "exclude", "package_names" to emptyList<String>(), "bypass_package_names" to "x"),
+        )) {
+            val result = RecordingResult()
+            handler.handle(MethodCall("setPerAppProxy", arguments), result)
+            assertEquals("INVALID_ARGUMENT", result.errorCode)
+        }
+        assertTrue(endpoint.whats.isEmpty())
+        assertNull(activityCommands.savedPerApp)
     }
 
     @Test
@@ -2337,13 +2383,14 @@ class AndroidEngineMethodHandlerTest {
 
         override fun getAppIcon(packageName: String): ByteArray? = null
 
-        override fun loadPerAppProxy(): Map<String, Any?> =
-            mapOf("enabled" to false, "package_names" to emptyList<String>())
+        var savedPerApp: PerAppProxySettings? = null
 
-        override fun savePerAppProxy(
-            enabled: Boolean,
-            packageNames: List<String>,
-        ): Map<String, Any?> = mapOf("enabled" to enabled, "package_names" to packageNames)
+        override fun loadPerAppProxy(): Map<String, Any?> = PerAppProxySettings().toMap()
+
+        override fun savePerAppProxy(settings: PerAppProxySettings): Map<String, Any?> {
+            savedPerApp = settings
+            return settings.toMap()
+        }
     }
 
     private class FakeEngineBridge : AndroidEngineMethodHandler.EngineBridge {

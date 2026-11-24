@@ -20,7 +20,7 @@ internal data class TunIdentity(
     val allowLan: Boolean,
     val bypassCidrs: List<String>,
     val splitDnsEnabled: Boolean = false,
-    val perAppEnabled: Boolean = false,
+    val perAppMode: PerAppMode = PerAppMode.OFF,
     val perAppPackages: List<String> = emptyList(),
     val dataPlane: String = "connect_ip",
     val vpnGateEnabled: Boolean = false,
@@ -45,8 +45,8 @@ internal data class TunIdentity(
                 allowLan = profile.allowLan,
                 bypassCidrs = profile.bypassCidrs,
                 splitDnsEnabled = profile.splitDnsEnabled,
-                perAppEnabled = perApp.enabled,
-                perAppPackages = perApp.packageNames,
+                perAppMode = perApp.mode,
+                perAppPackages = perApp.activePackages,
             )
     }
 }

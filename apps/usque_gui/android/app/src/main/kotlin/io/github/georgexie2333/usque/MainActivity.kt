@@ -297,15 +297,10 @@ class MainActivity : FlutterFragmentActivity() {
 
             override fun loadPerAppProxy(): Map<String, Any?> = PerAppProxyStore.load(this@MainActivity).toMap()
 
-            override fun savePerAppProxy(
-                enabled: Boolean,
-                packageNames: List<String>,
-            ): Map<String, Any?> =
+            override fun savePerAppProxy(settings: PerAppProxySettings): Map<String, Any?> =
                 PerAppProxyStore
-                    .save(
-                        this@MainActivity,
-                        PerAppProxySettings(enabled = enabled, packageNames = packageNames),
-                    ).toMap() + mapOf("revision" to PerAppProxyStore.preferences(this@MainActivity).revision())
+                    .save(this@MainActivity, settings)
+                    .toMap() + mapOf("revision" to PerAppProxyStore.preferences(this@MainActivity).revision())
 
             override fun getUpdateCacheDirectory(): String {
                 updateInstaller.prepareCache()

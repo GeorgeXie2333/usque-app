@@ -22,10 +22,12 @@ class PerAppProxyScreen extends StatefulWidget {
 
 class _PerAppProxyScreenState extends State<PerAppProxyScreen> {
   final TextEditingController _search = TextEditingController();
-  final Set<String> _selected = <String>{};
+  // Each mode edits its own draft; switching modes never moves a selection.
+  final Set<String> _included = <String>{};
+  final Set<String> _bypassed = <String>{};
   final Map<String, Uint8List?> _icons = <String, Uint8List?>{};
   List<InstalledAppInfo> _apps = const <InstalledAppInfo>[];
-  bool _enabled = false;
+  PerAppMode _mode = PerAppMode.off;
   bool _showSystem = false;
   bool _loading = true;
   String? _loadError;
@@ -36,8 +38,9 @@ class _PerAppProxyScreenState extends State<PerAppProxyScreen> {
   void initState() {
     super.initState();
     final current = widget.controller.perAppProxy;
-    _enabled = current.enabled;
-    _selected.addAll(current.packageNames);
+    _mode = current.mode;
+    _included.addAll(current.packageNames);
+    _bypassed.addAll(current.bypassPackageNames);
     _loadApps();
   }
 
@@ -86,16 +89,30 @@ class _PerAppProxyScreenState extends State<PerAppProxyScreen> {
         .toList(growable: false);
   }
 
+  bool get _enabled => _mode != PerAppMode.off;
+
+  /// The draft the selected mode edits; OFF edits no list.
+  Set<String> get _selected =>
+      _mode == PerAppMode.exclude ? _bypassed : _included;
+
   bool get _canSave {
     if (!_enabled) return true;
     return PerAppProxySettings.sanitizePackages(_selected).isNotEmpty;
   }
 
+  String _modeHelp(PerAppMode mode) =>
+      widget.controller.strings.get(switch (mode) {
+        PerAppMode.off => 'per_app_proxy_off',
+        PerAppMode.include => 'per_app_proxy_help',
+        PerAppMode.exclude => 'per_app_bypass_help',
+      });
+
   Future<void> _save() async {
     if (_saving) return;
     final next = PerAppProxySettings(
-      enabled: _enabled,
-      packageNames: PerAppProxySettings.sanitizePackages(_selected),
+      mode: _mode,
+      packageNames: PerAppProxySettings.sanitizePackages(_included),
+      bypassPackageNames: PerAppProxySettings.sanitizePackages(_bypassed),
     );
     if (next.validationError() != null) {
       return;
@@ -127,7 +144,7 @@ class _PerAppProxyScreenState extends State<PerAppProxyScreen> {
     return SubPage(
       contentWidth: 880,
       title: strings.get('per_app_proxy'),
-      subtitle: strings.get('per_app_proxy_help'),
+      subtitle: _modeHelp(_mode),
       backLabel: strings.get('back'),
       actions: <Widget>[
         FilledButton.icon(
@@ -157,10 +174,22 @@ class _PerAppProxyScreenState extends State<PerAppProxyScreen> {
                   ),
           ),
           BannerSlot(
+            child: _mode == PerAppMode.exclude
+                ? WarningBanner(
+                    title: strings.get('per_app_bypass_enable'),
+                    message: strings.get('per_app_bypass_scope'),
+                  )
+                : null,
+          ),
+          BannerSlot(
             child: _enabled
                 ? WarningBanner(
                     title: strings.get('lockdown'),
-                    message: strings.get('per_app_proxy_lockdown_help'),
+                    message: strings.get(
+                      _mode == PerAppMode.exclude
+                          ? 'per_app_bypass_lockdown_help'
+                          : 'per_app_proxy_lockdown_help',
+                    ),
                   )
                 : null,
           ),
@@ -174,103 +203,140 @@ class _PerAppProxyScreenState extends State<PerAppProxyScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: <Widget>[
-                      SwitchListTile(
-                        contentPadding: EdgeInsets.zero,
-                        secondary: const Icon(LucideIcons.layers3),
-                        title: Text(strings.get('per_app_proxy_enable')),
-                        subtitle: Text(strings.get('per_app_proxy_help')),
-                        value: _enabled,
-                        onChanged: _saving
-                            ? null
-                            : (value) => setState(() => _enabled = value),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        child: _modeSelector(context),
                       ),
-                      const SizedBox(height: 16),
-                      tvTextField(
-                        controller: _search,
-                        decoration: InputDecoration(
-                          labelText: strings.get('per_app_search'),
-                          prefixIcon: const Icon(LucideIcons.search),
+                      if (_enabled) ...<Widget>[
+                        const SizedBox(height: 8),
+                        tvTextField(
+                          controller: _search,
+                          decoration: InputDecoration(
+                            labelText: strings.get('per_app_search'),
+                            prefixIcon: const Icon(LucideIcons.search),
+                          ),
+                          onChanged: (_) => setState(() {}),
                         ),
-                        onChanged: (_) => setState(() {}),
-                      ),
-                      SwitchListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title: Text(strings.get('per_app_show_system')),
-                        value: _showSystem,
-                        onChanged: (value) =>
-                            setState(() => _showSystem = value),
-                      ),
-                      const SizedBox(height: 4),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: <Widget>[
-                          Text(
-                            strings
-                                .get('per_app_selected_count')
-                                .replaceAll('{count}', '${_selected.length}'),
-                            style: Theme.of(context).textTheme.bodyMedium
-                                ?.copyWith(
-                                  color: Theme.of(
-                                    context,
-                                  ).colorScheme.onSurfaceVariant,
+                        SwitchListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: Text(strings.get('per_app_show_system')),
+                          value: _showSystem,
+                          onChanged: (value) =>
+                              setState(() => _showSystem = value),
+                        ),
+                        const SizedBox(height: 4),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: <Widget>[
+                            Text(
+                              strings
+                                  .get('per_app_selected_count')
+                                  .replaceAll('{count}', '${_selected.length}'),
+                              style: Theme.of(context).textTheme.bodyMedium
+                                  ?.copyWith(
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.onSurfaceVariant,
+                                  ),
+                            ),
+                            const SizedBox(height: 8),
+                            Wrap(
+                              spacing: 8,
+                              children: <Widget>[
+                                TextButton(
+                                  onPressed: visible.isEmpty || _saving
+                                      ? null
+                                      : () => setState(() {
+                                          _selected.addAll(
+                                            visible.map(
+                                              (app) => app.packageName,
+                                            ),
+                                          );
+                                        }),
+                                  child: Text(
+                                    strings.get('per_app_select_visible'),
+                                  ),
                                 ),
-                          ),
-                          const SizedBox(height: 8),
-                          Wrap(
-                            spacing: 8,
-                            children: <Widget>[
-                              TextButton(
-                                onPressed: visible.isEmpty || _saving
-                                    ? null
-                                    : () => setState(() {
-                                        _selected.addAll(
-                                          visible.map((app) => app.packageName),
-                                        );
-                                      }),
-                                child: Text(
-                                  strings.get('per_app_select_visible'),
+                                TextButton(
+                                  onPressed: visible.isEmpty || _saving
+                                      ? null
+                                      : () => setState(() {
+                                          _selected.removeAll(
+                                            visible.map(
+                                              (app) => app.packageName,
+                                            ),
+                                          );
+                                        }),
+                                  child: Text(
+                                    strings.get('per_app_clear_visible'),
+                                  ),
                                 ),
-                              ),
-                              TextButton(
-                                onPressed: visible.isEmpty || _saving
-                                    ? null
-                                    : () => setState(() {
-                                        _selected.removeAll(
-                                          visible.map((app) => app.packageName),
-                                        );
-                                      }),
-                                child: Text(
-                                  strings.get('per_app_clear_visible'),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                      BannerSlot(
-                        spacing: 0,
-                        child: _enabled && !_canSave
-                            ? Padding(
-                                padding: const EdgeInsets.only(top: 12),
-                                child: WarningBanner(
-                                  title: strings.get('per_app_proxy'),
-                                  message: strings.get('per_app_need_one'),
-                                  danger: true,
-                                ),
-                              )
-                            : null,
-                      ),
+                              ],
+                            ),
+                          ],
+                        ),
+                        BannerSlot(
+                          spacing: 0,
+                          child: !_canSave
+                              ? Padding(
+                                  padding: const EdgeInsets.only(top: 12),
+                                  child: WarningBanner(
+                                    title: strings.get('per_app_proxy'),
+                                    message: strings.get('per_app_need_one'),
+                                    danger: true,
+                                  ),
+                                )
+                              : null,
+                        ),
+                      ],
                     ],
                   ),
                 ),
               ),
-              ContentSection(
-                padding: EdgeInsets.zero,
-                child: _buildAppList(context, visible),
-              ),
+              if (_enabled)
+                ContentSection(
+                  padding: EdgeInsets.zero,
+                  child: _buildAppList(context, visible),
+                ),
             ],
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _modeSelector(BuildContext context) {
+    final strings = widget.controller.strings;
+    return LayoutBuilder(
+      builder: (context, constraints) => SegmentedButton<PerAppMode>(
+        key: const ValueKey('per-app-mode'),
+        direction:
+            constraints.maxWidth < 560 ||
+                MediaQuery.textScalerOf(context).scale(1) > 1.3
+            ? Axis.vertical
+            : Axis.horizontal,
+        segments: <ButtonSegment<PerAppMode>>[
+          ButtonSegment(
+            value: PerAppMode.off,
+            label: Text(strings.get('per_app_proxy_off')),
+          ),
+          ButtonSegment(
+            value: PerAppMode.include,
+            label: Text(strings.get('per_app_proxy_enable')),
+          ),
+          ButtonSegment(
+            value: PerAppMode.exclude,
+            label: Text(strings.get('per_app_bypass_enable')),
+          ),
+        ],
+        selected: <PerAppMode>{_mode},
+        onSelectionChanged: _saving
+            ? null
+            : (selection) => setState(() {
+                _mode = selection.first;
+                _saveError = null;
+              }),
+        showSelectedIcon: false,
       ),
     );
   }

@@ -285,6 +285,12 @@ const Map<String, String> kZhCnCatalog = <String, String>{
   'per_app_proxy_lockdown_help':
       '若系统开启了“始终开启的 VPN”和“屏蔽未使用 VPN 的所有连接”，未选中的应用会被拦截，而不是直连。',
   'per_app_proxy_tunnel_hint': '开启 VPN 后生效；SOCKS5 和 HTTP 代理不按应用区分。',
+  'per_app_bypass_enable': '绕过选中的应用',
+  'per_app_bypass_on': '已绕过 {count} 个应用',
+  'per_app_bypass_help': '勾选的应用直接联网，不经过 VPN。其他应用（包括新安装的应用）都使用 VPN。',
+  'per_app_bypass_scope': '被绕过的应用不经过 Usque，因此 Usque 的 DNS、广告拦截和分流规则对它们不生效。',
+  'per_app_bypass_lockdown_help':
+      '若系统开启了“始终开启的 VPN”和“屏蔽未使用 VPN 的所有连接”，被绕过的应用会被拦截，而不是直连。',
   'per_app_search': '搜索应用',
   'per_app_show_system': '显示系统应用',
   'per_app_select_visible': '全选可见项',

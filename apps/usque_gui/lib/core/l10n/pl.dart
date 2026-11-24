@@ -330,6 +330,14 @@ const Map<String, String> kPlCatalog = <String, String>{
       'Jeśli włączone są opcje „Stały VPN” i „Blokuj połączenia bez VPN”, niewybrane aplikacje są blokowane, a nie wysyłane poza tunel.',
   'per_app_proxy_tunnel_hint':
       'Działa, gdy VPN jest włączony. Proxy SOCKS5 i HTTP nie filtrują ruchu według aplikacji.',
+  'per_app_bypass_enable': 'Pomijaj wybrane aplikacje',
+  'per_app_bypass_on': 'Pominięte aplikacje: {count}',
+  'per_app_bypass_help':
+      'Zaznaczone aplikacje łączą się bezpośrednio, bez VPN. Wszystkie pozostałe, także nowo zainstalowane, używają VPN.',
+  'per_app_bypass_scope':
+      'Pominięte aplikacje nie przechodzą przez Usque, więc jego DNS, blokowanie reklam i reguły routingu ich nie dotyczą.',
+  'per_app_bypass_lockdown_help':
+      'Jeśli włączone są opcje „Stały VPN” i „Blokuj połączenia bez VPN”, pominięte aplikacje są blokowane zamiast łączyć się bezpośrednio.',
   'per_app_search': 'Szukaj aplikacji',
   'per_app_show_system': 'Pokaż aplikacje systemowe',
   'per_app_select_visible': 'Zaznacz widoczne',

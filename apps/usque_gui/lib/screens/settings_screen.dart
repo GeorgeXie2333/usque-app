@@ -163,14 +163,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       LinkRow(
                         icon: LucideIcons.layers3,
                         title: strings.get('per_app_proxy'),
-                        subtitle: controller.perAppProxy.enabled
-                            ? strings
-                                  .get('per_app_proxy_on')
-                                  .replaceAll(
-                                    '{count}',
-                                    '${controller.perAppProxy.packageNames.length}',
-                                  )
-                            : strings.get('per_app_proxy_off'),
+                        subtitle: switch (controller.perAppProxy.mode) {
+                          PerAppMode.off => strings.get('per_app_proxy_off'),
+                          PerAppMode.include =>
+                            strings
+                                .get('per_app_proxy_on')
+                                .replaceAll(
+                                  '{count}',
+                                  '${controller.perAppProxy.packageNames.length}',
+                                ),
+                          PerAppMode.exclude =>
+                            strings
+                                .get('per_app_bypass_on')
+                                .replaceAll(
+                                  '{count}',
+                                  '${controller.perAppProxy.bypassPackageNames.length}',
+                                ),
+                        },
                         onTap: () => _open(
                           context,
                           PerAppProxyScreen(controller: controller),

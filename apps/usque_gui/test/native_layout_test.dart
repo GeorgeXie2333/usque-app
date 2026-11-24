@@ -324,6 +324,11 @@ void main() {
                 : LocalePreference.english
             ..engineCapabilities = const EngineCapabilities(
               networkQuality: true,
+            )
+            // Exclude mode shows the most per-app banners and the app list.
+            ..perAppProxy = const PerAppProxySettings(
+              mode: PerAppMode.exclude,
+              bypassPackageNames: <String>['com.example.mail'],
             );
           try {
             final pages = <Widget>[
