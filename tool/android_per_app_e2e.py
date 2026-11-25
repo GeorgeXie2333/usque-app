@@ -6,14 +6,24 @@ registration, then the Off, Bypass and Proxy-only per-app modes through the
 real settings page. Two code-free debuggable probe apps provide the UIDs;
 `run-as` fetches Cloudflare's trace (`warp=on` or `off`) as each of them, so
 user builds without `adb root` (Android TV images) work too. Each phase also
-checks the VPN network's UID set and the kernel route chosen for each probe. Reports carry booleans, interface classes and package
-names only; addresses, trace bodies and UI text with addresses never leave the
-emulator.
+checks the VPN network's UID set and the kernel route chosen for each probe.
+
+Two routing phases follow. The app's configuration is seeded with the largest
+custom rule set (4096 rules per kind, ending in `DIRECT www.cloudflare.com`),
+so connecting hands a profile of about 1.1 MB to the VPN process; the probe
+must then see `warp=off` for that host and `warp=on` for 1.1.1.1. The rule is
+then deleted through the editor's search and saved, which sends the settings
+request and result through the same file handoff; the probe must see
+`warp=on` again and no handoff file may remain.
+
+Reports carry booleans, counts, interface classes and package names only;
+addresses, trace bodies and UI text with addresses never leave the emulator.
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import ipaddress
 import json
 import re
@@ -21,6 +31,7 @@ import shlex
 import subprocess
 import sys
 import time
+import uuid
 import xml.etree.ElementTree as ElementTree
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -45,6 +56,15 @@ MODE_LABELS = {
 }
 SAVE = "Save"
 SEARCH = "Search apps"
+BYPASS_SETTINGS = "Bypass settings"
+RULE_SEARCH = "Search rules"
+EDIT = "Edit"
+DELETE = "Delete"
+# Core limits: rules per kind and UTF-8 bytes of all targets together.
+RULES_PER_KIND = 4096
+TARGET_BUDGET = 384 * 1024
+CONFIG = "no_backup/usque_config/profiles-v2.json"
+HANDOFF_DIRECTORY = "no_backup/ipc-handoff"
 BACK = "Back"
 RETRY = "Retry"
 TERMS_ACCEPT = "I understand and accept these conditions."
@@ -217,10 +237,42 @@ def uid_in(ranges: list[tuple[int, int]], uid: int) -> bool:
     return any(low <= uid <= high for low, high in ranges)
 
 
-def is_search_field(node: Node) -> bool:
-    """The app search field: an EditText, or a TV field still being browsed."""
+def is_search_field(node: Node, hint: str = SEARCH) -> bool:
+    """A search field: an EditText, or a TV field still being browsed."""
 
-    return node.class_name.endswith("EditText") or node.has(SEARCH)
+    return node.class_name.endswith("EditText") or node.has(hint)
+
+
+def largest_rule_set(direct_host: str) -> list[dict]:
+    """Both kinds full and nearly the whole target budget spent.
+
+    Every rule rejects a documentation address or a `.test` name, except the
+    last: `DIRECT direct_host`. Its effect proves the complete list reached
+    the VPN process, since a truncated payload would lose it.
+    """
+
+    def rule(kind: str, target: str, action: str) -> dict:
+        return {"id": str(uuid.uuid4()), "kind": kind, "target": target, "action": action}
+
+    rules = [
+        rule(
+            "cidr",
+            f"2001:db8:aaaa:bbbb:cccc:dddd:{0x8000 | index >> 8:04x}:"
+            f"{0x8000 | index & 0xFF:04x}/128",
+            "reject",
+        )
+        for index in range(RULES_PER_KIND)
+    ]
+    used = sum(len(item["target"]) for item in rules) + len(direct_host)
+    domains = RULES_PER_KIND - 1
+    length = min((TARGET_BUDGET - used) // domains, 63 + len(".test"))
+    for index in range(domains):
+        label = f"r{index:04d}-"
+        rules.append(
+            rule("domain", label + "a" * (length - len(label) - len(".test")) + ".test", "reject")
+        )
+    rules.append(rule("domain", direct_host, "direct"))
+    return rules
 
 
 def swipe_path(
@@ -566,7 +618,10 @@ class Device:
             self.key("KEYCODE_DPAD_DOWN")
         raise HarnessError("D-pad focus never reached the mode selector")
 
-    def set_search(self, value: str) -> None:
+    def set_search(self, value: str, hint: str = SEARCH) -> None:
+        def field(node: Node) -> bool:
+            return is_search_field(node, hint)
+
         def clear_and_type() -> None:
             self.key("KEYCODE_MOVE_END")
             self.shell("input keyevent " + " ".join(["KEYCODE_DEL"] * 80))
@@ -575,9 +630,9 @@ class Device:
             time.sleep(1.5)
 
         # Tapping also starts editing a TV field, which is browsed until then.
-        self.tap(self.scroll_to(is_search_field))
+        self.tap(self.scroll_to(field))
         clear_and_type()
-        current = self.scroll_to(is_search_field)
+        current = self.scroll_to(field)
         # Package names contain dots; the empty field shows only its hint.
         typed = value in current.labels if value else not current.mentions(".")
         if typed:
@@ -673,6 +728,97 @@ class Device:
             time.sleep(1.5)
         raise HarnessError(f"saving mode {mode} did not close the page")
 
+    # Routing rules ------------------------------------------------------
+
+    def run_as(self, script: str, data: bytes | None = None, timeout: float = 120) -> str:
+        """Run `script` as the debuggable app, optionally with stdin `data`."""
+
+        command = [
+            self.adb,
+            "-s",
+            self.serial,
+            "shell",
+            f"run-as {PACKAGE} sh -c {shlex.quote(script)}",
+        ]
+        result = subprocess.run(  # noqa: S603 - fixed adb executable and harness arguments
+            command, input=data, capture_output=True, timeout=timeout, check=False
+        )
+        if result.returncode != 0:
+            raise HarnessError(f"run-as failed: {redact(result.stderr.decode(errors='replace'))}")
+        return result.stdout.decode(errors="replace")
+
+    def seed_rules(self, rules: list[dict]) -> None:
+        """Stop the app and store `rules` in its configuration file."""
+
+        self.shell(f"am force-stop {PACKAGE}")
+        time.sleep(2)
+        config = json.loads(self.run_as(f"cat {CONFIG}"))
+        config["network"]["routing"]["rules"] = rules
+        data = json.dumps(config, separators=(",", ":")).encode()
+        self.run_as(f"cat > {CONFIG}.new && mv {CONFIG}.new {CONFIG}", data=data)
+        stored = self.run_as(f"sha256sum {CONFIG}").split()[0]
+        if stored != hashlib.sha256(data).hexdigest():
+            raise HarnessError("the seeded configuration was not stored intact")
+        self.say(f"rules: stored {len(rules)} rules in a {len(data)}-byte configuration")
+
+    def handoff_files(self) -> int:
+        listing = self.run_as(f"ls {HANDOFF_DIRECTORY} 2>/dev/null; true")
+        return len([line for line in listing.splitlines() if line.strip()])
+
+    def open_bypass_settings(self) -> None:
+        def is_row(node: Node) -> bool:
+            return node.has(BYPASS_SETTINGS) and node.clickable
+
+        nodes = self.dump()
+        row = next((node for node in nodes if is_row(node)), None)
+        if row is None:
+            self.tap(self.wait_label(SETTINGS))
+            row = self.scroll_to(is_row)
+        self.tap(row)
+        # The search field exists only for lists longer than 50 rules.
+        self.wait_label(RULE_SEARCH, timeout=90, clickable=False)
+        self.say("rules: the editor shows the search field for the large list")
+
+    def delete_rule(self, target: str) -> None:
+        """Find `target` through the editor search, delete it and save."""
+
+        def is_row(node: Node) -> bool:
+            return (
+                node.mentions(target) and node.clickable and not is_search_field(node, RULE_SEARCH)
+            )
+
+        self.set_search(target, RULE_SEARCH)
+        row = self.scroll_to(is_row)
+        nodes = self.dump()
+        top, bottom = row.bounds[1], row.bounds[3]
+        menu = next(
+            (
+                node
+                for node in nodes
+                if node.has(EDIT)
+                and node.clickable
+                and not node.mentions(target)
+                and top <= node.center[1] <= bottom
+            ),
+            None,
+        )
+        if menu is not None:
+            self.tap(menu)
+        else:
+            # The trailing menu button sits at the row's end edge.
+            self.say("rules: menu button not exposed; tapping the row's end")
+            self.shell(f"input tap {row.bounds[2] - 48} {row.center[1]}")
+            time.sleep(1.2)
+        self.tap(self.wait_label(DELETE, timeout=20))
+        if any(is_row(node) for node in self.dump()):
+            raise HarnessError("the rule is still listed after Delete")
+
+        def is_save(node: Node) -> bool:
+            return node.has(SAVE) and node.clickable and node.enabled
+
+        self.tap(self.scroll_to(is_save))
+        self.say("rules: deleted the DIRECT rule and saved")
+
     # Observations -------------------------------------------------------
 
     def vpn_ranges(self, owner_uid: int) -> list[tuple[int, int]] | None:
@@ -684,15 +830,15 @@ class Device:
         output = self.shell(f"ip -4 route get {ROUTE_PROBE} uid {uid}", check=False)
         return parse_route_device(output)
 
-    def warp(self, package: str) -> str | None:
-        """Fetch Cloudflare's trace as `package` and return its `warp` field."""
+    def warp(self, package: str, host: str = TRACE_HOST) -> str | None:
+        """Fetch Cloudflare's trace from `host` as `package`; return `warp`."""
 
         request = (
-            f"GET /cdn-cgi/trace HTTP/1.1\\r\\nHost: {TRACE_HOST}\\r\\n"
+            f"GET /cdn-cgi/trace HTTP/1.1\\r\\nHost: {host}\\r\\n"
             "User-Agent: usque-android-e2e\\r\\nConnection: close\\r\\n\\r\\n"
         )
         # Keep stdin open so nc reads the reply before the server closes.
-        script = f"(printf '{request}'; sleep 6) | nc -w 15 {TRACE_HOST} 80"
+        script = f"(printf '{request}'; sleep 6) | nc -w 15 {host} 80"
         command = f"run-as {package} sh -c {shlex.quote(script)}"
         for _ in range(3):
             value = parse_warp(self.shell(command, timeout=45, check=False))
@@ -751,6 +897,64 @@ def observe(
     return result
 
 
+def wait_warp(device: Device, package: str, host: str, wanted: str, timeout: float) -> str | None:
+    deadline = time.monotonic() + timeout
+    value = None
+    while time.monotonic() < deadline:
+        value = device.warp(package, host)
+        if value == wanted:
+            return value
+        time.sleep(6)
+    return value
+
+
+def rule_phases(device: Device, owner_uid: int, probe: str):
+    """Connect with the largest rule set, then delete its DIRECT rule in the UI.
+
+    The profile (about 1.1 MB) crosses into the VPN process through the file
+    handoff; the save sends the settings request and receives the settings
+    result the same way. The probe stays inside the VPN in both phases.
+    """
+
+    rules = largest_rule_set(TRACE_HOST)
+    device.seed_rules(rules)
+    device.launch()
+    retries = device.connect(owner_uid)
+    in_vpn = uid_in(device.vpn_ranges(owner_uid) or [], device.package_uid(probe))
+    direct = wait_warp(device, probe, TRACE_HOST, "off", 150)
+    tunnel = wait_warp(device, probe, ROUTE_PROBE, "on", 90)
+    yield (
+        "5-rules-connect",
+        {
+            "rules": len(rules),
+            "target_bytes": sum(len(rule["target"].encode()) for rule in rules),
+            "connect_retries": retries,
+            "in_vpn_uid_ranges": in_vpn,
+            "direct_rule_trace_warp": direct,
+            "tunnel_trace_warp": tunnel,
+            "passed": in_vpn and direct == "off" and tunnel == "on",
+        },
+    )
+
+    device.open_bypass_settings()
+    device.delete_rule(TRACE_HOST)
+    after = wait_warp(device, probe, TRACE_HOST, "on", 180)
+    leftovers = device.handoff_files()
+    for _ in range(4):
+        if leftovers == 0:
+            break
+        time.sleep(5)
+        leftovers = device.handoff_files()
+    yield (
+        "6-rules-edit",
+        {
+            "direct_rule_trace_warp": after,
+            "handoff_files_left": leftovers,
+            "passed": after == "on" and leftovers == 0,
+        },
+    )
+
+
 def run(arguments: argparse.Namespace) -> dict:
     device = Device(arguments.adb, arguments.serial)
     report: dict = {"device": arguments.device, "phases": {}, "passed": False}
@@ -788,6 +992,9 @@ def run(arguments: argparse.Namespace) -> dict:
                 device.apply_mode(mode, selected, unselected, dpad, initial)
             report["phases"][name] = observe(device, owner_uid, probes, expected)
             device.say(f"phase {name}: {'pass' if report['phases'][name]['passed'] else 'FAIL'}")
+        for name, phase in rule_phases(device, owner_uid, first):
+            report["phases"][name] = phase
+            device.say(f"phase {name}: {'pass' if phase['passed'] else 'FAIL'}")
         report["passed"] = all(phase["passed"] for phase in report["phases"].values())
     except (HarnessError, subprocess.TimeoutExpired) as error:
         report["error"] = redact(str(error))

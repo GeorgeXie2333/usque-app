@@ -1,5 +1,6 @@
 """Offline tests for the Android per-app emulator harness parsers."""
 
+import ipaddress
 import unittest
 
 import android_per_app_e2e as harness
@@ -100,6 +101,45 @@ class ParsingTests(unittest.TestCase):
         nodes = harness.parse_nodes(harness.redact(xml_text))
         self.assertTrue(nodes[0].has("00:00:12"))
         self.assertTrue(nodes[1].has("Exit [ipv4] [ipv6]"))
+
+
+class RuleSetTests(unittest.TestCase):
+    def test_largest_rule_set_fills_both_kinds_within_the_budget(self):
+        rules = harness.largest_rule_set("www.cloudflare.com")
+        self.assertEqual(len(rules), 2 * harness.RULES_PER_KIND)
+        kinds = [rule["kind"] for rule in rules]
+        self.assertEqual(kinds.count("cidr"), harness.RULES_PER_KIND)
+        self.assertEqual(kinds.count("domain"), harness.RULES_PER_KIND)
+        total = sum(len(rule["target"].encode()) for rule in rules)
+        self.assertLessEqual(total, harness.TARGET_BUDGET)
+        self.assertGreater(total, harness.TARGET_BUDGET - harness.RULES_PER_KIND)
+        self.assertEqual(len({rule["target"] for rule in rules}), len(rules))
+        self.assertEqual(len({rule["id"] for rule in rules}), len(rules))
+        self.assertEqual(
+            rules[-1],
+            {**rules[-1], "kind": "domain", "target": "www.cloudflare.com", "action": "direct"},
+        )
+        self.assertTrue(all(rule["action"] == "reject" for rule in rules[:-1]))
+        documentation = ipaddress.ip_network("2001:db8::/32")
+        for rule in rules:
+            if rule["kind"] == "cidr":
+                network = ipaddress.ip_network(rule["target"])
+                self.assertEqual(network.prefixlen, 128)
+                self.assertTrue(network.subnet_of(documentation))
+                self.assertEqual(f"{network.network_address}/128", rule["target"])
+            elif rule["action"] == "reject":
+                labels = rule["target"].split(".")
+                self.assertEqual(labels[-1], "test")
+                self.assertTrue(all(0 < len(label) <= 63 for label in labels))
+                self.assertLessEqual(len(rule["target"]), 253)
+
+    def test_search_field_hint_is_configurable(self):
+        node = harness.parse_nodes(
+            '<hierarchy><node class="android.view.View" hint="Search rules"'
+            ' bounds="[0,0][10,10]" /></hierarchy>'
+        )[0]
+        self.assertTrue(harness.is_search_field(node, harness.RULE_SEARCH))
+        self.assertFalse(harness.is_search_field(node))
 
 
 class UiTests(unittest.TestCase):

@@ -19,7 +19,7 @@ on:
         type: boolean
         default: false
       android_per_app_e2e:
-        description: Run Android per-app acceptance on hosted phone and TV emulators (registers one free WARP test device per emulator)
+        description: Run Android per-app and routing acceptance on hosted phone and TV emulators (registers one free WARP test device per emulator)
         type: boolean
         default: false
 

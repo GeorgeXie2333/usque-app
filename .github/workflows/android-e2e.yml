@@ -1,4 +1,4 @@
-name: Android per-app acceptance
+name: Android per-app and routing acceptance
 
 on:
   workflow_call:
@@ -90,7 +90,7 @@ jobs:
           retention-days: 1
 
   emulator:
-    name: Android per-app acceptance (${{ matrix.device }})
+    name: Android per-app and routing acceptance (${{ matrix.device }})
     needs: apk
     runs-on: ubuntu-24.04
     timeout-minutes: 90
@@ -189,7 +189,7 @@ jobs:
           echo "::error::adb did not see the emulator within 10 minutes"
           exit 1
 
-      - name: Exercise Off, Bypass and Proxy-only per-app modes
+      - name: Exercise per-app modes and the largest routing rule set
         env:
           DEVICE: ${{ matrix.device }}
         run: |
