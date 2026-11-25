@@ -411,6 +411,10 @@ const Map<String, String> kRuCatalog = <String, String>{
   'bypass_unsupported':
       'Эта версия Usque не поддерживает свои цели обхода. Проверьте обновления в Настройках.',
   'bypass_limit': 'Не более 256 правил адресов и 256 доменов.',
+  'routing_limit':
+      'Не более 4096 правил адресов и 4096 доменов, всего до 384 КБ текста правил.',
+  'routing_search': 'Поиск правил',
+  'routing_show_more': 'Показать ещё (осталось {count})',
   'bypass_line_error': 'Строка {line}: {reason}',
   'bypass_summary': 'Регионов: {countries} · Своих целей: {targets}',
   'geo_direct_help':

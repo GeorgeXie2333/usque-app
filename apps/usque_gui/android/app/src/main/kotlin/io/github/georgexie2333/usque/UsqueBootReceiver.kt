@@ -3,6 +3,7 @@ package io.github.georgexie2333.usque
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.UserManager
@@ -43,7 +44,17 @@ class UsqueBootReceiver : BroadcastReceiver() {
                 val catalog =
                     NativeEngine.applyProfileCommand(path, "{\"command\":\"list_profiles\"}") ?: return@execute
                 val profile = BootConnectPolicy.profile(catalog) ?: return@execute
+                // Written off the main thread; removed below if nothing starts.
+                val extras = Bundle()
+                val handoff =
+                    LargeIpcPayload.putString(
+                        LargeIpcPayload.directory(context),
+                        extras,
+                        UsqueVpnService.EXTRA_PROFILE_JSON,
+                        profile,
+                    )
                 handler.post {
+                    var started = false
                     if (completed.compareAndSet(false, true)) {
                         try {
                             if (policy.getBoolean(UsqueVpnService.START_ON_BOOT, false)) {
@@ -51,8 +62,9 @@ class UsqueBootReceiver : BroadcastReceiver() {
                                     context,
                                     Intent(context, UsqueVpnService::class.java)
                                         .setAction(UsqueVpnService.ACTION_CONNECT)
-                                        .putExtra(UsqueVpnService.EXTRA_PROFILE_JSON, profile),
+                                        .putExtras(extras),
                                 )
+                                started = true
                             }
                         } catch (_: RuntimeException) {
                             // OS policy can deny background start; never reuse a cached profile.
@@ -62,6 +74,7 @@ class UsqueBootReceiver : BroadcastReceiver() {
                             backgroundWork.close()
                         }
                     }
+                    if (!started) handoff?.let { LargeIpcPayload.discard(listOf(it)) }
                 }
             } catch (_: Exception) {
                 // Missing/corrupt policy fails closed: boot never guesses a profile.

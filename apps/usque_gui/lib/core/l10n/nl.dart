@@ -413,6 +413,10 @@ const Map<String, String> kNlCatalog = <String, String>{
   'bypass_unsupported':
       'Deze versie van Usque ondersteunt geen eigen omzeilingsdoelen. Controleer op updates bij Instellingen.',
   'bypass_limit': 'Maximaal 256 adresregels en 256 domeinen.',
+  'routing_limit':
+      'Maximaal 4096 adresregels en 4096 domeinen, met in totaal maximaal 384 KB regeltekst.',
+  'routing_search': 'Regels zoeken',
+  'routing_show_more': 'Meer tonen (nog {count})',
   'bypass_line_error': 'Regel {line}: {reason}',
   'bypass_summary': '{countries} regio’s · {targets} eigen doelen',
   'geo_direct_help':

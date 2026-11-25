@@ -313,6 +313,11 @@ class NetworkSettingsController extends ChangeNotifier {
             routingErrorKey = routingError.group(1) == 'CONFLICT'
                 ? 'routing_conflict'
                 : 'invalid_dns_name';
+          } else if ('${error.code} ${error.message}'.contains(
+            'ROUTING_RULE_LIMIT',
+          )) {
+            // A limit names no rule; the screen shows the message on its own.
+            routingErrorKey = 'routing_limit';
           }
           final invalidDomain = RegExp(
             r'invalid bypass domain at entry (\d+)',

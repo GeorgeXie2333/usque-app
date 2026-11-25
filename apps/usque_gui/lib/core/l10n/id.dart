@@ -409,6 +409,10 @@ const Map<String, String> kIdCatalog = <String, String>{
   'bypass_unsupported':
       'Versi Usque ini tidak mendukung target langsung khusus. Periksa pembaruan di Pengaturan.',
   'bypass_limit': 'Maksimal 256 aturan alamat dan 256 domain.',
+  'routing_limit':
+      'Maksimal 4096 aturan alamat dan 4096 domain, dengan total teks aturan hingga 384 KB.',
+  'routing_search': 'Cari aturan',
+  'routing_show_more': 'Tampilkan lebih banyak ({count} lagi)',
   'bypass_line_error': 'Baris {line}: {reason}',
   'bypass_summary': '{countries} wilayah · {targets} target khusus',
   'geo_direct_help':

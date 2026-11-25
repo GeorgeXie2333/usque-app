@@ -386,6 +386,9 @@ const Map<String, String> kJaCatalog = <String, String>{
       '1行にCIDR、IPまたはドメインを入力。ドメインは全サブドメインを含みます。独自の暗号化DNSを使うアプリはIPのみで判定します。',
   'bypass_unsupported': 'このバージョンの Usque はカスタムバイパス対象に対応していません。「設定」で更新を確認してください。',
   'bypass_limit': 'アドレス規則とドメインはそれぞれ最大256件です。',
+  'routing_limit': 'アドレス規則とドメインはそれぞれ最大4096件、規則テキストは合計384 KBまでです。',
+  'routing_search': 'ルールを検索',
+  'routing_show_more': 'さらに表示（残り{count}件）',
   'bypass_line_error': '{line}行目: {reason}',
   'bypass_summary': '地域 {countries}件 · カスタム対象 {targets}件',
   'geo_direct_help':

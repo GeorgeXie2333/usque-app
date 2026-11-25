@@ -1049,13 +1049,23 @@ class MainActivity : FlutterFragmentActivity() {
         mode: String,
         result: MethodChannel.Result,
     ) {
-        val intent =
-            Intent(this, UsqueVpnService::class.java)
-                .setAction(UsqueVpnService.ACTION_CONNECT)
-                .putExtra(UsqueVpnService.EXTRA_PROFILE_JSON, profileJson)
+        var handoff: LargeIpcPayload.Handoff? = null
         try {
+            val extras = Bundle()
+            handoff =
+                LargeIpcPayload.putString(
+                    LargeIpcPayload.directory(this),
+                    extras,
+                    UsqueVpnService.EXTRA_PROFILE_JSON,
+                    profileJson,
+                )
+            val intent =
+                Intent(this, UsqueVpnService::class.java)
+                    .setAction(UsqueVpnService.ACTION_CONNECT)
+                    .putExtras(extras)
             ContextCompat.startForegroundService(this, intent)
         } catch (error: Exception) {
+            handoff?.let { LargeIpcPayload.discard(listOf(it)) }
             result.error(
                 "ENGINE_START_FAILED",
                 "Android could not start the network service.",

@@ -9,5 +9,7 @@ internal fun expandedNativeCapabilities(): String =
         .put("h3_congestion_control_algorithms", JSONArray(listOf("cubic", "reno", "bbr", "bbr3")))
         .put("tls_fingerprints", JSONArray(listOf("default", "chrome155")))
         .put("max_masque_connections", 8)
+        .put("max_routing_rules_per_kind", 4096)
+        .put("max_routing_target_bytes", 384 * 1024)
         .put("future_capability", true)
         .toString()

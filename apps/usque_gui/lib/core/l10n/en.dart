@@ -406,6 +406,10 @@ const Map<String, String> kEnCatalog = <String, String>{
   'bypass_unsupported':
       'This version of Usque does not support custom bypass targets. Check for updates in Settings.',
   'bypass_limit': 'At most 256 address rules and 256 domains.',
+  'routing_limit':
+      'At most 4096 address rules and 4096 domains, with up to 384 KB of rule text in total.',
+  'routing_search': 'Search rules',
+  'routing_show_more': 'Show more ({count} left)',
   'bypass_line_error': 'Line {line}: {reason}',
   'bypass_summary': '{countries} regions · {targets} custom targets',
   'geo_direct_help':

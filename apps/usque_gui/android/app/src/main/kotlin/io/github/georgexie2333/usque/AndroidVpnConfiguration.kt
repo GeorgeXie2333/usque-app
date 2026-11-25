@@ -50,7 +50,7 @@ internal data class AndroidVpnProfile(
             )
 
         fun parse(profileJson: String): AndroidVpnProfile {
-            require(profileJson.toByteArray(Charsets.UTF_8).size <= 256 * 1024) {
+            require(profileJson.toByteArray(Charsets.UTF_8).size <= LargeIpcPayload.MAX_PROFILE_BYTES) {
                 "Android profile exceeds the safety limit"
             }
             val source = JSONObject(profileJson)

@@ -35,11 +35,12 @@ pub use endpoint_preset::{EndpointPresetRegion, EndpointPresetTier};
 pub use initial_identity::{InitialIdentityOperation, InitialIdentityPhase};
 pub use network::SharedNetworkSettings;
 pub use routing::{
-    MAX_ROUTING_RULES_PER_KIND, RoutingAction, RoutingMatch, RoutingRule, RoutingSettings,
+    MAX_ROUTING_RULES_PER_KIND, MAX_ROUTING_TARGET_BYTES, RoutingAction, RoutingMatch, RoutingRule,
+    RoutingSettings, largest_routing_settings,
 };
 pub use tls_fingerprint::TlsFingerprint;
 
-pub const CURRENT_SCHEMA_VERSION: u32 = 28;
+pub const CURRENT_SCHEMA_VERSION: u32 = 29;
 pub const MAX_MASQUE_CONNECTIONS: u8 = 8;
 
 pub const fn default_masque_connections() -> u8 {
@@ -306,7 +307,10 @@ impl AppConfig {
         }
 
         let mut ids = HashSet::new();
-        let network = self.network.clone();
+        // Routing is device-wide and validated alone; hydrating every account
+        // with up to 8192 rules would repeat the same work per account.
+        let mut network = self.network.clone();
+        std::mem::take(&mut network.routing).normalized()?;
         for account in &self.profiles {
             if !ids.insert(account.id) {
                 return Err(ConfigError::DuplicateProfileId(account.id));

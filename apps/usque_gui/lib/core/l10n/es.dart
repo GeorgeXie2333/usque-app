@@ -417,6 +417,10 @@ const Map<String, String> kEsCatalog = <String, String>{
   'bypass_unsupported':
       'Esta versión de Usque no admite destinos directos personalizados. Busca actualizaciones en Ajustes.',
   'bypass_limit': 'Máximo 256 reglas de direcciones y 256 dominios.',
+  'routing_limit':
+      'Máximo 4096 reglas de direcciones y 4096 dominios, con hasta 384 KB de texto de reglas en total.',
+  'routing_search': 'Buscar reglas',
+  'routing_show_more': 'Mostrar más (quedan {count})',
   'bypass_line_error': 'Línea {line}: {reason}',
   'bypass_summary': '{countries} regiones · {targets} destinos personalizados',
   'geo_direct_help':

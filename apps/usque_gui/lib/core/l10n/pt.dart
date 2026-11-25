@@ -414,6 +414,10 @@ const Map<String, String> kPtCatalog = <String, String>{
   'bypass_unsupported':
       'Esta versão do Usque não suporta destinos diretos personalizados. Procure atualizações em Configurações.',
   'bypass_limit': 'Máximo de 256 regras de endereços e 256 domínios.',
+  'routing_limit':
+      'Máximo de 4096 regras de endereços e 4096 domínios, com até 384 KB de texto de regras no total.',
+  'routing_search': 'Pesquisar regras',
+  'routing_show_more': 'Mostrar mais ({count} restantes)',
   'bypass_line_error': 'Linha {line}: {reason}',
   'bypass_summary': '{countries} regiões · {targets} destinos personalizados',
   'geo_direct_help':

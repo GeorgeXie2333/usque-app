@@ -568,6 +568,12 @@ fn migrate_app_config(config: &mut AppConfig) {
         config.network.masque_connections = crate::config::default_masque_connections();
         config.schema_version = 28;
     }
+    if config.schema_version < 29 {
+        // Schema 29 raises the rule limit to 4096 per kind. Nothing changes
+        // on upgrade; the version stops older releases from loading rule sets
+        // they would reject.
+        config.schema_version = 29;
+    }
 }
 
 #[cfg(not(windows))]

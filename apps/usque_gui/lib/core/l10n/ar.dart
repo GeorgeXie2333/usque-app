@@ -402,6 +402,10 @@ const Map<String, String> kArCatalog = <String, String>{
   'bypass_unsupported':
       'لا يدعم هذا الإصدار من Usque وجهات التجاوز المخصصة. تحقق من وجود تحديثات في الإعدادات.',
   'bypass_limit': 'بحد أقصى 256 قاعدة عناوين و256 نطاقاً.',
+  'routing_limit':
+      'بحد أقصى 4096 قاعدة عناوين و4096 نطاقاً، وبإجمالي نص قواعد لا يتجاوز 384 كيلوبايت.',
+  'routing_search': 'البحث في القواعد',
+  'routing_show_more': 'عرض المزيد (متبقٍ {count})',
   'bypass_line_error': 'السطر {line}: {reason}',
   'bypass_summary': '{countries} مناطق · {targets} وجهات مخصصة',
   'geo_direct_help':

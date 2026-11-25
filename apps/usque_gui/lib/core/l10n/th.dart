@@ -406,6 +406,10 @@ const Map<String, String> kThCatalog = <String, String>{
   'bypass_unsupported':
       'Usque เวอร์ชันนี้ไม่รองรับปลายทางเชื่อมต่อตรงที่กำหนดเอง ตรวจหาอัปเดตในการตั้งค่า',
   'bypass_limit': 'สูงสุด 256 กฎที่อยู่และ 256 โดเมน',
+  'routing_limit':
+      'สูงสุด 4096 กฎที่อยู่และ 4096 โดเมน โดยข้อความกฎรวมไม่เกิน 384 KB',
+  'routing_search': 'ค้นหากฎ',
+  'routing_show_more': 'แสดงเพิ่ม (เหลือ {count})',
   'bypass_line_error': 'บรรทัด {line}: {reason}',
   'bypass_summary': '{countries} ภูมิภาค · {targets} ปลายทางที่กำหนดเอง',
   'geo_direct_help':

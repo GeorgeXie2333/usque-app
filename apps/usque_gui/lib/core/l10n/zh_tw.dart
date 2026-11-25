@@ -362,6 +362,9 @@ const Map<String, String> kZhTwCatalog = <String, String>{
       '每行一個 CIDR、IP 或網域。網域包含所有子網域；自行使用加密 DNS 的應用程式只能按 IP 分流。',
   'bypass_unsupported': '此版本的 Usque 不支援自訂直連目標，請在「設定」中檢查更新。',
   'bypass_limit': '最多 256 條位址規則和 256 個網域。',
+  'routing_limit': '最多 4096 條位址規則和 4096 個網域，規則文字總計不超過 384 KB。',
+  'routing_search': '搜尋規則',
+  'routing_show_more': '顯示更多（還有 {count} 條）',
   'bypass_line_error': '第 {line} 行：{reason}',
   'bypass_summary': '{countries} 個地區 · {targets} 個自訂目標',
   'geo_direct_help':

@@ -412,6 +412,10 @@ const Map<String, String> kTrCatalog = <String, String>{
   'bypass_unsupported':
       'Usque’nin bu sürümü özel atlama hedeflerini desteklemiyor. Ayarlar’dan güncellemeleri denetleyin.',
   'bypass_limit': 'En fazla 256 adres kuralı ve 256 alan adı.',
+  'routing_limit':
+      'En fazla 4096 adres kuralı ve 4096 alan adı; toplam kural metni en fazla 384 KB.',
+  'routing_search': 'Kurallarda ara',
+  'routing_show_more': 'Daha fazla göster ({count} kaldı)',
   'bypass_line_error': 'Satır {line}: {reason}',
   'bypass_summary': '{countries} bölge · {targets} özel hedef',
   'geo_direct_help':

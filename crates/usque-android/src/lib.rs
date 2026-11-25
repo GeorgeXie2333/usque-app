@@ -165,6 +165,8 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeCap
             "h3_congestion_control_algorithms": if engine_ready() { usque_core::CongestionControlAlgorithm::ALL.to_vec() } else { Vec::new() },
             "tls_fingerprints": if engine_ready() { usque_core::TlsFingerprint::ALL.to_vec() } else { Vec::new() },
             "max_masque_connections": if engine_ready() { usque_core::MAX_MASQUE_CONNECTIONS } else { 0 },
+            "max_routing_rules_per_kind": if engine_ready() { usque_core::config::MAX_ROUTING_RULES_PER_KIND } else { 0 },
+            "max_routing_target_bytes": if engine_ready() { usque_core::config::MAX_ROUTING_TARGET_BYTES } else { 0 },
             "l4_masque_connections": engine_ready(),
         })
         .to_string();
@@ -1223,8 +1225,12 @@ fn default_proxy_dns_v6() -> String {
     usque_core::config::DEFAULT_DNS_V6.to_string()
 }
 
+/// One profile, including up to 8192 device-wide routing rules (about 1.2 MB
+/// of JSON). Kotlin applies the same bound before handing a profile over.
+const MAX_ANDROID_PROFILE_BYTES: usize = 2 * 1024 * 1024;
+
 fn parse_android_profile(json: &str) -> Result<Profile, String> {
-    if json.len() > 256 * 1024 {
+    if json.len() > MAX_ANDROID_PROFILE_BYTES {
         return Err("Android profile exceeds the safety limit".to_owned());
     }
     let source: AndroidProfile =

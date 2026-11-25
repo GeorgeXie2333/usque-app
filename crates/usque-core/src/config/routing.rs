@@ -7,7 +7,11 @@ use uuid::Uuid;
 
 use super::{ConfigError, IpNet, canonical_bypass_domain};
 
-pub const MAX_ROUTING_RULES_PER_KIND: usize = 256;
+pub const MAX_ROUTING_RULES_PER_KIND: usize = 4096;
+/// Bound on the canonical targets of all rules together. With the per-kind
+/// count it keeps one encoded rule set near 1 MiB, so every message and store
+/// that carries the device-wide rules stays within its own size limit.
+pub const MAX_ROUTING_TARGET_BYTES: usize = 384 * 1024;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -49,6 +53,7 @@ impl RoutingSettings {
         let mut ids = HashSet::new();
         let mut targets = HashMap::new();
         let mut counts = [0_usize; 2];
+        let mut target_bytes = 0_usize;
         for rule in &self.rules {
             if rule.id.is_nil() || !ids.insert(rule.id) {
                 return Err(ConfigError::InvalidRoutingRule(rule.id));
@@ -74,7 +79,8 @@ impl RoutingSettings {
             }
             let count = &mut counts[usize::from(rule.kind == RoutingMatch::Cidr)];
             *count += 1;
-            if *count > MAX_ROUTING_RULES_PER_KIND {
+            target_bytes += target.len();
+            if *count > MAX_ROUTING_RULES_PER_KIND || target_bytes > MAX_ROUTING_TARGET_BYTES {
                 return Err(ConfigError::RoutingLimit);
             }
             targets.insert(key, rules.len());
@@ -158,6 +164,40 @@ impl RoutingSettings {
         self.rules
             .iter()
             .any(|rule| rule.kind == RoutingMatch::Cidr)
+    }
+}
+
+/// The largest rule set by encoded size: both kinds full and the whole
+/// target budget spent. Size tests for each message and store that carries
+/// the device-wide rules use it.
+#[doc(hidden)]
+pub fn largest_routing_settings() -> RoutingSettings {
+    // Eight four-digit groups and "/128": the longest canonical CIDR.
+    const CIDR_BYTES: usize = 43;
+    let per_kind = MAX_ROUTING_RULES_PER_KIND;
+    let domain_bytes = (MAX_ROUTING_TARGET_BYTES - per_kind * CIDR_BYTES) / per_kind;
+    let rule = |kind, target| RoutingRule {
+        id: Uuid::new_v4(),
+        kind,
+        target,
+        action: RoutingAction::Reject,
+    };
+    let mut rules = Vec::with_capacity(per_kind * 2);
+    for index in 0..per_kind {
+        let [high, low] = u16::try_from(index).expect("rule index").to_be_bytes();
+        let (high, low) = (0x8000 | u16::from(high), 0x8000 | u16::from(low));
+        rules.push(rule(
+            RoutingMatch::Cidr,
+            format!("2001:db8f:aaaa:bbbb:cccc:dddd:{high:04x}:{low:04x}/128"),
+        ));
+        rules.push(rule(
+            RoutingMatch::Domain,
+            format!("h{index:04}.{}", "a".repeat(domain_bytes - 6)),
+        ));
+    }
+    RoutingSettings {
+        rules,
+        ads_enabled: true,
     }
 }
 
@@ -279,6 +319,82 @@ mod tests {
             same.normalized(),
             Err(ConfigError::RoutingConflict(_, _))
         ));
+    }
+
+    fn bulk(
+        kind: RoutingMatch,
+        count: usize,
+        target: impl Fn(usize) -> String,
+    ) -> Vec<RoutingRule> {
+        (0..count)
+            .map(|index| RoutingRule {
+                id: Uuid::new_v4(),
+                kind,
+                target: target(index),
+                action: RoutingAction::Direct,
+            })
+            .collect()
+    }
+
+    fn cidr(index: usize) -> String {
+        let [_, _, high, low] = u32::try_from(index).unwrap().to_be_bytes();
+        format!("10.{high}.{low}.0/24")
+    }
+
+    #[test]
+    fn rule_count_limit_is_per_kind() {
+        let mut rules = bulk(RoutingMatch::Cidr, MAX_ROUTING_RULES_PER_KIND, cidr);
+        rules.extend(bulk(
+            RoutingMatch::Domain,
+            MAX_ROUTING_RULES_PER_KIND,
+            |index| format!("h{index}.example"),
+        ));
+        let mut settings = RoutingSettings {
+            rules,
+            ads_enabled: false,
+        };
+        assert_eq!(
+            settings.normalized().unwrap().rules.len(),
+            MAX_ROUTING_RULES_PER_KIND * 2
+        );
+        // A full kind rejects one more target even when the other has room.
+        settings.rules.truncate(MAX_ROUTING_RULES_PER_KIND);
+        settings
+            .rules
+            .extend(bulk(RoutingMatch::Cidr, 1, |_| "192.0.2.0/24".into()));
+        assert_eq!(settings.normalized(), Err(ConfigError::RoutingLimit));
+    }
+
+    #[test]
+    fn total_target_length_is_bounded() {
+        // 63-octet labels make the longest valid names (253 octets).
+        let name = |index: usize| {
+            let label = format!("h{index:0>62}");
+            format!("{label}.{label}.{label}.{}", "a".repeat(61))
+        };
+        assert_eq!(name(0).len(), 253);
+        let fits = MAX_ROUTING_TARGET_BYTES / 253;
+        let mut settings = RoutingSettings {
+            rules: bulk(RoutingMatch::Domain, fits, name),
+            ads_enabled: false,
+        };
+        assert_eq!(settings.normalized().unwrap().rules.len(), fits);
+        settings
+            .rules
+            .extend(bulk(RoutingMatch::Domain, 1, |_| name(fits)));
+        assert_eq!(settings.normalized(), Err(ConfigError::RoutingLimit));
+    }
+
+    #[test]
+    fn largest_rule_set_is_valid_and_spends_the_budget() {
+        let settings = largest_routing_settings().normalized().unwrap();
+        assert_eq!(settings.rules.len(), MAX_ROUTING_RULES_PER_KIND * 2);
+        let bytes: usize = settings.rules.iter().map(|rule| rule.target.len()).sum();
+        assert!(bytes <= MAX_ROUTING_TARGET_BYTES);
+        assert!(bytes + MAX_ROUTING_RULES_PER_KIND * 2 > MAX_ROUTING_TARGET_BYTES);
+        // One JSON copy stays near 1 MiB; transports budget for this bound.
+        let json = serde_json::to_vec(&settings).unwrap();
+        assert!(json.len() < 1_250_000, "{}", json.len());
     }
 
     #[test]

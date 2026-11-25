@@ -10,9 +10,9 @@ import android.os.IBinder
 import android.os.Looper
 import android.os.Message
 import android.os.Messenger
-import android.os.RemoteException
 import io.flutter.plugin.common.MethodChannel
 import org.json.JSONObject
+import java.io.File
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
@@ -70,16 +70,19 @@ internal class VpnControlClient(
                 endpointFromBinder = { binder, replyHandler ->
                     // A retry may bind the same live service. Reuse the callback
                     // Binder so its subscriber list cannot accumulate old listeners.
+                    val handoffDirectory = LargeIpcPayload.directory(context)
                     val replyMessenger =
                         replies.takeIf { repliesFor === replyHandler } ?: Messenger(
                             Handler(looper) { message ->
+                                // Large settings results arrive as file handoffs.
+                                LargeIpcPayload.inline(handoffDirectory, message.peekData())
                                 replyHandler(message.what, message.arg1, message.data)
                             },
                         ).also {
                             replies = it
                             repliesFor = replyHandler
                         }
-                    MessengerControlEndpoint(Messenger(binder), replyMessenger)
+                    MessengerControlEndpoint(Messenger(binder), replyMessenger, handoffDirectory)
                 },
                 controlServiceProcessAbsent = {
                     ControlServiceProcess.knownAbsent(
@@ -2162,28 +2165,36 @@ internal class VpnControlClient(
     private class MessengerControlEndpoint(
         private val service: Messenger,
         private val replyTo: Messenger,
+        private val handoffDirectory: File,
     ) : ControlEndpoint {
         override fun send(
             what: Int,
             requestId: Int,
             extras: Map<String, Any?>?,
-        ): Boolean =
-            try {
+        ): Boolean {
+            val handoffs = mutableListOf<LargeIpcPayload.Handoff>()
+            return try {
                 service.send(
                     Message.obtain(null, what).apply {
                         arg1 = requestId
                         replyTo = this@MessengerControlEndpoint.replyTo
                         if (extras != null) {
-                            data = extrasToBundle(extras)
+                            data = extrasToBundle(extras, handoffs)
                         }
                     },
                 )
                 true
-            } catch (_: RemoteException) {
+            } catch (_: Exception) {
+                // RemoteException, or a handoff that could not be written.
+                LargeIpcPayload.discard(handoffs)
                 false
             }
+        }
 
-        private fun extrasToBundle(extras: Map<String, Any?>): Bundle {
+        private fun extrasToBundle(
+            extras: Map<String, Any?>,
+            handoffs: MutableList<LargeIpcPayload.Handoff>,
+        ): Bundle {
             val bundle = Bundle()
             for ((key, value) in extras) {
                 when (value) {
@@ -2191,7 +2202,7 @@ internal class VpnControlClient(
                     is Boolean -> bundle.putBoolean(key, value)
                     is Int -> bundle.putInt(key, value)
                     is Long -> bundle.putLong(key, value)
-                    is String -> bundle.putString(key, value)
+                    is String -> LargeIpcPayload.putString(handoffDirectory, bundle, key, value)?.let(handoffs::add)
                     is ByteArray -> bundle.putByteArray(key, value)
                     else -> bundle.putString(key, value.toString())
                 }

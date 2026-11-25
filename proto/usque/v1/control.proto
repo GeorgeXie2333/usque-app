@@ -550,6 +550,9 @@ message Capabilities {
   bool vpn_gate_epoch_requests = 55;
   uint32 max_masque_connections = 56;
   bool l4_masque_connections = 57;
+  // Zero means an older engine: 256 rules per kind and no total target budget.
+  uint32 max_routing_rules_per_kind = 58;
+  uint32 max_routing_target_bytes = 59;
 }
 
 message FrontendStatus {

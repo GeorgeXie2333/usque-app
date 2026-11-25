@@ -410,6 +410,10 @@ const Map<String, String> kUkCatalog = <String, String>{
   'bypass_unsupported':
       'Ця версія Usque не підтримує власні цілі обходу. Перевірте оновлення в Налаштуваннях.',
   'bypass_limit': 'Не більше 256 правил адрес і 256 доменів.',
+  'routing_limit':
+      'Не більше 4096 правил адрес і 4096 доменів, загалом до 384 КБ тексту правил.',
+  'routing_search': 'Пошук правил',
+  'routing_show_more': 'Показати ще (залишилося {count})',
   'bypass_line_error': 'Рядок {line}: {reason}',
   'bypass_summary': 'Регіонів: {countries} · Власних цілей: {targets}',
   'geo_direct_help':

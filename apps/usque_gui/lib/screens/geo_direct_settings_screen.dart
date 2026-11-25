@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
@@ -29,7 +27,6 @@ class _GeoDirectSettingsScreenState extends State<GeoDirectSettingsScreen> {
   final _search = TextEditingController();
   late Set<String> _enabled;
   late RoutingSettings _routing;
-  late String _baseline;
   late String _countriesBaseline;
   late RoutingSettings _routingBaseline;
   late String _accountId;
@@ -38,11 +35,39 @@ class _GeoDirectSettingsScreenState extends State<GeoDirectSettingsScreen> {
   String? _error;
   List<String> _backendErrorIds = [];
   String? _backendErrorKey;
-  String get _draft =>
-      '${_orderedCountries(_enabled).join(',')}|${jsonEncode(_routing.toMap())}';
-  bool get _dirty => _draft != _baseline;
+  // Compared by value: encoding thousands of rules on every rebuild is slow.
+  bool get _dirty =>
+      _orderedCountries(_enabled).join(',') != _countriesBaseline ||
+      _routing != _routingBaseline;
   bool get _customAvailable =>
       widget.controller.engineCapabilities?.routingRules ?? false;
+  RoutingLimits get _limits =>
+      widget.controller.engineCapabilities?.routingLimits ??
+      RoutingLimits.legacy;
+
+  // The last validation, reused until the rules or the limits change.
+  RoutingSettings? _validatedRouting;
+  RoutingLimits? _validatedLimits;
+  RoutingValidation? _validation;
+  RoutingRuleError? _validationError;
+
+  RoutingValidation _validate() {
+    final limits = _limits;
+    if (!identical(_validatedRouting, _routing) || _validatedLimits != limits) {
+      _validatedRouting = _routing;
+      _validatedLimits = limits;
+      try {
+        _validation = _routing.validate(limits: limits);
+        _validationError = null;
+      } on RoutingRuleError catch (error) {
+        _validation = null;
+        _validationError = error;
+      }
+    }
+    final error = _validationError;
+    if (error != null) throw error;
+    return _validation!;
+  }
 
   @override
   void initState() {
@@ -63,7 +88,6 @@ class _GeoDirectSettingsScreenState extends State<GeoDirectSettingsScreen> {
             .toList(),
       );
     }
-    _baseline = _draft;
     _routingBaseline = _routing;
     _countriesBaseline = _orderedCountries(_enabled).join(',');
   }
@@ -105,7 +129,7 @@ class _GeoDirectSettingsScreenState extends State<GeoDirectSettingsScreen> {
     }
     RoutingSettings normalized;
     try {
-      normalized = _routing.validate().settings;
+      normalized = _validate().settings;
     } on RoutingRuleError catch (error) {
       setState(() {
         _error = _issue(error.key, error.ids);
@@ -142,9 +166,9 @@ class _GeoDirectSettingsScreenState extends State<GeoDirectSettingsScreen> {
         _backendErrorKey = null;
       } else {
         _backendErrorIds = controller.networkSettings.routingErrorIds;
-        _backendErrorKey =
-            controller.networkSettings.routingErrorKey ?? 'routing_conflict';
-        _error = _backendErrorIds.isEmpty
+        final routingErrorKey = controller.networkSettings.routingErrorKey;
+        _backendErrorKey = routingErrorKey ?? 'routing_conflict';
+        _error = _backendErrorIds.isEmpty && routingErrorKey == null
             ? controller.lastError ?? controller.strings.get('changes_failed')
             : _issue(_backendErrorKey!, _backendErrorIds);
       }
@@ -162,7 +186,7 @@ class _GeoDirectSettingsScreenState extends State<GeoDirectSettingsScreen> {
       var errorKey = _backendErrorKey;
       List<RoutingNotice> notices = [];
       try {
-        notices = _routing.validate().notices;
+        notices = _validate().notices;
       } on RoutingRuleError catch (error) {
         validationError = _issue(error.key, error.ids);
         errorIds = error.ids;
@@ -248,6 +272,7 @@ class _GeoDirectSettingsScreenState extends State<GeoDirectSettingsScreen> {
               RoutingRulesEditor(
                 grouped: true,
                 value: _routing,
+                limits: _limits,
                 strings: strings,
                 errorIds: errorIds,
                 errorMessage: errorKey == null ? null : strings.get(errorKey),

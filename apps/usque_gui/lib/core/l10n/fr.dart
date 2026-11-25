@@ -422,6 +422,10 @@ const Map<String, String> kFrCatalog = <String, String>{
   'bypass_unsupported':
       'Cette version d’Usque ne prend pas en charge les destinations de contournement personnalisées. Recherchez une mise à jour dans Paramètres.',
   'bypass_limit': '256 règles IP et 256 domaines maximum.',
+  'routing_limit':
+      '4096 règles IP et 4096 domaines maximum, pour 384 Ko de texte de règles au total.',
+  'routing_search': 'Rechercher des règles',
+  'routing_show_more': 'Afficher plus ({count} restantes)',
   'bypass_line_error': 'Ligne {line} : {reason}',
   'bypass_summary':
       '{countries} régions · {targets} destinations personnalisées',

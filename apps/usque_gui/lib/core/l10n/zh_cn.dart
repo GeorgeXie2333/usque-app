@@ -361,6 +361,9 @@ const Map<String, String> kZhCnCatalog = <String, String>{
       '每行一个 CIDR、IP 或域名。域名包含自身和全部子域名；应用自行使用加密 DNS 时只能按 IP 分流。',
   'bypass_unsupported': '此版本的 Usque 不支持自定义直连目标，请在“设置”中检查更新。',
   'bypass_limit': '最多支持 256 条地址规则和 256 个域名。',
+  'routing_limit': '最多 4096 条地址规则和 4096 个域名，规则文本总计不超过 384 KB。',
+  'routing_search': '搜索规则',
+  'routing_show_more': '显示更多（还有 {count} 条）',
   'bypass_line_error': '第 {line} 行：{reason}',
   'bypass_summary': '{countries} 个地区 · {targets} 个自定义目标',
   'geo_direct_help':

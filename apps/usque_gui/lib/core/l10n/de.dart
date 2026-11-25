@@ -418,6 +418,10 @@ const Map<String, String> kDeCatalog = <String, String>{
   'bypass_unsupported':
       'Diese Version von Usque unterstützt keine eigenen Umgehungsziele. Suche unter Einstellungen nach Updates.',
   'bypass_limit': 'Maximal 256 Adressregeln und 256 Domains.',
+  'routing_limit':
+      'Maximal 4096 Adressregeln und 4096 Domains, insgesamt höchstens 384 KB Regeltext.',
+  'routing_search': 'Regeln suchen',
+  'routing_show_more': 'Mehr anzeigen ({count} weitere)',
   'bypass_line_error': 'Zeile {line}: {reason}',
   'bypass_summary': '{countries} Regionen · {targets} eigene Ziele',
   'geo_direct_help':

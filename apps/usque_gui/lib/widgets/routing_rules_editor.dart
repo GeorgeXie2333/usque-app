@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
@@ -32,11 +34,12 @@ InlineStatus routingActionStatus(AppStrings strings, RoutingAction action) =>
       },
     );
 
-class RoutingRulesEditor extends StatelessWidget {
+class RoutingRulesEditor extends StatefulWidget {
   const RoutingRulesEditor({
     required this.value,
     required this.strings,
     required this.onChanged,
+    this.limits = RoutingLimits.legacy,
     this.errorIds = const [],
     this.errorMessage,
     this.overlapIds = const {},
@@ -44,6 +47,9 @@ class RoutingRulesEditor extends StatelessWidget {
     super.key,
   });
   final RoutingSettings value;
+
+  /// The engine's limits; they also bound a single paste.
+  final RoutingLimits limits;
 
   /// Draws the rules as a Settings-style [ContentGroup] of inset rows;
   /// otherwise they sit under a heading inside another form.
@@ -57,6 +63,33 @@ class RoutingRulesEditor extends StatelessWidget {
 
   /// Rules that overlap a rule with a different action.
   final Set<String> overlapIds;
+
+  /// Longer lists get a search field and are shown a page at a time, so a
+  /// few thousand rules never build a row each.
+  static const searchThreshold = 50;
+  static const pageSize = 100;
+
+  @override
+  State<RoutingRulesEditor> createState() => _RoutingRulesEditorState();
+}
+
+class _RoutingRulesEditorState extends State<RoutingRulesEditor> {
+  final _search = TextEditingController();
+  int _shown = RoutingRulesEditor.pageSize;
+
+  RoutingSettings get value => widget.value;
+  AppStrings get strings => widget.strings;
+  ValueChanged<RoutingSettings>? get onChanged => widget.onChanged;
+  List<String> get errorIds => widget.errorIds;
+  String? get errorMessage => widget.errorMessage;
+  Set<String> get overlapIds => widget.overlapIds;
+  bool get grouped => widget.grouped;
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
 
   Future<void> _edit(
     BuildContext context, {
@@ -134,18 +167,19 @@ class RoutingRulesEditor extends StatelessWidget {
             FilledButton(
               onPressed: () {
                 try {
-                  if (text.length > 131072) {
-                    update(() => error = strings.get('bypass_limit'));
+                  final limits = widget.limits;
+                  if (text.length > limits.pasteChars) {
+                    update(() => error = strings.get(limits.messageKey));
                     return;
                   }
                   final lines = text.split('\n');
                   final added = lines
                       .where((line) => line.trim().isNotEmpty)
-                      .take(513)
+                      .take(limits.totalRules + 1)
                       .length;
                   if (value.rules.length + added - (existing == null ? 0 : 1) >
-                      512) {
-                    update(() => error = strings.get('bypass_limit'));
+                      limits.totalRules) {
+                    update(() => error = strings.get(limits.messageKey));
                     return;
                   }
                   final rules = <RoutingRule>[];
@@ -187,7 +221,7 @@ class RoutingRulesEditor extends StatelessWidget {
         ),
       ),
     );
-    if (result == null || onChanged == null) return;
+    if (!mounted || result == null || onChanged == null) return;
     final rules = [...value.rules];
     if (existing == null) {
       rules.addAll(result);
@@ -205,7 +239,60 @@ class RoutingRulesEditor extends StatelessWidget {
         : EdgeInsets.zero;
     // Specificity, not position, decides which rule wins, so rows carry no
     // numbering.
-    final rows = [for (final rule in value.rules) _row(context, rule, padding)];
+    final searchable = value.rules.length > RoutingRulesEditor.searchThreshold;
+    final query = searchable ? _search.text.trim().toLowerCase() : '';
+    final matching = query.isEmpty
+        ? value.rules
+        : value.rules
+              .where((rule) => rule.target.toLowerCase().contains(query))
+              .toList();
+    final visible = searchable
+        ? matching.take(_shown).toList()
+        : List.of(matching);
+    // A rule that blocks saving stays visible wherever it is in the list.
+    final shownIds = {for (final rule in visible) rule.id};
+    for (final rule in value.rules) {
+      if (errorIds.contains(rule.id) && shownIds.add(rule.id)) {
+        visible.add(rule);
+      }
+    }
+    final remaining = searchable
+        ? matching.length - min(_shown, matching.length)
+        : 0;
+    final search = !searchable
+        ? null
+        : Padding(
+            padding: grouped ? RowInsets.row : const EdgeInsets.only(bottom: 8),
+            child: tvTextField(
+              key: const ValueKey('routing-search'),
+              controller: _search,
+              decoration: InputDecoration(
+                labelText: strings.get('routing_search'),
+                prefixIcon: const Icon(LucideIcons.search),
+              ),
+              onChanged: (_) =>
+                  setState(() => _shown = RoutingRulesEditor.pageSize),
+            ),
+          );
+    final rows = [for (final rule in visible) _row(context, rule, padding)];
+    final more = remaining <= 0
+        ? null
+        : Padding(
+            padding: grouped ? RowInsets.row : const EdgeInsets.only(top: 8),
+            child: Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: TextButton(
+                key: const ValueKey('routing-show-more'),
+                onPressed: () =>
+                    setState(() => _shown += RoutingRulesEditor.pageSize),
+                child: Text(
+                  strings
+                      .get('routing_show_more')
+                      .replaceAll('{count}', '$remaining'),
+                ),
+              ),
+            ),
+          );
     final actions = Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -240,7 +327,9 @@ class RoutingRulesEditor extends StatelessWidget {
         title: strings.get('routing_rules'),
         hint: strings.get('routing_priority'),
         children: [
+          ?search,
           ...rows,
+          ?more,
           Padding(padding: RowInsets.row, child: actions),
         ],
       );
@@ -254,7 +343,9 @@ class RoutingRulesEditor extends StatelessWidget {
           subtitle: strings.get('routing_priority'),
         ),
         const SizedBox(height: 12),
+        ?search,
         for (final row in rows) ...[row, const Divider(height: 1)],
+        ?more,
         const SizedBox(height: 12),
         actions,
       ],

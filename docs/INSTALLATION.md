@@ -26,6 +26,9 @@ format with required endpoints. Obsolete development scene formats are not
 migrated. Schema 28 adds the shared connection count, defaulting to one when
 older configurations migrate. Clients supporting schema 26, including v0.3.3,
 cannot read schema 27, and v0.3.4 and older cannot read schema 28.
+Schema 29 raises the custom routing limit to 4096 rules per kind with a
+384 KiB total for their targets; migration changes no stored setting, and
+v0.3.5 and older cannot read schema 29.
 Migrated and new configurations use the Chrome 155 fingerprint unless you had
 explicitly chosen another one; the original handshake is now labeled unsafe.
 Older configurations start without an IPv6 preset. Other settings migrate as

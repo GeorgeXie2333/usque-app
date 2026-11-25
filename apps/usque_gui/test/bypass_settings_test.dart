@@ -197,6 +197,88 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets(
+    'large rule lists page, search and accept pastes up to the engine limit',
+    (tester) async {
+      final engine = FormEngine();
+      final app = appFor(engine);
+      await app.initialize();
+      await tester.pumpAndSettle();
+      app.engineCapabilities = const EngineCapabilities(
+        tlsFingerprints: TlsFingerprint.values,
+        automaticEndpoints: true,
+        networkSettingsApplication: true,
+        routingRules: true,
+        maxRoutingRulesPerKind: 4096,
+        maxRoutingTargetBytes: 384 * 1024,
+      );
+      await tester.pumpWidget(
+        workflowHost(app, home: GeoDirectSettingsScreen(controller: app)),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('routing-search')), findsNothing);
+      // Over the old cap of 512 rules in one paste.
+      await pasteRules(
+        tester,
+        [for (var i = 0; i < 600; i++) 'h$i.test'].join('\n'),
+      );
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(find.byKey(const ValueKey('routing-search')), findsOneWidget);
+      expect(find.text('h99.test'), findsOneWidget);
+      expect(find.text('h100.test'), findsNothing);
+      final more = find.byKey(const ValueKey('routing-show-more'));
+      expect(find.text('Show more (500 left)'), findsOneWidget);
+      await tester.ensureVisible(more);
+      await tester.pumpAndSettle();
+      await tester.tap(more);
+      await tester.pumpAndSettle();
+      expect(find.text('h199.test'), findsOneWidget);
+      expect(find.text('Show more (400 left)'), findsOneWidget);
+      await tester.enterText(
+        find.byKey(const ValueKey('routing-search')),
+        'h599.',
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('h599.test'), findsOneWidget);
+      expect(find.text('h0.test'), findsNothing);
+      expect(more, findsNothing);
+      tester.widget<SaveChangesBar>(find.byType(SaveChangesBar)).onSave!();
+      await tester.pumpAndSettle();
+      expect(engine.savedValues!.routing.rules, hasLength(600));
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('a rule that blocks saving stays visible past the first page', (
+    tester,
+  ) async {
+    final app = appFor(RejectRuleEngine());
+    await app.initialize();
+    await tester.pumpAndSettle();
+    app.engineCapabilities = const EngineCapabilities(
+      tlsFingerprints: TlsFingerprint.values,
+      automaticEndpoints: true,
+      networkSettingsApplication: true,
+      routingRules: true,
+      maxRoutingRulesPerKind: 4096,
+      maxRoutingTargetBytes: 384 * 1024,
+    );
+    await tester.pumpWidget(
+      workflowHost(app, home: GeoDirectSettingsScreen(controller: app)),
+    );
+    await tester.pumpAndSettle();
+    await pasteRules(
+      tester,
+      [for (var i = 0; i < 300; i++) 'h$i.test'].join('\n'),
+    );
+    tester.widget<SaveChangesBar>(find.byType(SaveChangesBar)).onSave!();
+    await tester.pumpAndSettle();
+    // RejectRuleEngine names the last rule, which is beyond the first page.
+    expect(find.text('h299.test'), findsOneWidget);
+    expect(find.text('h150.test'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('old engines show existing targets read only', (tester) async {
     final app = appFor(FormEngine());
     await app.initialize();

@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
@@ -8,6 +9,38 @@ import 'bypass_targets.dart';
 enum RoutingAction { direct, reject, proxy }
 
 enum RoutingMatch { domain, cidr }
+
+/// Rule limits reported by the engine. Engines that predate the capability
+/// accept 256 rules per kind and have no budget for the targets' total size.
+class RoutingLimits {
+  const RoutingLimits({this.perKind = legacyPerKind, this.targetBytes});
+
+  static const legacyPerKind = 256;
+  static const legacy = RoutingLimits();
+
+  /// Pasted text beyond this many characters is refused before parsing.
+  static const legacyPasteChars = 131072;
+
+  final int perKind;
+
+  /// UTF-8 bytes of all targets together, or `null` for no budget.
+  final int? targetBytes;
+
+  int get totalRules => perKind * 2;
+
+  /// The legacy message names 256; the current one names 4096 and the budget.
+  String get messageKey => this == legacy ? 'bypass_limit' : 'routing_limit';
+
+  int get pasteChars => max(legacyPasteChars, (targetBytes ?? 0) * 2);
+
+  @override
+  bool operator ==(Object other) =>
+      other is RoutingLimits &&
+      perKind == other.perKind &&
+      targetBytes == other.targetBytes;
+  @override
+  int get hashCode => Object.hash(perKind, targetBytes);
+}
 
 class RoutingRule {
   const RoutingRule({
@@ -78,10 +111,12 @@ class RoutingSettings {
     'ads_enabled': adsEnabled,
   };
 
-  RoutingValidation validate() {
+  RoutingValidation validate({RoutingLimits limits = RoutingLimits.legacy}) {
     final normalized = <RoutingRule>[];
     final seen = <String, RoutingRule>{};
     final notices = <RoutingNotice>[];
+    final counts = <RoutingMatch, int>{};
+    var targetBytes = 0;
     for (final rule in rules) {
       RoutingRule value;
       try {
@@ -100,19 +135,17 @@ class RoutingSettings {
         );
         continue;
       }
-      for (final other in normalized) {
-        if (other.action != value.action && _overlaps(other, value)) {
-          notices.add(RoutingNotice('routing_overlap', [other.id, value.id]));
-        }
-      }
       seen[key] = value;
       normalized.add(value);
+      counts[value.kind] = (counts[value.kind] ?? 0) + 1;
+      targetBytes += utf8.encode(value.target).length;
     }
-    for (final kind in RoutingMatch.values) {
-      if (normalized.where((rule) => rule.kind == kind).length > 256) {
-        throw const RoutingRuleError('bypass_limit', []);
-      }
+    final budget = limits.targetBytes;
+    if (counts.values.any((count) => count > limits.perKind) ||
+        (budget != null && targetBytes > budget)) {
+      throw RoutingRuleError(limits.messageKey, const []);
     }
+    notices.addAll(_overlapNotices(normalized));
     return RoutingValidation(
       RoutingSettings(rules: normalized, adsEnabled: adsEnabled),
       notices,
@@ -146,24 +179,75 @@ class RoutingRuleError implements Exception {
   final List<String> ids;
 }
 
-bool _overlaps(RoutingRule a, RoutingRule b) {
-  if (a.kind != b.kind) return false;
-  if (a.kind == RoutingMatch.domain) {
-    return a.target.endsWith('.${b.target}') ||
-        b.target.endsWith('.${a.target}');
+/// Pairs of rules with different actions where one target contains the
+/// other. Each rule is checked only against its own ancestors (parent domains,
+/// shorter prefixes present in the list), so the cost grows with the number of
+/// rules times the label or prefix depth instead of with every pair.
+List<RoutingNotice> _overlapNotices(List<RoutingRule> rules) {
+  final position = <String, int>{
+    for (var index = 0; index < rules.length; index++) rules[index].id: index,
+  };
+  final domains = <String, RoutingRule>{};
+  final networks = <String, RoutingRule>{};
+  final prefixes = <int, Set<int>>{};
+  final parsed = <RoutingRule, (Uint8List, int)>{};
+  for (final rule in rules) {
+    if (rule.kind == RoutingMatch.domain) {
+      domains[rule.target] = rule;
+      continue;
+    }
+    final parts = rule.target.split('/');
+    final address = InternetAddress.tryParse(parts.first)?.rawAddress;
+    final prefix = int.tryParse(parts.last);
+    if (address == null || prefix == null) continue;
+    parsed[rule] = (address, prefix);
+    networks[_networkKey(address, prefix)] = rule;
+    (prefixes[address.length] ??= <int>{}).add(prefix);
   }
-  final left = a.target.split('/');
-  final right = b.target.split('/');
-  final x = InternetAddress.tryParse(left.first)?.rawAddress;
-  final y = InternetAddress.tryParse(right.first)?.rawAddress;
-  if (x == null || y == null || x.length != y.length) return false;
-  final bits = min(int.parse(left.last), int.parse(right.last));
-  for (var index = 0; index < x.length; index++) {
-    final keep = (bits - index * 8).clamp(0, 8);
-    final mask = (0xff << (8 - keep)) & 0xff;
-    if ((x[index] & mask) != (y[index] & mask)) return false;
+  final notices = <RoutingNotice>[];
+  void pair(RoutingRule ancestor, RoutingRule rule) {
+    if (ancestor.action == rule.action) return;
+    final ordered = position[ancestor.id]! < position[rule.id]!
+        ? [ancestor.id, rule.id]
+        : [rule.id, ancestor.id];
+    notices.add(RoutingNotice('routing_overlap', ordered));
   }
-  return true;
+
+  for (final rule in rules) {
+    if (rule.kind == RoutingMatch.domain) {
+      var suffix = rule.target;
+      for (var dot = suffix.indexOf('.'); dot >= 0; dot = suffix.indexOf('.')) {
+        suffix = suffix.substring(dot + 1);
+        final ancestor = domains[suffix];
+        if (ancestor != null) pair(ancestor, rule);
+      }
+      continue;
+    }
+    final network = parsed[rule];
+    if (network == null) continue;
+    final (address, prefix) = network;
+    for (final shorter in prefixes[address.length]!) {
+      if (shorter >= prefix) continue;
+      final ancestor = networks[_networkKey(address, shorter)];
+      if (ancestor != null) pair(ancestor, rule);
+    }
+  }
+  notices.sort((a, b) {
+    final first = position[a.ids[0]]!.compareTo(position[b.ids[0]]!);
+    return first != 0
+        ? first
+        : position[a.ids[1]]!.compareTo(position[b.ids[1]]!);
+  });
+  return notices;
+}
+
+String _networkKey(Uint8List address, int prefix) {
+  final masked = Uint8List.fromList(address);
+  for (var index = 0; index < masked.length; index++) {
+    final keep = (prefix - index * 8).clamp(0, 8);
+    masked[index] &= (0xff << (8 - keep)) & 0xff;
+  }
+  return '${masked.length}/$prefix/${masked.join('.')}';
 }
 
 String _ruleId() {

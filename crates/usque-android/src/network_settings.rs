@@ -403,6 +403,59 @@ mod tests {
     // separate stores. Keep each command sequence under one test reservation.
 
     #[test]
+    fn largest_rule_set_fits_profile_requests_and_settings_results() {
+        let _test = TEST_STATE.lock().unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("profiles-v2.json");
+        let store = ConfigStore::new(&path);
+        let config = usque_core::AppConfig::default();
+        store.save(&config).unwrap();
+        let profile = config.active_profile().unwrap();
+        let mut desired = profile.clone();
+        desired.routing = usque_core::config::largest_routing_settings()
+            .normalized()
+            .unwrap();
+        // The VpnService receives exactly one profile per connect or reconfigure.
+        let profile_json = profile_value(&desired).to_string();
+        assert!(profile_json.len() <= crate::MAX_ANDROID_PROFILE_BYTES);
+        assert_eq!(
+            crate::parse_android_profile(&profile_json).unwrap().routing,
+            desired.routing
+        );
+        let request = |value: Value| -> String {
+            let value = value.to_string();
+            assert!(value.len() <= 2 * 1024 * 1024, "{}", value.len());
+            command(path.to_str().unwrap(), &value).unwrap()
+        };
+        request(json!({"command":"reset"}));
+        request(json!({
+            "command":"observe", "profile":profile_value(&profile),
+            "session_id":"limit", "applying":false
+        }));
+        let saved = request(json!({
+            "command":"save", "operation_id":Uuid::new_v4(), "account_id":profile.id,
+            "values":profile_value(&desired), "changed_fields":["routing"],
+            "phase":"connected", "available":true, "session_id":"limit"
+        }));
+        let observed = request(json!({
+            "command":"observe", "profile":profile_value(&desired),
+            "session_id":"limit", "applying":false
+        }));
+        for result in [saved, observed] {
+            // Up to four profile copies; NetworkSettingsFields accepts 8 Mi chars.
+            assert!(result.len() <= 8 * 1024 * 1024, "{}", result.len());
+            let value: Value = serde_json::from_str(&result).unwrap();
+            assert_eq!(
+                value["stored_profile"]["routing"]["rules"]
+                    .as_array()
+                    .unwrap()
+                    .len(),
+                desired.routing.rules.len()
+            );
+        }
+    }
+
+    #[test]
     fn issue_138_confirmed_rejection_retains_runtime_and_allows_an_explicit_retry() {
         let _test = TEST_STATE.lock().unwrap();
         let directory = tempfile::tempdir().unwrap();

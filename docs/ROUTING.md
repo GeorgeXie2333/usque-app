@@ -66,7 +66,19 @@ win: `REJECT ads.example.com` overrides `DIRECT example.com`. IPs become /32 or
 therefore override `REJECT 192.0.2.0/24`. List order does not affect matching.
 Case, trailing dots, IDNA and network addresses are normalized by the Engine.
 URLs, paths, ports, wildcards and user-supplied regular expressions are invalid.
-There are at most 256 domain rules and 256 address rules.
+Each kind holds at most 4096 rules, and the normalized targets of all rules
+together are limited to 384 KiB (configuration schema 29). The Engine reports
+both limits; with an Engine that does not, the GUI keeps the earlier limit of
+256 per kind. Lists longer than 50 rules gain a search field and show 100 rules
+at a time; a rule that blocks saving stays visible. Matching uses a hash table
+per domain suffix and per prefix length, so lookups do not scan the list.
+
+The device-wide rules travel once per message: desktop profile lists carry them
+only in the shared network profile, which the GUI already uses for every
+account. On Android, a profile or settings result longer than 32 Ki characters
+crosses between the app and the `:vpn` process as a single-use file in
+app-private storage, verified by SHA-256 and deleted after one read; a missing
+or altered file fails like a malformed request.
 
 When the platform reports an IPv4-only physical network, Split DNS turns a
 DIRECT domain's answer containing only unusable public IPv6 addresses into an
@@ -255,6 +267,12 @@ ULA/链路本地网段自动走受保护的直连路径；关闭后取消自动�
 此处地址族信息描述互联网路径；回环和局域网目标即使缺少该地址族的默认路由，也仍尝试受保护的直连。
 
 域名包含自身及子域名，更具体的域名优先；IP 使用最长前缀匹配。列表顺序不影响结果。
+每类规则最多 4096 条，规范化后全部目标的总长度不超过 384 KiB（配置 schema 29）。
+引擎会报告这两项上限；对接未报告上限的旧引擎时，界面仍按每类 256 条处理。超过 50 条时显示
+搜索框，每次显示 100 条，阻止保存的规则始终可见。匹配按域名后缀和前缀长度查表，不逐条扫描。
+桌面端账户列表不再逐个携带规则，只在共享网络配置中携带一份。Android 上超过 32 Ki 字符的
+配置或设置结果经应用私有目录中的一次性文件在界面与 `:vpn` 进程间传递，按 SHA-256 校验，
+读取后删除；文件缺失或被改动时按格式错误的请求失败。
 父子域名和包含网段可作为例外，只显示覆盖提示；同一规范化目标配置不同动作时阻止保存，
 并定位冲突条目。相同规则会合并，错误或保存失败会保留草稿。
 

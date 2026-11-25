@@ -406,6 +406,10 @@ const Map<String, String> kViCatalog = <String, String>{
   'bypass_unsupported':
       'Phiên bản Usque này không hỗ trợ đích trực tiếp tùy chỉnh. Hãy kiểm tra bản cập nhật trong Cài đặt.',
   'bypass_limit': 'Tối đa 256 quy tắc địa chỉ và 256 tên miền.',
+  'routing_limit':
+      'Tối đa 4096 quy tắc địa chỉ và 4096 tên miền, tổng văn bản quy tắc tối đa 384 KB.',
+  'routing_search': 'Tìm quy tắc',
+  'routing_show_more': 'Hiển thị thêm (còn {count})',
   'bypass_line_error': 'Dòng {line}: {reason}',
   'bypass_summary': '{countries} khu vực · {targets} đích tùy chỉnh',
   'geo_direct_help':

@@ -408,6 +408,10 @@ const Map<String, String> kFaCatalog = <String, String>{
   'bypass_unsupported':
       'این نسخه از Usque از مقصدهای مستقیم سفارشی پشتیبانی نمی‌کند. در تنظیمات به‌روزرسانی‌ها را بررسی کنید.',
   'bypass_limit': 'حداکثر ۲۵۶ قاعدهٔ نشانی و ۲۵۶ دامنه.',
+  'routing_limit':
+      'حداکثر ۴۰۹۶ قاعدهٔ نشانی و ۴۰۹۶ دامنه، با مجموع متن قواعد تا ۳۸۴ کیلوبایت.',
+  'routing_search': 'جست‌وجوی قواعد',
+  'routing_show_more': 'نمایش بیشتر ({count} مانده)',
   'bypass_line_error': 'خط {line}: {reason}',
   'bypass_summary': '{countries} منطقه · {targets} مقصد سفارشی',
   'geo_direct_help':

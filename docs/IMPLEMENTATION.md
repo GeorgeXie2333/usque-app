@@ -250,6 +250,7 @@ the official Proton human-verification page. Desktop UI and engine remain unpriv
 - [x] Fail closed before creating the VPN if the Rust data channel is unavailable.
 - [x] Wire arm64-v8a, x86_64, and armeabi-v7a Rust targets into the Gradle release build and produce a universal APK.
 - [x] Transfer connection snapshots from `:vpn` to the UI over a bounded-time Binder request.
+- [x] Hand profiles and settings results over 32 Ki characters between the UI and `:vpn` through single-use, SHA-256-verified files instead of Binder.
 - [x] Validate serialized WARP identity material in Rust for Android secure storage and startup. Retained parsers do not enable new Secret imports.
 - [x] Stream native events/counters from `:vpn` through Binder callbacks and Flutter `EventChannel`.
 - [x] Automatic Consumer registration through Rust before Android Keystore persistence.

@@ -6,7 +6,7 @@ import org.json.JSONObject
 internal object NetworkSettingsFields {
     /** A UI-process configuration read is not an observation of the VPN owner. */
     fun persistedOnly(value: String): Map<String, Any?> {
-        require(value.length <= 2 * 1024 * 1024)
+        require(value.length <= LargeIpcPayload.MAX_SETTINGS_CHARS)
         val source = JSONObject(value)
         val projected = JSONObject().put("runtime_observed", false)
         for (key in listOf("stored_profile", "shared_network_profile")) {
@@ -16,7 +16,7 @@ internal object NetworkSettingsFields {
     }
 
     fun decode(value: String): Map<String, Any?> {
-        require(value.length <= 2 * 1024 * 1024)
+        require(value.length <= LargeIpcPayload.MAX_SETTINGS_CHARS)
         val source = JSONObject(value)
         require(source.getString("source_epoch").isNotBlank())
         require(source.getLong("sequence") >= 0)

@@ -2270,6 +2270,8 @@ class EngineCapabilities {
     this.tlsFingerprints = const <TlsFingerprint>[],
     this.maxMasqueConnections = 0,
     this.l4MasqueConnections = false,
+    this.maxRoutingRulesPerKind = 0,
+    this.maxRoutingTargetBytes = 0,
     this.networkQuality = false,
     this.encryptedDirectDns = false,
     this.encryptedWarpDns = false,
@@ -2301,6 +2303,14 @@ class EngineCapabilities {
     endpointPresets: map['endpoint_presets'] == true,
     maxMasqueConnections: (map['max_masque_connections'] as num?)?.toInt() ?? 0,
     l4MasqueConnections: map['l4_masque_connections'] == true,
+    maxRoutingRulesPerKind: _capabilityLimit(
+      map['max_routing_rules_per_kind'],
+      1 << 16,
+    ),
+    maxRoutingTargetBytes: _capabilityLimit(
+      map['max_routing_target_bytes'],
+      64 << 20,
+    ),
     continuousConnection: map['continuous_connection'] == true,
     zeroTrustEndpointEditing: map['zero_trust_endpoint_editing'] == true,
     chainOpenvpnMultiEndpoint: map['chain_openvpn_multi_endpoint'] == true,
@@ -2373,6 +2383,21 @@ class EngineCapabilities {
   final List<TlsFingerprint> tlsFingerprints;
   final int maxMasqueConnections;
   final bool l4MasqueConnections;
+
+  /// Zero when the engine predates the capability; see [routingLimits].
+  final int maxRoutingRulesPerKind;
+  final int maxRoutingTargetBytes;
+
+  RoutingLimits get routingLimits =>
+      maxRoutingRulesPerKind <= 0 || maxRoutingRulesPerKind > 1 << 16
+      ? RoutingLimits.legacy
+      : RoutingLimits(
+          perKind: maxRoutingRulesPerKind,
+          targetBytes:
+              maxRoutingTargetBytes > 0 && maxRoutingTargetBytes <= 64 << 20
+              ? maxRoutingTargetBytes
+              : null,
+        );
   final bool encryptedDirectDns;
   final bool encryptedWarpDns;
   final bool quicMigration;
@@ -2416,6 +2441,8 @@ class EngineCapabilities {
           listEquals(tlsFingerprints, other.tlsFingerprints) &&
           maxMasqueConnections == other.maxMasqueConnections &&
           l4MasqueConnections == other.l4MasqueConnections &&
+          maxRoutingRulesPerKind == other.maxRoutingRulesPerKind &&
+          maxRoutingTargetBytes == other.maxRoutingTargetBytes &&
           listEquals(
             h3CongestionControlAlgorithms,
             other.h3CongestionControlAlgorithms,
@@ -2464,6 +2491,8 @@ class EngineCapabilities {
         Object.hashAll(tlsFingerprints),
         maxMasqueConnections,
         l4MasqueConnections,
+        maxRoutingRulesPerKind,
+        maxRoutingTargetBytes,
       ),
     ),
     networkQuality,
@@ -2856,3 +2885,7 @@ class EngineSnapshot {
     networkQuality,
   ]);
 }
+
+/// A positive integer limit no larger than [maximum]; anything else is 0.
+int _capabilityLimit(Object? value, int maximum) =>
+    value is int && value > 0 && value <= maximum ? value : 0;

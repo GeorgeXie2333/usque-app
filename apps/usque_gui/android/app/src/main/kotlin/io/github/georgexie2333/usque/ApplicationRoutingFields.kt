@@ -8,12 +8,15 @@ internal data class ApplicationRoutingFields(
     val directDns: Boolean,
 ) {
     companion object {
+        /** Both kinds at Rust's MAX_ROUTING_RULES_PER_KIND (4096). */
+        const val MAX_RULES = 8192
+
         fun parse(profile: JSONObject): ApplicationRoutingFields {
             val routing = profile.optJSONObject("routing") ?: return ApplicationRoutingFields(false, false)
             var needsDns = routing.optBoolean("ads_enabled", false)
             var directDns = false
             val rules = routing.optJSONArray("rules")
-            require((rules?.length() ?: 0) <= 512) { "ROUTING_RULE_LIMIT" }
+            require((rules?.length() ?: 0) <= MAX_RULES) { "ROUTING_RULE_LIMIT" }
             for (index in 0 until (rules?.length() ?: 0)) {
                 val rule = requireNotNull(rules).getJSONObject(index)
                 val kind = rule.getString("kind")

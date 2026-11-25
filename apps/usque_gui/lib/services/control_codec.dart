@@ -1901,6 +1901,8 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
   var endpointPresets = false;
   var maxMasqueConnections = 0;
   var l4MasqueConnections = false;
+  var maxRoutingRulesPerKind = 0;
+  var maxRoutingTargetBytes = 0;
   var continuousConnection = false;
   var protonAccountWarpFallback = false;
   var protonServerSwitching = false;
@@ -1950,6 +1952,10 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
         maxMasqueConnections = reader.varint(field);
       case 57:
         l4MasqueConnections = reader.varint(field) != 0;
+      case 58:
+        maxRoutingRulesPerKind = reader.varint(field);
+      case 59:
+        maxRoutingTargetBytes = reader.varint(field);
       case 50:
         chainProtonVpn = reader.varint(field) != 0;
       case 51:
@@ -2054,6 +2060,8 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
     endpointPresets: endpointPresets,
     maxMasqueConnections: maxMasqueConnections,
     l4MasqueConnections: l4MasqueConnections,
+    maxRoutingRulesPerKind: maxRoutingRulesPerKind,
+    maxRoutingTargetBytes: maxRoutingTargetBytes,
     continuousConnection: continuousConnection,
     protonAccountWarpFallback: protonAccountWarpFallback,
     protonServerSwitching: protonServerSwitching,

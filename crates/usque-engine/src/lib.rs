@@ -6326,6 +6326,11 @@ mod masque_connections_tests {
             assert!(profile_from_proto(invalid).is_err());
         }
         assert_eq!(current_capabilities().max_masque_connections, 8);
+        let capabilities = current_capabilities();
+        if capabilities.routing_rules {
+            assert_eq!(capabilities.max_routing_rules_per_kind, 4096);
+            assert_eq!(capabilities.max_routing_target_bytes, 384 * 1024);
+        }
         assert!(current_capabilities().l4_masque_connections);
     }
 }
@@ -6491,11 +6496,21 @@ fn geo_results_to_proto(results: Vec<usque_core::GeoRulesUpdate>) -> v1::GeoRule
 
 fn profile_list_to_proto(config: &AppConfig) -> v1::ProfileList {
     v1::ProfileList {
-        profiles: config
-            .runtime_profiles()
-            .iter()
-            .map(profile_to_proto)
-            .collect(),
+        // Routing is device-wide and travels once, in shared_network_profile.
+        // Repeating it per account would multiply the largest field in the
+        // message by the number of accounts; clients hydrate from the shared copy.
+        profiles: {
+            let mut network = config.network.clone();
+            network.routing = Default::default();
+            config
+                .profiles
+                .iter()
+                .map(|account| v1::Profile {
+                    routing: None,
+                    ..profile_to_proto(&network.hydrate(account))
+                })
+                .collect()
+        },
         active_profile_id: config
             .active_profile_id
             .map(|id| id.to_string())
@@ -6616,6 +6631,17 @@ fn current_capabilities() -> v1::Capabilities {
         vpn_gate_epoch_requests: true,
         max_masque_connections: u32::from(usque_core::MAX_MASQUE_CONNECTIONS),
         l4_masque_connections: true,
+        max_routing_rules_per_kind: if cfg!(any(windows, target_os = "macos", target_os = "linux"))
+        {
+            u32::try_from(usque_core::config::MAX_ROUTING_RULES_PER_KIND).unwrap_or(u32::MAX)
+        } else {
+            0
+        },
+        max_routing_target_bytes: if cfg!(any(windows, target_os = "macos", target_os = "linux")) {
+            u32::try_from(usque_core::config::MAX_ROUTING_TARGET_BYTES).unwrap_or(u32::MAX)
+        } else {
+            0
+        },
         application_quic_blocking: true,
         account_metadata_mutations: true,
         shared_proxy_auth_application: true,
@@ -7101,6 +7127,55 @@ mod tests {
         // Same minimal fixture is decoded by the Dart audit_accounts suite.
         let frame = usque_ipc::encode_frame(&profile).unwrap();
         assert_eq!(&frame[4..], &[10, 1, b'p', 18, 1, b'X']);
+    }
+
+    #[test]
+    fn largest_rule_set_fits_every_desktop_frame() {
+        let mut config = AppConfig::default();
+        config.network.routing = usque_core::config::largest_routing_settings();
+        while config.profiles.len() < usque_core::config::MAX_PROFILES {
+            config.profiles.push(usque_core::config::Account {
+                id: uuid::Uuid::new_v4(),
+                name: format!("Account {}", config.profiles.len()),
+                managed_endpoint_ips: None,
+                zero_trust_endpoint_override: None,
+            });
+        }
+        config.validate().unwrap();
+        let profile = profile_to_proto(&config.runtime_profile(config.profiles[0].id).unwrap());
+        // Accounts do not repeat the device-wide rules; the shared copy has them.
+        let catalog = profile_list_to_proto(&config);
+        assert!(catalog.profiles.iter().all(|entry| entry.routing.is_none()));
+        assert_eq!(
+            catalog.shared_network_profile.as_ref().unwrap().routing,
+            profile.routing
+        );
+        let responses = [
+            control_response::Payload::ProfileList(catalog),
+            control_response::Payload::NetworkSettings(Box::new(v1::NetworkSettingsState {
+                stored_profile: Some(profile.clone()),
+                applied_profile: Some(profile.clone()),
+                shared_network_profile: Some(profile.clone()),
+                ..Default::default()
+            })),
+            control_response::Payload::Profile(Box::new(profile.clone())),
+        ];
+        for payload in responses {
+            usque_ipc::encode_frame(&v1::ControlResponse {
+                payload: Some(payload),
+                ..Default::default()
+            })
+            .unwrap();
+        }
+        usque_ipc::encode_frame(&v1::ControlRequest {
+            payload: Some(control_request::Payload::UpsertProfile(Box::new(
+                v1::UpsertProfileRequest {
+                    profile: Some(profile),
+                },
+            ))),
+            ..Default::default()
+        })
+        .unwrap();
     }
 
     #[tokio::test]

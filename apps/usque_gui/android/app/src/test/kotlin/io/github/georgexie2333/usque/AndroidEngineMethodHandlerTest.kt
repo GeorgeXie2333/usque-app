@@ -27,6 +27,8 @@ class AndroidEngineMethodHandlerTest {
         assertEquals(listOf("cubic", "reno", "bbr", "bbr3"), capabilities["h3_congestion_control_algorithms"])
         assertEquals(listOf("default", "chrome155"), capabilities["tls_fingerprints"])
         assertEquals(8, capabilities["max_masque_connections"])
+        assertEquals(4096, capabilities["max_routing_rules_per_kind"])
+        assertEquals(384 * 1024, capabilities["max_routing_target_bytes"])
         for (key in listOf("l4_masque_connections", "connection_scenarios", "network_settings_application")) {
             assertEquals(true, capabilities[key])
         }
@@ -50,6 +52,7 @@ class AndroidEngineMethodHandlerTest {
             handler.handle(MethodCall("getCapabilities", null), result)
             val capabilities = result.successValue as Map<*, *>
             assertEquals(0, capabilities["max_masque_connections"])
+            assertEquals(0, capabilities["max_routing_rules_per_kind"])
             assertEquals(false, capabilities["l4_masque_connections"])
             assertEquals(emptyList<String>(), capabilities["h3_congestion_control_algorithms"])
         }

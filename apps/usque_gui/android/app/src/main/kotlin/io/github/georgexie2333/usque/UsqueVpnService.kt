@@ -82,7 +82,7 @@ class UsqueVpnService : VpnService() {
         internal const val TILE_VPN_ACTIVE = "tile_vpn_active"
         internal const val TILE_VPN_PROTECTION_RETAINED = "tile_vpn_protection_retained"
         internal const val TILE_PROTECTION_ACTIVE_ERROR = "TILE_PROTECTION_ACTIVE"
-        private const val MAX_PROFILE_BYTES = 256 * 1024
+        private const val MAX_PROFILE_BYTES = LargeIpcPayload.MAX_PROFILE_BYTES
     }
 
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -146,6 +146,7 @@ class UsqueVpnService : VpnService() {
     private val clearAllRequested = AtomicBoolean()
     private val activeProfileJson = AtomicReference<String?>(null)
     private val settingsExecutor = Executors.newSingleThreadExecutor()
+    private val handoffDirectory: File by lazy { LargeIpcPayload.directory(this) }
     private val settingsApplication = NetworkSettingsApplicationTracker()
     private var settingsStateJson: String? = null
     private var settingsUncertain = false
@@ -217,6 +218,8 @@ class UsqueVpnService : VpnService() {
     private val controlMessenger =
         Messenger(
             Handler(Looper.getMainLooper()) { message ->
+                // Large requests arrive as file handoffs; resolve them once here.
+                LargeIpcPayload.inline(handoffDirectory, message.peekData())
                 when (message.what) {
                     MSG_SCENARIOS -> {
                         networkSettingsRequest(Message.obtain(message))
@@ -238,13 +241,7 @@ class UsqueVpnService : VpnService() {
                             if (!eventClients.contains(client)) eventClients += client
                             sendEvent(client)
                             settingsStateJson?.let { json ->
-                                runCatching {
-                                    client.send(
-                                        Message.obtain(null, MSG_SETTINGS_EVENT).apply {
-                                            data = Bundle().apply { putString("network_settings", json) }
-                                        },
-                                    )
-                                }
+                                sendSettings(client, Message.obtain(null, MSG_SETTINGS_EVENT), json)
                             }
                         }
                         true
@@ -358,6 +355,8 @@ class UsqueVpnService : VpnService() {
 
     override fun onCreate() {
         super.onCreate()
+        // Credential storage is unavailable before unlock; the next start sweeps.
+        settingsExecutor.execute { runCatching { LargeIpcPayload.sweep(handoffDirectory) } }
         logStore.resume()
         recordLog(AndroidLogStore.Event.SERVICE_CREATED)
         notifications.createChannel()
@@ -516,7 +515,9 @@ class UsqueVpnService : VpnService() {
         startedConnectionOwner = true
         when (intent?.action) {
             ACTION_CONNECT -> {
-                beginConnection(intent.getStringExtra(EXTRA_PROFILE_JSON) ?: "{}")
+                beginConnection(
+                    LargeIpcPayload.getString(handoffDirectory, intent.extras, EXTRA_PROFILE_JSON) ?: "{}",
+                )
             }
 
             ACTION_DISCONNECT -> {
@@ -2615,13 +2616,27 @@ class UsqueVpnService : VpnService() {
     private fun publishSettings(json: String) {
         settingsStateJson = json
         eventClients.toList().forEach { client ->
-            runCatching {
-                client.send(
-                    Message.obtain(null, MSG_SETTINGS_EVENT).apply {
-                        data = Bundle().apply { putString("network_settings", json) }
-                    },
-                )
-            }
+            sendSettings(client, Message.obtain(null, MSG_SETTINGS_EVENT), json)
+        }
+    }
+
+    /** Each client gets its own handoff; an undelivered one is removed at once. */
+    private fun sendSettings(
+        client: Messenger?,
+        message: Message,
+        json: String?,
+        error: String? = null,
+    ) {
+        var handoff: LargeIpcPayload.Handoff? = null
+        try {
+            message.data =
+                Bundle().apply {
+                    handoff = LargeIpcPayload.putString(handoffDirectory, this, "network_settings", json)
+                    putString("settings_error", error)
+                }
+            requireNotNull(client).send(message)
+        } catch (_: Exception) {
+            handoff?.let { LargeIpcPayload.discard(listOf(it)) }
         }
     }
 
@@ -2630,16 +2645,8 @@ class UsqueVpnService : VpnService() {
         json: String?,
         error: String?,
     ) {
-        runCatching {
-            request.replyTo?.send(
-                Message.obtain(null, request.what, request.arg1, 0).apply {
-                    data =
-                        Bundle().apply {
-                            putString("network_settings", json)
-                            putString("settings_error", error)
-                        }
-                },
-            )
+        request.replyTo?.let { client ->
+            sendSettings(client, Message.obtain(null, request.what, request.arg1, 0), json, error)
         }
     }
 

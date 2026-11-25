@@ -415,6 +415,10 @@ const Map<String, String> kPlCatalog = <String, String>{
   'bypass_unsupported':
       'Ta wersja Usque nie obsługuje własnych celów omijania. Sprawdź aktualizacje w Ustawieniach.',
   'bypass_limit': 'Maksymalnie 256 reguł adresów i 256 domen.',
+  'routing_limit':
+      'Maksymalnie 4096 reguł adresów i 4096 domen, łącznie do 384 KB tekstu reguł.',
+  'routing_search': 'Szukaj reguł',
+  'routing_show_more': 'Pokaż więcej (pozostało {count})',
   'bypass_line_error': 'Wiersz {line}: {reason}',
   'bypass_summary': 'Regiony: {countries} · Własne cele: {targets}',
   'geo_direct_help':

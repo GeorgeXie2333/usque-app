@@ -419,6 +419,10 @@ const Map<String, String> kItCatalog = <String, String>{
   'bypass_unsupported':
       'Questa versione di Usque non supporta destinazioni di bypass personalizzate. Cerca aggiornamenti in Impostazioni.',
   'bypass_limit': 'Massimo 256 regole di indirizzo e 256 domini.',
+  'routing_limit':
+      'Massimo 4096 regole di indirizzo e 4096 domini, con al massimo 384 KB di testo delle regole in totale.',
+  'routing_search': 'Cerca regole',
+  'routing_show_more': 'Mostra altre ({count} rimanenti)',
   'bypass_line_error': 'Riga {line}: {reason}',
   'bypass_summary':
       '{countries} regioni · {targets} destinazioni personalizzate',

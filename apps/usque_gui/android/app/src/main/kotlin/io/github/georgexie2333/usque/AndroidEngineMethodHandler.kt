@@ -476,7 +476,7 @@ internal class AndroidEngineMethodHandler(
                             "h3_congestion_control_algorithms" to CongestionControlSettings.capabilities(native),
                             "tls_fingerprints" to TlsFingerprintSettings.capabilities(native),
                             "max_masque_connections" to MasqueConnectionSettings.maximum(native),
-                        ),
+                        ) + RoutingLimitSettings.capabilities(native),
                 )
             }
 

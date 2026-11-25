@@ -384,6 +384,9 @@ const Map<String, String> kKoCatalog = <String, String>{
   'bypass_unsupported':
       '이 버전의 Usque는 사용자 지정 우회 대상을 지원하지 않습니다. 설정에서 업데이트를 확인하세요.',
   'bypass_limit': '주소 규칙과 도메인은 각각 최대 256개입니다.',
+  'routing_limit': '주소 규칙과 도메인은 각각 최대 4096개이며, 규칙 텍스트는 합계 384KB까지입니다.',
+  'routing_search': '규칙 검색',
+  'routing_show_more': '더 보기 ({count}개 남음)',
   'bypass_line_error': '{line}행: {reason}',
   'bypass_summary': '지역 {countries}개 · 사용자 지정 대상 {targets}개',
   'geo_direct_help':
