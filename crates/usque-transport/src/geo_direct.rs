@@ -278,38 +278,24 @@ impl GeoDirectPolicy {
     pub fn needs_direct_dns(&self) -> bool {
         !self.countries.is_empty()
             || !self.domains.is_empty()
-            || self.routing_snapshot().settings.has_direct_domains()
+            || self.routing_snapshot().has_direct_domains()
     }
     pub fn has_direct_routes(&self) -> bool {
         self.allow_lan
             || !self.countries.is_empty()
             || !self.networks.is_empty()
             || !self.domains.is_empty()
-            || self.routing_snapshot().settings.has_direct_rules()
+            || self.routing_snapshot().has_direct_rules()
     }
     pub(crate) fn has_ip_rules(&self) -> bool {
-        self.allow_lan || !self.routing_snapshot().networks.is_empty()
+        self.allow_lan || self.routing_snapshot().has_ip_rules()
     }
     pub(crate) fn custom_host(&self, host: &str) -> Option<GeoRoute> {
         let host = usque_core::config::canonical_bypass_domain(host)?;
-        self.routing_snapshot()
-            .domains
-            .iter()
-            .find(|(domain, _)| {
-                host == *domain
-                    || host
-                        .strip_suffix(domain.as_str())
-                        .is_some_and(|prefix| prefix.ends_with('.'))
-            })
-            .map(|(_, action)| (*action).into())
+        self.routing_snapshot().domain_action(&host).map(Into::into)
     }
     pub(crate) fn custom_ip(&self, ip: IpAddr) -> Option<GeoRoute> {
-        let ip = ip.to_canonical();
-        self.routing_snapshot()
-            .networks
-            .iter()
-            .find(|(net, _)| net.contains(&ip))
-            .map(|(_, action)| (*action).into())
+        self.routing_snapshot().ip_action(ip).map(Into::into)
     }
     pub(crate) fn rejects_ip(&self, ip: IpAddr) -> bool {
         self.custom_ip(ip) == Some(GeoRoute::Reject)
