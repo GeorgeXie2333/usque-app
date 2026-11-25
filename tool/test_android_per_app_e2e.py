@@ -138,6 +138,7 @@ class RuleSetTests(unittest.TestCase):
         self.assertEqual(harness.trace_failure("nc: bad address 'www.cloudflare.com'"), "dns")
         self.assertEqual(harness.trace_failure("nc: connect: Connection refused"), "refused")
         self.assertEqual(harness.trace_failure(""), "no-response")
+        self.assertEqual(harness.trace_failure("usage: nc [-46lU]"), "nc-option")
 
     def test_search_field_hint_is_configurable(self):
         node = harness.parse_nodes(

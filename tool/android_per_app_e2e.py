@@ -62,6 +62,8 @@ MODE_LABELS = {
     "exclude": "Bypass selected apps",
 }
 SAVE = "Save"
+# The bypass page's save bar names its primary action this way.
+APPLY_CHANGES = "Apply changes"
 SEARCH = "Search apps"
 BYPASS_SETTINGS = "Bypass settings"
 RULE_SEARCH = "Search rules"
@@ -341,6 +343,8 @@ def trace_failure(output: str) -> str:
         return "dns"
     if "refused" in lowered:
         return "refused"
+    if "usage" in lowered or "unknown option" in lowered or "invalid option" in lowered:
+        return "nc-option"
     return "no-response"
 
 
@@ -887,11 +891,11 @@ class Device:
         if any(is_row(node) for node in self.dump()):
             raise HarnessError("the rule is still listed after Delete")
 
-        def is_save(node: Node) -> bool:
-            return node.has(SAVE) and node.clickable and node.enabled
+        def is_apply(node: Node) -> bool:
+            return node.has(APPLY_CHANGES) and node.clickable and node.enabled
 
-        self.tap(self.scroll_to(is_save))
-        self.say("rules: deleted the DIRECT rule and saved")
+        self.tap(self.scroll_to(is_apply))
+        self.say("rules: deleted the DIRECT rule and applied the change")
 
     # Observations -------------------------------------------------------
 
@@ -904,15 +908,20 @@ class Device:
         output = self.shell(f"ip -4 route get {ROUTE_PROBE} uid {uid}", check=False)
         return parse_route_device(output)
 
-    def warp(self, package: str, host: str = TRACE_HOST) -> str | None:
-        """Fetch Cloudflare's trace from `host` as `package`; return `warp`."""
+    def warp(self, package: str, host: str = TRACE_HOST, ipv4: bool = False) -> str | None:
+        """Fetch Cloudflare's trace from `host` as `package`; return `warp`.
+
+        `ipv4` pins the connection to IPv4: hosted runners have no IPv6
+        egress, so a direct (non-WARP) attempt over IPv6 would only time out.
+        """
 
         request = (
             f"GET /cdn-cgi/trace HTTP/1.1\\r\\nHost: {host}\\r\\n"
             "User-Agent: usque-android-e2e\\r\\nConnection: close\\r\\n\\r\\n"
         )
         # Keep stdin open so nc reads the reply before the server closes.
-        script = f"(printf '{request}'; sleep 6) | nc -w 15 {host} 80"
+        family = "-4 " if ipv4 else ""
+        script = f"(printf '{request}'; sleep 6) | nc {family}-w 15 {host} 80"
         command = f"run-as {package} sh -c {shlex.quote(script + ' 2>&1')}"
         for _ in range(3):
             output = self.shell(command, timeout=45, check=False)
@@ -978,7 +987,7 @@ def wait_warp(device: Device, package: str, host: str, wanted: str, timeout: flo
     deadline = time.monotonic() + timeout
     value = None
     while time.monotonic() < deadline:
-        value = device.warp(package, host)
+        value = device.warp(package, host, ipv4=True)
         if value == wanted:
             return value
         time.sleep(6)
@@ -998,6 +1007,8 @@ def rule_phases(device: Device, owner_uid: int, probe: str):
     device.launch()
     retries = device.connect(owner_uid)
     in_vpn = uid_in(device.vpn_ranges(owner_uid) or [], device.package_uid(probe))
+    # Context only: whether the emulator offers any IPv6 default route.
+    ipv6_default = "default" in device.shell("ip -6 route show table all", check=False)
     tunnel = wait_warp(device, probe, TUNNEL_HOST, "on", 150)
     tunnel_failure = device.last_trace_failure
     direct = wait_warp(device, probe, TRACE_HOST, "off", 150)
@@ -1007,6 +1018,7 @@ def rule_phases(device: Device, owner_uid: int, probe: str):
         "target_bytes": sum(len(rule["target"].encode()) for rule in rules),
         "connect_retries": retries,
         "in_vpn_uid_ranges": in_vpn,
+        "ipv6_default_route": ipv6_default,
         "tunnel_trace_warp": tunnel,
         "direct_rule_trace_warp": direct,
         "passed": in_vpn and direct == "off" and tunnel == "on",
