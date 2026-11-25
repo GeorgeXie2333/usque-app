@@ -43,6 +43,13 @@ PROBE_PACKAGES = (
     "io.github.georgexie2333.usque.e2e.probeb",
 )
 TRACE_HOST = "www.cloudflare.com"
+# Serves the trace over plain HTTP like TRACE_HOST, but is its parent domain,
+# so a rule for TRACE_HOST does not match it. (1.1.1.1 redirects to HTTPS.)
+TUNNEL_HOST = "cloudflare.com"
+APP_LOG = "no_backup/logs/android-engine.jsonl"
+UUID_PATTERN = re.compile(
+    r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+)
 ROUTE_PROBE = "1.1.1.1"
 
 # English labels of the current interface (the emulator runs in en-US).
@@ -323,6 +330,20 @@ def parse_route_device(output: str) -> str:
     return "tun" if match.group(1).startswith("tun") else "other"
 
 
+def trace_failure(output: str) -> str:
+    """Why a trace fetch returned no `warp` field, without any addresses."""
+
+    status = re.search(r"HTTP/1\.[01] (\d{3})", output)
+    if status is not None:
+        return f"http-{status.group(1)}"
+    lowered = output.lower()
+    if any(word in lowered for word in ("bad address", "resolve", "getaddrinfo", "no address")):
+        return "dns"
+    if "refused" in lowered:
+        return "refused"
+    return "no-response"
+
+
 def parse_warp(trace: str) -> str | None:
     match = re.search(r"^warp=(on|off|plus)\s*$", trace, re.MULTILINE)
     return match.group(1) if match else None
@@ -348,6 +369,12 @@ class Device:
     log: list[str] = field(default_factory=list)
     last_dump: str = ""
     last_networks: list[dict] = field(default_factory=list)
+    artifacts: Path | None = None
+    last_trace_failure: str = ""
+
+    def save_dump(self, name: str) -> None:
+        if self.artifacts is not None and self.last_dump:
+            (self.artifacts / f"{name}.xml").write_text(redact(self.last_dump), encoding="utf-8")
 
     def say(self, message: str) -> None:
         line = redact(message)
@@ -775,9 +802,55 @@ class Device:
             self.tap(self.wait_label(SETTINGS))
             row = self.scroll_to(is_row)
         self.tap(row)
-        # The search field exists only for lists longer than 50 rules.
-        self.wait_label(RULE_SEARCH, timeout=90, clickable=False)
-        self.say("rules: the editor shows the search field for the large list")
+        # The search field exists only for lists longer than 50 rules. Phones
+        # expose it as an EditText without the label; TVs as a hinted view.
+        deadline = time.monotonic() + 90
+        while time.monotonic() < deadline:
+            nodes = self.dump()
+            if any(node.has(BACK) for node in nodes) and any(
+                is_search_field(node, RULE_SEARCH) for node in nodes
+            ):
+                self.save_dump("rules-page")
+                self.say("rules: the editor shows the search field for the large list")
+                return
+            time.sleep(2)
+        raise HarnessError("the rule search field did not appear")
+
+    def type_rule_search(self, value: str) -> None:
+        """Type into the empty rule search only once it is being edited."""
+
+        def editing() -> bool:
+            return any(
+                node.focused and node.class_name.endswith("EditText") for node in self.dump()
+            )
+
+        self.tap(self.scroll_to(lambda node: is_search_field(node, RULE_SEARCH)))
+        if not editing():
+            # A TV field is browsed until activated.
+            self.key("KEYCODE_DPAD_CENTER")
+        if not editing():
+            raise HarnessError("the rule search field did not start editing")
+        self.shell(f"input text {shlex.quote(value)}")
+        time.sleep(2)
+        field = self.scroll_to(lambda node: is_search_field(node, RULE_SEARCH))
+        if value not in field.labels:
+            raise HarnessError("the rule search text did not land in the field")
+        # Finish editing so taps and the D-pad reach the filtered rows (TV);
+        # harmless on phones.
+        self.leave_text_field()
+
+    def save_app_log(self, lines: int = 80) -> None:
+        """Keep the app's own event log tail, without addresses or IDs."""
+
+        if self.artifacts is None:
+            return
+        try:
+            text = self.run_as(f"tail -n {lines} {APP_LOG} 2>/dev/null; true")
+        except HarnessError:
+            return
+        (self.artifacts / "app-log-tail.txt").write_text(
+            UUID_PATTERN.sub("[uuid]", redact(text)), encoding="utf-8"
+        )
 
     def delete_rule(self, target: str) -> None:
         """Find `target` through the editor search, delete it and save."""
@@ -787,7 +860,8 @@ class Device:
                 node.mentions(target) and node.clickable and not is_search_field(node, RULE_SEARCH)
             )
 
-        self.set_search(target, RULE_SEARCH)
+        self.type_rule_search(target)
+        self.save_dump("rules-search")
         row = self.scroll_to(is_row)
         nodes = self.dump()
         top, bottom = row.bounds[1], row.bounds[3]
@@ -839,11 +913,14 @@ class Device:
         )
         # Keep stdin open so nc reads the reply before the server closes.
         script = f"(printf '{request}'; sleep 6) | nc -w 15 {host} 80"
-        command = f"run-as {package} sh -c {shlex.quote(script)}"
+        command = f"run-as {package} sh -c {shlex.quote(script + ' 2>&1')}"
         for _ in range(3):
-            value = parse_warp(self.shell(command, timeout=45, check=False))
+            output = self.shell(command, timeout=45, check=False)
+            value = parse_warp(output)
             if value is not None:
+                self.last_trace_failure = ""
                 return value
+            self.last_trace_failure = trace_failure(output)
             time.sleep(3)
         return None
 
@@ -921,20 +998,26 @@ def rule_phases(device: Device, owner_uid: int, probe: str):
     device.launch()
     retries = device.connect(owner_uid)
     in_vpn = uid_in(device.vpn_ranges(owner_uid) or [], device.package_uid(probe))
+    tunnel = wait_warp(device, probe, TUNNEL_HOST, "on", 150)
+    tunnel_failure = device.last_trace_failure
     direct = wait_warp(device, probe, TRACE_HOST, "off", 150)
-    tunnel = wait_warp(device, probe, ROUTE_PROBE, "on", 90)
-    yield (
-        "5-rules-connect",
-        {
-            "rules": len(rules),
-            "target_bytes": sum(len(rule["target"].encode()) for rule in rules),
-            "connect_retries": retries,
-            "in_vpn_uid_ranges": in_vpn,
-            "direct_rule_trace_warp": direct,
-            "tunnel_trace_warp": tunnel,
-            "passed": in_vpn and direct == "off" and tunnel == "on",
-        },
-    )
+    direct_failure = device.last_trace_failure
+    phase = {
+        "rules": len(rules),
+        "target_bytes": sum(len(rule["target"].encode()) for rule in rules),
+        "connect_retries": retries,
+        "in_vpn_uid_ranges": in_vpn,
+        "tunnel_trace_warp": tunnel,
+        "direct_rule_trace_warp": direct,
+        "passed": in_vpn and direct == "off" and tunnel == "on",
+    }
+    if tunnel is None:
+        phase["tunnel_trace_failure"] = tunnel_failure
+    if direct is None:
+        phase["direct_rule_trace_failure"] = direct_failure
+    if not phase["passed"]:
+        device.save_app_log()
+    yield "5-rules-connect", phase
 
     device.open_bypass_settings()
     device.delete_rule(TRACE_HOST)
@@ -945,18 +1028,20 @@ def rule_phases(device: Device, owner_uid: int, probe: str):
             break
         time.sleep(5)
         leftovers = device.handoff_files()
-    yield (
-        "6-rules-edit",
-        {
-            "direct_rule_trace_warp": after,
-            "handoff_files_left": leftovers,
-            "passed": after == "on" and leftovers == 0,
-        },
-    )
+    phase = {
+        "direct_rule_trace_warp": after,
+        "handoff_files_left": leftovers,
+        "passed": after == "on" and leftovers == 0,
+    }
+    if after is None:
+        phase["direct_rule_trace_failure"] = device.last_trace_failure
+    if not phase["passed"]:
+        device.save_app_log()
+    yield "6-rules-edit", phase
 
 
 def run(arguments: argparse.Namespace) -> dict:
-    device = Device(arguments.adb, arguments.serial)
+    device = Device(arguments.adb, arguments.serial, artifacts=arguments.report.parent)
     report: dict = {"device": arguments.device, "phases": {}, "passed": False}
     try:
         device.wait_boot()
@@ -1002,6 +1087,7 @@ def run(arguments: argparse.Namespace) -> dict:
         device.say(f"error: {report['error']}")
         if device.last_dump and arguments.ui_dump:
             arguments.ui_dump.write_text(redact(device.last_dump), encoding="utf-8")
+        device.save_app_log()
     report["log"] = device.log
     return report
 

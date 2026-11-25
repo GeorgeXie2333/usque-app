@@ -133,6 +133,12 @@ class RuleSetTests(unittest.TestCase):
                 self.assertTrue(all(0 < len(label) <= 63 for label in labels))
                 self.assertLessEqual(len(rule["target"]), 253)
 
+    def test_trace_failures_are_classified_without_addresses(self):
+        self.assertEqual(harness.trace_failure("HTTP/1.1 301 Moved Permanently\r\n"), "http-301")
+        self.assertEqual(harness.trace_failure("nc: bad address 'www.cloudflare.com'"), "dns")
+        self.assertEqual(harness.trace_failure("nc: connect: Connection refused"), "refused")
+        self.assertEqual(harness.trace_failure(""), "no-response")
+
     def test_search_field_hint_is_configurable(self):
         node = harness.parse_nodes(
             '<hierarchy><node class="android.view.View" hint="Search rules"'
