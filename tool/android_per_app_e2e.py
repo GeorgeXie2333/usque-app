@@ -671,24 +671,37 @@ class Device:
         self.key("KEYCODE_DPAD_CENTER")
         clear_and_type()
 
+    def settled_dump(self, attempts: int = 4) -> list[Node]:
+        """A non-empty capture; an empty one only means the screen was busy."""
+
+        for _ in range(attempts):
+            nodes = self.dump()
+            if nodes:
+                return nodes
+            time.sleep(2)
+        raise HarnessError("the screen never settled for a capture")
+
+    def editing_text(self) -> bool:
+        return any(
+            node.focused and node.class_name.endswith("EditText") for node in self.settled_dump()
+        )
+
     def leave_text_field(self) -> None:
         """Finish editing a TV text field so the D-pad moves focus again."""
 
         for key in ("KEYCODE_ENTER", "KEYCODE_ESCAPE"):
-            editing = any(
-                node.focused and node.class_name.endswith("EditText") for node in self.dump()
-            )
-            if not editing:
+            if not self.editing_text():
                 return
             self.key(key)
-        if any(node.focused and node.class_name.endswith("EditText") for node in self.dump()):
+        if self.editing_text():
             raise HarnessError("the TV search field stayed in editing mode")
 
     def focus_onto(self, predicate, key: str, presses: int = 30) -> Node:
         """Press `key` until a focused node satisfies `predicate`."""
 
         for _ in range(presses):
-            nodes = self.dump()
+            # A busy screen yields no capture; wait instead of pressing blind.
+            nodes = self.settled_dump()
             focused = next((node for node in nodes if node.focused and predicate(node)), None)
             if focused is not None:
                 return focused
@@ -823,16 +836,11 @@ class Device:
     def type_rule_search(self, value: str) -> None:
         """Type into the empty rule search only once it is being edited."""
 
-        def editing() -> bool:
-            return any(
-                node.focused and node.class_name.endswith("EditText") for node in self.dump()
-            )
-
         self.tap(self.scroll_to(lambda node: is_search_field(node, RULE_SEARCH)))
-        if not editing():
+        if not self.editing_text():
             # A TV field is browsed until activated.
             self.key("KEYCODE_DPAD_CENTER")
-        if not editing():
+        if not self.editing_text():
             raise HarnessError("the rule search field did not start editing")
         self.shell(f"input text {shlex.quote(value)}")
         time.sleep(2)
