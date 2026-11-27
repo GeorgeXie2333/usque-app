@@ -19,6 +19,8 @@
   <a href="README.ru.md">Русский</a>
   ·
   <a href="README.fa.md">فارسی</a>
+  ·
+  <a href="README.tr.md">Türkçe</a>
 </p>
 
 <p align="center">
