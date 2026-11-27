@@ -9,12 +9,13 @@ use std::{
     },
     path::Path,
     ptr,
+    time::{Duration, Instant},
 };
 
 use ipnet::IpNet;
 use serde_json::{Value, json};
 
-use crate::plan::ValidatedTunnelPlan;
+use crate::plan::{PROBE_LEASE_TTL_SECONDS, ValidatedTunnelPlan, validate_probe_targets};
 use usque_ipc::{
     agent_v1::{
         LinuxDnsBackend, LinuxFailureDetail, LinuxFailureReason as FailureReason,
@@ -37,12 +38,27 @@ const RESOLVE_SERVICE: &str = "org.freedesktop.resolve1";
 const RESOLVE_PATH: &str = "/org/freedesktop/resolve1";
 const RESOLVE_MANAGER: &str = "org.freedesktop.resolve1.Manager";
 
+#[derive(Debug, Clone)]
+pub struct ActiveProbeLease {
+    pub lease_id: u64,
+    pub probe_session_id: String,
+    pub generation: u64,
+    pub expires_at: Instant,
+    pub targets: Vec<(SocketAddr, u8)>,
+    pub allow_dns: bool,
+    pub socket_lease_ids: Vec<u64>,
+}
+
 #[derive(Default)]
 pub struct NativeBackend {
     tun: Option<File>,
     leases: Vec<EgressLease>,
     preset_candidates: Vec<SocketAddr>,
     preset_generation: u64,
+    hostname_candidates: Vec<SocketAddr>,
+    hostname_generation: u64,
+    active_probe_lease: Option<ActiveProbeLease>,
+    next_probe_lease_id: u64,
     sockets: HashMap<u32, OwnedFd>,
     reusable_marks: Vec<u16>,
     binding_indices: HashMap<u32, u32>,
@@ -79,6 +95,10 @@ impl Backend for NativeBackend {
         super::auth::open_trusted_file(Path::new("/usr/sbin/nft"))?;
         super::auth::open_trusted_file(Path::new(BUSCTL))?;
         Ok(())
+    }
+
+    fn retire_probe_lease(&mut self) {
+        self.active_probe_lease = None;
     }
 
     fn initialize_guard(&self, resources: &mut Resources) -> io::Result<()> {
@@ -118,6 +138,9 @@ impl Backend for NativeBackend {
                 self.leases.clear();
                 self.egress_cleanup_uncertain = false;
                 self.reusable_marks.clear();
+                // Each session starts at network generation 1 again; nothing
+                // authorized for a previous session may carry over.
+                self.clear_volatile_authorizations();
             }
             Step::Tun => {
                 network::assert_route_ids_available(resources)?;
@@ -191,6 +214,7 @@ impl Backend for NativeBackend {
                 self.sockets.clear();
                 self.binding_indices.clear();
                 self.leases.clear();
+                self.clear_volatile_authorizations();
                 self.egress_cleanup_uncertain = false;
                 self.owned_resources
                     .retain(|r| r.route_table != resources.route_table);
@@ -458,9 +482,21 @@ impl NativeBackend {
         for lease in mem::take(&mut self.leases) {
             self.recycle_mark(resources, lease.mark);
         }
+        self.clear_volatile_authorizations();
+        Ok(())
+    }
+
+    fn clear_volatile_authorizations(&mut self) {
         self.preset_candidates.clear();
         self.preset_generation = 0;
-        Ok(())
+        self.hostname_candidates.clear();
+        self.hostname_generation = 0;
+        self.active_probe_lease = None;
+    }
+
+    /// Ends an expired probe lease and its sockets on the periodic tick.
+    pub fn reap_expired_probe_lease(&mut self, resources: &Resources) -> io::Result<()> {
+        self.prune_expired_probe_lease(resources)
     }
 
     pub fn release_egress(&mut self, resources: &Resources, lease_id: u64) -> io::Result<()> {
@@ -548,6 +584,121 @@ impl NativeBackend {
         Ok(())
     }
 
+    pub fn set_hostname_candidates(
+        &mut self,
+        plan: &ValidatedTunnelPlan,
+        resources: &Resources,
+        hostname: &str,
+        generation: u64,
+        mut candidates: Vec<SocketAddr>,
+    ) -> io::Result<()> {
+        let policy = plan
+            .hostname_endpoint_policy
+            .as_ref()
+            .ok_or_else(|| denied("Linux hostname policy unavailable"))?;
+        if generation != resources.network_generation || hostname != policy.hostname {
+            return Err(denied("Linux hostname generation or host changed"));
+        }
+        crate::plan::validate_hostname_candidates(plan, &candidates)
+            .map_err(|_| denied("invalid Linux hostname candidates"))?;
+        candidates.sort();
+        candidates.dedup();
+        self.hostname_candidates = candidates;
+        self.hostname_generation = generation;
+        Ok(())
+    }
+
+    pub fn prune_expired_probe_lease(&mut self, resources: &Resources) -> io::Result<()> {
+        if self
+            .active_probe_lease
+            .as_ref()
+            .is_some_and(|lease| lease.expires_at <= Instant::now())
+        {
+            let lease = self.active_probe_lease.take().expect("checked lease");
+            let mut first_error = None;
+            for lease_id in lease.socket_lease_ids {
+                if let Err(error) = self.release_egress(resources, lease_id) {
+                    first_error.get_or_insert(error);
+                }
+            }
+            if let Some(error) = first_error {
+                return Err(error);
+            }
+        }
+        Ok(())
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "probe lease validates session, generation, public targets and DNS hostname together"
+    )]
+    pub fn acquire_probe_lease(
+        &mut self,
+        plan: &ValidatedTunnelPlan,
+        resources: &Resources,
+        phase: super::journal::Phase,
+        probe_session_id: &str,
+        generation: u64,
+        targets: Vec<(SocketAddr, u8)>,
+        dns_hostname: Option<&str>,
+    ) -> io::Result<(u64, u64, u32)> {
+        if phase != super::journal::Phase::Active {
+            return Err(denied("Linux probe lease requires an active tunnel"));
+        }
+        let session = probe_session_id.trim();
+        if generation == 0 || generation != resources.network_generation || session.is_empty() {
+            return Err(denied("stale Linux generation or empty probe session"));
+        }
+        self.prune_expired_probe_lease(resources)?;
+        if self.active_probe_lease.is_some() {
+            return Err(denied("Linux probe lease already active"));
+        }
+        let canonical_dns = validate_probe_targets(&targets, dns_hostname, &plan.dns_servers)
+            .map_err(|_| denied("invalid Linux probe lease targets"))?;
+        let lease_id = self.next_probe_lease_id.wrapping_add(1).max(1);
+        self.next_probe_lease_id = lease_id;
+        self.active_probe_lease = Some(ActiveProbeLease {
+            lease_id,
+            probe_session_id: session.to_owned(),
+            generation,
+            expires_at: Instant::now() + Duration::from_secs(u64::from(PROBE_LEASE_TTL_SECONDS)),
+            targets,
+            allow_dns: canonical_dns.is_some(),
+            socket_lease_ids: Vec::new(),
+        });
+        Ok((lease_id, generation, PROBE_LEASE_TTL_SECONDS))
+    }
+
+    pub fn record_probe_socket_lease(&mut self, lease_id: u64) {
+        if let Some(lease) = self.active_probe_lease.as_mut() {
+            lease.socket_lease_ids.push(lease_id);
+        }
+    }
+
+    pub fn release_probe_lease(
+        &mut self,
+        resources: &Resources,
+        probe_session_id: &str,
+        lease_id: u64,
+    ) -> io::Result<()> {
+        self.prune_expired_probe_lease(resources)?;
+        let session = probe_session_id.trim();
+        let Some(current) = self.active_probe_lease.as_ref() else {
+            return Ok(());
+        };
+        if current.lease_id != lease_id || current.probe_session_id != session {
+            return Err(denied("Linux probe lease mismatch"));
+        }
+        let lease = self.active_probe_lease.take().expect("checked lease");
+        let mut first_error = None;
+        for socket_lease_id in lease.socket_lease_ids {
+            if let Err(error) = self.release_egress(resources, socket_lease_id) {
+                first_error.get_or_insert(error);
+            }
+        }
+        first_error.map_or(Ok(()), Err)
+    }
+
     #[expect(
         clippy::too_many_arguments,
         reason = "authorization checks the complete typed request against its session"
@@ -569,6 +720,7 @@ impl NativeBackend {
                 phase == super::journal::Phase::Active
                     || protocol == 6 && plan.control_api_candidates.contains(&remote)
                     || plan.preset_endpoint_policy.is_none()
+                        && plan.hostname_endpoint_policy.is_none()
                         && plan.automatic_endpoint_policy.is_none()
                         && plan.endpoint_candidates.contains(&remote)
             }
@@ -594,6 +746,34 @@ impl NativeBackend {
                         policy.permits_protocol(protocol as u8)
                             && (policy.ipv4_fallback == Some(remote)
                                 || self.preset_candidates.contains(&remote))
+                    })
+            }
+            4 => {
+                plan.hostname_endpoint_policy.is_some()
+                    && remote.port() == 53
+                    && egress_interface(resources, remote)
+                        .is_ok_and(|link| link.dns_servers.contains(&remote.ip()))
+            }
+            5 => {
+                self.hostname_generation == resources.network_generation
+                    && plan
+                        .hostname_endpoint_policy
+                        .as_ref()
+                        .is_some_and(|policy| {
+                            policy.permits_protocol(protocol as u8)
+                                && self.hostname_candidates.contains(&remote)
+                        })
+            }
+            6 => {
+                phase == super::journal::Phase::Active
+                    && self.active_probe_lease.as_ref().is_some_and(|lease| {
+                        lease.generation == resources.network_generation
+                            && lease.expires_at > Instant::now()
+                            && (lease.targets.contains(&(remote, protocol as u8))
+                                || (lease.allow_dns
+                                    && remote.port() == 53
+                                    && egress_interface(resources, remote)
+                                        .is_ok_and(|link| link.dns_servers.contains(&remote.ip()))))
                     })
             }
             _ => false,
@@ -1565,6 +1745,7 @@ mod tests {
                 tcp: true,
                 udp: true,
             }),
+            hostname_endpoint_policy: None,
         };
         let backend = NativeBackend::default();
         let remote = "[fe80::1%3]:53".parse().unwrap();
@@ -1638,5 +1819,329 @@ mod tests {
         assert!(validate_resolv_conf("nameserver 127.0.0.53\nnameserver 1.1.1.1\n").is_err());
         assert!(validate_resolv_conf("nameserver 127.0.0.1\n").is_err());
         assert!(validate_resolv_conf("# nameserver 127.0.0.53\n").is_err());
+    }
+
+    fn hostname_plan() -> ValidatedTunnelPlan {
+        ValidatedTunnelPlan {
+            profile_id: uuid::Uuid::new_v4(),
+            endpoint: "162.159.192.1:443".parse().unwrap(),
+            endpoint_candidates: vec![
+                "162.159.192.1:443".parse().unwrap(),
+                "[2606:4700:103::2]:443".parse().unwrap(),
+            ],
+            control_api_candidates: Vec::new(),
+            mtu: 1280,
+            dns_servers: vec!["1.1.1.1".parse().unwrap()],
+            split_exclusions: Vec::new(),
+            allow_lan: false,
+            kill_switch: true,
+            split_dns: false,
+            assigned_ipv4: Some("172.16.0.2/32".parse().unwrap()),
+            assigned_ipv6: Some("2606:4700:110::2/128".parse().unwrap()),
+            vpn_chain: false,
+            defer_network_configuration: false,
+            automatic_endpoint_policy: None,
+            preset_endpoint_policy: None,
+            hostname_endpoint_policy: Some(crate::plan::HostnameEndpointPolicy {
+                hostname: "edge.example.com".into(),
+                port: 443,
+                ipv4: true,
+                ipv6: true,
+                tcp: true,
+                udp: true,
+            }),
+        }
+    }
+
+    fn active_resources(generation: u64) -> Resources {
+        let mut resources = Resources::for_operation(uuid::Uuid::new_v4());
+        resources.network_generation = generation;
+        resources.physical_interfaces = vec![PhysicalInterface {
+            index: 2,
+            family_mask: 3,
+            dns_servers: vec!["9.9.9.9".parse().unwrap()],
+        }];
+        resources
+    }
+
+    #[test]
+    fn hostname_candidates_are_generation_scoped_and_validated() {
+        let plan = hostname_plan();
+        let resources = active_resources(42);
+        let mut backend = NativeBackend::default();
+        let target_v4 = "162.159.193.10:443".parse().unwrap();
+        let target_v6 = "[2606:4700:103::10]:443".parse().unwrap();
+
+        backend
+            .set_hostname_candidates(
+                &plan,
+                &resources,
+                "edge.example.com",
+                42,
+                vec![target_v4, target_v6],
+            )
+            .unwrap();
+        assert!(
+            backend
+                .validate_egress_purpose(
+                    &plan,
+                    &resources,
+                    super::super::journal::Phase::Prepared,
+                    target_v4,
+                    17,
+                    5
+                )
+                .is_ok()
+        );
+        assert!(
+            backend
+                .validate_egress_purpose(
+                    &plan,
+                    &resources,
+                    super::super::journal::Phase::Prepared,
+                    target_v6,
+                    6,
+                    5
+                )
+                .is_ok()
+        );
+        // Physical DNS allowed only for port 53 on an observed interface.
+        assert!(
+            backend
+                .validate_egress_purpose(
+                    &plan,
+                    &resources,
+                    super::super::journal::Phase::Prepared,
+                    "9.9.9.9:53".parse().unwrap(),
+                    17,
+                    4
+                )
+                .is_ok()
+        );
+        assert!(
+            backend
+                .validate_egress_purpose(
+                    &plan,
+                    &resources,
+                    super::super::journal::Phase::Prepared,
+                    "9.9.9.9:443".parse().unwrap(),
+                    17,
+                    4
+                )
+                .is_err()
+        );
+        // Wrong generation is rejected even if cached.
+        let next_gen = active_resources(43);
+        assert!(
+            backend
+                .validate_egress_purpose(
+                    &plan,
+                    &next_gen,
+                    super::super::journal::Phase::Prepared,
+                    target_v4,
+                    17,
+                    5
+                )
+                .is_err()
+        );
+        // Observation anchor is NOT admitted as a hostname target.
+        assert!(
+            backend
+                .validate_egress_purpose(
+                    &plan,
+                    &resources,
+                    super::super::journal::Phase::Prepared,
+                    plan.endpoint,
+                    17,
+                    5
+                )
+                .is_err()
+        );
+        assert!(
+            backend
+                .validate_egress_purpose(
+                    &plan,
+                    &resources,
+                    super::super::journal::Phase::Prepared,
+                    plan.endpoint,
+                    17,
+                    0
+                )
+                .is_err()
+        );
+        // Wrong hostname or private IP rejected.
+        assert!(
+            backend
+                .set_hostname_candidates(
+                    &plan,
+                    &resources,
+                    "other.example.com",
+                    42,
+                    vec![target_v4]
+                )
+                .is_err()
+        );
+        assert!(
+            backend
+                .set_hostname_candidates(
+                    &plan,
+                    &resources,
+                    "edge.example.com",
+                    42,
+                    vec!["10.0.0.1:443".parse().unwrap()]
+                )
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn probe_lease_enforces_active_session_quota_ttl_and_release() {
+        let plan = hostname_plan();
+        let resources = active_resources(7);
+        let mut backend = NativeBackend::default();
+        let probe_target = "162.159.193.22:2408".parse().unwrap();
+
+        // Requires Phase::Active.
+        assert!(
+            backend
+                .acquire_probe_lease(
+                    &plan,
+                    &resources,
+                    super::super::journal::Phase::Prepared,
+                    "session-1",
+                    7,
+                    vec![(probe_target, 17)],
+                    None,
+                )
+                .is_err()
+        );
+
+        let (lease_id, generation, ttl) = backend
+            .acquire_probe_lease(
+                &plan,
+                &resources,
+                super::super::journal::Phase::Active,
+                "session-1",
+                7,
+                vec![(probe_target, 17)],
+                Some("edge.example.com"),
+            )
+            .unwrap();
+        assert_eq!(generation, 7);
+        assert_eq!(ttl, PROBE_LEASE_TTL_SECONDS);
+
+        // Concurrent second lease denied while active.
+        assert!(
+            backend
+                .acquire_probe_lease(
+                    &plan,
+                    &resources,
+                    super::super::journal::Phase::Active,
+                    "session-2",
+                    7,
+                    vec![(probe_target, 17)],
+                    None,
+                )
+                .is_err()
+        );
+
+        // Authorized target & physical DNS admitted under purpose 6; unrelated rejected.
+        assert!(
+            backend
+                .validate_egress_purpose(
+                    &plan,
+                    &resources,
+                    super::super::journal::Phase::Active,
+                    probe_target,
+                    17,
+                    6
+                )
+                .is_ok()
+        );
+        assert!(
+            backend
+                .validate_egress_purpose(
+                    &plan,
+                    &resources,
+                    super::super::journal::Phase::Active,
+                    "9.9.9.9:53".parse().unwrap(),
+                    17,
+                    6
+                )
+                .is_ok()
+        );
+        assert!(
+            backend
+                .validate_egress_purpose(
+                    &plan,
+                    &resources,
+                    super::super::journal::Phase::Active,
+                    "162.159.193.99:443".parse().unwrap(),
+                    6,
+                    6
+                )
+                .is_err()
+        );
+
+        // Wrong session cannot release.
+        assert!(
+            backend
+                .release_probe_lease(&resources, "wrong-session", lease_id)
+                .is_err()
+        );
+        backend
+            .release_probe_lease(&resources, "session-1", lease_id)
+            .unwrap();
+        assert!(
+            backend
+                .validate_egress_purpose(
+                    &plan,
+                    &resources,
+                    super::super::journal::Phase::Active,
+                    probe_target,
+                    17,
+                    6
+                )
+                .is_err()
+        );
+
+        // Expired lease cannot admit traffic and allows acquiring a fresh lease.
+        let (old_id, _, _) = backend
+            .acquire_probe_lease(
+                &plan,
+                &resources,
+                super::super::journal::Phase::Active,
+                "session-3",
+                7,
+                vec![(probe_target, 17)],
+                None,
+            )
+            .unwrap();
+        backend.active_probe_lease.as_mut().unwrap().expires_at =
+            Instant::now() - Duration::from_secs(1);
+        assert!(
+            backend
+                .validate_egress_purpose(
+                    &plan,
+                    &resources,
+                    super::super::journal::Phase::Active,
+                    probe_target,
+                    17,
+                    6
+                )
+                .is_err()
+        );
+        let (new_id, _, _) = backend
+            .acquire_probe_lease(
+                &plan,
+                &resources,
+                super::super::journal::Phase::Active,
+                "session-4",
+                7,
+                vec![(probe_target, 17)],
+                None,
+            )
+            .unwrap();
+        assert_ne!(old_id, new_id);
     }
 }

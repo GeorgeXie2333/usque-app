@@ -48,6 +48,9 @@ pub struct Account {
     /// for reset and is never replaced by a network-settings edit.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub zero_trust_endpoint_override: Option<ManagedEndpointIps>,
+    /// Active Zero Trust endpoint subscription selected for this account.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub zero_trust_subscription_id: Option<Uuid>,
 }
 
 impl Account {
@@ -57,6 +60,7 @@ impl Account {
             name: name.into(),
             managed_endpoint_ips: None,
             zero_trust_endpoint_override: None,
+            zero_trust_subscription_id: None,
         }
     }
 

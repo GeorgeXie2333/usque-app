@@ -38,6 +38,7 @@ impl ProxyNetwork {
     }
 }
 
+#[async_trait::async_trait]
 impl SocketProtector for ProxyNetwork {
     fn protect(&self, _: SocketHandle) -> Result<(), String> {
         Ok(())
@@ -56,6 +57,15 @@ impl SocketProtector for ProxyNetwork {
                 Some(if endpoint.is_ipv4() { ipv4 } else { ipv6 })
             }
         }
+    }
+    async fn resolve_endpoint_hostname(
+        &self,
+        host: &str,
+        port: u16,
+        ip_policy: usque_core::IpPolicy,
+        _expected_generation: u64,
+    ) -> Result<Vec<SocketAddr>, String> {
+        usque_transport::resolve_system_endpoint_hostname(host, port, ip_policy).await
     }
 }
 

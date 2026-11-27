@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../models/app_models.dart';
+import '../models/endpoint_subscriptions.dart';
 import '../state/app_controller.dart';
 import '../widgets/common.dart';
 import '../widgets/context_help_button.dart';
@@ -47,6 +48,8 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
   late EndpointSelection _endpointSelection;
   late bool _presetMode;
   late EndpointPresetRegion _presetRegion;
+  late bool _subscriptionMode;
+  String? _endpointSubscriptionId;
   late bool _allowLan;
   late bool _disableQuic;
   late DirectDnsSettings _directDns;
@@ -58,6 +61,10 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
   int _dnsResetRevision = 0;
   bool _saving = false;
   String? _endpointAcknowledgedAccount;
+
+  /// `account|subscription` confirmed in the Zero Trust warning for the
+  /// pending save. Any other subscription, or a later save, asks again.
+  String? _subscriptionAcknowledged;
   bool _endpointWarningOpen = false;
   int _endpointEditGeneration = 0;
   String? _saveError;
@@ -75,11 +82,13 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
 
   List<Object> get _values => [
     _usingPreset ||
+            _usingSubscription ||
             (!_zeroTrustEndpointIpsManaged &&
                 _endpointSelection == EndpointSelection.automatic)
         ? widget.controller.activeProfile.endpointIpv4
         : _endpointV4.text,
     _usingPreset ||
+            _usingSubscription ||
             (!_zeroTrustEndpointIpsManaged &&
                 _endpointSelection == EndpointSelection.automatic)
         ? widget.controller.activeProfile.endpointIpv6
@@ -112,12 +121,13 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
     _warpDns,
     _usingPreset ? _presetRegion.name : '',
     _masqueConnections.text,
+    _usingSubscription ? (_endpointSubscriptionId ?? '') : '',
   ];
   bool get _dirty => !listEquals(_values, _baseline);
 
   /// Positions in [_values] that a scene owns: endpoint addresses, port, SNI,
-  /// transport, IP version, endpoint selection and preset.
-  static const _sceneManagedValues = {0, 1, 2, 3, 7, 11, 22, 24};
+  /// transport, IP version, endpoint selection, preset, and subscription.
+  static const _sceneManagedValues = {0, 1, 2, 3, 7, 11, 22, 24, 26};
 
   /// The selected scene, while the draft changes a setting it owns; applying
   /// that edit leaves the scene modified.
@@ -153,7 +163,26 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
           .provider ==
       IdentityProvider.zeroTrust;
 
+  bool get _subscriptionSupported =>
+      widget.controller.endpointSubscriptions.supported;
+
+  List<EndpointSubscription> get _compatibleSubscriptions {
+    final tier = widget.controller.activeAccountSubscriptionTier;
+    final catalog = widget.controller.endpointSubscriptions.catalog;
+    if (tier == null || catalog == null) return const [];
+    return catalog.subscriptions
+        .where((s) => s.accountTier == tier)
+        .toList(growable: false);
+  }
+
+  bool get _usingSubscription =>
+      _subscriptionSupported &&
+      _subscriptionMode &&
+      (_zeroTrustEndpointIpsManaged ||
+          _endpointSelection == EndpointSelection.custom);
+
   bool get _usingPreset =>
+      !_usingSubscription &&
       _presetMode &&
       (_zeroTrustEndpointIpsManaged ||
           _endpointSelection == EndpointSelection.custom);
@@ -171,8 +200,31 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
   Future<IpPolicy?> _choosePresetPolicy() =>
       chooseEndpointPresetPolicy(context, widget.controller.strings);
 
-  Future<void> _setPresetMode(bool preset) async {
-    if (_saving || preset == _presetMode) return;
+  Future<void> _setPresetMode(bool preset) =>
+      _setCustomSource(preset: preset, subscription: false);
+
+  Future<void> _customSourceChanged(EndpointCustomSource source) =>
+      switch (source) {
+        EndpointCustomSource.manual => _setCustomSource(
+          preset: false,
+          subscription: false,
+        ),
+        EndpointCustomSource.preset => _setCustomSource(
+          preset: true,
+          subscription: false,
+        ),
+        EndpointCustomSource.subscription => _setCustomSource(
+          preset: false,
+          subscription: true,
+        ),
+      };
+
+  Future<void> _setCustomSource({
+    required bool preset,
+    required bool subscription,
+  }) async {
+    if (_saving) return;
+    if (preset == _presetMode && subscription == _subscriptionMode) return;
     if (preset && (!_presetSupported || _presetHostname == null)) return;
     final account = _editingAccountId;
     final policy = preset && !_ipv6PresetPolicy
@@ -184,8 +236,16 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
       return;
     }
     setState(() {
+      _subscriptionMode = subscription;
       _presetMode = preset;
       _ipPolicy = policy;
+      if (subscription &&
+          (_endpointSubscriptionId == null ||
+              !_compatibleSubscriptions.any(
+                (s) => s.id == _endpointSubscriptionId,
+              ))) {
+        _endpointSubscriptionId = _compatibleSubscriptions.firstOrNull?.id;
+      }
     });
     _edited();
   }
@@ -211,6 +271,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
   void _accountChanged() {
     if (widget.controller.activeProfile.id != _editingAccountId) {
       _endpointAcknowledgedAccount = null;
+      _subscriptionAcknowledged = null;
       _endpointEditGeneration++;
     }
   }
@@ -277,7 +338,12 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
     _tlsFingerprint = profile.tlsFingerprint;
     _ipPolicy = profile.ipPolicy;
     _endpointSelection = profile.endpointSelection;
-    _presetMode = profile.endpointPresetRegion != null;
+    _subscriptionMode =
+        _subscriptionSupported && profile.endpointSubscriptionId != null;
+    _endpointSubscriptionId =
+        profile.endpointSubscriptionId ??
+        _compatibleSubscriptions.firstOrNull?.id;
+    _presetMode = !_subscriptionMode && profile.endpointPresetRegion != null;
     _presetRegion = profile.endpointPresetRegion ?? EndpointPresetRegion.us;
     _allowLan = profile.allowLan;
     _disableQuic = profile.disableQuic;
@@ -321,6 +387,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
           bool managedQuic,
           String accountId,
           ProfileIdentityStatus identity,
+          EndpointSubscriptionCatalog? subscriptions,
         })
       >(
         controller: widget.controller,
@@ -331,6 +398,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
             accountId: profile.id,
             identity: controller.identityStatus(profile.id),
             managedQuic: profile.chainEnabled && profile.chainSource.isProxy,
+            subscriptions: controller.endpointSubscriptions.catalog,
           );
         },
         builder: (context, view) =>
@@ -562,7 +630,27 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
     final managed = _zeroTrustEndpointIpsManaged;
     final addresses =
         (managed || _endpointSelection == EndpointSelection.custom) &&
-        !_usingPreset;
+        !_usingPreset &&
+        !_usingSubscription;
+    final compatible = _compatibleSubscriptions;
+    final activeSubId = _endpointSubscriptionId;
+    String? subscriptionMissingMessage;
+    if (_usingSubscription && activeSubId != null) {
+      final existingSub = widget.controller.endpointSubscriptions.catalog?.byId(
+        activeSubId,
+      );
+      if (existingSub == null) {
+        subscriptionMissingMessage = strings.get('scenario_reference_missing');
+      } else if (!compatible.any((s) => s.id == existingSub.id) &&
+          widget.controller.activeAccountSubscriptionTier != null) {
+        subscriptionMissingMessage = strings
+            .get('sub_tier_mismatch')
+            .replaceAll(
+              '{tier}',
+              strings.subscriptionTierLabel(existingSub.accountTier),
+            );
+      }
+    }
     return EndpointFields(
       strings: strings,
       selection: _endpointSelection,
@@ -577,11 +665,24 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
       ztEditingSupported: _ztEndpointEditingSupported,
       ztRegistered: _ztRegisteredEndpointsAvailable,
       ztUnlocked: _ztEndpointsUnlocked,
+      subscriptionSupported: _subscriptionSupported,
+      subscriptionMode: _subscriptionMode,
+      subscriptionId: activeSubId,
+      availableSubscriptions: compatible,
+      accountTierVerified:
+          widget.controller.activeAccountSubscriptionTier != null,
+      subscriptionMissingMessage: subscriptionMissingMessage,
       onSelection: (value) {
         setState(() => _endpointSelection = value);
         _edited();
       },
       onPresetMode: _setPresetMode,
+      onCustomSourceChanged: _customSourceChanged,
+      onSubscriptionIdChanged: (value) {
+        setState(() => _endpointSubscriptionId = value);
+        _edited();
+      },
+      onManageSubscriptions: widget.controller.openEndpointSubscriptions,
       onRegion: (value) {
         setState(() => _presetRegion = value);
         _edited();
@@ -990,7 +1091,49 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
       validateEndpointSni(widget.controller.strings, value);
 
   Future<void> _save() async {
-    if (_saving) return;
+    // A save started while the warning is open must not skip the warning.
+    if (_saving || _endpointWarningOpen) return;
+    if (_usingSubscription) {
+      if (widget.controller.activeAccountSubscriptionTier == null) {
+        setState(
+          () => _validationError = widget.controller.strings.get(
+            'sub_verify_account',
+          ),
+        );
+        return;
+      }
+      final compatible = _compatibleSubscriptions;
+      final selectedSubId = _endpointSubscriptionId;
+      if (selectedSubId == null ||
+          !compatible.any((s) => s.id == selectedSubId)) {
+        setState(
+          () => _validationError = widget.controller.strings.get(
+            compatible.isEmpty ? 'sub_no_matching_tier' : 'sub_choose',
+          ),
+        );
+        return;
+      }
+      final account = widget.controller.activeProfile;
+      final acknowledgement = '${account.id}|$selectedSubId';
+      if (_zeroTrustEndpointIpsManaged &&
+          selectedSubId != account.endpointSubscriptionId &&
+          _subscriptionAcknowledged != acknowledgement) {
+        _endpointWarningOpen = true;
+        final confirmed = await showDialog<bool>(
+          context: context,
+          barrierDismissible: false,
+          builder: (_) =>
+              ZeroTrustEndpointWarning(strings: widget.controller.strings),
+        );
+        _endpointWarningOpen = false;
+        if (!mounted ||
+            confirmed != true ||
+            account.id != widget.controller.activeProfile.id) {
+          return;
+        }
+        _subscriptionAcknowledged = acknowledgement;
+      }
+    }
     if (_usingPreset) {
       if (!_presetSupported || _presetHostname == null) {
         setState(
@@ -1009,6 +1152,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
       }
     }
     if (!_usingPreset &&
+        !_usingSubscription &&
         _zeroTrustEndpointIpsManaged &&
         _ztEndpointEditingSupported &&
         _ztRegisteredEndpointsAvailable &&
@@ -1074,6 +1218,7 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
     final endpointIpsManaged = _zeroTrustEndpointIpsManaged;
     final preserveEndpointIps =
         _usingPreset ||
+        _usingSubscription ||
         (endpointIpsManaged
             ? !_ztEndpointEditingSupported || !_ztRegisteredEndpointsAvailable
             : _endpointSelection == EndpointSelection.automatic);
@@ -1104,15 +1249,12 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
       'warp_dns',
       'endpoint.preset_region',
       'masque_connections',
+      'endpoint.subscription_id',
     ];
     final changedFields = <String>{
       for (var i = 0; i < paths.length; i++)
         if (_values[i] != _baseline[i] &&
-            !(i < 2 &&
-                (endpointIpsManaged
-                    ? !_ztEndpointEditingSupported ||
-                          !_ztRegisteredEndpointsAvailable
-                    : _endpointSelection == EndpointSelection.automatic)) &&
+            !(i < 2 && preserveEndpointIps) &&
             !(endpointIpsManaged && paths[i] == 'endpoint.selection') &&
             !(_warpDns.mode != WarpDnsMode.plain && paths[i] == 'dns_servers'))
           paths[i],
@@ -1131,6 +1273,10 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
             : _endpointSelection,
         endpointPresetRegion: _usingPreset ? _presetRegion : null,
         clearEndpointPresetRegion: !_usingPreset,
+        endpointSubscriptionId: _usingSubscription
+            ? _endpointSubscriptionId
+            : null,
+        clearEndpointSubscriptionId: !_usingSubscription,
         endpointIpv4: preserveEndpointIps
             ? profile.endpointIpv4
             : _endpointV4.text.trim(),
@@ -1163,6 +1309,8 @@ class _AdvancedSettingsScreenState extends State<AdvancedSettingsScreen> {
           : widget.controller.strings.get('changes_failed');
       _saved = saved;
       if (saved) {
+        // A confirmation covers only the binding it was given for.
+        _subscriptionAcknowledged = null;
         // A mode change can select a compatible DNS method in the same save.
         // Keep that confirmed dependency in later, unrelated form submissions.
         _proxy = _proxy.copyWith(

@@ -182,6 +182,10 @@ internal object NetworkQualityFields {
             "automatic_endpoints",
             "endpoint_presets",
             "zero_trust_endpoint_editing",
+            "endpoint_subscriptions",
+            "endpoint_subscription_domain_endpoints",
+            "endpoint_subscription_probe",
+            "endpoint_subscription_connected_tun_probe",
         ).associateWith {
             source?.opt(it) ==
                 true

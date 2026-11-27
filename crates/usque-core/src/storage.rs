@@ -376,11 +376,13 @@ impl AppConfig {
                         name: profile.name,
                         managed_endpoint_ips,
                         zero_trust_endpoint_override: None,
+                        zero_trust_subscription_id: None,
                     }
                 })
                 .collect(),
             preferences: legacy.preferences,
             identity_bindings,
+            consumer_entitlements: BTreeMap::new(),
             pending_identity_deletions: legacy.pending_identity_deletions,
             pending_identity_local_deletions: legacy.pending_identity_local_deletions,
             pending_identity_creations: legacy.pending_identity_creations,
@@ -574,6 +576,21 @@ fn migrate_app_config(config: &mut AppConfig) {
         // they would reject.
         config.schema_version = 29;
     }
+    if config.schema_version < 30 {
+        config.schema_version = 30;
+    }
+}
+
+pub(crate) fn lock_exclusive_file(file: &File) -> io::Result<()> {
+    file_lock::lock_exclusive(file)
+}
+
+pub(crate) fn replace_file_atomic(source: &Path, destination: &Path) -> io::Result<()> {
+    replace_file(source, destination)
+}
+
+pub(crate) fn sync_parent_dir(parent: &Path) -> io::Result<()> {
+    sync_parent(parent)
 }
 
 #[cfg(not(windows))]
@@ -1216,6 +1233,7 @@ mod tests {
                 sni: "zt-masque.cloudflareclient.com".to_owned(),
                 selection: crate::EndpointSelection::Custom,
                 preset_region: None,
+                subscription_id: None,
             },
             ..Profile::default()
         };
@@ -1465,6 +1483,7 @@ mod tests {
             sni: "zt-masque.cloudflareclient.com".to_owned(),
             selection: crate::EndpointSelection::Custom,
             preset_region: None,
+            subscription_id: None,
         };
         fs::write(store.path(), serde_json::to_vec_pretty(&config).unwrap()).unwrap();
 
@@ -1633,5 +1652,95 @@ mod tests {
         }
         legacy["network"]["data_plane"] = serde_json::json!("future_mode");
         assert!(serde_json::from_value::<AppConfig>(legacy).is_err());
+    }
+
+    #[test]
+    fn schema_29_migrates_to_schema_30_with_tier_isolated_subscriptions() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = ConfigStore::new(directory.path().join("config.json"));
+        let mut config = AppConfig::default();
+        let free_id = config.active_profile_id.unwrap();
+        let zt_id = uuid::Uuid::new_v4();
+        config
+            .insert_account(
+                zt_id,
+                "Work".into(),
+                Some(ManagedEndpointIps {
+                    ipv4: "162.159.197.8".parse().unwrap(),
+                    ipv6: "2606:4700:102::8".parse().unwrap(),
+                }),
+            )
+            .unwrap();
+        config.identity_bindings.insert(
+            zt_id,
+            IdentityProvider::ZeroTrust {
+                organization: "example-team".into(),
+            },
+        );
+        let mut legacy = serde_json::to_value(&config).unwrap();
+        legacy["schema_version"] = serde_json::json!(29);
+        if let Some(root) = legacy.as_object_mut() {
+            root.remove("consumer_entitlements");
+        }
+        if let Some(network) = legacy["network"].as_object_mut() {
+            network.remove("consumer_tier_subscriptions");
+        }
+        fs::write(store.path(), serde_json::to_vec_pretty(&legacy).unwrap()).unwrap();
+
+        let mut loaded = store.load().unwrap();
+        assert_eq!(loaded.schema_version, CURRENT_SCHEMA_VERSION);
+        assert!(loaded.consumer_entitlements.is_empty());
+        assert!(loaded.network.consumer_tier_subscriptions.is_empty());
+        assert!(
+            loaded
+                .account(zt_id)
+                .unwrap()
+                .zero_trust_subscription_id
+                .is_none()
+        );
+        assert!(
+            loaded
+                .runtime_profile(free_id)
+                .unwrap()
+                .endpoint
+                .subscription_id
+                .is_none()
+        );
+        assert!(
+            loaded
+                .runtime_profile(zt_id)
+                .unwrap()
+                .endpoint
+                .subscription_id
+                .is_none()
+        );
+
+        let free_sub = uuid::Uuid::new_v4();
+        let zt_sub = uuid::Uuid::new_v4();
+        loaded.set_consumer_entitlement(free_id, Some(crate::ConsumerEntitlement::Free));
+        loaded.network.consumer_tier_subscriptions.free = Some(free_sub);
+        loaded
+            .account_mut(zt_id)
+            .unwrap()
+            .zero_trust_subscription_id = Some(zt_sub);
+        store.save(&loaded).unwrap();
+
+        let reloaded = store.load().unwrap();
+        assert_eq!(
+            reloaded
+                .runtime_profile(free_id)
+                .unwrap()
+                .endpoint
+                .subscription_id,
+            Some(free_sub)
+        );
+        assert_eq!(
+            reloaded
+                .runtime_profile(zt_id)
+                .unwrap()
+                .endpoint
+                .subscription_id,
+            Some(zt_sub)
+        );
     }
 }

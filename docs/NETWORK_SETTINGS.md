@@ -961,3 +961,23 @@ stable session without replacing the transport; Ads switches and validated Ads
 updates also apply to new requests. Legacy `split_exclusions` and `bypass_domains`
 are import-only compatibility fields and cannot be edited by settings patches.
 See [routing and Ads](ROUTING.md) for priority, migration and visibility limits.
+
+## Endpoint subscriptions and Schema 30
+
+Schema 30 adds append-only `endpoint.subscription_id` (`EndpointSettings` protobuf
+field `7`, mutually exclusive with `endpoint.preset_region`) alongside separate
+per-tier references (`network.consumer_tier_subscriptions.{free,plus}` and
+`account.zero_trust_subscription_id`), keeping full endpoint inventories in a locked
+sidecar file (`endpoint_subscriptions.json`). Switching accounts preserves each
+tier's active subscription without leaking endpoints across tiers, and unverified
+Consumer accounts fail closed without activating Free or WARP+ subscriptions.
+
+Capabilities flags `60..63` (`endpoint_subscriptions`,
+`endpoint_subscription_domain_endpoints`, `endpoint_subscription_probe`, and
+`endpoint_subscription_connected_tun_probe`), control RPC tags `54`/`30`, and probe
+progress event tag `26` gate UI controls and operations. On desktop TUN, domain
+candidates and bounded in-memory MASQUE probe leases require Agent capabilities
+`23..24` (`dynamic_hostname_endpoint_leases` and `connected_endpoint_probe_leases`);
+missing capabilities fail closed instead of opening unguarded traffic. See
+[Endpoint subscriptions](ENDPOINT_SUBSCRIPTIONS.md) for parser, probe, and
+isolated-validation contracts.

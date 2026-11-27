@@ -314,6 +314,8 @@ impl Service {
             system_proxy_supported: self.proxy.is_some() && self.state.is_some(),
             system_proxy_recovery_pending: self.proxy.as_mut().is_none_or(|proxy| proxy.pending()),
             failure: self.failure as i32,
+            dynamic_hostname_endpoint_leases: true,
+            connected_endpoint_probe_leases: true,
             ..Default::default()
         };
         let Some(state) = self.state.as_mut() else {
@@ -544,9 +546,17 @@ impl Service {
                 let purpose = p::MacosSocketPurpose::try_from(value.purpose)
                     .map_err(|_| p::MacosFailure::Protocol)?;
                 let backend = self.state.as_mut().unwrap().backend_mut();
+                let probe = purpose == p::MacosSocketPurpose::EndpointProbe;
+                if probe {
+                    backend
+                        .prune_expired_probe_lease(fence)
+                        .map_err(|_| p::MacosFailure::ProbeRejected)?;
+                }
+                // A refused probe destination (expired lease, foreign target)
+                // must not read as a session failure that retires the owner.
                 let (id, descriptor, permit) = backend
                     .create_socket(fence, remote, protocol, purpose)
-                    .map_err(map_error)?;
+                    .map_err(|error| probe_failure(probe, error))?;
                 let index = backend
                     .physical()
                     .ok_or(p::MacosFailure::NetworkChanged)?
@@ -595,6 +605,70 @@ impl Service {
                     .endpoint_candidates(&value.hostname, candidates)
                     .map_err(map_error)?;
             }
+            Op::SetHostnameEndpointCandidates(value) => {
+                let fence = parse(value.fence)?;
+                self.authorize(owner, connection, fence)?;
+                if value.candidates.len() > 32 {
+                    return Err(p::MacosFailure::Protocol);
+                }
+                let candidates = value
+                    .candidates
+                    .iter()
+                    .map(|s| s.parse())
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|_| p::MacosFailure::Protocol)?;
+                self.state
+                    .as_mut()
+                    .unwrap()
+                    .backend_mut()
+                    .hostname_endpoint_candidates(&value.hostname, candidates)
+                    .map_err(map_error)?;
+            }
+            Op::AcquireProbeLease(value) => {
+                let fence = parse(value.fence)?;
+                self.authorize(owner, connection, fence)?;
+                let targets = value
+                    .targets
+                    .iter()
+                    .map(|target| {
+                        let remote = target
+                            .remote_endpoint
+                            .trim()
+                            .parse()
+                            .map_err(|_| p::MacosFailure::Protocol)?;
+                        let protocol =
+                            u8::try_from(target.protocol).map_err(|_| p::MacosFailure::Protocol)?;
+                        Ok((remote, protocol))
+                    })
+                    .collect::<Result<Vec<_>, p::MacosFailure>>()?;
+                let dns_hostname =
+                    (!value.dns_hostname.trim().is_empty()).then_some(value.dns_hostname.trim());
+                let (lease_id, ttl_seconds) = self
+                    .state
+                    .as_mut()
+                    .unwrap()
+                    .backend_mut()
+                    .acquire_probe_lease(fence, &value.probe_session_id, targets, dns_hostname)
+                    .map_err(|error| probe_failure(true, error))?;
+                return Ok((
+                    Reply::ProbeLease(p::EndpointProbeLease {
+                        lease_id,
+                        network_generation: fence.network,
+                        ttl_seconds,
+                    }),
+                    None,
+                ));
+            }
+            Op::ReleaseProbeLease(value) => {
+                let fence = parse(value.fence)?;
+                self.authorize(owner, connection, fence)?;
+                self.state
+                    .as_mut()
+                    .unwrap()
+                    .backend_mut()
+                    .release_probe_lease(fence, &value.probe_session_id, value.lease_id)
+                    .map_err(|error| probe_failure(true, error))?;
+            }
             Op::Suspend(value) => {
                 let fence = parse(Some(value))?;
                 self.authorize(owner, connection, fence)?;
@@ -636,6 +710,8 @@ impl Service {
         let Some(state) = self.state.as_mut() else {
             return;
         };
+        // TTL expiry is enforced on this tick, not only on the next probe RPC.
+        let _ = state.backend_mut().reap_expired_probe_lease();
         let Some(transaction) = state.state().cloned() else {
             return;
         };
@@ -674,6 +750,16 @@ impl Service {
         {
             self.failure = p::MacosFailure::RecoveryIncomplete;
         }
+    }
+}
+/// Probe-only failures stay non-fatal unless the network itself changed,
+/// which the owner must observe to retire the session generation.
+fn probe_failure(probe: bool, error: io::Error) -> p::MacosFailure {
+    match map_error(error) {
+        p::MacosFailure::NetworkChanged => p::MacosFailure::NetworkChanged,
+        p::MacosFailure::EndpointUnreachable => p::MacosFailure::EndpointUnreachable,
+        _ if probe => p::MacosFailure::ProbeRejected,
+        failure => failure,
     }
 }
 fn map_error(error: io::Error) -> p::MacosFailure {

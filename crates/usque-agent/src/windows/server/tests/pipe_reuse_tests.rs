@@ -54,6 +54,7 @@ async fn authenticated_read_only_connection_reuse_does_not_own_or_revoke_egress_
         interface_luid: 17,
         network_generation: 7,
         purpose: EgressPurpose::Generic,
+        probe_lease_id: 0,
     };
     // Memory-only registry: no WFP permit, routes, interface lookup or TUN.
     service.direct_egress.lock().await.entries.insert(

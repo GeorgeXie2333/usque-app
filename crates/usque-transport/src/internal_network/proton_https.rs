@@ -270,6 +270,7 @@ impl Session {
                     status,
                     retry_after,
                     last_modified,
+                    location: None,
                     body,
                 },
                 reusable,

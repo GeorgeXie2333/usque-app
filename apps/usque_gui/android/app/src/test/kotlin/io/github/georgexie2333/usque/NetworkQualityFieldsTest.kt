@@ -103,6 +103,22 @@ class NetworkQualityFieldsTest {
         }
     }
 
+    @Test fun endpointSubscriptionCapabilitiesRequireExplicitBooleanSupport() {
+        val keys =
+            listOf(
+                "endpoint_subscriptions",
+                "endpoint_subscription_domain_endpoints",
+                "endpoint_subscription_probe",
+                "endpoint_subscription_connected_tun_probe",
+            )
+        for (key in keys) {
+            assertEquals(true, NetworkQualityFields.capabilities("{\"$key\":true}").getValue(key))
+            for (source in listOf(null, "{}", "{\"$key\":false}", "{\"$key\":\"true\"}", "invalid")) {
+                assertEquals(false, NetworkQualityFields.capabilities(source).getValue(key))
+            }
+        }
+    }
+
     @Test fun encryptedWarpDnsCapabilityRequiresExplicitBooleanSupport() {
         val key = "encrypted_warp_dns"
         assertEquals(true, NetworkQualityFields.capabilities("{\"encrypted_warp_dns\":true}").getValue(key))

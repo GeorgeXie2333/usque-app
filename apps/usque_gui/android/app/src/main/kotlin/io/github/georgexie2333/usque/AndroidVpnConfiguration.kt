@@ -27,6 +27,7 @@ internal data class AndroidVpnProfile(
     val warpDnsMode: String = "plain",
     val routingDomainRules: Boolean = false,
     val routingDirectDomains: Boolean = false,
+    val endpointSubscriptionId: String? = null,
 ) {
     // ipPolicy controls only the physical MASQUE endpoint. CONNECT-IP remains
     // dual-stack regardless of which outer address family carries it.
@@ -107,6 +108,20 @@ internal data class AndroidVpnProfile(
             val endpointSelection = source.optString("endpoint_selection", "custom")
             require(endpointSelection in setOf("automatic", "custom")) { "Invalid endpoint selection" }
             val presetRegion = source.opt("endpoint_preset_region").takeUnless { it == JSONObject.NULL }
+            val endpointSubscriptionId =
+                (source.opt("endpoint_subscription_id").takeUnless { it == JSONObject.NULL } as? String)
+                    ?.trim()
+                    ?.takeIf { it.isNotEmpty() }
+            require(
+                endpointSubscriptionId == null ||
+                    (
+                        endpointSelection == "custom" &&
+                            presetRegion == null &&
+                            profileIdPattern.matches(endpointSubscriptionId)
+                    ),
+            ) {
+                "Invalid endpoint subscription ID"
+            }
             require(presetRegion == null || presetRegion in setOf("us", "de", "fi")) {
                 "Invalid endpoint preset region"
             }
@@ -118,7 +133,7 @@ internal data class AndroidVpnProfile(
             }
             val configuredDnsServers = listOf(dnsIpv4, dnsIpv6)
             val activeDnsServers = if (ordinaryEncryptedDns) emptyList() else configuredDnsServers
-            if (endpointSelection == "custom") {
+            if (endpointSelection == "custom" && endpointSubscriptionId == null) {
                 require(
                     activeDnsServers.none { server ->
                         if (presetRegion != null) {
@@ -172,6 +187,7 @@ internal data class AndroidVpnProfile(
                 warpDnsMode = warpDnsMode,
                 routingDomainRules = routing.needsDns,
                 routingDirectDomains = routing.directDns,
+                endpointSubscriptionId = endpointSubscriptionId,
             )
         }
     }

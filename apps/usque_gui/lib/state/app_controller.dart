@@ -10,11 +10,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../core/app_strings.dart';
 import '../core/user_facing_errors.dart';
 import '../models/app_models.dart';
+import '../models/endpoint_subscriptions.dart';
 import '../services/engine_client.dart';
 import '../services/gui_startup_observation.dart';
 import '../services/linux_preferences_store.dart';
 import '../services/update_downloader.dart';
 import 'diagnostics_controller.dart';
+import 'endpoint_subscriptions_controller.dart';
 import 'network_quality_controller.dart';
 import 'network_settings_controller.dart';
 import 'scenarios_controller.dart';
@@ -29,7 +31,9 @@ class _AdsRulesWork {
 }
 
 /// A one-shot navigation request, consumed by the shell's leave protection.
-enum ProfilesDestination { root, accounts }
+enum ProfilesDestination { root, accounts, subscriptions }
+
+enum ProfilesTab { scenes, subscriptions }
 
 class AppController extends ChangeNotifier {
   final settingsNavigationRequests = ValueNotifier<int>(0);
@@ -218,8 +222,56 @@ class AppController extends ChangeNotifier {
     scenarios.afterActivation = () async {
       await _refreshProfileCatalog();
       await networkSettings.refresh();
+      await endpointSubscriptions.refresh(force: true);
       if (!_disposed) _notifyListeners();
     };
+    endpointSubscriptions = EndpointSubscriptionsController((command) {
+      final engine = _engine;
+      if (engine is! EndpointSubscriptionClient) {
+        return Future.error(
+          const EngineException(
+            'SUBSCRIPTION_UNAVAILABLE',
+            'Endpoint subscriptions are unavailable.',
+          ),
+        );
+      }
+      if (_disposed || _clearing) {
+        return Future.error(
+          const EngineException(
+            'SUBSCRIPTION_CANCELLED',
+            'The endpoint subscription operation was retired.',
+          ),
+        );
+      }
+      final generation = _dataGeneration;
+      final action = command['action'];
+      if (action == 'select_endpoint' || action == 'deactivate') {
+        return networkSettings.enqueue(() {
+          if (_disposed || _clearing || generation != _dataGeneration) {
+            throw const EngineException(
+              'SUBSCRIPTION_CANCELLED',
+              'The endpoint subscription operation was retired.',
+            );
+          }
+          return (engine as EndpointSubscriptionClient)
+              .endpointSubscriptionCommand(command);
+        });
+      }
+      return (engine as EndpointSubscriptionClient).endpointSubscriptionCommand(
+        command,
+      );
+    });
+    endpointSubscriptions.onMutationApplied = () async {
+      await _refreshProfileCatalog();
+      await networkSettings.refresh();
+      await scenarios.refresh();
+      if (!_disposed) _notifyListeners();
+    };
+    endpointSubscriptions.onCatalogChanged = () async {
+      await scenarios.refresh();
+      if (!_disposed) _notifyListeners();
+    };
+    endpointSubscriptions.addListener(_notifyListeners);
     diagnostics.resolveStrings = () => strings;
     networkSettings.addListener(_acceptNetworkSettings);
   }
@@ -291,7 +343,23 @@ class AppController extends ChangeNotifier {
   }
 
   late final ScenariosController scenarios;
+  late final EndpointSubscriptionsController endpointSubscriptions;
   ProfilesDestination? _profilesDestination;
+  ProfilesTab _profilesTab = ProfilesTab.scenes;
+
+  ProfilesTab get profilesTab => _profilesTab;
+
+  void setProfilesTab(ProfilesTab tab) {
+    if (_profilesTab == tab || _disposed) return;
+    _profilesTab = tab;
+    if (tab == ProfilesTab.subscriptions && endpointSubscriptions.supported) {
+      unawaited(endpointSubscriptions.refresh());
+    }
+    _notifyListeners();
+  }
+
+  void openEndpointSubscriptions() =>
+      _requestProfiles(ProfilesDestination.subscriptions);
 
   ProfilesDestination? get pendingProfilesDestination => _profilesDestination;
 
@@ -635,6 +703,14 @@ class AppController extends ChangeNotifier {
   void _setSnapshot(EngineSnapshot value, {bool observeQuality = true}) {
     _snapshotRevision++;
     final becameConnected = !_snapshot.isConnected && value.isConnected;
+    // Probe results describe one network path. Every snapshot source (event
+    // stream or polling) retires them when the session settles elsewhere.
+    if (value.phase != _snapshot.phase &&
+        (value.phase == ConnectionPhase.disconnected ||
+            value.phase == ConnectionPhase.connected ||
+            value.phase == ConnectionPhase.error)) {
+      endpointSubscriptions.invalidateProbeResults();
+    }
     final banner = _connectionBanner(value);
     _snapshot = value;
     if (value.isConnected || value.phase == ConnectionPhase.disconnected) {
@@ -669,6 +745,7 @@ class AppController extends ChangeNotifier {
   set engineCapabilities(EngineCapabilities? value) {
     _engineCapabilities = value;
     scenarios.setSupported(value?.connectionScenarios ?? false);
+    endpointSubscriptions.setCapabilities(value);
     _syncScenarioVisibility();
     quality.setEnabled(value?.networkQuality ?? false);
     final newlySupported =
@@ -796,15 +873,53 @@ class AppController extends ChangeNotifier {
     return _hydrateAccount(account);
   }
 
+  EndpointSubscriptionTier? get activeAccountSubscriptionTier =>
+      accountSubscriptionTierFor(activeProfile.id);
+
+  EndpointSubscriptionTier? accountSubscriptionTierFor(String accountId) {
+    final identity = identityStatus(accountId);
+    if (identity.provider == IdentityProvider.zeroTrust) {
+      return EndpointSubscriptionTier.zeroTrust;
+    }
+    return switch (identity.licenseState) {
+      LicenseState.free => EndpointSubscriptionTier.free,
+      LicenseState.warpPlus => EndpointSubscriptionTier.plus,
+      _ => null,
+    };
+  }
+
   UsqueProfile _hydrateAccount(UsqueProfile account) {
     final zeroTrust =
         identityStatus(account.id).provider == IdentityProvider.zeroTrust;
+    final subCatalog = endpointSubscriptions.catalog;
+    // The catalogue reports the Engine's latest binding for its active
+    // account. It supersedes a cached account copy that may predate a
+    // deactivate, delete or tier change performed outside a settings save.
+    final catalogOwnsAccount =
+        subCatalog != null && subCatalog.activeAccountId == account.id;
+    final String? subId;
+    if (zeroTrust) {
+      subId = catalogOwnsAccount
+          ? subCatalog.activeSubscriptionId
+          : account.endpointSubscriptionId;
+    } else if (accountSubscriptionTierFor(account.id) == null) {
+      subId = null;
+    } else if (catalogOwnsAccount) {
+      subId = subCatalog.activeSubscriptionId;
+    } else {
+      subId = sharedNetwork.endpointSubscriptionId;
+    }
     return sharedNetwork.copyWith(
       id: account.id,
       name: account.name,
-      endpointSelection: zeroTrust
+      // The Engine keeps the underlying Automatic/Preset/Manual fallback in
+      // shared storage and forces Custom only while a subscription is bound.
+      endpointSelection: zeroTrust || subId != null
           ? EndpointSelection.custom
           : sharedNetwork.endpointSelection,
+      endpointSubscriptionId: subId,
+      clearEndpointSubscriptionId: subId == null,
+      clearEndpointPresetRegion: subId != null,
       endpointIpv4: zeroTrust
           ? account.endpointIpv4
           : sharedNetwork.endpointIpv4,
@@ -818,9 +933,10 @@ class AppController extends ChangeNotifier {
   /// or a saved reset cannot describe what the active session is using.
   bool get hasCustomZeroTrustEndpointRisk {
     bool custom(UsqueProfile profile, {bool fallback = false}) {
-      if (profile.endpointPresetRegion != null && !fallback) return false;
       final identity = identityStatus(profile.id);
       if (identity.provider != IdentityProvider.zeroTrust) return false;
+      if (profile.endpointSubscriptionId != null) return true;
+      if (profile.endpointPresetRegion != null && !fallback) return false;
       final registeredV4 = InternetAddress.tryParse(
         identity.registeredEndpointIpv4,
       );
@@ -866,6 +982,8 @@ class AppController extends ChangeNotifier {
         ? source.copyWith(
             endpointIpv4: UsqueProfile.defaultEndpointIpv4,
             endpointIpv6: UsqueProfile.defaultEndpointIpv6,
+            // Zero Trust bindings are account-owned, never shared settings.
+            clearEndpointSubscriptionId: true,
           )
         : source;
   }
@@ -890,10 +1008,16 @@ class AppController extends ChangeNotifier {
             account.copyWith(
               endpointIpv4: accountProfile.endpointIpv4,
               endpointIpv6: accountProfile.endpointIpv6,
+              endpointSubscriptionId: accountProfile.endpointSubscriptionId,
+              clearEndpointSubscriptionId:
+                  accountProfile.endpointSubscriptionId == null,
             )
           else
             account,
       ];
+    }
+    if (endpointSubscriptions.supported) {
+      unawaited(endpointSubscriptions.refresh(force: true));
     }
     final stored = state?.sharedNetwork ?? state?.storedProfile;
     if (stored != null) {
@@ -905,6 +1029,9 @@ class AppController extends ChangeNotifier {
           ? stored.copyWith(
               endpointIpv4: sharedNetwork.endpointIpv4,
               endpointIpv6: sharedNetwork.endpointIpv6,
+              endpointSubscriptionId: sharedNetwork.endpointSubscriptionId,
+              clearEndpointSubscriptionId:
+                  sharedNetwork.endpointSubscriptionId == null,
             )
           : stored;
     }
@@ -2245,6 +2372,9 @@ class AppController extends ChangeNotifier {
       apply();
     }
     scenarios.invalidate();
+    if (endpointSubscriptions.supported) {
+      unawaited(endpointSubscriptions.refresh(force: true));
+    }
   }
 
   void _rememberManagedAccounts() {
@@ -2706,6 +2836,8 @@ class AppController extends ChangeNotifier {
     diagnostics.suspendForReset();
     networkSettings.suspendForReset();
     scenarios.reset();
+    endpointSubscriptions.reset();
+    _profilesTab = ProfilesTab.scenes;
     _profilesDestination = null;
     _updateOperationGeneration++;
     _updateCancellation?.cancel();
@@ -3448,6 +3580,19 @@ class AppController extends ChangeNotifier {
         return false;
       }
     }
+    if (updated.endpointSubscriptionId != null) {
+      if (engineCapabilities == null) await _refreshCapabilities();
+      if (!(engineCapabilities?.endpointSubscriptions ?? false)) {
+        lastError = strings.get('sub_err_unavailable');
+        _notifyListeners();
+        return false;
+      }
+      if (accountSubscriptionTierFor(updated.id) == null) {
+        lastError = strings.get('sub_verify_account');
+        _notifyListeners();
+        return false;
+      }
+    }
     if (updated.endpointSelection == EndpointSelection.automatic &&
         identityStatus(updated.id).provider != IdentityProvider.zeroTrust) {
       if (engineCapabilities == null) await _refreshCapabilities();
@@ -3501,6 +3646,9 @@ class AppController extends ChangeNotifier {
       } else {
         _adsTimer?.cancel();
       }
+      if (endpointSubscriptions.supported) {
+        unawaited(endpointSubscriptions.refresh(force: true));
+      }
     }
     return saved;
   }
@@ -3511,12 +3659,17 @@ class AppController extends ChangeNotifier {
       _connectionIntent++;
       activeProfileId = id;
       scenarios.invalidate();
+      endpointSubscriptions.invalidateProbeResults();
       _notifyListeners();
-      _queueProfileMutation(
-        () => _engine.setActiveProfile(id),
-        optimistic: () {
-          if (profiles.any((p) => p.id == id)) activeProfileId = id;
-        },
+      // Read the catalogue only after the Engine switched accounts; an
+      // earlier read would describe the previous account's binding.
+      unawaited(
+        _queueProfileMutation(
+          () => _engine.setActiveProfile(id),
+          optimistic: () {
+            if (profiles.any((p) => p.id == id)) activeProfileId = id;
+          },
+        ).then(_refreshSubscriptionsAfterMutation),
       );
     }
   }
@@ -3536,8 +3689,9 @@ class AppController extends ChangeNotifier {
     if (activeProfileId == id) {
       activeProfileId = profiles.first.id;
     }
+    endpointSubscriptions.invalidateProbeResults();
     _notifyListeners();
-    _queueProfileMutation(
+    final mutation = _queueProfileMutation(
       () => _engine.deleteProfile(id),
       optimistic: () {
         profiles = profiles.where((p) => p.id != id).toList();
@@ -3548,7 +3702,14 @@ class AppController extends ChangeNotifier {
         }
       },
     );
+    unawaited(mutation.then(_refreshSubscriptionsAfterMutation));
     return true;
+  }
+
+  void _refreshSubscriptionsAfterMutation(bool committed) {
+    if (committed && !_disposed && endpointSubscriptions.supported) {
+      unawaited(endpointSubscriptions.refresh(force: true));
+    }
   }
 
   Future<bool> _queueProfileMutation(
@@ -3747,6 +3908,9 @@ class AppController extends ChangeNotifier {
     if (event.networkSettings != null) {
       networkSettings.accept(event.networkSettings!);
     }
+    if (event.endpointSubscriptionProbeProgress case final progress?) {
+      endpointSubscriptions.acceptProbeProgress(progress);
+    }
     final next = event.snapshot;
     if (next != null) _initialStatusLoaded = true;
     if (next == null || !(_pendingConnection?.observe(next) ?? true)) {
@@ -3842,6 +4006,7 @@ class AppController extends ChangeNotifier {
     diagnostics.dispose();
     quality.dispose();
     scenarios.dispose();
+    endpointSubscriptions.dispose();
     networkSettings.dispose();
     final controlReleases = _controlOperationReleases.toList().map(
       (release) => release().catchError((Object _) {

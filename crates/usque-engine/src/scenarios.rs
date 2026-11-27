@@ -30,6 +30,9 @@ impl Drop for ApplyingFlags {
 
 impl ControlService {
     async fn scenario_context(&self) -> ScenarioContext {
+        let config = self.config.read().await.clone();
+        let current_subscription_endpoint = self.current_subscription_endpoint(&config).await;
+        drop(config);
         let phase = self.state.lock().await.snapshot().phase;
         let state = self.settings.lock().await;
         let connected = matches!(
@@ -49,6 +52,7 @@ impl ControlService {
             source_epoch: state.source_epoch,
             session_id: state.session_id.clone(),
             applied_profile: state.applied_profile.clone().filter(|_| connected),
+            current_subscription_endpoint,
             apply_status: if idle && !recorded_outcome {
                 ApplyStatus::Deferred
             } else {
@@ -63,6 +67,7 @@ impl ControlService {
         cache: &std::path::Path,
         cipher: Option<&dyn usque_core::chain_exit::store::ProfileCipher>,
         profile: &Profile,
+        tier: Option<usque_core::EndpointPresetTier>,
     ) -> Result<String, ControlServiceError> {
         Self::validate_chain_selection_at(parent, profile, cipher).map_err(|_| {
             ControlServiceError::ScenarioUnavailable("SCENARIO_DEPENDENCY_UNAVAILABLE")
@@ -75,6 +80,11 @@ impl ControlService {
             ));
         }
         let mut revisions = Vec::new();
+        if let Some(sub_rev) =
+            crate::endpoint_subscriptions::validate_scenario_subscription_at(parent, profile, tier)?
+        {
+            revisions.push(sub_rev);
+        }
         if let Some(selection) = profile.custom_chain() {
             if selection.profile_id.is_some() {
                 let (summary, _, _) = usque_core::chain_exit::store::ChainProfileStore::new(
@@ -121,13 +131,15 @@ impl ControlService {
         &self,
         profile: &Profile,
     ) -> Result<String, ControlServiceError> {
+        self.sync_account_entitlement(profile.id).await;
+        let tier = self.config.read().await.account_tier(profile.id);
         let parent = self.profile_dir.clone();
         let cache = self.cache_dir.clone();
         let cipher = self.chain_cipher.clone();
         let profile = profile.clone();
         // Library reads and decryption are blocking file work.
         tokio::task::spawn_blocking(move || {
-            Self::validate_scenario_resources_at(&parent, &cache, cipher.as_deref(), &profile)
+            Self::validate_scenario_resources_at(&parent, &cache, cipher.as_deref(), &profile, tier)
         })
         .await
         .map_err(|_| ControlServiceError::ScenarioUnavailable("SCENARIO_DEPENDENCY_UNAVAILABLE"))?
@@ -210,8 +222,13 @@ impl ControlService {
         }
         let mut context = self.scenario_context().await;
         let mut candidate = self.config.read().await.clone();
-        if let Some(target) = scenarios::candidate_profile(&candidate, &command)? {
+        if let Some(mut target) = scenarios::candidate_profile(&candidate, &command)? {
             context.dependency_fingerprint = self.validate_scenario_resources(&target).await?;
+            // The running profile carries its resolved subscription endpoint;
+            // compare like with like so an unchanged binding stays hot.
+            let _ = self
+                .hydrate_profile_subscription_endpoint(&mut target)
+                .await;
             if let Some(previous) = &context.applied_profile {
                 let runtime_target = scenarios::runtime_target(&target, previous);
                 let cold = previous.id != runtime_target.id
@@ -297,11 +314,13 @@ impl ControlService {
                 }
                 let result = scenarios::command(latest, command, &commit_context)?;
                 if let Some(target) = &result.target {
+                    let tier = latest.account_tier(target.id);
                     let revision = Self::validate_scenario_resources_at(
                         &parent,
                         &cache,
                         cipher.as_deref(),
                         target,
+                        tier,
                     )?;
                     if revision != commit_context.dependency_fingerprint {
                         return Err(usque_core::scenarios::ScenarioError::PreviewStale.into());
@@ -356,15 +375,21 @@ impl ControlService {
                 *config = acknowledged;
             }
         }
-        let stored = config.active_profile();
+        let mut stored = config.active_profile();
         let shared = config
             .network
             .hydrate(&usque_core::config::Account::default_account());
         drop(config);
+        if let Some(ref mut profile) = stored {
+            let _ = self.hydrate_profile_subscription_endpoint(profile).await;
+        }
         result.response["persisted"] = json!(true);
         if let (Some(mut target), Some(operation_id), Some(lifecycle)) =
             (result.target, operation_id, lifecycle)
         {
+            let _ = self
+                .hydrate_profile_subscription_endpoint(&mut target)
+                .await;
             *self.scenario_unconfirmed_operation.lock().await = None;
             result.response["persisted_operation_id"] = json!(operation_id);
             let intent = self.settings_intent.fetch_add(1, Ordering::SeqCst) + 1;
@@ -396,6 +421,9 @@ impl ControlService {
                         target = scenarios::runtime_target(&target, previous);
                     }
                     let result = async {
+                        service
+                            .hydrate_profile_subscription_endpoint(&mut target)
+                            .await?;
                         service.attach_proxy_auth(&mut target).await?;
                         if service.settings_intent.load(Ordering::SeqCst) != intent {
                             return Err(ControlServiceError::ScenarioUnavailable(

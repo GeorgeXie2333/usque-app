@@ -21,6 +21,7 @@ mod dns_stream;
 mod encrypted_dns;
 mod endpoint_preset;
 mod endpoint_race;
+mod endpoint_subscription;
 mod feature_flags;
 mod final_dns;
 mod geo_direct;
@@ -96,12 +97,16 @@ pub use data_plane::{
 };
 pub use diagnostic_probe::{
     NetworkProbeResult, PROBE_IO_TIMEOUT as NETWORK_PROBE_IO_TIMEOUT, ResolvedH3ProbeEndpoints,
-    h3_probe_endpoints, h3_probe_endpoints_resolved, probe_encrypted_dns, probe_h3_handshake,
-    probe_h3_handshake_candidates,
+    SubscriptionProbeOutcome, h3_probe_endpoints, h3_probe_endpoints_resolved, probe_encrypted_dns,
+    probe_h3_handshake, probe_h3_handshake_candidates, probe_resolved_subscription_target,
+    probe_subscription_endpoint,
 };
 pub use direct_diagnostics::DirectGatewaySnapshot;
 pub use encrypted_dns::{DirectDnsError, DirectDnsQueryContext, DirectDnsResolver};
 pub use endpoint_race::excludes_dns_server as excludes_automatic_endpoint_dns_server;
+pub use endpoint_subscription::{
+    resolve_physical_endpoint_hostname, resolve_system_endpoint_hostname,
+};
 pub use feature_flags::{
     ENCRYPTED_DIRECT_DNS_ENABLED, NetworkFeatureFlags, PRODUCTION_NETWORK_FEATURES,
 };
@@ -115,7 +120,7 @@ pub use h3::{
     H3Driver, H3MigrationHandle, H3MigrationResult, H3ReceiveHalf, H3SendHalf, H3Tunnel, connect_h3,
 };
 pub use http_proxy::HttpProxyRuntime;
-pub use internal_network::InternalNetwork;
+pub use internal_network::{InternalNetwork, SubscriptionFetchError};
 #[cfg(feature = "wireguard")]
 pub mod proton_vpn;
 pub use l4::performance::{TunWriteObserver, TunWriteSample};
@@ -136,8 +141,9 @@ pub use pin_refresh::{EndpointPinRefresher, refresh_endpoint_pin_over_protected_
 pub use proxy::ProxyRuntime;
 pub use queue_metrics::QueueKind;
 pub use socket::{
-    DirectEgressLease, DirectProtocol, ENDPOINT_UNREACHABLE_REASON, NoopSocketProtector,
-    PhysicalNetworkAvailability, PhysicalNetworkSnapshot, PhysicalSocketPurpose, PreparedTcpSocket,
+    DirectEgressLease, DirectProtocol, ENDPOINT_UNREACHABLE_REASON, EndpointProbeLeaseHandle,
+    NoopSocketProtector, PhysicalNetworkAvailability, PhysicalNetworkSnapshot,
+    PhysicalSocketPurpose, PreparedTcpSocket, ProbeLeaseTarget, ProbeTransportProtocol,
     STALE_GENERATION_REASON, SocketHandle, SocketProtector,
 };
 pub use socks5::Socks5Runtime;

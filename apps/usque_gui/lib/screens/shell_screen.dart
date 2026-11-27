@@ -210,6 +210,7 @@ class _ShellScreenState extends State<ShellScreen> {
         _selectSection(
           AppSection.profiles,
           openAccounts: destination == ProfilesDestination.accounts,
+          openSubscriptions: destination == ProfilesDestination.subscriptions,
         ),
       );
     });
@@ -357,6 +358,7 @@ class _ShellScreenState extends State<ShellScreen> {
   Future<bool> _selectSection(
     AppSection section, {
     bool openAccounts = false,
+    bool openSubscriptions = false,
   }) async {
     // An explicit rail/keyboard action supersedes an unhandled launch request.
     controller.takeProfilesDestination();
@@ -375,6 +377,9 @@ class _ShellScreenState extends State<ShellScreen> {
         return false;
       }
       if (!mounted || controller != selectedController) return false;
+      if (openSubscriptions) {
+        controller.setProfilesTab(ProfilesTab.subscriptions);
+      }
       controller.selectSection(section);
       if (openAccounts) {
         await WidgetsBinding.instance.endOfFrame;
@@ -387,6 +392,9 @@ class _ShellScreenState extends State<ShellScreen> {
         // Account management itself needs no scene support. A confirmed older
         // engine already renders Accounts at the root.
         if (controller.engineCapabilities?.connectionScenarios == false) {
+          // Accounts replace the scene list in its tab; leave the
+          // subscription tab so the shortcut actually shows them.
+          controller.setProfilesTab(ProfilesTab.scenes);
           return true;
         }
         final profiles = _sectionNavigators[AppSection.profiles]?.currentState;

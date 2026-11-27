@@ -33,14 +33,14 @@ pub use congestion::CongestionControlAlgorithm;
 pub use data_plane::{CONSUMER_L4_SNI, DataPlaneMode, ZERO_TRUST_L4_SNI, l4_server_name};
 pub use endpoint_preset::{EndpointPresetRegion, EndpointPresetTier};
 pub use initial_identity::{InitialIdentityOperation, InitialIdentityPhase};
-pub use network::SharedNetworkSettings;
+pub use network::{ConsumerTierSubscriptions, SharedNetworkSettings};
 pub use routing::{
     MAX_ROUTING_RULES_PER_KIND, MAX_ROUTING_TARGET_BYTES, RoutingAction, RoutingMatch, RoutingRule,
     RoutingSettings, largest_routing_settings,
 };
 pub use tls_fingerprint::TlsFingerprint;
 
-pub const CURRENT_SCHEMA_VERSION: u32 = 29;
+pub const CURRENT_SCHEMA_VERSION: u32 = 30;
 pub const MAX_MASQUE_CONNECTIONS: u8 = 8;
 
 pub const fn default_masque_connections() -> u8 {
@@ -98,6 +98,10 @@ pub struct AppConfig {
     /// secure IdentityMetadata record is missing or corrupted.
     #[serde(default)]
     pub identity_bindings: BTreeMap<Uuid, IdentityProvider>,
+    /// Non-secret Consumer entitlement boundary used to route Free vs WARP+
+    /// endpoint subscriptions when hydrating profiles.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub consumer_entitlements: BTreeMap<Uuid, crate::ConsumerEntitlement>,
     #[serde(default)]
     pub pending_identity_deletions: Vec<Uuid>,
     /// Vault identities that must be deleted locally without revoking their
@@ -130,6 +134,7 @@ impl Default for AppConfig {
             profiles: vec![account],
             preferences: AppPreferences::default(),
             identity_bindings: BTreeMap::new(),
+            consumer_entitlements: BTreeMap::new(),
             pending_identity_deletions: Vec::new(),
             pending_identity_local_deletions: Vec::new(),
             pending_identity_creations: Vec::new(),
@@ -148,14 +153,50 @@ impl AppConfig {
         self.profiles.iter_mut().find(|account| account.id == id)
     }
 
+    pub fn account_tier(&self, id: Uuid) -> Option<EndpointPresetTier> {
+        if self.is_zero_trust_account(id)
+            || self
+                .account(id)
+                .is_some_and(|account| account.managed_endpoint_ips.is_some())
+        {
+            return Some(EndpointPresetTier::ZeroTrust);
+        }
+        match self.consumer_entitlements.get(&id).copied() {
+            Some(crate::ConsumerEntitlement::Free) => Some(EndpointPresetTier::Free),
+            Some(crate::ConsumerEntitlement::WarpPlus) => Some(EndpointPresetTier::Plus),
+            None => None,
+        }
+    }
+
+    pub fn set_consumer_entitlement(
+        &mut self,
+        id: Uuid,
+        entitlement: Option<crate::ConsumerEntitlement>,
+    ) {
+        match entitlement {
+            Some(value) if self.account(id).is_some() => {
+                self.consumer_entitlements.insert(id, value);
+            }
+            _ => {
+                self.consumer_entitlements.remove(&id);
+            }
+        }
+    }
+
     pub fn runtime_profile(&self, id: Uuid) -> Option<Profile> {
-        Some(self.network.hydrate(self.account(id)?))
+        Some(
+            self.network
+                .hydrate_for_tier(self.account(id)?, self.account_tier(id)),
+        )
     }
 
     pub fn runtime_profiles(&self) -> Vec<Profile> {
         self.profiles
             .iter()
-            .map(|account| self.network.hydrate(account))
+            .map(|account| {
+                self.network
+                    .hydrate_for_tier(account, self.account_tier(account.id))
+            })
             .collect()
     }
 
@@ -216,14 +257,38 @@ impl AppConfig {
                     name,
                     managed_endpoint_ips: None,
                     zero_trust_endpoint_override: None,
+                    zero_trust_subscription_id: None,
                 });
             }
             Some(index) => {
                 let keep_username = incoming.proxy.listener_auth_username().is_none();
                 let keep_shared_endpoint_ips =
                     bound_zero_trust || self.profiles[index].managed_endpoint_ips.is_some();
+                let target_tier = if keep_shared_endpoint_ips {
+                    Some(EndpointPresetTier::ZeroTrust)
+                } else {
+                    match self.consumer_entitlements.get(&id).copied() {
+                        Some(crate::ConsumerEntitlement::Free) => Some(EndpointPresetTier::Free),
+                        Some(crate::ConsumerEntitlement::WarpPlus) => {
+                            Some(EndpointPresetTier::Plus)
+                        }
+                        None => None,
+                    }
+                };
+                if incoming.endpoint.subscription_id.is_some() && target_tier.is_none() {
+                    return Err(ConfigError::EndpointSubscriptionRequiresVerifiedAccount);
+                }
                 self.profiles[index].name = name;
+                let incoming_sub_id = incoming.endpoint.subscription_id;
                 let mut network = SharedNetworkSettings::from_profile(&incoming);
+                network.consumer_tier_subscriptions =
+                    self.network.consumer_tier_subscriptions.clone();
+                network.endpoint.subscription_id = None;
+                if incoming_sub_id.is_some() {
+                    // Active subscriptions must preserve the user's underlying fallback mode/preset.
+                    network.endpoint.selection = self.network.endpoint.selection;
+                    network.endpoint.preset_region = self.network.endpoint.preset_region;
+                }
                 if keep_shared_endpoint_ips {
                     network.endpoint.ipv4 = self.network.endpoint.ipv4;
                     network.endpoint.ipv6 = self.network.endpoint.ipv6;
@@ -232,6 +297,16 @@ impl AppConfig {
                     } else {
                         self.network.endpoint.selection
                     };
+                    self.profiles[index].zero_trust_subscription_id = incoming_sub_id;
+                } else if let Some(tier) = target_tier {
+                    network
+                        .consumer_tier_subscriptions
+                        .set_for_tier(tier, incoming_sub_id);
+                }
+                if network.endpoint.preset_region.is_some()
+                    && !matches!(network.ip_policy, IpPolicy::Ipv6Only | IpPolicy::PreferIpv6)
+                {
+                    network.endpoint.preset_region = None;
                 }
                 if keep_username {
                     network.proxy.auth_username = self.network.proxy.auth_username.clone();
@@ -257,6 +332,7 @@ impl AppConfig {
             name,
             managed_endpoint_ips,
             zero_trust_endpoint_override: None,
+            zero_trust_subscription_id: None,
         });
         let profile = self
             .runtime_profile(id)
@@ -275,6 +351,7 @@ impl AppConfig {
             .ok_or(ConfigError::MissingActiveProfile(id))?;
         account.managed_endpoint_ips = Some(managed_endpoint_ips);
         account.zero_trust_endpoint_override = None;
+        account.zero_trust_subscription_id = None;
         let profile = self
             .runtime_profile(id)
             .ok_or(ConfigError::MissingActiveProfile(id))?;
@@ -306,6 +383,20 @@ impl AppConfig {
             return Err(ConfigError::TooManyProfiles(self.profiles.len()));
         }
 
+        // Bindings live only in the per-tier slots and Zero Trust accounts.
+        // Shared endpoint storage keeps the underlying fallback alone.
+        if self.network.endpoint.subscription_id.is_some()
+            || [
+                self.network.consumer_tier_subscriptions.free,
+                self.network.consumer_tier_subscriptions.plus,
+            ]
+            .into_iter()
+            .flatten()
+            .any(|id| id.is_nil())
+        {
+            return Err(ConfigError::InvalidEndpointSubscription);
+        }
+
         let mut ids = HashSet::new();
         // Routing is device-wide and validated alone; hydrating every account
         // with up to 8192 rules would repeat the same work per account.
@@ -319,7 +410,30 @@ impl AppConfig {
             if name.is_empty() || name.chars().count() > 64 {
                 return Err(ConfigError::InvalidProfileName);
             }
-            network.hydrate(account).validate()?;
+            if let Some(sub_id) = account.zero_trust_subscription_id
+                && (sub_id.is_nil()
+                    || account.managed_endpoint_ips.is_none()
+                        && !matches!(
+                            self.identity_bindings.get(&account.id),
+                            Some(IdentityProvider::ZeroTrust { .. })
+                        ))
+            {
+                return Err(ConfigError::InvalidEndpointSubscription);
+            }
+            network
+                .hydrate_for_tier(account, self.account_tier(account.id))
+                .validate()?;
+        }
+
+        if self.consumer_entitlements.len() > MAX_PROFILES {
+            return Err(ConfigError::TooManyIdentityBindings(
+                self.consumer_entitlements.len(),
+            ));
+        }
+        for profile_id in self.consumer_entitlements.keys() {
+            if !ids.contains(profile_id) {
+                return Err(ConfigError::IdentityBindingWithoutProfile(*profile_id));
+            }
         }
 
         if self.identity_bindings.len() > MAX_PROFILES {
@@ -506,6 +620,11 @@ pub struct Profile {
     #[serde(default = "default_masque_connections")]
     pub masque_connections: u8,
     pub endpoint: EndpointSettings,
+    /// Runtime-hydrated active endpoint resolved from `endpoint.subscription_id`.
+    /// Intentionally omitted from `SharedNetworkSettings` and `ScenarioSettings`
+    /// so switching endpoints inside a subscription never causes scene drift.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subscription_endpoint: Option<crate::endpoint_subscriptions::SubscriptionEndpoint>,
     /// Selects the physical address family used to reach the MASQUE endpoint.
     /// It never restricts IPv4 or IPv6 payloads carried inside CONNECT-IP.
     pub ip_policy: IpPolicy,
@@ -555,6 +674,7 @@ impl Default for Profile {
             congestion_control: CongestionControlAlgorithm::default(),
             masque_connections: default_masque_connections(),
             endpoint: EndpointSettings::default(),
+            subscription_endpoint: None,
             ip_policy: IpPolicy::Auto,
             mtu: DEFAULT_MTU,
             dns_mode: DnsMode::Tunnel,
@@ -619,6 +739,16 @@ impl Profile {
             return Err(ConfigError::InvalidMasqueConnections(
                 self.masque_connections,
             ));
+        }
+        if let Some(sub_ep) = &self.subscription_endpoint {
+            // A resolved endpoint without its binding would dial a target
+            // that no stored setting names.
+            if self.endpoint.subscription_id.is_none() {
+                return Err(ConfigError::InvalidEndpointSubscription);
+            }
+            sub_ep
+                .validate()
+                .map_err(|_| ConfigError::InvalidEndpointSubscription)?;
         }
         self.endpoint.validate()?;
         if self.endpoint.preset_region.is_some()
@@ -693,8 +823,23 @@ impl Profile {
                         .iter()
                         .any(|network| network.contains(server))
                         || self.endpoint.selection == EndpointSelection::Custom
+                            && self.endpoint.subscription_id.is_none()
+                            && self.endpoint.preset_region.is_none()
                             && (*server == IpAddr::V4(self.endpoint.ipv4)
                                 || *server == IpAddr::V6(self.endpoint.ipv6))
+                        || self.subscription_endpoint.as_ref().is_some_and(|sub_ep| {
+                            match &sub_ep.host {
+                                crate::endpoint_subscriptions::SubscriptionEndpointHost::Ipv4(
+                                    ip,
+                                ) => *server == IpAddr::V4(*ip),
+                                crate::endpoint_subscriptions::SubscriptionEndpointHost::Ipv6(
+                                    ip,
+                                ) => *server == IpAddr::V6(*ip),
+                                crate::endpoint_subscriptions::SubscriptionEndpointHost::Domain(
+                                    _,
+                                ) => false,
+                            }
+                        })
                         || self.allow_lan && is_lan_bypass_address(*server)
                 })
             {
@@ -737,6 +882,7 @@ impl Profile {
         self.transport = TransportPolicy::Auto;
         self.data_plane = DataPlaneMode::ConnectIp;
         self.endpoint = EndpointSettings::default();
+        self.subscription_endpoint = None;
         self.ip_policy = IpPolicy::Auto;
         self.mtu = DEFAULT_MTU;
         self.dns_mode = DnsMode::Tunnel;
@@ -1206,6 +1352,8 @@ pub struct EndpointSettings {
     pub selection: EndpointSelection,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub preset_region: Option<EndpointPresetRegion>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subscription_id: Option<Uuid>,
 }
 
 impl Default for EndpointSettings {
@@ -1217,6 +1365,7 @@ impl Default for EndpointSettings {
             sni: DEFAULT_SNI.to_owned(),
             selection: EndpointSelection::Automatic,
             preset_region: None,
+            subscription_id: None,
         }
     }
 }
@@ -1230,8 +1379,17 @@ impl EndpointSettings {
     }
 
     pub fn validate(&self) -> Result<(), ConfigError> {
+        if self.preset_region.is_some() && self.subscription_id.is_some() {
+            return Err(ConfigError::EndpointPresetAndSubscriptionConflict);
+        }
         if self.preset_region.is_some() && self.selection != EndpointSelection::Custom {
             return Err(ConfigError::EndpointPresetRequiresCustom);
+        }
+        if self.subscription_id.is_some() && self.selection != EndpointSelection::Custom {
+            return Err(ConfigError::EndpointSubscriptionRequiresCustom);
+        }
+        if self.subscription_id.is_some_and(|id| id.is_nil()) {
+            return Err(ConfigError::InvalidEndpointSubscription);
         }
         if self.port == 0 {
             return Err(ConfigError::InvalidPort);
@@ -1540,6 +1698,14 @@ pub enum ConfigError {
     EndpointPresetRequiresCustom,
     #[error("endpoint presets require IPv6 only or prefer IPv6")]
     EndpointPresetRequiresIpv6,
+    #[error("endpoint presets and endpoint subscriptions are mutually exclusive")]
+    EndpointPresetAndSubscriptionConflict,
+    #[error("endpoint subscriptions require custom endpoint selection")]
+    EndpointSubscriptionRequiresCustom,
+    #[error("endpoint subscription identifier is invalid")]
+    InvalidEndpointSubscription,
+    #[error("verify your account before selecting an endpoint subscription")]
+    EndpointSubscriptionRequiresVerifiedAccount,
     #[error("ROUTING_RULE_INVALID:{0}")]
     InvalidRoutingRule(Uuid),
     #[error("ROUTING_RULE_CONFLICT:{0}:{1}")]
@@ -1709,6 +1875,16 @@ impl ConfigError {
         match self {
             Self::EndpointPresetRequiresCustom => Some("ENDPOINT_PRESET_REQUIRES_CUSTOM"),
             Self::EndpointPresetRequiresIpv6 => Some("ENDPOINT_PRESET_REQUIRES_IPV6"),
+            Self::EndpointPresetAndSubscriptionConflict => {
+                Some("ENDPOINT_SUBSCRIPTION_PRESET_CONFLICT")
+            }
+            Self::EndpointSubscriptionRequiresCustom => {
+                Some("ENDPOINT_SUBSCRIPTION_REQUIRES_CUSTOM")
+            }
+            Self::InvalidEndpointSubscription => Some("ENDPOINT_SUBSCRIPTION_INVALID"),
+            Self::EndpointSubscriptionRequiresVerifiedAccount => {
+                Some("SUBSCRIPTION_VERIFY_ACCOUNT")
+            }
             Self::NonCanonicalPhysicalDirectDns => Some("DIRECT_DNS_PHYSICAL_NOT_CANONICAL"),
             Self::InvalidDirectDnsServerName => Some("DIRECT_DNS_SERVER_NAME_INVALID"),
             Self::InvalidDirectDnsPort => Some("DIRECT_DNS_PORT_INVALID"),
@@ -2191,6 +2367,7 @@ mod tests {
             sni: "shared.example.com".to_owned(),
             selection: crate::EndpointSelection::Custom,
             preset_region: None,
+            subscription_id: None,
         };
         let stored = config.upsert_runtime_profile(registered).unwrap();
         assert_eq!(stored.endpoint.ipv4, DEFAULT_ENDPOINT_V4);
@@ -2224,6 +2401,7 @@ mod tests {
             sni: "zt-masque.cloudflareclient.com".to_owned(),
             selection: crate::EndpointSelection::Custom,
             preset_region: None,
+            subscription_id: None,
         };
         let stored = config.upsert_runtime_profile(registered).unwrap();
 
@@ -2242,6 +2420,7 @@ mod tests {
                 sni: "zt-masque.cloudflareclient.com".to_owned(),
                 selection: crate::EndpointSelection::Custom,
                 preset_region: None,
+                subscription_id: None,
             },
             mtu: 1400,
             ..Profile::default()

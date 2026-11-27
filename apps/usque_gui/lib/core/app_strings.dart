@@ -2,11 +2,13 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
 import '../models/app_models.dart';
+import '../models/endpoint_subscriptions.dart';
 import 'l10n/ads.dart';
 import 'l10n/catalogs.dart';
 import 'l10n/chain.dart';
 import 'l10n/diagnostics.dart';
 import 'l10n/endpoint_presets.dart';
+import 'l10n/endpoint_subscriptions.dart';
 import 'l10n/l4.dart';
 import 'l10n/linux_desktop.dart';
 import 'l10n/macos_desktop.dart';
@@ -111,6 +113,10 @@ class AppStrings {
     if (workflow.containsKey(key)) return workflow[key]!;
     final quality = kNetworkQualityCatalogs[catalogId] ?? kNetworkQualityEn;
     if (quality.containsKey(key)) return quality[key]!;
+    final subs =
+        kEndpointSubscriptionCatalogs[catalogId] ??
+        kEndpointSubscriptionCatalogs['en']!;
+    if (subs.containsKey(key)) return subs[key]!;
     final values = kCatalogs[catalogId] ?? kEnCatalog;
     return values[key] ?? kEnCatalog[key] ?? key;
   }
@@ -119,6 +125,35 @@ class AppStrings {
       platform == TargetPlatform.android
       ? _raw('vpn_mode')
       : _raw('tunnel_output');
+
+  String subscriptionTierLabel(EndpointSubscriptionTier tier) => switch (tier) {
+    EndpointSubscriptionTier.free => get('sub_tier_free'),
+    EndpointSubscriptionTier.plus => get('sub_tier_plus'),
+    EndpointSubscriptionTier.zeroTrust => get('sub_tier_zt'),
+  };
+
+  String subscriptionErrorLabel(String code) => switch (code) {
+    'SUBSCRIPTION_INVALID_NAME' => get('sub_err_invalid_name'),
+    'SUBSCRIPTION_INVALID_URL' => get('sub_err_invalid_url'),
+    'SUBSCRIPTION_EMPTY' => get('sub_err_empty'),
+    'SUBSCRIPTION_INVALID_BODY' => get('sub_err_invalid_body'),
+    'SUBSCRIPTION_LIMIT' => get('sub_err_limit'),
+    'SUBSCRIPTION_STALE_REVISION' => get('sub_err_stale'),
+    'SUBSCRIPTION_NETWORK' => get('sub_err_network'),
+    'SUBSCRIPTION_TIMEOUT' => get('sub_err_timeout'),
+    'SUBSCRIPTION_TOO_LARGE' => get('sub_err_too_large'),
+    'SUBSCRIPTION_HTTP_ERROR' => get('sub_err_http'),
+    'SUBSCRIPTION_TIER_MISMATCH' => get('sub_err_unavailable'),
+    'SUBSCRIPTION_VERIFY_ACCOUNT' => get('sub_verify_account'),
+    'SUBSCRIPTION_PROBE_CONNECTED_TUN_UNSUPPORTED' => get(
+      'sub_probe_tun_unsupported',
+    ),
+    'SUBSCRIPTION_DOMAIN_UNSUPPORTED' => get('sub_domain_unsupported'),
+    // Downloads and probes never leave the tunnel or Kill Switch; in this
+    // state they are unavailable rather than failing on the network.
+    'SUBSCRIPTION_PROTECTED_PATH_UNAVAILABLE' => get('sub_err_unavailable'),
+    _ => get('sub_err_unavailable'),
+  };
 
   /// Feature-table keys whose English value may be reused.
   ///
@@ -139,6 +174,8 @@ class AppStrings {
     'onboarding_notifications_title',
     // French and German also use “Version”.
     'macos_service_version',
+    // The SI millisecond symbol is kept in Latin-script locales.
+    'sub_rtt_ms',
   };
 
   @visibleForTesting
@@ -178,7 +215,11 @@ class AppStrings {
         !_featureTablesComplete(kL4Catalogs, kL4En) ||
         !_featureTablesComplete(kVpnGateCatalogs, kVpnGateEn) ||
         !_featureTablesComplete(kNetworkSettingsCatalogs, kNetworkSettingsEn) ||
-        !_featureTablesComplete(kChainCatalogs, kChainEn)) {
+        !_featureTablesComplete(kChainCatalogs, kChainEn) ||
+        !_featureTablesComplete(
+          kEndpointSubscriptionCatalogs,
+          kEndpointSubscriptionCatalogs['en']!,
+        )) {
       return false;
     }
     if (!setEquals(
@@ -276,6 +317,7 @@ class AppStrings {
     scan(kTlsFingerprintCatalogs, kTlsFingerprintCatalogs['en']!);
     scan(kEndpointPresetCatalogs, kEndpointPresetCatalogs['en']!);
     scan(kUxRefinementCatalogs, kUxRefinementCatalogs['en']!);
+    scan(kEndpointSubscriptionCatalogs, kEndpointSubscriptionCatalogs['en']!);
     for (final catalogEntry in kWindowsAdapterCleanupCatalogs.entries) {
       if (catalogEntry.key == 'en') {
         continue;
@@ -322,6 +364,10 @@ class AppStrings {
         !_placeholdersPreserved(
           kUxRefinementCatalogs['en']!,
           kUxRefinementCatalogs.values,
+        ) ||
+        !_placeholdersPreserved(
+          kEndpointSubscriptionCatalogs['en']!,
+          kEndpointSubscriptionCatalogs.values,
         )) {
       return false;
     }

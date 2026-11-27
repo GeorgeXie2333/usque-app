@@ -120,12 +120,14 @@ impl ControlService {
         >,
     > {
         Box::pin(async move {
-            let requested = self
+            let mut requested = self
                 .config
                 .read()
                 .await
                 .runtime_profile(profile_id)
                 .ok_or(ControlServiceError::ProfileNotFound(profile_id))?;
+            self.hydrate_profile_subscription_endpoint(&mut requested)
+                .await?;
             let mut owner = self.continuous_connection.lock().await;
             let snapshot = self.state.lock().await.snapshot().clone();
             if inherited

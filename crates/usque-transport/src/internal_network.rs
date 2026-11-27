@@ -27,6 +27,7 @@ impl<T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Unpin> HttpsIo for
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum HttpsPurpose {
     General,
+    Subscription,
     #[cfg(feature = "wireguard")]
     WarpRegistration,
 }
@@ -78,9 +79,13 @@ pub(crate) struct InternalRequest<'a> {
 pub(crate) struct InternalResponse {
     pub status: u16,
     pub retry_after: Option<u32>,
+    #[cfg_attr(not(feature = "wireguard"), allow(dead_code))]
     pub last_modified: Option<String>,
+    pub location: Option<String>,
     pub body: zeroize::Zeroizing<Vec<u8>>,
 }
+
+pub use usque_core::endpoint_subscriptions::SubscriptionFetchError;
 
 /// Stable, non-sensitive failures for private HTTPS callers. Never contains a
 /// URL, request/response body, bearer token, endpoint address or TLS error text.
@@ -572,20 +577,46 @@ impl InternalNetwork {
             }
             Err(InternalHttpError::Connect)
         } else {
-            self.connect_host(host, 443, cancel, deadline, None).await
+            self.connect_host((host, 443), cancel, deadline, None, false)
+                .await
         }
     }
 
     async fn connect_host(
         &self,
-        host: &str,
-        port: u16,
+        target: (&str, u16),
         cancel: &CancellationToken,
         deadline: Instant,
         ipv6: Option<bool>,
+        public_only: bool,
     ) -> Result<TcpStream, InternalHttpError> {
+        let (host, port) = target;
         if self.cancellation.is_cancelled() || cancel.is_cancelled() {
             return Err(InternalHttpError::Cancelled);
+        }
+        let trimmed_host = host
+            .strip_prefix('[')
+            .and_then(|s| s.strip_suffix(']'))
+            .unwrap_or(host);
+        if let Ok(literal_ip) = trimmed_host.parse::<std::net::IpAddr>() {
+            if ipv6.is_some_and(|v6| literal_ip.is_ipv6() != v6) {
+                return Err(InternalHttpError::Dns);
+            }
+            if public_only
+                && !usque_core::endpoint_subscriptions::is_usable_public_endpoint_ip(literal_ip)
+            {
+                return Err(InternalHttpError::Dns);
+            }
+            if self.resolver.is_some() {
+                return self
+                    .connect_address(SocketAddr::new(literal_ip, port), cancel, deadline)
+                    .await
+                    .map_err(|error| match error {
+                        DialError::Cancelled => InternalHttpError::Cancelled,
+                        DialError::Timeout => InternalHttpError::Timeout,
+                        _ => InternalHttpError::Connect,
+                    });
+            }
         }
         if let Some(resolver) = &self.resolver {
             let addresses = tokio::select! {
@@ -595,11 +626,18 @@ impl InternalNetwork {
                 result = timeout_at(deadline, resolver.resolve(host)) =>
                     result.map_err(|_| InternalHttpError::Timeout)?.map_err(|_| InternalHttpError::Dns)?,
             };
+            let mut any_eligible = false;
             let mut failure = InternalHttpError::Connect;
             for ip in addresses {
                 if ipv6.is_some_and(|v6| ip.is_ipv6() != v6) {
                     continue;
                 }
+                if public_only
+                    && !usque_core::endpoint_subscriptions::is_usable_public_endpoint_ip(ip)
+                {
+                    continue;
+                }
+                any_eligible = true;
                 match self
                     .connect_address(SocketAddr::new(ip, port), cancel, deadline)
                     .await
@@ -610,9 +648,13 @@ impl InternalNetwork {
                     Err(_) => {}
                 }
             }
+            if public_only && !any_eligible {
+                return Err(InternalHttpError::Dns);
+            }
             Err(failure)
         } else {
-            let target = TcpTarget::new(host, port).map_err(|_| InternalHttpError::Dns)?;
+            // URL hosts bracket IPv6 literals; the dial target takes the bare address.
+            let target = TcpTarget::new(trimmed_host, port).map_err(|_| InternalHttpError::Dns)?;
             self.connect(target, cancel, deadline, FlowClass::Business)
                 .await
                 .map_err(|error| match error {
@@ -634,7 +676,7 @@ impl InternalNetwork {
     ) -> Result<TcpStream, InternalHttpError> {
         if self.resolver.is_none() || ipv6.is_some() {
             return self
-                .connect_host("vpn-api.proton.me", 443, cancel, deadline, ipv6)
+                .connect_host(("vpn-api.proton.me", 443), cancel, deadline, ipv6, false)
                 .await;
         }
         if !matches!(*self.health.borrow(), RuntimeHealth::Connected { .. }) {
@@ -756,17 +798,24 @@ impl InternalNetwork {
         {
             return Err(InternalHttpError::Protocol);
         }
-        let connect_budget = if purpose == HttpsPurpose::General {
-            CONNECT_TIMEOUT
-        } else {
-            std::time::Duration::from_secs(10)
+        let connect_budget = match purpose {
+            HttpsPurpose::General => CONNECT_TIMEOUT,
+            HttpsPurpose::Subscription => std::time::Duration::from_secs(5),
+            #[cfg(feature = "wireguard")]
+            HttpsPurpose::WarpRegistration => std::time::Duration::from_secs(10),
         };
         let connect_deadline = Instant::now() + connect_budget;
         let request = async {
             let establish = async {
                 let stage_started = Instant::now();
                 let stream = self
-                    .connect_host(&host, port, cancel, connect_deadline, ipv6)
+                    .connect_host(
+                        (&host, port),
+                        cancel,
+                        connect_deadline,
+                        ipv6,
+                        purpose == HttpsPurpose::Subscription,
+                    )
                     .await?;
                 tracing::debug!(
                     probe_stage = "tcp",
@@ -784,7 +833,12 @@ impl InternalNetwork {
                 let config = rustls::ClientConfig::builder()
                     .with_root_certificates(roots)
                     .with_no_client_auth();
-                let server_name = rustls::pki_types::ServerName::try_from(host.clone())
+                let server_host = host
+                    .strip_prefix('[')
+                    .and_then(|s| s.strip_suffix(']'))
+                    .unwrap_or(&host)
+                    .to_owned();
+                let server_name = rustls::pki_types::ServerName::try_from(server_host)
                     .map_err(|_| InternalHttpError::Protocol)?;
                 let stage_started = Instant::now();
                 let result = tokio_rustls::TlsConnector::from(Arc::new(config))
@@ -819,7 +873,7 @@ impl InternalNetwork {
                 .header(http::header::ACCEPT_ENCODING, "identity")
                 .header(
                     http::header::CONNECTION,
-                    if purpose == HttpsPurpose::General {
+                    if matches!(purpose, HttpsPurpose::General | HttpsPurpose::Subscription) {
                         "close"
                     } else {
                         "Keep-Alive"
@@ -847,6 +901,11 @@ impl InternalNetwork {
                 .get(http::header::LAST_MODIFIED)
                 .and_then(|v| v.to_str().ok())
                 .filter(|v| usque_core::proton_vpn::valid_directory_validator(v))
+                .map(str::to_owned);
+            let location = response
+                .headers()
+                .get(http::header::LOCATION)
+                .and_then(|v| v.to_str().ok())
                 .map(str::to_owned);
             let retry_after = response
                 .headers()
@@ -885,6 +944,7 @@ impl InternalNetwork {
                 status,
                 retry_after,
                 last_modified,
+                location,
                 body: bytes,
             })
         };
@@ -894,6 +954,84 @@ impl InternalNetwork {
             _ = self.cancellation.cancelled() => Err(InternalHttpError::Cancelled),
             result = tokio::time::timeout(RESPONSE_TIMEOUT, request) => result.map_err(|_| InternalHttpError::Timeout)?,
         }
+    }
+
+    /// Bounded HTTPS GET over the active WARP tunnel with strict public IP
+    /// SSRF guards, manual HTTPS redirect verification (max `max_redirects` hops),
+    /// and a total time/byte budget. Never logs subscription URLs or contents.
+    pub async fn get_https_bounded(
+        &self,
+        url: &str,
+        max_bytes: usize,
+        max_redirects: usize,
+        total_timeout: std::time::Duration,
+        cancel: &CancellationToken,
+    ) -> Result<Vec<u8>, SubscriptionFetchError> {
+        if max_bytes == 0
+            || max_bytes > usque_core::endpoint_subscriptions::MAX_SUBSCRIPTION_BODY_BYTES
+        {
+            return Err(SubscriptionFetchError::TooLarge);
+        }
+        let mut current_url = usque_core::endpoint_subscriptions::validate_subscription_url(url)
+            .map_err(|_| SubscriptionFetchError::InvalidUrl)?;
+        let deadline = Instant::now() + total_timeout;
+        for hop in 0..=max_redirects {
+            if cancel.is_cancelled() || self.cancellation.is_cancelled() {
+                return Err(SubscriptionFetchError::Cancelled);
+            }
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Err(SubscriptionFetchError::Timeout);
+            }
+            let response = tokio::time::timeout(
+                remaining,
+                self.exchange_https_for(
+                    InternalRequest {
+                        url: &current_url,
+                        method: http::Method::GET,
+                        headers: Vec::new(),
+                        body: Bytes::new(),
+                        limit: max_bytes,
+                        ipv6: None,
+                    },
+                    cancel,
+                    HttpsPurpose::Subscription,
+                ),
+            )
+            .await
+            .map_err(|_| SubscriptionFetchError::Timeout)?
+            .map_err(|error| match error {
+                InternalHttpError::Cancelled => SubscriptionFetchError::Cancelled,
+                InternalHttpError::Timeout => SubscriptionFetchError::Timeout,
+                InternalHttpError::SizeLimit => SubscriptionFetchError::TooLarge,
+                InternalHttpError::HttpStatus(status) => SubscriptionFetchError::HttpStatus(status),
+                InternalHttpError::Dns
+                | InternalHttpError::Connect
+                | InternalHttpError::Tls
+                | InternalHttpError::Protocol
+                | InternalHttpError::Encoding => SubscriptionFetchError::Network,
+            })?;
+            if (200..300).contains(&response.status) {
+                return Ok(response.body.to_vec());
+            }
+            if matches!(response.status, 301 | 302 | 303 | 307 | 308) {
+                if hop == max_redirects {
+                    return Err(SubscriptionFetchError::HttpStatus(response.status));
+                }
+                let Some(location) = response.location.as_deref() else {
+                    return Err(SubscriptionFetchError::Network);
+                };
+                current_url =
+                    usque_core::endpoint_subscriptions::resolve_subscription_redirect_url(
+                        &current_url,
+                        location,
+                    )
+                    .map_err(|_| SubscriptionFetchError::InvalidUrl)?;
+                continue;
+            }
+            return Err(SubscriptionFetchError::HttpStatus(response.status));
+        }
+        Err(SubscriptionFetchError::Network)
     }
 }
 
@@ -1416,5 +1554,67 @@ mod catalogue_tests {
                 Err(expected)
             );
         }
+    }
+
+    #[tokio::test]
+    async fn bounded_subscription_fetch_validates_url_size_and_dial_errors() {
+        let (_sender, health) = watch::channel(RuntimeHealth::Connected {
+            path: crate::netstack::RuntimePath {
+                transport: usque_core::Transport::Http3,
+                endpoint_family: usque_core::AddressFamily::Ipv4,
+                ipv4_available: true,
+                ipv6_available: false,
+            },
+            reconnect_count: 0,
+        });
+        let network = InternalNetwork::for_streams(
+            Arc::new(FailureDialer(DialError::Timeout)),
+            health,
+            CancellationToken::new(),
+        );
+        for bad_url in [
+            "http://masque.pages.dev/endpoint/3rd/warp-ipv4.txt",
+            "https://127.0.0.1/list.txt",
+            "https://192.168.1.1/list.txt",
+            "https://[::1]/list.txt",
+            "https://localhost/list.txt",
+        ] {
+            assert_eq!(
+                network
+                    .get_https_bounded(
+                        bad_url,
+                        usque_core::endpoint_subscriptions::MAX_SUBSCRIPTION_BODY_BYTES,
+                        3,
+                        Duration::from_secs(5),
+                        &CancellationToken::new(),
+                    )
+                    .await,
+                Err(SubscriptionFetchError::InvalidUrl)
+            );
+        }
+        assert_eq!(
+            network
+                .get_https_bounded(
+                    "https://masque.pages.dev/endpoint/3rd/warp-ipv4.txt",
+                    usque_core::endpoint_subscriptions::MAX_SUBSCRIPTION_BODY_BYTES + 1,
+                    3,
+                    Duration::from_secs(5),
+                    &CancellationToken::new(),
+                )
+                .await,
+            Err(SubscriptionFetchError::TooLarge)
+        );
+        assert_eq!(
+            network
+                .get_https_bounded(
+                    "https://masque.pages.dev/endpoint/3rd/warp-ipv4.txt",
+                    usque_core::endpoint_subscriptions::MAX_SUBSCRIPTION_BODY_BYTES,
+                    3,
+                    Duration::from_secs(5),
+                    &CancellationToken::new(),
+                )
+                .await,
+            Err(SubscriptionFetchError::Timeout)
+        );
     }
 }

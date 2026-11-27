@@ -138,10 +138,15 @@ struct DirectEgressKey {
     interface_luid: u64,
     network_generation: u64,
     purpose: EgressPurpose,
+    /// Distinguishes probe permits of successive leases for the same target,
+    /// so retiring an old lease cannot remove a newer lease's permit. Zero for
+    /// every other purpose.
+    probe_lease_id: u64,
 }
 
 // Bound exact endpoint permits for active pools, recovery probes, replacements
 // and endpoint races while supporting the configured maximum connection count.
+const PROBE_LEASE_REAP_INTERVAL: Duration = Duration::from_secs(5);
 const MAX_AUTOMATIC_ENDPOINT_LEASES: usize = 4 * usque_core::MAX_MASQUE_CONNECTIONS as usize;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -150,6 +155,9 @@ enum EgressPurpose {
     AutomaticMasque,
     PresetDns,
     PresetMasque,
+    HostnameDns,
+    HostnameMasque,
+    EndpointProbe,
 }
 
 impl EgressPurpose {
@@ -159,8 +167,15 @@ impl EgressPurpose {
             1 => Ok(Self::AutomaticMasque),
             2 => Ok(Self::PresetDns),
             3 => Ok(Self::PresetMasque),
+            4 => Ok(Self::HostnameDns),
+            5 => Ok(Self::HostnameMasque),
+            6 => Ok(Self::EndpointProbe),
             _ => Err(ServiceError::DirectEgressTarget),
         }
+    }
+
+    fn is_dns(self) -> bool {
+        matches!(self, Self::PresetDns | Self::HostnameDns)
     }
 }
 
@@ -169,10 +184,31 @@ struct DirectEgressEntry {
     _permit: Option<wfp::DynamicPermit>,
 }
 
+struct ActiveProbeLease {
+    lease_id: u64,
+    probe_session_id: String,
+    generation: u64,
+    expires_at: tokio::time::Instant,
+    targets: Vec<(SocketAddr, u8)>,
+    allow_dns: bool,
+    egress_keys: Vec<DirectEgressKey>,
+}
+
+impl ActiveProbeLease {
+    fn permits(&self, remote: SocketAddr, protocol: u8, dns_ok: bool) -> bool {
+        self.expires_at > tokio::time::Instant::now()
+            && (self.targets.contains(&(remote, protocol))
+                || (self.allow_dns && remote.port() == 53 && dns_ok))
+    }
+}
+
 #[derive(Default)]
 struct DirectEgressRegistry {
     entries: HashMap<DirectEgressKey, DirectEgressEntry>,
     preset_candidates: HashMap<Uuid, PresetCandidates>,
+    hostname_candidates: HashMap<Uuid, HostnameCandidates>,
+    probe_leases: HashMap<Uuid, ActiveProbeLease>,
+    next_probe_lease_id: u64,
 }
 
 struct PresetCandidates {
@@ -195,31 +231,86 @@ impl PresetCandidates {
     }
 }
 
+struct HostnameCandidates {
+    generation: u64,
+    endpoints: Vec<SocketAddr>,
+}
+
+impl HostnameCandidates {
+    fn permits(
+        &self,
+        policy: &crate::plan::HostnameEndpointPolicy,
+        endpoint: SocketAddr,
+        protocol: u8,
+        generation: u64,
+    ) -> bool {
+        generation != 0
+            && self.generation == generation
+            && policy.permits_protocol(protocol)
+            && self.endpoints.contains(&endpoint)
+    }
+}
+
 impl DirectEgressRegistry {
     fn has_capacity(&self, key: DirectEgressKey) -> bool {
         self.entries.contains_key(&key)
             || self.entries.len() < MAX_DYNAMIC_DIRECT_TARGETS
                 && (!matches!(
                     key.purpose,
-                    EgressPurpose::AutomaticMasque | EgressPurpose::PresetMasque
+                    EgressPurpose::AutomaticMasque
+                        | EgressPurpose::PresetMasque
+                        | EgressPurpose::HostnameMasque
                 ) || self
                     .entries
                     .keys()
                     .filter(|entry| {
                         matches!(
                             entry.purpose,
-                            EgressPurpose::AutomaticMasque | EgressPurpose::PresetMasque
+                            EgressPurpose::AutomaticMasque
+                                | EgressPurpose::PresetMasque
+                                | EgressPurpose::HostnameMasque
                         )
                     })
                     .count()
                     < MAX_AUTOMATIC_ENDPOINT_LEASES)
     }
+
+    fn prune_expired_probe_leases(&mut self) {
+        let now = tokio::time::Instant::now();
+        let expired: Vec<Uuid> = self
+            .probe_leases
+            .iter()
+            .filter(|(_, lease)| lease.expires_at <= now)
+            .map(|(op, _)| *op)
+            .collect();
+        for op in expired {
+            if let Some(lease) = self.probe_leases.remove(&op) {
+                for key in lease.egress_keys {
+                    self.release(key);
+                }
+            }
+        }
+    }
+
+    fn clear_probe_leases(&mut self) {
+        let leases: Vec<_> = self.probe_leases.drain().map(|(_, lease)| lease).collect();
+        for lease in leases {
+            for key in lease.egress_keys {
+                self.release(key);
+            }
+        }
+    }
+
     fn invalidate_before(&mut self, generation: u64) {
         // Snapshot invalidation can run after a concurrent acquisition for
         // this or a newer generation. Never revoke that newer authorization.
         self.entries
             .retain(|key, _| key.network_generation >= generation);
         self.preset_candidates
+            .retain(|_, value| value.generation >= generation);
+        self.hostname_candidates
+            .retain(|_, value| value.generation >= generation);
+        self.probe_leases
             .retain(|_, value| value.generation >= generation);
     }
 
@@ -963,6 +1054,8 @@ where
                 EgressPurpose::AutomaticMasque
                     | EgressPurpose::PresetDns
                     | EgressPurpose::PresetMasque
+                    | EgressPurpose::HostnameDns
+                    | EgressPurpose::HostnameMasque
             )
             && !wfp::is_bootstrap_endpoint(plan, remote, protocol)
         {
@@ -998,16 +1091,69 @@ where
                 }
             }
         }
-        let interface = select_direct_egress_interface(&physical, remote, purpose, |interface| {
-            let (tunnel_luid, _) = physical_route_context(&journal)?;
-            network::physical_dns_route_available(
-                remote,
-                interface.interface_luid,
-                interface.interface_index,
-                tunnel_luid,
-            )
-            .map_err(|error| ServiceError::PhysicalNetwork(error.to_string()))
-        })?;
+        if matches!(
+            purpose,
+            EgressPurpose::HostnameDns | EgressPurpose::HostnameMasque
+        ) {
+            let policy = plan
+                .hostname_endpoint_policy
+                .as_ref()
+                .ok_or(ServiceError::DirectEgressTarget)?;
+            validate_hostname_endpoint_ready(&journal, expected_generation)?;
+            if purpose == EgressPurpose::HostnameDns {
+                if remote.port() != 53 {
+                    return Err(ServiceError::DirectEgressTarget);
+                }
+            } else {
+                let registry = self.direct_egress.lock().await;
+                let candidates = registry
+                    .hostname_candidates
+                    .get(&operation_id)
+                    .filter(|set| set.generation == expected_generation)
+                    .ok_or(ServiceError::DirectEgressNotReady)?;
+                if !candidates.permits(policy, remote, protocol, expected_generation) {
+                    return Err(ServiceError::DirectEgressTarget);
+                }
+            }
+        }
+        // A lease target on port 53 is a MASQUE endpoint, not a DNS lookup.
+        let mut probe_lease_id = 0;
+        let mut is_dns_lookup = purpose.is_dns();
+        if purpose == EgressPurpose::EndpointProbe {
+            if journal.phase != RecoveryPhase::Active || journal.replacement_pending() {
+                return Err(ServiceError::DirectEgressNotReady);
+            }
+            let mut registry = self.direct_egress.lock().await;
+            registry.prune_expired_probe_leases();
+            let dns_ip_allowed = remote.port() == 53
+                && physical.interfaces.iter().any(|iface| {
+                    iface.dns_servers.iter().any(|s| {
+                        s.parse::<std::net::IpAddr>()
+                            .is_ok_and(|ip| ip == remote.ip())
+                    })
+                });
+            let lease = registry
+                .probe_leases
+                .get(&operation_id)
+                .filter(|lease| lease.generation == expected_generation)
+                .ok_or(ServiceError::DirectEgressNotReady)?;
+            if !lease.permits(remote, protocol, dns_ip_allowed) {
+                return Err(ServiceError::DirectEgressTarget);
+            }
+            is_dns_lookup = remote.port() == 53 && !lease.targets.contains(&(remote, protocol));
+            probe_lease_id = lease.lease_id;
+        }
+        let interface =
+            select_direct_egress_interface_for(&physical, remote, is_dns_lookup, |interface| {
+                let (tunnel_luid, _) = physical_route_context(&journal)?;
+                network::physical_dns_route_available(
+                    remote,
+                    interface.interface_luid,
+                    interface.interface_index,
+                    tunnel_luid,
+                )
+                .map_err(|error| ServiceError::PhysicalNetwork(error.to_string()))
+            })?;
         let interface_luid = interface.interface_luid;
         let key = DirectEgressKey {
             operation_id,
@@ -1016,12 +1162,23 @@ where
             interface_luid,
             network_generation: physical.generation,
             purpose,
+            probe_lease_id,
         };
         let mut registry = self.direct_egress.lock().await;
         validate_expected_generation(
             physical.generation,
             self.physical_generation.lock().await.generation,
         )?;
+        // The lease may have been released or expired while the interface
+        // was selected; never attach a permit to a retired lease.
+        if purpose == EgressPurpose::EndpointProbe
+            && registry
+                .probe_leases
+                .get(&operation_id)
+                .is_none_or(|lease| lease.lease_id != probe_lease_id)
+        {
+            return Err(ServiceError::DirectEgressNotReady);
+        }
         if let Some(existing) = registry.entries.get_mut(&key) {
             existing.references = existing
                 .references
@@ -1068,6 +1225,12 @@ where
             registry.release(key);
             return Err(ServiceError::StaleGeneration);
         }
+        // The lease owns probe references; the pipe never releases them.
+        if purpose == EgressPurpose::EndpointProbe
+            && let Some(lease) = registry.probe_leases.get_mut(&operation_id)
+        {
+            lease.egress_keys.push(key);
+        }
         Ok((
             agent_v1::DirectEgressLease {
                 interface_luid,
@@ -1085,10 +1248,21 @@ where
         self.direct_egress.lock().await.release(key);
     }
 
+    /// Periodic TTL enforcement independent of further probe RPCs.
+    async fn reap_expired_probe_leases(&self) {
+        self.direct_egress.lock().await.prune_expired_probe_leases();
+    }
+
+    async fn clear_probe_leases(&self) {
+        self.direct_egress.lock().await.clear_probe_leases();
+    }
+
     async fn clear_direct_egress(&self) {
         let mut registry = self.direct_egress.lock().await;
+        registry.clear_probe_leases();
         registry.entries.clear();
         registry.preset_candidates.clear();
+        registry.hostname_candidates.clear();
     }
 
     async fn set_preset_endpoint_candidates(
@@ -1117,15 +1291,8 @@ where
                     .map_err(|_| ServiceError::DirectEgressTarget)
             })
             .collect::<Result<Vec<_>, _>>()?;
-        policy
-            .validate_candidates(&endpoints)
+        crate::plan::validate_hostname_candidates(plan, &endpoints)
             .map_err(|_| ServiceError::DirectEgressTarget)?;
-        if endpoints
-            .iter()
-            .any(|endpoint| plan.dns_servers.contains(&endpoint.ip()))
-        {
-            return Err(ServiceError::DirectEgressTarget);
-        }
         let physical = self.physical_network_info(operation_id, caller).await?;
         validate_expected_generation(request.expected_generation, physical.generation)?;
         let mut registry = self.direct_egress.lock().await;
@@ -1142,6 +1309,159 @@ where
                 endpoints,
             },
         );
+        Ok(())
+    }
+
+    async fn set_hostname_endpoint_candidates(
+        &self,
+        request: agent_v1::SetHostnameEndpointCandidatesRequest,
+        caller: &AuthenticatedCaller,
+    ) -> Result<(), ServiceError> {
+        let _gate = self.mutation_gate.lock().await;
+        let operation_id = parse_operation_id(&request.operation_id)?;
+        let journal = self.state().await;
+        let plan = validate_direct_context(&journal, operation_id, caller, true)?;
+        let policy = plan
+            .hostname_endpoint_policy
+            .as_ref()
+            .ok_or(ServiceError::DirectEgressTarget)?;
+        if self.stopping.load(Ordering::Acquire) || request.hostname != policy.hostname {
+            return Err(ServiceError::DirectEgressTarget);
+        }
+        validate_hostname_endpoint_ready(&journal, request.expected_generation)?;
+        let endpoints = request
+            .candidates
+            .iter()
+            .map(|value| {
+                value
+                    .parse::<SocketAddr>()
+                    .map_err(|_| ServiceError::DirectEgressTarget)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        policy
+            .validate_candidates(&endpoints)
+            .map_err(|_| ServiceError::DirectEgressTarget)?;
+        if endpoints
+            .iter()
+            .any(|endpoint| plan.dns_servers.contains(&endpoint.ip()))
+        {
+            return Err(ServiceError::DirectEgressTarget);
+        }
+        let physical = self.physical_network_info(operation_id, caller).await?;
+        validate_expected_generation(request.expected_generation, physical.generation)?;
+        let mut registry = self.direct_egress.lock().await;
+        validate_expected_generation(
+            request.expected_generation,
+            self.physical_generation.lock().await.generation,
+        )?;
+        registry.hostname_candidates.insert(
+            operation_id,
+            HostnameCandidates {
+                generation: request.expected_generation,
+                endpoints,
+            },
+        );
+        Ok(())
+    }
+
+    async fn acquire_endpoint_probe_lease(
+        &self,
+        request: agent_v1::AcquireEndpointProbeLeaseRequest,
+        caller: &AuthenticatedCaller,
+    ) -> Result<agent_v1::EndpointProbeLease, ServiceError> {
+        let _gate = self.mutation_gate.lock().await;
+        if self.stopping.load(Ordering::Acquire) {
+            return Err(ServiceError::Lifecycle(AgentLifecycleError::ShuttingDown));
+        }
+        let operation_id = parse_operation_id(&request.operation_id)?;
+        let probe_session_id = request.probe_session_id.trim().to_owned();
+        if probe_session_id.is_empty() {
+            return Err(ServiceError::DirectEgressTarget);
+        }
+        let journal = self.state().await;
+        let plan = validate_direct_context(&journal, operation_id, caller, true)?;
+        if journal.phase != RecoveryPhase::Active || journal.replacement_pending() {
+            return Err(ServiceError::DirectEgressNotReady);
+        }
+        let targets = request
+            .targets
+            .iter()
+            .map(|target| {
+                let remote = target
+                    .remote_endpoint
+                    .trim()
+                    .parse::<SocketAddr>()
+                    .map_err(|_| ServiceError::DirectEgressTarget)?;
+                let protocol =
+                    u8::try_from(target.protocol).map_err(|_| ServiceError::DirectEgressTarget)?;
+                Ok((remote, protocol))
+            })
+            .collect::<Result<Vec<_>, ServiceError>>()?;
+        let dns_hostname =
+            (!request.dns_hostname.trim().is_empty()).then_some(request.dns_hostname.trim());
+        let canonical_dns =
+            crate::plan::validate_probe_targets(&targets, dns_hostname, &plan.dns_servers)
+                .map_err(|_| ServiceError::DirectEgressTarget)?;
+        // A probe lease is always bound to one explicit network generation.
+        if request.expected_generation == 0 {
+            return Err(ServiceError::StaleGeneration);
+        }
+        let physical = self.physical_network_info(operation_id, caller).await?;
+        validate_expected_generation(request.expected_generation, physical.generation)?;
+        let mut registry = self.direct_egress.lock().await;
+        validate_expected_generation(
+            request.expected_generation,
+            self.physical_generation.lock().await.generation,
+        )?;
+        registry.prune_expired_probe_leases();
+        if registry.probe_leases.contains_key(&operation_id) {
+            return Err(ServiceError::DirectEgressLeaseAlreadyAcquired);
+        }
+        registry.next_probe_lease_id = registry.next_probe_lease_id.wrapping_add(1).max(1);
+        let lease_id = registry.next_probe_lease_id;
+        registry.probe_leases.insert(
+            operation_id,
+            ActiveProbeLease {
+                lease_id,
+                probe_session_id,
+                generation: physical.generation,
+                expires_at: tokio::time::Instant::now()
+                    + Duration::from_secs(u64::from(crate::plan::PROBE_LEASE_TTL_SECONDS)),
+                targets,
+                allow_dns: canonical_dns.is_some(),
+                egress_keys: Vec::new(),
+            },
+        );
+        Ok(agent_v1::EndpointProbeLease {
+            lease_id,
+            network_generation: physical.generation,
+            ttl_seconds: crate::plan::PROBE_LEASE_TTL_SECONDS,
+        })
+    }
+
+    async fn release_endpoint_probe_lease(
+        &self,
+        request: agent_v1::ReleaseEndpointProbeLeaseRequest,
+        caller: &AuthenticatedCaller,
+    ) -> Result<(), ServiceError> {
+        let _gate = self.mutation_gate.lock().await;
+        let operation_id = parse_operation_id(&request.operation_id)?;
+        let journal = self.state().await;
+        let _ = validate_direct_context(&journal, operation_id, caller, true)?;
+        let mut registry = self.direct_egress.lock().await;
+        registry.prune_expired_probe_leases();
+        let probe_session_id = request.probe_session_id.trim();
+        let Some(current) = registry.probe_leases.get(&operation_id) else {
+            return Ok(());
+        };
+        if current.lease_id != request.lease_id || current.probe_session_id != probe_session_id {
+            return Err(ServiceError::DirectEgressTarget);
+        }
+        if let Some(lease) = registry.probe_leases.remove(&operation_id) {
+            for key in lease.egress_keys {
+                registry.release(key);
+            }
+        }
         Ok(())
     }
 
@@ -1169,12 +1489,18 @@ where
         lease_epoch: u64,
     ) -> Result<bool, AgentLifecycleError> {
         let _activity = self.activity.begin(ActivityKind::Background);
-        self.mutate(MutationPolicy::Cleanup, move |coordinator| async move {
-            coordinator
-                .recover_orphaned_tunnel(operation_id, lease_epoch)
-                .await
-        })
-        .await
+        let recovered = self
+            .mutate(MutationPolicy::Cleanup, move |coordinator| async move {
+                coordinator
+                    .recover_orphaned_tunnel(operation_id, lease_epoch)
+                    .await
+            })
+            .await?;
+        // An orphaned session leaves no Engine to release its probe leases.
+        if recovered {
+            self.clear_probe_leases().await;
+        }
+        Ok(recovered)
     }
 
     pub async fn synchronize_start_mode(&self) {
@@ -1277,6 +1603,9 @@ where
                 agent_request::Payload::AcquireDirectEgress(_)
                     | agent_request::Payload::AcquireDeviceLease(_)
                     | agent_request::Payload::ReleaseDeviceLease(_)
+                    | agent_request::Payload::SetHostnameEndpointCandidates(_)
+                    | agent_request::Payload::AcquireEndpointProbeLease(_)
+                    | agent_request::Payload::ReleaseEndpointProbeLease(_)
             )
         );
         if cacheable {
@@ -1364,6 +1693,25 @@ where
             }
             agent_request::Payload::SetPresetEndpointCandidates(request) => {
                 self.set_preset_endpoint_candidates(request, caller)
+                    .await
+                    .map_err(|error| (request_id.clone(), error))?;
+                agent_response::Payload::Empty(agent_v1::Empty {})
+            }
+            agent_request::Payload::SetHostnameEndpointCandidates(request) => {
+                self.set_hostname_endpoint_candidates(request, caller)
+                    .await
+                    .map_err(|error| (request_id.clone(), error))?;
+                agent_response::Payload::Empty(agent_v1::Empty {})
+            }
+            agent_request::Payload::AcquireEndpointProbeLease(request) => {
+                let lease = self
+                    .acquire_endpoint_probe_lease(request, caller)
+                    .await
+                    .map_err(|error| (request_id.clone(), error))?;
+                agent_response::Payload::EndpointProbeLease(lease)
+            }
+            agent_request::Payload::ReleaseEndpointProbeLease(request) => {
+                self.release_endpoint_probe_lease(request, caller)
                     .await
                     .map_err(|error| (request_id.clone(), error))?;
                 agent_response::Payload::Empty(agent_v1::Empty {})
@@ -1532,6 +1880,8 @@ where
                 let operation_id = parse_operation_id(&request.operation_id)
                     .map_err(|error| (request_id.clone(), error))?;
                 let caller = caller.clone();
+                // Probes belong to the network configuration being replaced.
+                self.clear_probe_leases().await;
                 let state = self
                     .mutate(MutationPolicy::Forward, move |coordinator| async move {
                         coordinator
@@ -1789,12 +2139,18 @@ where
         lease_epoch: u64,
     ) -> Result<bool, AgentLifecycleError> {
         let _activity = self.activity.begin(ActivityKind::Background);
-        self.mutate(MutationPolicy::Cleanup, move |coordinator| async move {
-            coordinator
-                .recover_orphaned_startup_tunnel(operation_id, lease_epoch)
-                .await
-        })
-        .await
+        let recovered = self
+            .mutate(MutationPolicy::Cleanup, move |coordinator| async move {
+                coordinator
+                    .recover_orphaned_startup_tunnel(operation_id, lease_epoch)
+                    .await
+            })
+            .await?;
+        // An orphaned session leaves no Engine to release its probe leases.
+        if recovered {
+            self.clear_probe_leases().await;
+        }
+        Ok(recovered)
     }
 
     async fn release_tunnel_lease(&self, operation_id: Uuid, caller: &AuthenticatedCaller) {
@@ -1919,6 +2275,18 @@ where
     service.reconcile_automatic_recovery_state().await;
     ready()?;
     let supervisor = tokio::spawn(Arc::clone(&service).run_automatic_recovery());
+    // Probe leases end at their TTL even when the Engine never returns.
+    let reaper = tokio::spawn({
+        let service = Arc::clone(&service);
+        async move {
+            let mut ticker = tokio::time::interval(PROBE_LEASE_REAP_INTERVAL);
+            ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                ticker.tick().await;
+                service.reap_expired_probe_leases().await;
+            }
+        }
+    });
     let idle = wait_for_idle_exit(Arc::clone(&service));
     tokio::pin!(idle);
     let result = loop {
@@ -1955,6 +2323,7 @@ where
         });
     };
     service.begin_shutdown();
+    reaper.abort();
     if let Err(error) = supervisor.await {
         return Err(ServerError::AutomaticRecoveryTask(error.to_string()));
     }
@@ -2047,6 +2416,7 @@ where
     let mut system_proxy_lease = None;
     let mut tunnel_lease = None;
     let mut direct_egress_lease = None;
+    let mut direct_egress_acquired = false;
     let mut device_lease = None;
 
     let result = async {
@@ -2098,6 +2468,7 @@ where
                     }
                     _ => None,
                 };
+
                 let lease_action = match request.payload.as_ref() {
                     Some(agent_request::Payload::ApplySystemProxy(request)) => {
                         Uuid::parse_str(request.operation_id.trim()).ok().map(Some)
@@ -2141,7 +2512,7 @@ where
                             CoordinatorError::DeviceLeaseRequired,
                         )),
                     )
-                } else if direct_egress_lease.is_some() && direct_operation_id.is_some() {
+                } else if direct_egress_acquired && direct_operation_id.is_some() {
                     error_response(
                         request.request_id,
                         ServiceError::DirectEgressLeaseAlreadyAcquired,
@@ -2181,16 +2552,25 @@ where
                         u8::try_from(lease.protocol),
                     )
                 {
-                    direct_egress_lease = Some(DirectEgressKey {
-                        operation_id,
-                        remote,
-                        protocol,
-                        interface_luid: lease.interface_luid,
-                        network_generation: lease.network_generation,
-                        purpose: direct_purpose
-                            .expect("successful direct request has a validated purpose"),
-                    });
+                    direct_egress_acquired = true;
+                    let purpose =
+                        direct_purpose.expect("successful direct request has a validated purpose");
+                    // Probe permits are released once, by their lease (release,
+                    // TTL expiry or session cleanup). Releasing them on this
+                    // pipe's end as well would drop a reference that lease owns.
+                    if purpose != EgressPurpose::EndpointProbe {
+                        direct_egress_lease = Some(DirectEgressKey {
+                            operation_id,
+                            remote,
+                            protocol,
+                            interface_luid: lease.interface_luid,
+                            network_generation: lease.network_generation,
+                            purpose,
+                            probe_lease_id: 0,
+                        });
+                    }
                 }
+
                 let encoded = encode_frame(&response)?;
                 if encoded.len() > MAX_AGENT_FRAME_BYTES + 4 {
                     return Err(ServerError::FrameTooLarge(encoded.len() - 4));
@@ -2219,6 +2599,7 @@ where
     if let Some(key) = direct_egress_lease {
         service.release_direct_egress(key).await;
     }
+
     if let Some(key) = device_lease
         && service.coordinator.detach_device_lease(key, &caller)
     {
@@ -2318,6 +2699,33 @@ fn acquire_egress_permit_for_purpose<Permit>(
         // checked before this call. These permits never become bootstrap rules.
         return install().map(Some);
     }
+    if matches!(
+        purpose,
+        EgressPurpose::HostnameDns | EgressPurpose::HostnameMasque
+    ) {
+        let policy = plan
+            .hostname_endpoint_policy
+            .as_ref()
+            .ok_or(ServiceError::DirectEgressTarget)?;
+        if purpose == EgressPurpose::HostnameDns && remote.port() != 53
+            || purpose == EgressPurpose::HostnameMasque && !policy.permits_protocol(protocol)
+        {
+            return Err(ServiceError::DirectEgressTarget);
+        }
+        return install().map(Some);
+    }
+    if purpose == EgressPurpose::EndpointProbe {
+        if phase != RecoveryPhase::Active {
+            return Err(ServiceError::DirectEgressNotReady);
+        }
+        // A chain session guard blocks unpermitted physical traffic even
+        // without the persistent Kill Switch.
+        return if plan.kill_switch || plan.vpn_chain {
+            install().map(Some)
+        } else {
+            Ok(None)
+        };
+    }
     if purpose == EgressPurpose::AutomaticMasque {
         let transport = match protocol {
             6 => usque_core::Transport::Http2,
@@ -2371,15 +2779,51 @@ fn validate_preset_endpoint_ready(
     Ok(())
 }
 
+fn validate_hostname_endpoint_ready(
+    journal: &RecoveryJournal,
+    generation: u64,
+) -> Result<(), ServiceError> {
+    if generation == 0
+        || journal
+            .plan
+            .as_ref()
+            .is_none_or(|plan| plan.hostname_endpoint_policy.is_none())
+    {
+        return Err(ServiceError::DirectEgressTarget);
+    }
+    if !journal
+        .steps
+        .iter()
+        .any(|step| step.kind == MutationKind::WfpMetadata && step.state == MutationState::Applied)
+    {
+        return Err(ServiceError::DirectEgressNotReady);
+    }
+    Ok(())
+}
+
+#[cfg(test)]
 fn select_direct_egress_interface(
     physical: &agent_v1::PhysicalNetworkInfo,
     remote: SocketAddr,
     purpose: EgressPurpose,
+    dns_route_available: impl FnMut(&agent_v1::PhysicalInterface) -> Result<bool, ServiceError>,
+) -> Result<&agent_v1::PhysicalInterface, ServiceError> {
+    let is_dns_lookup =
+        purpose.is_dns() || (purpose == EgressPurpose::EndpointProbe && remote.port() == 53);
+    select_direct_egress_interface_for(physical, remote, is_dns_lookup, dns_route_available)
+}
+
+/// `is_dns_lookup` selects the NIC that owns the DNS server instead of the
+/// first NIC with an Internet route for the address family.
+fn select_direct_egress_interface_for(
+    physical: &agent_v1::PhysicalNetworkInfo,
+    remote: SocketAddr,
+    is_dns_lookup: bool,
     mut dns_route_available: impl FnMut(&agent_v1::PhysicalInterface) -> Result<bool, ServiceError>,
 ) -> Result<&agent_v1::PhysicalInterface, ServiceError> {
     let family_mask = if remote.is_ipv4() { 1 } else { 2 };
     for interface in &physical.interfaces {
-        if purpose != EgressPurpose::PresetDns {
+        if !is_dns_lookup {
             if interface.address_family_mask & family_mask != 0 {
                 return Ok(interface);
             }
@@ -2402,7 +2846,7 @@ fn select_direct_egress_interface(
             return Ok(interface);
         }
     }
-    Err(if purpose == EgressPurpose::PresetDns {
+    Err(if is_dns_lookup {
         ServiceError::DirectEgressTarget
     } else {
         ServiceError::PhysicalNetwork(format!(
@@ -3250,7 +3694,10 @@ mod tests {
                 );
             }
         }
-        assert!(EgressPurpose::from_proto(4).is_err());
+        for code in 4..=6 {
+            assert!(EgressPurpose::from_proto(code).is_ok());
+        }
+        assert!(EgressPurpose::from_proto(7).is_err());
         let mut journal = RecoveryJournal::clean(1);
         journal.phase = RecoveryPhase::Prepared;
         journal.plan = Some(plan);
@@ -3278,6 +3725,7 @@ mod tests {
             interface_luid: 9,
             network_generation: 1,
             purpose: EgressPurpose::AutomaticMasque,
+            probe_lease_id: 0,
         };
         for last in 0..MAX_AUTOMATIC_ENDPOINT_LEASES {
             let key = DirectEgressKey {
@@ -3499,6 +3947,53 @@ mod tests {
         worker.await.unwrap();
     }
 
+    #[tokio::test]
+    async fn retiring_an_old_probe_lease_keeps_a_newer_lease_permit() {
+        let operation_id = Uuid::new_v4();
+        let target: SocketAddr = "162.159.198.1:443".parse().unwrap();
+        let key = |probe_lease_id| DirectEgressKey {
+            operation_id,
+            remote: target,
+            protocol: 17,
+            interface_luid: 9,
+            network_generation: 3,
+            purpose: EgressPurpose::EndpointProbe,
+            probe_lease_id,
+        };
+        let lease = |lease_id, expires_at| ActiveProbeLease {
+            lease_id,
+            probe_session_id: "probe".into(),
+            generation: 3,
+            expires_at,
+            targets: vec![(target, 17)],
+            allow_dns: false,
+            egress_keys: vec![key(lease_id)],
+        };
+        let mut registry = DirectEgressRegistry::default();
+        for lease_id in [1, 2] {
+            registry.entries.insert(
+                key(lease_id),
+                DirectEgressEntry {
+                    references: 1,
+                    _permit: None,
+                },
+            );
+        }
+        // Lease 1 expired; lease 2 (another operation slot) is current.
+        registry
+            .probe_leases
+            .insert(operation_id, lease(1, tokio::time::Instant::now()));
+        registry.prune_expired_probe_leases();
+        assert!(!registry.entries.contains_key(&key(1)));
+        assert!(registry.entries.contains_key(&key(2)));
+        let later = tokio::time::Instant::now() + Duration::from_secs(15);
+        registry.probe_leases.insert(operation_id, lease(2, later));
+        registry.prune_expired_probe_leases();
+        assert!(registry.entries.contains_key(&key(2)));
+        registry.clear_probe_leases();
+        assert!(registry.entries.is_empty());
+    }
+
     #[test]
     fn old_generation_lease_release_cannot_remove_a_new_same_target_permit() {
         let old = DirectEgressKey {
@@ -3508,6 +4003,7 @@ mod tests {
             interface_luid: 9,
             network_generation: 1,
             purpose: EgressPurpose::Generic,
+            probe_lease_id: 0,
         };
         let new = DirectEgressKey {
             network_generation: 2,
@@ -4261,6 +4757,8 @@ mod tests {
                 exact_generation_egress: false,
                 guarded_recovery: false,
                 automatic_recovery: false,
+                dynamic_hostname_endpoint_leases: false,
+                connected_endpoint_probe_leases: false,
             },
         ));
         let pipe_name = format!("{AGENT_PIPE_NAME}.test-{}", Uuid::new_v4());

@@ -97,6 +97,11 @@ addresses and credentials, Kill Switch, auto-connect, Android per-app selection
 and advanced transport tuning also remain device settings.
 Zero Trust registered endpoints remain account-owned; applying
 a manual scene updates only the target account's override, just like Advanced.
+Scenes can also bind dynamically to an endpoint subscription (`endpoint.subscription_id`),
+tracking whichever endpoint is currently selected inside that subscription; switching
+endpoints within the bound subscription does not mark the scene **Modified**, while
+deleting the referenced subscription or mismatched account tiers fail closed with
+`SCENARIO_DEPENDENCY_UNAVAILABLE`. See [Endpoint subscriptions](ENDPOINT_SUBSCRIPTIONS.md).
 The selected chain exit retains its own final DNS configuration.
 
 场景保存可选账号绑定、链式代理开关及出口引用、Proton 节点偏好、传输协议、IP 策略
@@ -104,7 +109,11 @@ The selected chain exit retains its own final DNS configuration.
 国家／地区直连，以及 WARP、直连、本地代理 DNS 全部沿用全局设置。监听地址与认证、
 Kill Switch、自动连接、Android 按应用选择及高级调优也保持全局。
 Zero Trust 注册端点由账号管理，手动场景只更新目标
-账号的覆盖地址，与高级设置一致。链式出口的最终
+账号的覆盖地址，与高级设置一致。场景也可以动态绑定端点订阅
+（`endpoint.subscription_id`），跟随该订阅中当前选中的端点；在已绑定订阅内切换端点
+不会把场景标记为**已修改**，而被引用的订阅已删除或账号类型不匹配时，场景以
+`SCENARIO_DEPENDENCY_UNAVAILABLE` 拒绝应用。参见[端点订阅](ENDPOINT_SUBSCRIPTIONS.md)。
+链式出口的最终
 DNS 沿用所选出口配置；保存场景本身不会修改出口库中的凭据或配置。
 
 The **Endpoint** group uses the same controls as **Advanced network settings**:

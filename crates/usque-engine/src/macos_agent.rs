@@ -184,9 +184,12 @@ impl MacAgentClient {
                     }
                     let failure =
                         p::MacosFailure::try_from(response.failure).map_err(|_| invalid())?;
-                    if dialing && failure == p::MacosFailure::EndpointUnreachable {
-                        // The Agent confirmed that this attempt's permit was revoked.
-                        // The owner still needs this stream for the next endpoint or Disconnect.
+                    if dialing && failure == p::MacosFailure::EndpointUnreachable
+                        || failure == p::MacosFailure::ProbeRejected
+                    {
+                        // The Agent confirmed that this attempt's permit was revoked,
+                        // or refused only an endpoint probe. The owner still needs
+                        // this stream for the session, the next endpoint or Disconnect.
                         return Ok(Err(AgentFailure(failure)));
                     }
                     return Err(io::Error::other(AgentFailure(failure)));
@@ -201,7 +204,11 @@ impl MacAgentClient {
                         if info.fence.as_ref() == Some(fence)
                             && info.interface_index != 0
                             && (info.lease_id != 0) == dialing => {}
-                    (None, Payload::Status(_) | Payload::Empty(_), false) => {}
+                    (
+                        None,
+                        Payload::Status(_) | Payload::Empty(_) | Payload::ProbeLease(_),
+                        false,
+                    ) => {}
                     _ => return Err(invalid()),
                 }
                 Ok(Ok((payload, frame.descriptor)))
@@ -230,6 +237,12 @@ impl MacAgentClient {
     pub async fn empty(&self, operation: Operation) -> io::Result<()> {
         match self.request(operation).await? {
             (Payload::Empty(_), None) => Ok(()),
+            _ => Err(invalid()),
+        }
+    }
+    pub async fn probe_lease(&self, operation: Operation) -> io::Result<p::EndpointProbeLease> {
+        match self.request(operation).await? {
+            (Payload::ProbeLease(lease), None) if lease.lease_id != 0 => Ok(lease),
             _ => Err(invalid()),
         }
     }

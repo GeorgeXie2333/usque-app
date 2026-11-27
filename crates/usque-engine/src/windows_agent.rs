@@ -49,10 +49,11 @@ use usque_platform::packet_ring::{
 };
 use usque_transport::{
     ConnectionTimelineSnapshot, DataPlaneRuntime, DirectEgressLease, DirectProtocol,
-    EndpointPinRefresher, GeoDirectPolicy, ManagedTunnelMonitor, MasqueTlsIdentity,
-    NoopSocketProtector, PhysicalNetworkAvailability, PhysicalNetworkSnapshot, RuntimeHealth,
-    RuntimePath, STALE_GENERATION_REASON, SocketHandle, SocketProtector, TrafficSnapshot,
-    TransportError, TunPacketIo, resolve_physical_host,
+    EndpointPinRefresher, EndpointProbeLeaseHandle, GeoDirectPolicy, ManagedTunnelMonitor,
+    MasqueTlsIdentity, NoopSocketProtector, PhysicalNetworkAvailability, PhysicalNetworkSnapshot,
+    ProbeLeaseTarget, ProbeTransportProtocol, RuntimeHealth, RuntimePath, STALE_GENERATION_REASON,
+    SocketHandle, SocketProtector, TrafficSnapshot, TransportError, TunPacketIo,
+    resolve_physical_host,
 };
 use uuid::Uuid;
 use windows_sys::Win32::{
@@ -134,6 +135,7 @@ struct WindowsVpnSocketProtector {
     proxy_mode: AtomicBool,
     automatic_endpoints: bool,
     preset_hostname: Option<String>,
+    hostname_policy_host: Option<String>,
 }
 
 struct WindowsPhysicalState {
@@ -239,7 +241,9 @@ impl SocketProtector for WindowsVpnSocketProtector {
             remote,
             protocol,
             expected_generation,
-            if self.preset_hostname.is_some() {
+            if self.hostname_policy_host.is_some() {
+                agent_v1::DirectEgressPurpose::HostnameMasque
+            } else if self.preset_hostname.is_some() {
                 agent_v1::DirectEgressPurpose::PresetMasque
             } else if self.automatic_endpoints {
                 agent_v1::DirectEgressPurpose::AutomaticMasque
@@ -271,17 +275,18 @@ impl SocketProtector for WindowsVpnSocketProtector {
                 )
                 .await;
         }
-        if self.preset_hostname.is_none() || remote.port() != 53 {
-            return Err("preset DNS policy is unavailable".to_owned());
+        if remote.port() != 53 {
+            return Err("physical DNS policy requires port 53".to_owned());
         }
-        self.protect_target_generation(
-            socket,
-            remote,
-            protocol,
-            expected_generation,
-            agent_v1::DirectEgressPurpose::PresetDns,
-        )
-        .await
+        let purpose = if self.hostname_policy_host.is_some() {
+            agent_v1::DirectEgressPurpose::HostnameDns
+        } else if self.preset_hostname.is_some() {
+            agent_v1::DirectEgressPurpose::PresetDns
+        } else {
+            return Err("preset DNS policy is unavailable".to_owned());
+        };
+        self.protect_target_generation(socket, remote, protocol, expected_generation, purpose)
+            .await
     }
 
     async fn authorize_endpoint_preset_candidates(
@@ -328,6 +333,136 @@ impl SocketProtector for WindowsVpnSocketProtector {
             return Err("preset hostname does not match the active policy".to_owned());
         }
         usque_transport::resolve_endpoint_preset_aaaa(self, host, port, expected_generation).await
+    }
+
+    async fn resolve_endpoint_hostname(
+        &self,
+        host: &str,
+        port: u16,
+        ip_policy: usque_core::IpPolicy,
+        expected_generation: u64,
+    ) -> Result<Vec<SocketAddr>, String> {
+        if self.proxy_mode.load(Ordering::Acquire) {
+            return NoopSocketProtector
+                .resolve_endpoint_hostname(host, port, ip_policy, expected_generation)
+                .await;
+        }
+        let Some(expected_host) = self.hostname_policy_host.as_deref() else {
+            return Err("hostname endpoint policy is unavailable".to_owned());
+        };
+        let Some(canonical) = usque_core::endpoint_subscriptions::canonical_public_domain(host)
+        else {
+            return Err("invalid endpoint subscription hostname".to_owned());
+        };
+        if canonical != expected_host {
+            return Err("endpoint hostname does not match the active policy".to_owned());
+        }
+        usque_transport::resolve_physical_endpoint_hostname(
+            self,
+            host,
+            port,
+            ip_policy,
+            expected_generation,
+        )
+        .await
+    }
+
+    async fn authorize_endpoint_hostname_candidates(
+        &self,
+        host: &str,
+        candidates: &[SocketAddr],
+        expected_generation: u64,
+    ) -> Result<(), String> {
+        if self.proxy_mode.load(Ordering::Acquire) {
+            return NoopSocketProtector
+                .authorize_endpoint_hostname_candidates(host, candidates, expected_generation)
+                .await;
+        }
+        let Some(expected_host) = self.hostname_policy_host.as_deref() else {
+            return Err("hostname endpoint policy is unavailable".to_owned());
+        };
+        let Some(canonical) = usque_core::endpoint_subscriptions::canonical_public_domain(host)
+        else {
+            return Err("invalid endpoint subscription hostname".to_owned());
+        };
+        if canonical != expected_host {
+            return Err("endpoint hostname does not match the active policy".to_owned());
+        }
+        let generation = self
+            .egress_generation(expected_generation)?
+            .ok_or_else(|| STALE_GENERATION_REASON.to_owned())?;
+        if let Err(error) = self
+            .agent
+            .set_hostname_endpoint_candidates(self.operation_id, &canonical, candidates, generation)
+            .await
+        {
+            return Err(self
+                .handle_socket_setup_error("AUTHORIZE_HOSTNAME_ENDPOINTS", error)
+                .await);
+        }
+        self.verify_generation(expected_generation, generation)
+    }
+
+    async fn acquire_endpoint_probe_lease(
+        &self,
+        probe_session_id: &str,
+        targets: &[ProbeLeaseTarget],
+        dns_hostname: Option<&str>,
+        expected_generation: u64,
+    ) -> Result<EndpointProbeLeaseHandle, String> {
+        if self.proxy_mode.load(Ordering::Acquire) {
+            return Err(STALE_GENERATION_REASON.to_owned());
+        }
+        let generation = self
+            .egress_generation(expected_generation)?
+            .ok_or_else(|| STALE_GENERATION_REASON.to_owned())?;
+        let lease = match self
+            .agent
+            .acquire_endpoint_probe_lease(
+                self.operation_id,
+                probe_session_id,
+                generation,
+                targets,
+                dns_hostname,
+            )
+            .await
+        {
+            Ok(lease) => lease,
+            Err(error) => {
+                return Err(self
+                    .handle_socket_setup_error("ACQUIRE_ENDPOINT_PROBE_LEASE", error)
+                    .await);
+            }
+        };
+        if lease.lease_id == 0 || lease.network_generation != generation {
+            return Err(STALE_GENERATION_REASON.to_owned());
+        }
+        self.verify_generation(expected_generation, generation)?;
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        Ok(EndpointProbeLeaseHandle {
+            lease_id: lease.lease_id.to_string(),
+            expires_at_unix_ms: now_ms.saturating_add(u64::from(lease.ttl_seconds) * 1000),
+        })
+    }
+
+    async fn release_endpoint_probe_lease(
+        &self,
+        probe_session_id: &str,
+        lease_id: &str,
+    ) -> Result<(), String> {
+        if self.proxy_mode.load(Ordering::Acquire) {
+            return Ok(());
+        }
+        let Ok(parsed_id) = lease_id.parse::<u64>() else {
+            return Err("invalid Windows probe lease identifier".to_owned());
+        };
+        self.agent
+            .release_endpoint_probe_lease(self.operation_id, probe_session_id, parsed_id)
+            .await
+            .map_err(|error| self.socket_setup_error("RELEASE_ENDPOINT_PROBE_LEASE", error))
     }
 
     fn network_generation(&self) -> Option<u64> {
@@ -659,6 +794,143 @@ impl Drop for WindowsVpnSocketProtector {
     }
 }
 
+impl WindowsVpnSocketProtector {
+    fn probe_protector(self: &Arc<Self>, dns_hostname: Option<String>) -> Arc<dyn SocketProtector> {
+        Arc::new(WindowsProbeSocketProtector {
+            inner: Arc::clone(self),
+            dns_hostname: dns_hostname
+                .as_deref()
+                .and_then(usque_core::endpoint_subscriptions::canonical_public_domain),
+        })
+    }
+}
+
+struct WindowsProbeSocketProtector {
+    inner: Arc<WindowsVpnSocketProtector>,
+    dns_hostname: Option<String>,
+}
+
+#[async_trait]
+impl SocketProtector for WindowsProbeSocketProtector {
+    fn subscribe_physical_network(
+        &self,
+    ) -> Option<tokio::sync::watch::Receiver<PhysicalNetworkSnapshot>> {
+        self.inner.subscribe_physical_network()
+    }
+    fn protect(&self, socket: SocketHandle) -> Result<(), String> {
+        self.inner.protect(socket)
+    }
+    fn network_generation(&self) -> Option<u64> {
+        self.inner.network_generation()
+    }
+    fn endpoint_family_available(&self, endpoint: SocketAddr) -> Option<bool> {
+        self.inner.endpoint_family_available(endpoint)
+    }
+    fn physical_dns_servers(&self) -> Vec<SocketAddr> {
+        self.inner.physical_dns_servers()
+    }
+    fn tun_direct_available(&self) -> bool {
+        self.inner.tun_direct_available()
+    }
+    async fn protect_masque_endpoint_generation(
+        &self,
+        socket: SocketHandle,
+        remote: SocketAddr,
+        protocol: DirectProtocol,
+        expected_generation: u64,
+    ) -> Result<DirectEgressLease, String> {
+        if self.inner.proxy_mode.load(Ordering::Acquire) {
+            return Err(STALE_GENERATION_REASON.to_owned());
+        }
+        self.inner
+            .protect_target_generation(
+                socket,
+                remote,
+                protocol,
+                expected_generation,
+                agent_v1::DirectEgressPurpose::EndpointProbe,
+            )
+            .await
+    }
+    async fn protect_endpoint_preset_dns_generation(
+        &self,
+        socket: SocketHandle,
+        remote: SocketAddr,
+        protocol: DirectProtocol,
+        expected_generation: u64,
+    ) -> Result<DirectEgressLease, String> {
+        if self.inner.proxy_mode.load(Ordering::Acquire) {
+            return Err(STALE_GENERATION_REASON.to_owned());
+        }
+        if self.dns_hostname.is_none() || remote.port() != 53 {
+            return Err("probe DNS lease is unavailable".to_owned());
+        }
+        self.inner
+            .protect_target_generation(
+                socket,
+                remote,
+                protocol,
+                expected_generation,
+                agent_v1::DirectEgressPurpose::EndpointProbe,
+            )
+            .await
+    }
+    async fn resolve_endpoint_hostname(
+        &self,
+        host: &str,
+        port: u16,
+        ip_policy: usque_core::IpPolicy,
+        expected_generation: u64,
+    ) -> Result<Vec<SocketAddr>, String> {
+        if self.inner.proxy_mode.load(Ordering::Acquire) {
+            return Err(STALE_GENERATION_REASON.to_owned());
+        }
+        let Some(expected) = self.dns_hostname.as_deref() else {
+            return Err("probe DNS lease is unavailable".to_owned());
+        };
+        let Some(canonical) = usque_core::endpoint_subscriptions::canonical_public_domain(host)
+        else {
+            return Err("invalid endpoint subscription hostname".to_owned());
+        };
+        if canonical != expected {
+            return Err("probe hostname does not match active lease".to_owned());
+        }
+        usque_transport::resolve_physical_endpoint_hostname(
+            self,
+            host,
+            port,
+            ip_policy,
+            expected_generation,
+        )
+        .await
+    }
+    async fn acquire_endpoint_probe_lease(
+        &self,
+        probe_session_id: &str,
+        targets: &[ProbeLeaseTarget],
+        dns_hostname: Option<&str>,
+        expected_generation: u64,
+    ) -> Result<EndpointProbeLeaseHandle, String> {
+        self.inner
+            .acquire_endpoint_probe_lease(
+                probe_session_id,
+                targets,
+                dns_hostname,
+                expected_generation,
+            )
+            .await
+    }
+    async fn release_endpoint_probe_lease(
+        &self,
+        probe_session_id: &str,
+        lease_id: &str,
+    ) -> Result<(), String> {
+        self.inner
+            .release_endpoint_probe_lease(probe_session_id, lease_id)
+            .await
+    }
+}
+
 fn validate_proxy_detach_state(state: &AgentState) -> Result<(), WindowsVpnError> {
     if state.phase != agent_v1::AgentPhase::Clean as i32 || state.packet_session_active {
         return Err(WindowsVpnError::RecoveryRequired {
@@ -857,17 +1129,26 @@ fn direct_egress_interface_matches(
     {
         return false;
     }
-    if purpose != agent_v1::DirectEgressPurpose::PresetDns {
+    let names_dns_server = interface.dns_servers.iter().any(|server| {
+        server
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|address| address == remote.ip())
+    });
+    // DNS lookups (preset, hostname, or a probe's DNS server) follow the NIC
+    // that owns the server; a probe target on port 53 is an Internet endpoint.
+    let dns_lookup = matches!(
+        purpose,
+        agent_v1::DirectEgressPurpose::PresetDns | agent_v1::DirectEgressPurpose::HostnameDns
+    ) || purpose == agent_v1::DirectEgressPurpose::EndpointProbe
+        && remote.port() == 53
+        && names_dns_server;
+    if !dns_lookup {
         return interface.address_family_mask & if remote.is_ipv4() { 1 } else { 2 } != 0;
     }
     // The Agent already verified the exact DNS route on this NIC. Its Internet
     // observation mask cannot rule out an on-link DNS address family.
     remote.port() == 53
-        && interface.dns_servers.iter().any(|server| {
-            server
-                .parse::<std::net::IpAddr>()
-                .is_ok_and(|address| address == remote.ip())
-        })
+        && names_dns_server
         && match remote {
             SocketAddr::V6(address) => {
                 (!address.ip().is_unicast_link_local() || address.scope_id() != 0)
@@ -1181,6 +1462,7 @@ pub(crate) struct WindowsVpnRuntime {
     bootstrap: Option<WarpBootstrap>,
     // Present when this runtime created the VPN-bound MASQUE protector.
     socket_protector: Option<Arc<WindowsVpnSocketProtector>>,
+    connected_tun_probe_supported: bool,
 }
 
 struct WarpBootstrap {
@@ -1329,6 +1611,7 @@ impl WindowsVpnRuntime {
             tunnel: None,
             bootstrap: Some(bootstrap),
             socket_protector: protector,
+            connected_tun_probe_supported: false,
         }
     }
 
@@ -1612,6 +1895,7 @@ impl WindowsVpnRuntime {
                 tunnel: Some(tunnel),
                 bootstrap: None,
                 socket_protector: Some(protector),
+                connected_tun_probe_supported: capabilities.connected_endpoint_probe_leases,
             };
             if runtime.gate_status().stage != usque_core::vpngate::GateStage::Error {
                 // The helper records an error and closes admission on failure.
@@ -1632,6 +1916,8 @@ impl WindowsVpnRuntime {
         {
             Ok(mut runtime) => {
                 runtime.socket_protector = Some(protector);
+                runtime.connected_tun_probe_supported =
+                    capabilities.connected_endpoint_probe_leases;
                 Ok(runtime)
             }
             Err((mut tunnel, error)) => {
@@ -1692,6 +1978,25 @@ impl WindowsVpnRuntime {
         self.tunnel
             .as_ref()
             .map(DataPlaneRuntime::diagnostic_dns_context)
+    }
+
+    pub(crate) fn probe_protector(
+        &self,
+        dns_hostname: Option<String>,
+    ) -> Option<(Arc<dyn SocketProtector>, CancellationToken)> {
+        if !self.connected_tun_probe_supported {
+            return None;
+        }
+        self.socket_protector.as_ref().map(|protector| {
+            (
+                protector.probe_protector(dns_hostname),
+                self.cancellation.clone(),
+            )
+        })
+    }
+
+    pub(crate) fn connected_tun_probe_supported(&self) -> bool {
+        self.connected_tun_probe_supported && self.socket_protector.is_some()
     }
 
     pub(crate) fn failure(&self) -> Option<String> {
@@ -2126,7 +2431,11 @@ impl WindowsVpnRuntime {
             tunnel.endpoint_pool(),
             tunnel.supports_live_ads(),
         );
-        if let Some(region) = profile.endpoint.preset_region {
+        if let Some(region) = profile
+            .endpoint
+            .preset_region
+            .filter(|_| profile.endpoint.subscription_id.is_none())
+        {
             let Some(tier) = tunnel.endpoint_preset_tier() else {
                 return Err((tunnel, TransportError::InvalidIdentity.into()));
             };
@@ -2139,7 +2448,7 @@ impl WindowsVpnRuntime {
             Ok(lease) => lease,
             Err(error) => return Err((tunnel, error)),
         };
-        bind_agent_session(
+        let mut runtime = bind_agent_session(
             profile,
             tunnel,
             agent,
@@ -2147,7 +2456,9 @@ impl WindowsVpnRuntime {
             false,
             Some(startup_lease),
         )
-        .await
+        .await?;
+        runtime.connected_tun_probe_supported = capabilities.connected_endpoint_probe_leases;
+        Ok(runtime)
     }
 
     /// Tear down Wintun/WFP and return the live MASQUE session.
@@ -2423,6 +2734,13 @@ async fn prepare_vpn_protector(
         .as_ref()
         .and_then(|plan| plan.preset_endpoint_policy.as_ref())
         .map(|policy| policy.hostname.clone());
+    let hostname_policy_host = state
+        .plan
+        .as_ref()
+        .and_then(|plan| plan.hostname_endpoint_policy.as_ref())
+        .and_then(|policy| {
+            usque_core::endpoint_subscriptions::canonical_public_domain(&policy.hostname)
+        });
     let physical_info = agent.get_physical_network_info(operation_id).await?;
     let dns_servers = physical_dns_endpoints(&physical_info)?;
     validate_physical_dns(profile, &dns_servers)?;
@@ -2444,6 +2762,7 @@ async fn prepare_vpn_protector(
         proxy_mode: AtomicBool::new(false),
         automatic_endpoints,
         preset_hostname,
+        hostname_policy_host,
         physical_watch: tokio::sync::watch::channel(PhysicalNetworkSnapshot::default()).0,
     });
     protector.observe_physical_snapshot(&physical_info);
@@ -2731,6 +3050,7 @@ async fn bind_agent_session(
         tunnel: Some(tunnel),
         bootstrap: None,
         socket_protector: None,
+        connected_tun_probe_supported: false,
     })
 }
 
@@ -2767,7 +3087,9 @@ fn attached_tunnel_plan(
         // Direct-domain policies require cold reconnect instead of hot attach.
         supports_live_ads,
     );
-    if effective.endpoint.selection == usque_core::EndpointSelection::Automatic {
+    if effective.endpoint.selection == usque_core::EndpointSelection::Automatic
+        && effective.endpoint.subscription_id.is_none()
+    {
         apply_automatic_observation_policy(
             &mut plan,
             &effective,
@@ -2781,12 +3103,30 @@ fn validate_automatic_endpoint_capability(
     capabilities: &AgentCapabilities,
     profile: &Profile,
 ) -> Result<(), WindowsVpnError> {
-    if profile.endpoint.preset_region.is_some() && !capabilities.endpoint_preset_leases {
+    if profile.endpoint.subscription_id.is_some()
+        && profile
+            .subscription_endpoint
+            .as_ref()
+            .is_some_and(|ep| ep.host.is_domain())
+        && !capabilities.dynamic_hostname_endpoint_leases
+    {
+        return Err(WindowsVpnError::MissingCapabilities(
+            "dynamic_hostname_endpoint_leases".into(),
+        ));
+    }
+    if profile
+        .endpoint
+        .preset_region
+        .filter(|_| profile.endpoint.subscription_id.is_none())
+        .is_some()
+        && !capabilities.endpoint_preset_leases
+    {
         return Err(WindowsVpnError::MissingCapabilities(
             "endpoint_preset_leases".into(),
         ));
     }
     if profile.endpoint.selection == usque_core::EndpointSelection::Automatic
+        && profile.endpoint.subscription_id.is_none()
         && !capabilities.automatic_endpoint_leases
     {
         Err(WindowsVpnError::MissingCapabilities(
@@ -3535,6 +3875,7 @@ impl WindowsAgentClient {
                             purpose,
                             agent_v1::DirectEgressPurpose::AutomaticMasque
                                 | agent_v1::DirectEgressPurpose::PresetMasque
+                                | agent_v1::DirectEgressPurpose::HostnameMasque
                         ) =>
                 {
                     // The previous pipe can close before the Agent has consumed
@@ -3578,6 +3919,85 @@ impl WindowsAgentClient {
                     hostname: hostname.to_owned(),
                     ipv6_candidates: candidates.iter().map(ToString::to_string).collect(),
                     expected_generation,
+                },
+            ))
+            .await?;
+        match response {
+            agent_response::Payload::Empty(_) => Ok(()),
+            payload => Err(WindowsVpnError::UnexpectedResponse(payload_name(&payload))),
+        }
+    }
+
+    async fn set_hostname_endpoint_candidates(
+        &self,
+        operation_id: Uuid,
+        hostname: &str,
+        candidates: &[SocketAddr],
+        expected_generation: u64,
+    ) -> Result<(), WindowsVpnError> {
+        let response = self
+            .call(agent_request::Payload::SetHostnameEndpointCandidates(
+                agent_v1::SetHostnameEndpointCandidatesRequest {
+                    operation_id: operation_id.to_string(),
+                    hostname: hostname.to_owned(),
+                    candidates: candidates.iter().map(ToString::to_string).collect(),
+                    expected_generation,
+                },
+            ))
+            .await?;
+        match response {
+            agent_response::Payload::Empty(_) => Ok(()),
+            payload => Err(WindowsVpnError::UnexpectedResponse(payload_name(&payload))),
+        }
+    }
+
+    async fn acquire_endpoint_probe_lease(
+        &self,
+        operation_id: Uuid,
+        probe_session_id: &str,
+        expected_generation: u64,
+        targets: &[ProbeLeaseTarget],
+        dns_hostname: Option<&str>,
+    ) -> Result<agent_v1::EndpointProbeLease, WindowsVpnError> {
+        let targets = targets
+            .iter()
+            .map(|target| agent_v1::ProbeTarget {
+                remote_endpoint: target.addr.to_string(),
+                protocol: match target.protocol {
+                    ProbeTransportProtocol::Tcp => 6,
+                    ProbeTransportProtocol::Udp => 17,
+                },
+            })
+            .collect();
+        let response = self
+            .call(agent_request::Payload::AcquireEndpointProbeLease(
+                agent_v1::AcquireEndpointProbeLeaseRequest {
+                    operation_id: operation_id.to_string(),
+                    probe_session_id: probe_session_id.to_owned(),
+                    expected_generation,
+                    targets,
+                    dns_hostname: dns_hostname.unwrap_or_default().to_owned(),
+                },
+            ))
+            .await?;
+        match response {
+            agent_response::Payload::EndpointProbeLease(lease) => Ok(lease),
+            payload => Err(WindowsVpnError::UnexpectedResponse(payload_name(&payload))),
+        }
+    }
+
+    async fn release_endpoint_probe_lease(
+        &self,
+        operation_id: Uuid,
+        probe_session_id: &str,
+        lease_id: u64,
+    ) -> Result<(), WindowsVpnError> {
+        let response = self
+            .call(agent_request::Payload::ReleaseEndpointProbeLease(
+                agent_v1::ReleaseEndpointProbeLeaseRequest {
+                    operation_id: operation_id.to_string(),
+                    probe_session_id: probe_session_id.to_owned(),
+                    lease_id,
                 },
             ))
             .await?;
@@ -4293,6 +4713,7 @@ fn payload_name(payload: &agent_response::Payload) -> &'static str {
         agent_response::Payload::DeviceLease(_) => "device_lease",
         agent_response::Payload::LinuxTunSession(_) => "linux_tun_session",
         agent_response::Payload::Macos(_) => "macos",
+        agent_response::Payload::EndpointProbeLease(_) => "endpoint_probe_lease",
     }
 }
 
@@ -6429,13 +6850,33 @@ mod tests {
             ..Default::default()
         };
         for target in ["192.0.2.53:53", "[fe80::53%11]:53"] {
-            assert!(direct_egress_interface_matches(
-                &interface,
-                &lease,
-                target.parse().unwrap(),
+            for purpose in [
                 agent_v1::DirectEgressPurpose::PresetDns,
-            ));
+                agent_v1::DirectEgressPurpose::HostnameDns,
+                agent_v1::DirectEgressPurpose::EndpointProbe,
+            ] {
+                assert!(direct_egress_interface_matches(
+                    &interface,
+                    &lease,
+                    target.parse().unwrap(),
+                    purpose,
+                ));
+            }
         }
+        // A probe's MASQUE target on port 53 is an Internet endpoint and
+        // follows the family mask, not DNS ownership.
+        assert!(direct_egress_interface_matches(
+            &interface,
+            &lease,
+            "[2606:4700:103::53]:53".parse().unwrap(),
+            agent_v1::DirectEgressPurpose::EndpointProbe,
+        ));
+        assert!(!direct_egress_interface_matches(
+            &interface,
+            &lease,
+            "162.159.193.53:53".parse().unwrap(),
+            agent_v1::DirectEgressPurpose::EndpointProbe,
+        ));
         for target in [
             "192.0.2.54:53",
             "192.0.2.53:443",
@@ -6494,6 +6935,7 @@ mod tests {
             proxy_mode: AtomicBool::new(false),
             automatic_endpoints: false,
             preset_hostname: None,
+            hostname_policy_host: None,
             physical_watch: tokio::sync::watch::channel(PhysicalNetworkSnapshot::default()).0,
         };
         let mut observations = protector.subscribe_physical_network().unwrap();
@@ -6572,6 +7014,7 @@ mod tests {
             proxy_mode: AtomicBool::new(false),
             automatic_endpoints: false,
             preset_hostname: None,
+            hostname_policy_host: None,
             physical_watch: tokio::sync::watch::channel(PhysicalNetworkSnapshot::default()).0,
         };
         let mut state = AgentState {

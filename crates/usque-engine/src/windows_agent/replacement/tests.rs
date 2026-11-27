@@ -77,6 +77,7 @@ fn runtime(agent: WindowsAgentClient, operation_id: Uuid) -> WindowsVpnRuntime {
         socks5_listeners: vec![],
         http_listeners: vec![],
         system_proxy: None,
+        connected_tun_probe_supported: false,
         transaction_open: true,
         held_failure: false,
         target_committed: false,

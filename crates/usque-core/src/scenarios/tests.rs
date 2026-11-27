@@ -11,6 +11,7 @@ fn context(config: &AppConfig) -> ScenarioContext {
         source_epoch: Uuid::new_v4(),
         session_id: Some("1".into()),
         applied_profile: config.active_profile(),
+        current_subscription_endpoint: None,
         apply_status: ApplyStatus::Applied,
         dependency_fingerprint: "verified-library-1".into(),
     }
@@ -1299,5 +1300,97 @@ fn gui_scene_settings_contract_fixture_matches_the_rust_projection() {
             .replace("\r\n", "\n"),
         expected,
         "scene settings changed; regenerate with USQUE_UPDATE_CONTRACT_FIXTURES=1 and update the GUI projection",
+    );
+}
+
+#[test]
+fn subscription_bound_scene_follows_active_endpoint_without_drift_and_warns_for_zt() {
+    use crate::endpoint_subscriptions::{SubscriptionEndpoint, SubscriptionEndpointHost};
+
+    let mut config = AppConfig::default();
+    let free_id = config.active_profile_id.unwrap();
+    config.set_consumer_entitlement(free_id, Some(crate::ConsumerEntitlement::Free));
+    let sub_a = Uuid::new_v4();
+    let sub_b = Uuid::new_v4();
+
+    let mut settings = ScenarioSettings::default();
+    settings.endpoint.selection = crate::EndpointSelection::Custom;
+    settings.endpoint.subscription_id = Some(sub_a);
+    let scene = save(&mut config, settings, None);
+
+    let ep_1 = SubscriptionEndpoint {
+        id: "v4:162.159.193.10:2408".into(),
+        host: SubscriptionEndpointHost::Ipv4("162.159.193.10".parse().unwrap()),
+        port: Some(2408),
+        note: "Tokyo 1".into(),
+        pinned: false,
+    };
+    let ep_2 = SubscriptionEndpoint {
+        id: "v4:162.159.193.11:443".into(),
+        host: SubscriptionEndpointHost::Ipv4("162.159.193.11".parse().unwrap()),
+        port: Some(443),
+        note: "Tokyo 2".into(),
+        pinned: false,
+    };
+
+    let initial_ctx = context(&config);
+    activate(&mut config, &scene, &initial_ctx);
+
+    let mut applied = config.active_profile().unwrap();
+    applied.subscription_endpoint = Some(ep_1);
+    let mut ctx = ScenarioContext {
+        applied_profile: Some(applied),
+        current_subscription_endpoint: Some(ep_2.clone()),
+        apply_status: ApplyStatus::Deferred,
+        ..context(&config)
+    };
+    let drifted_view = catalogue(&config, &ctx);
+    assert_eq!(drifted_view["state"]["modified"], json!(false));
+    assert_eq!(drifted_view["state"]["applied_matches"], json!(false));
+    assert_eq!(drifted_view["state"]["apply_status"], json!("deferred"));
+
+    ctx.applied_profile.as_mut().unwrap().subscription_endpoint = Some(ep_2);
+    let synced_view = catalogue(&config, &ctx);
+    assert_eq!(synced_view["state"]["modified"], json!(false));
+    assert_eq!(synced_view["state"]["applied_matches"], json!(true));
+    assert_eq!(synced_view["state"]["apply_status"], json!("applied"));
+
+    config.network.consumer_tier_subscriptions.free = Some(sub_b);
+    let switched_view = catalogue(&config, &ctx);
+    assert_eq!(switched_view["state"]["modified"], json!(true));
+
+    let zt_id = Uuid::new_v4();
+    config
+        .insert_account(
+            zt_id,
+            "Org".into(),
+            Some(crate::ManagedEndpointIps {
+                ipv4: "162.159.197.8".parse().unwrap(),
+                ipv6: "2606:4700:102::8".parse().unwrap(),
+            }),
+        )
+        .unwrap();
+    config.identity_bindings.insert(
+        zt_id,
+        crate::IdentityProvider::ZeroTrust {
+            organization: "example-team".into(),
+        },
+    );
+    let mut zt_settings = ScenarioSettings::default();
+    zt_settings.endpoint.selection = crate::EndpointSelection::Custom;
+    zt_settings.endpoint.subscription_id = Some(Uuid::new_v4());
+    let zt_scene = save(&mut config, zt_settings, Some(zt_id));
+    let preview = command(
+        &mut config,
+        ScenarioCommand::Preview {
+            id: zt_scene.id,
+            expected_revision: zt_scene.revision,
+        },
+        &ctx,
+    )
+    .unwrap();
+    assert_eq!(
+        preview.response["preview"]["zero_trust_endpoint_warning"],
+        json!(true)
     );
 }

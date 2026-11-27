@@ -32,13 +32,16 @@ impl ControlService {
     pub(crate) async fn network_settings_state(&self) -> v1::NetworkSettingsState {
         let _submission = self.settings_submission.lock().await;
         let config = self.config.read().await;
-        let stored = config.active_profile();
+        let mut stored = config.active_profile();
         let shared = Some(
             config
                 .network
                 .hydrate(&usque_core::config::Account::default_account()),
         );
         drop(config);
+        if let Some(ref mut profile) = stored {
+            let _ = self.hydrate_profile_subscription_endpoint(profile).await;
+        }
         let mut state = self.settings.lock().await;
         if state.stored_profile != stored || state.shared_network_profile != shared {
             state.stored_profile = stored;
@@ -153,15 +156,21 @@ impl ControlService {
         {
             self.validate_chain_selection(&patch.values)?;
         }
+        let sub_changed = patch
+            .changed_fields
+            .iter()
+            .any(|field| field == "endpoint.subscription_id");
+        self.sync_account_entitlement(patch.account_id).await;
         // Only local read/modify/write work holds the configuration guard.
         let mut config = self.config.write().await;
         let store = self.store.clone();
         let edit = patch.clone();
         let chain_parent = self.profile_dir.clone();
         let chain_cipher = self.chain_cipher.clone();
+        let sub_store = self.endpoint_subscriptions.store().clone();
         let commit = tokio::task::spawn_blocking(move || {
             store.update(|latest| {
-                let merged = merge_patch(latest, &edit)
+                let mut merged = merge_patch(latest, &edit)
                     .map_err(|error| StoreError::NetworkSettings(error.to_string()))?;
                 // Validate the committed combination, including fields omitted
                 // by old clients, while holding the configuration transaction.
@@ -171,6 +180,22 @@ impl ControlService {
                     chain_cipher.as_deref(),
                 )
                 .map_err(|error| StoreError::NetworkSettings(error.to_string()))?;
+                if sub_changed && merged.endpoint.subscription_id.is_some() {
+                    let tier = latest.account_tier(patch.account_id);
+                    crate::endpoint_subscriptions::hydrate_profile_with_store(
+                        &sub_store,
+                        &mut merged,
+                        tier,
+                    )
+                    .map_err(|err| StoreError::NetworkSettings(err.code().into()))?;
+                } else if merged.endpoint.subscription_id.is_some() {
+                    let tier = latest.account_tier(patch.account_id);
+                    let _ = crate::endpoint_subscriptions::hydrate_profile_with_store(
+                        &sub_store,
+                        &mut merged,
+                        tier,
+                    );
+                }
                 Ok(merged)
             })
         })

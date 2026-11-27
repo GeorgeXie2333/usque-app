@@ -141,6 +141,7 @@ class EngineSnapshotEvent {
     this.diagnosticSession,
     this.diagnosticsChanged = false,
     this.networkSettings,
+    this.endpointSubscriptionProbeProgress,
   });
 
   final EngineSnapshot? snapshot;
@@ -150,6 +151,7 @@ class EngineSnapshotEvent {
   final DiagnosticSession? diagnosticSession;
   final bool diagnosticsChanged;
   final NetworkSettingsState? networkSettings;
+  final Map<String, Object?>? endpointSubscriptionProbeProgress;
 }
 
 /// Non-secret desktop startup data; identities still need full validation.
@@ -338,6 +340,12 @@ abstract interface class ProtonHumanVerificationClient {
   Future<void> cancelProtonHumanVerification();
 }
 
+abstract interface class EndpointSubscriptionClient {
+  Future<Map<String, Object?>> endpointSubscriptionCommand(
+    Map<String, Object?> request,
+  );
+}
+
 /// A document read once by the platform picker. Never contains a path or URI.
 class ChainConfigurationFile {
   const ChainConfigurationFile({
@@ -429,6 +437,7 @@ class MethodChannelEngineClient
         WarpWireguardClient,
         ProtonVpnClient,
         ProtonHumanVerificationClient,
+        EndpointSubscriptionClient,
         InitialIdentityClient,
         OnboardingPermissionsClient,
         ControlOperationClient,
@@ -535,6 +544,23 @@ class MethodChannelEngineClient
       throw const EngineException(
         'SCENARIO_RESULT_UNKNOWN',
         'The scenario result could not be confirmed.',
+      );
+    }
+    return Map<String, Object?>.from(value);
+  }
+
+  @override
+  Future<Map<String, Object?>> endpointSubscriptionCommand(
+    Map<String, Object?> request,
+  ) async {
+    final value = await _invoke<Map<Object?, Object?>>(
+      'endpointSubscriptionCommand',
+      request,
+    );
+    if (value == null) {
+      throw const EngineException(
+        'SUBSCRIPTION_RESULT_UNKNOWN',
+        'The endpoint subscription operation could not be confirmed.',
       );
     }
     return Map<String, Object?>.from(value);
@@ -741,6 +767,12 @@ class MethodChannelEngineClient
               )
             : null,
         diagnosticsChanged: map.containsKey('diagnostic_session'),
+        endpointSubscriptionProbeProgress:
+            map['endpoint_subscription_probe_progress'] is Map
+            ? Map<String, Object?>.from(
+                map['endpoint_subscription_probe_progress'] as Map,
+              )
+            : null,
       );
     });
   }

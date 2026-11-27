@@ -83,6 +83,8 @@ impl WindowsBackend {
             automatic_endpoint_leases: true,
             protected_tunnel_replacement: true,
             endpoint_preset_leases: true,
+            dynamic_hostname_endpoint_leases: true,
+            connected_endpoint_probe_leases: true,
             linux_tun: false,
             nftables_kill_switch: false,
             unix_fd_transfer: false,

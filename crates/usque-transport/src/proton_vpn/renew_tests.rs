@@ -162,6 +162,7 @@ impl Http for MockHttp {
             status,
             retry_after: None,
             last_modified,
+            location: None,
             body: Zeroizing::new(if status == 304 {
                 Vec::new()
             } else {

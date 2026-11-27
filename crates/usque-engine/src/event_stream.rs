@@ -40,6 +40,7 @@ where
     let mut ticker = interval(SNAPSHOT_INTERVAL);
     ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
     let mut geo_progress = service.subscribe_geo_progress();
+    let mut subscription_probe_progress = service.subscribe_endpoint_subscription_probe_progress();
     let mut diagnostics = service.subscribe_diagnostics();
     let mut quality_updates = service.subscribe_network_quality();
     let mut settings_updates = service.settings_tx.subscribe();
@@ -98,6 +99,22 @@ where
                             EventEnvelope {
                                 sequence: service.next_event_sequence(),
                                 payload: Some(event_envelope::Payload::GeoRulesProgress(progress)),
+                            },
+                        )
+                        .await?;
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => return Ok(()),
+                }
+            }
+            progress = subscription_probe_progress.recv() => {
+                match progress {
+                    Ok(progress) => {
+                        write_event(
+                            &mut stream,
+                            EventEnvelope {
+                                sequence: service.next_event_sequence(),
+                                payload: Some(event_envelope::Payload::EndpointSubscriptionProbeProgress(progress)),
                             },
                         )
                         .await?;

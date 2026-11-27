@@ -13,6 +13,9 @@ use super::journal::{
 /// only touch resources derived from the operation UUID and verified ownership.
 pub trait Backend: Send {
     fn preflight(&self, plan: &ValidatedTunnelPlan) -> io::Result<()>;
+    /// Retires a probe lease, which belongs to the network configuration a
+    /// chain transition is replacing.
+    fn retire_probe_lease(&mut self) {}
     fn take_reusable_egress_mark(&mut self) -> Option<u16> {
         None
     }
@@ -384,6 +387,7 @@ impl<B: Backend> Coordinator<B> {
         {
             return Ok(());
         }
+        self.backend.retire_probe_lease();
         let mut next = self.journal.clone();
         next.phase = Phase::Recovering;
         self.persist(next)?;
@@ -1170,6 +1174,7 @@ mod tests {
             defer_network_configuration: false,
             automatic_endpoint_policy: None,
             preset_endpoint_policy: None,
+            hostname_endpoint_policy: None,
         }
     }
 

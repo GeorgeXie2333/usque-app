@@ -50,6 +50,15 @@ pub fn classify_reconfigure(previous: &Profile, next: &Profile) -> ReconfigureCl
         .routing
         .rules
         .clone_from(&previous.routing.rules);
+    // Endpoint notes and pin state are catalogue metadata, not dial targets.
+    if crate::endpoint_subscriptions::same_subscription_target(
+        previous.subscription_endpoint.as_ref(),
+        next.subscription_endpoint.as_ref(),
+    ) {
+        runtime_next
+            .subscription_endpoint
+            .clone_from(&previous.subscription_endpoint);
+    }
     let rules_changed = previous.routing.rules != next.routing.rules;
     if previous == &runtime_next {
         return if previous.disable_quic != next.disable_quic
@@ -81,6 +90,10 @@ pub fn classify_reconfigure(previous: &Profile, next: &Profile) -> ReconfigureCl
         || previous.tls_fingerprint != next.tls_fingerprint
         || previous.masque_connections != next.masque_connections
         || previous.endpoint != next.endpoint
+        || !crate::endpoint_subscriptions::same_subscription_target(
+            previous.subscription_endpoint.as_ref(),
+            next.subscription_endpoint.as_ref(),
+        )
         || previous.ip_policy != next.ip_policy
         || previous.mtu != next.mtu
         || previous.dns_mode != next.dns_mode
@@ -104,7 +117,11 @@ pub fn classify_reconfigure(previous: &Profile, next: &Profile) -> ReconfigureCl
         || !previous.frontends.tunnel
             && next.frontends.tunnel
             && (next.endpoint.selection == crate::EndpointSelection::Automatic
-                || next.endpoint.preset_region.is_some())
+                || next.endpoint.preset_region.is_some()
+                || next
+                    .subscription_endpoint
+                    .as_ref()
+                    .is_some_and(|endpoint| endpoint.host.is_domain()))
         || previous.frontends.tunnel != next.frontends.tunnel
             && (previous.needs_domain_routing()
                 || next.needs_domain_routing()
@@ -820,6 +837,70 @@ mod tests {
         next.direct_dns.port = 443;
         assert_eq!(
             classify_reconfigure(&previous, &next),
+            ReconfigureClass::ColdReconnect
+        );
+    }
+
+    #[test]
+    fn subscription_endpoint_change_and_domain_tunnel_toggle_are_cold_reconnect() {
+        let sub_id = uuid::Uuid::new_v4();
+        let mut previous = base();
+        previous.endpoint.selection = crate::EndpointSelection::Custom;
+        previous.endpoint.subscription_id = Some(sub_id);
+        previous.subscription_endpoint =
+            Some(crate::endpoint_subscriptions::SubscriptionEndpoint {
+                id: "v4:162.159.193.10:2408".into(),
+                host: crate::endpoint_subscriptions::SubscriptionEndpointHost::Ipv4(
+                    "162.159.193.10".parse().unwrap(),
+                ),
+                port: Some(2408),
+                note: "Edge A".into(),
+                pinned: false,
+            });
+        let mut next = previous.clone();
+        next.subscription_endpoint = Some(crate::endpoint_subscriptions::SubscriptionEndpoint {
+            id: "v4:162.159.193.11:443".into(),
+            host: crate::endpoint_subscriptions::SubscriptionEndpointHost::Ipv4(
+                "162.159.193.11".parse().unwrap(),
+            ),
+            port: Some(443),
+            note: "Edge B".into(),
+            pinned: false,
+        });
+        assert_eq!(
+            classify_reconfigure(&previous, &next),
+            ReconfigureClass::ColdReconnect
+        );
+
+        // Pinning or renaming the running endpoint dials the same target.
+        let mut annotated = previous.clone();
+        if let Some(endpoint) = annotated.subscription_endpoint.as_mut() {
+            endpoint.note = "Renamed".into();
+            endpoint.pinned = true;
+        }
+        assert_eq!(
+            classify_reconfigure(&previous, &annotated),
+            ReconfigureClass::PersistOnly
+        );
+
+        let mut proxy_only = base();
+        proxy_only.frontends.tunnel = false;
+        proxy_only.endpoint.selection = crate::EndpointSelection::Custom;
+        proxy_only.endpoint.subscription_id = Some(sub_id);
+        proxy_only.subscription_endpoint =
+            Some(crate::endpoint_subscriptions::SubscriptionEndpoint {
+                id: "host:edge.example.com:443".into(),
+                host: crate::endpoint_subscriptions::SubscriptionEndpointHost::Domain(
+                    "edge.example.com".into(),
+                ),
+                port: Some(443),
+                note: String::new(),
+                pinned: false,
+            });
+        let mut vpn = proxy_only.clone();
+        vpn.frontends.tunnel = true;
+        assert_eq!(
+            classify_reconfigure(&proxy_only, &vpn),
             ReconfigureClass::ColdReconnect
         );
     }

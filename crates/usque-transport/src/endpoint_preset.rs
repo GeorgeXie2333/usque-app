@@ -297,6 +297,66 @@ impl SocketProtector for PresetGenerationProtector {
     fn network_generation(&self) -> Option<u64> {
         self.inner.network_generation()
     }
+    async fn resolve_endpoint_hostname(
+        &self,
+        host: &str,
+        port: u16,
+        ip_policy: usque_core::IpPolicy,
+        expected_generation: u64,
+    ) -> Result<Vec<SocketAddr>, String> {
+        if expected_generation != self.generation
+            || self.inner.network_generation().unwrap_or_default() != self.generation
+        {
+            return Err(crate::socket::STALE_GENERATION_REASON.into());
+        }
+        let resolved = self
+            .inner
+            .resolve_endpoint_hostname(host, port, ip_policy, self.generation)
+            .await?;
+        // Answers from a network that changed during the lookup are discarded.
+        if self.inner.network_generation().unwrap_or_default() != self.generation {
+            return Err(crate::socket::STALE_GENERATION_REASON.into());
+        }
+        Ok(resolved)
+    }
+    async fn authorize_endpoint_hostname_candidates(
+        &self,
+        host: &str,
+        candidates: &[SocketAddr],
+        expected_generation: u64,
+    ) -> Result<(), String> {
+        if expected_generation != self.generation
+            || self.inner.network_generation().unwrap_or_default() != self.generation
+        {
+            return Err(crate::socket::STALE_GENERATION_REASON.into());
+        }
+        self.inner
+            .authorize_endpoint_hostname_candidates(host, candidates, self.generation)
+            .await
+    }
+    async fn acquire_endpoint_probe_lease(
+        &self,
+        probe_session_id: &str,
+        targets: &[crate::socket::ProbeLeaseTarget],
+        dns_hostname: Option<&str>,
+        expected_generation: u64,
+    ) -> Result<crate::socket::EndpointProbeLeaseHandle, String> {
+        if expected_generation != self.generation {
+            return Err(crate::socket::STALE_GENERATION_REASON.into());
+        }
+        self.inner
+            .acquire_endpoint_probe_lease(probe_session_id, targets, dns_hostname, self.generation)
+            .await
+    }
+    async fn release_endpoint_probe_lease(
+        &self,
+        probe_session_id: &str,
+        lease_id: &str,
+    ) -> Result<(), String> {
+        self.inner
+            .release_endpoint_probe_lease(probe_session_id, lease_id)
+            .await
+    }
 }
 
 /// Proxy mode has no platform DNS-server inventory. A family-restricted OS

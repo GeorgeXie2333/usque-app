@@ -1242,6 +1242,133 @@ fn self_signed_certificate(private_key: &PKey<Private>) -> Result<X509, ErrorSta
     Ok(certificate.build())
 }
 
+pub(crate) mod diagnostic {
+    use std::net::SocketAddr;
+    use std::sync::Arc;
+    use std::sync::atomic::Ordering;
+    use std::time::Duration;
+
+    use tokio::time::{Instant, timeout};
+    use tokio_util::sync::CancellationToken;
+    use usque_core::Transport;
+
+    use super::{MasqueTlsIdentity, tls_connector};
+    use crate::diagnostic_probe::{SubscriptionProbeOutcome, elapsed_ms};
+    use crate::socket::{PhysicalSocketPurpose, SocketProtector};
+
+    /// Verifies TCP + TLS fingerprint + HTTP/2 ALPN + P-256 SPKI pin without
+    /// opening a CONNECT-IP stream. Drops TLS sockets and egress leases before return.
+    pub(crate) async fn handshake(
+        endpoint: SocketAddr,
+        sni: &str,
+        identity: &MasqueTlsIdentity,
+        protector: Arc<dyn SocketProtector>,
+        cancellation: CancellationToken,
+        io_timeout: Duration,
+    ) -> SubscriptionProbeOutcome {
+        if cancellation.is_cancelled() {
+            return SubscriptionProbeOutcome::Cancelled;
+        }
+        let expected_generation = protector.network_generation();
+        let started = Instant::now();
+        let Ok((connector, pin_state)) = tls_connector(identity) else {
+            return SubscriptionProbeOutcome::Failed;
+        };
+        let Ok(mut config) = connector.configure() else {
+            return SubscriptionProbeOutcome::Failed;
+        };
+        config.set_verify_hostname(false);
+        if crate::tls_fingerprint::configure_h2_connection(&mut config, identity.tls_fingerprint)
+            .is_err()
+        {
+            return SubscriptionProbeOutcome::Failed;
+        }
+
+        let attempt = async {
+            let prepared = match protector
+                .prepare_tcp(
+                    endpoint,
+                    PhysicalSocketPurpose::Masque,
+                    expected_generation.unwrap_or_default(),
+                )
+                .await
+            {
+                Ok(prepared) => prepared,
+                Err(_) => {
+                    return if protector.network_generation() != expected_generation {
+                        SubscriptionProbeOutcome::NetworkChanged
+                    } else {
+                        SubscriptionProbeOutcome::Failed
+                    };
+                }
+            };
+            let (prepared_tcp, lease) = prepared;
+            if protector.network_generation() != expected_generation
+                || expected_generation.is_some_and(|expected| lease.generation() != Some(expected))
+            {
+                drop(prepared_tcp);
+                drop(lease);
+                return SubscriptionProbeOutcome::NetworkChanged;
+            }
+            let tcp = match prepared_tcp.connect(endpoint).await {
+                Ok(tcp) => tcp,
+                Err(_) => {
+                    drop(lease);
+                    return if protector.network_generation() != expected_generation {
+                        SubscriptionProbeOutcome::NetworkChanged
+                    } else {
+                        SubscriptionProbeOutcome::Failed
+                    };
+                }
+            };
+            let _ = tcp.set_nodelay(true);
+            match tokio_boring::connect(config, sni, tcp).await {
+                Ok(tls) => {
+                    let alpn_ok = tls
+                        .ssl()
+                        .selected_alpn_protocol()
+                        .is_none_or(|proto| proto == b"h2");
+                    let pin_ok = pin_state.checked.load(Ordering::SeqCst)
+                        && pin_state.matched.load(Ordering::SeqCst);
+                    drop(tls);
+                    drop(lease);
+                    if protector.network_generation() != expected_generation {
+                        SubscriptionProbeOutcome::NetworkChanged
+                    } else if !pin_ok {
+                        SubscriptionProbeOutcome::PinMismatch
+                    } else if !alpn_ok {
+                        SubscriptionProbeOutcome::Failed
+                    } else {
+                        SubscriptionProbeOutcome::Passed {
+                            milliseconds: elapsed_ms(started),
+                            transport: Transport::Http2,
+                        }
+                    }
+                }
+                Err(_) => {
+                    let mismatch = pin_state.rejected();
+                    drop(lease);
+                    if cancellation.is_cancelled() {
+                        SubscriptionProbeOutcome::Cancelled
+                    } else if protector.network_generation() != expected_generation {
+                        SubscriptionProbeOutcome::NetworkChanged
+                    } else if mismatch {
+                        SubscriptionProbeOutcome::PinMismatch
+                    } else {
+                        SubscriptionProbeOutcome::Failed
+                    }
+                }
+            }
+        };
+
+        tokio::select! {
+            biased;
+            _ = cancellation.cancelled() => SubscriptionProbeOutcome::Cancelled,
+            result = timeout(io_timeout, attempt) => result.unwrap_or(SubscriptionProbeOutcome::TimedOut),
+        }
+    }
+}
+
 #[cfg(test)]
 fn take_complete_capsule(
     buffer: &mut BytesMut,
@@ -3204,5 +3331,154 @@ mod tests {
             TransportError::InvalidIdentity.pin_retry_failed(&telemetry, Some(Transport::Http3)),
             TransportError::InvalidIdentity
         ));
+    }
+
+    #[tokio::test]
+    async fn diagnostic_h2_handshake_checks_pin_alpn_timeout_cancel_and_closes_lease() {
+        use crate::diagnostic_probe::SubscriptionProbeOutcome;
+        use boring::ssl::{Ssl, SslAcceptor, SslMethod};
+        use std::sync::atomic::AtomicUsize;
+        use tokio::net::TcpListener;
+
+        struct ProbeLease(Arc<AtomicUsize>);
+        impl Drop for ProbeLease {
+            fn drop(&mut self) {
+                self.0.fetch_sub(1, Ordering::SeqCst);
+            }
+        }
+        struct ProbeProtector {
+            generation: AtomicU64,
+            leases: Arc<AtomicUsize>,
+        }
+        #[async_trait::async_trait]
+        impl SocketProtector for ProbeProtector {
+            fn protect(&self, _: SocketHandle) -> Result<(), String> {
+                panic!("must prepare_tcp")
+            }
+            async fn protect_for_target_generation(
+                &self,
+                _: SocketHandle,
+                _: SocketAddr,
+                protocol: DirectProtocol,
+                generation: u64,
+            ) -> Result<DirectEgressLease, String> {
+                assert_eq!(protocol, DirectProtocol::Tcp);
+                self.leases.fetch_add(1, Ordering::SeqCst);
+                Ok(DirectEgressLease::hold_for_generation(
+                    ProbeLease(Arc::clone(&self.leases)),
+                    generation,
+                ))
+            }
+            fn network_generation(&self) -> Option<u64> {
+                Some(self.generation.load(Ordering::SeqCst))
+            }
+        }
+
+        let client_key = MasqueKeyPair::generate();
+        let server_key = MasqueKeyPair::generate();
+        let wrong_key = MasqueKeyPair::generate();
+        let client_identity = MasqueTlsIdentity::new(
+            client_key.private_sec1_der().unwrap(),
+            &server_key.public_spki_der().unwrap(),
+            Ipv4Addr::new(172, 16, 0, 2),
+            "2001:db8::2".parse().unwrap(),
+        )
+        .unwrap();
+        let wrong_pin_identity = MasqueTlsIdentity::new(
+            client_key.private_sec1_der().unwrap(),
+            &wrong_key.public_spki_der().unwrap(),
+            Ipv4Addr::new(172, 16, 0, 2),
+            "2001:db8::2".parse().unwrap(),
+        )
+        .unwrap();
+        let server_identity = MasqueTlsIdentity::new(
+            server_key.private_sec1_der().unwrap(),
+            &client_key.public_spki_der().unwrap(),
+            Ipv4Addr::new(172, 16, 0, 3),
+            "2001:db8::3".parse().unwrap(),
+        )
+        .unwrap();
+
+        // 1. Valid H2 TLS + SPKI pin passes and closes lease.
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let mut acceptor = SslAcceptor::mozilla_intermediate_v5(SslMethod::tls()).unwrap();
+        super::configure_client_identity_and_pin(&mut acceptor, &server_identity).unwrap();
+        acceptor.set_alpn_select_callback(|_, _| Ok(b"h2"));
+        let acceptor = acceptor.build();
+        let server_task = tokio::spawn(async move {
+            let (tcp, _) = listener.accept().await.unwrap();
+            let ssl = Ssl::new(&acceptor.context().to_owned()).unwrap();
+            let _stream = tokio_boring::SslStreamBuilder::new(ssl, tcp).accept().await;
+        });
+        let protector = Arc::new(ProbeProtector {
+            generation: AtomicU64::new(7),
+            leases: Arc::new(AtomicUsize::new(0)),
+        });
+        let outcome = super::diagnostic::handshake(
+            addr,
+            "probe.example.com",
+            &client_identity,
+            protector.clone(),
+            CancellationToken::new(),
+            Duration::from_secs(2),
+        )
+        .await;
+        assert!(
+            matches!(
+                outcome,
+                SubscriptionProbeOutcome::Passed {
+                    transport: Transport::Http2,
+                    ..
+                }
+            ),
+            "{outcome:?}"
+        );
+        assert_eq!(protector.leases.load(Ordering::SeqCst), 0);
+        let _ = server_task.await;
+
+        // 2. Mismatched pin returns PinMismatch and closes lease.
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let mut acceptor = SslAcceptor::mozilla_intermediate_v5(SslMethod::tls()).unwrap();
+        super::configure_client_identity_and_pin(&mut acceptor, &server_identity).unwrap();
+        acceptor.set_alpn_select_callback(|_, _| Ok(b"h2"));
+        let acceptor = acceptor.build();
+        let server_task = tokio::spawn(async move {
+            let (tcp, _) = listener.accept().await.unwrap();
+            let ssl = Ssl::new(&acceptor.context().to_owned()).unwrap();
+            let _ = tokio_boring::SslStreamBuilder::new(ssl, tcp).accept().await;
+        });
+        let outcome = super::diagnostic::handshake(
+            addr,
+            "probe.example.com",
+            &wrong_pin_identity,
+            protector.clone(),
+            CancellationToken::new(),
+            Duration::from_secs(2),
+        )
+        .await;
+        assert_eq!(outcome, SubscriptionProbeOutcome::PinMismatch);
+        assert_eq!(protector.leases.load(Ordering::SeqCst), 0);
+        let _ = server_task.await;
+
+        // 3. Stalled peer times out cleanly and drops lease.
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let _stall = tokio::spawn(async move {
+            let (_tcp, _) = listener.accept().await.unwrap();
+            tokio::time::sleep(Duration::from_secs(5)).await;
+        });
+        let outcome = super::diagnostic::handshake(
+            addr,
+            "probe.example.com",
+            &client_identity,
+            protector.clone(),
+            CancellationToken::new(),
+            Duration::from_millis(80),
+        )
+        .await;
+        assert_eq!(outcome, SubscriptionProbeOutcome::TimedOut);
+        assert_eq!(protector.leases.load(Ordering::SeqCst), 0);
     }
 }

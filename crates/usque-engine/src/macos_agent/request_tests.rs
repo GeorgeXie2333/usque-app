@@ -336,6 +336,61 @@ async fn failed_endpoint_dial_preserves_owner_for_status_and_disconnect() {
 }
 
 #[tokio::test]
+async fn rejected_probe_lease_preserves_owner_for_status() {
+    let (client, socket) = local_pair();
+    let server = std::thread::spawn(move || {
+        assert!(matches!(
+            respond(
+                &socket,
+                1,
+                p::MacosAgentResponse {
+                    failure: p::MacosFailure::ProbeRejected as i32,
+                    payload: None,
+                }
+            ),
+            Operation::AcquireProbeLease(_)
+        ));
+        let status = p::MacosPlatformStatus {
+            protocol_version: PROTOCOL_VERSION,
+            agent_version: env!("CARGO_PKG_VERSION").into(),
+            architecture: std::env::consts::ARCH.into(),
+            ..Default::default()
+        };
+        assert!(matches!(
+            respond(
+                &socket,
+                2,
+                p::MacosAgentResponse {
+                    failure: 0,
+                    payload: Some(Payload::Status(status)),
+                }
+            ),
+            Operation::Status(_)
+        ));
+        socket
+    });
+    let error = client
+        .probe_lease(Operation::AcquireProbeLease(p::MacosAcquireProbeLease {
+            fence: Some(p::MacosFence::default()),
+            probe_session_id: "probe".into(),
+            targets: Vec::new(),
+            dns_hostname: String::new(),
+        }))
+        .await
+        .unwrap_err();
+    assert_eq!(
+        error
+            .get_ref()
+            .and_then(|e| e.downcast_ref::<AgentFailure>())
+            .map(|e| e.0),
+        Some(p::MacosFailure::ProbeRejected)
+    );
+    // The owner stream stays open for the running session.
+    client.status().await.unwrap();
+    server.join().unwrap();
+}
+
+#[tokio::test]
 async fn protocol_and_guard_failures_still_close_the_owner_connection() {
     for (operation, failure, payload) in [
         (dial(), p::MacosFailure::RecoveryIncomplete, None),

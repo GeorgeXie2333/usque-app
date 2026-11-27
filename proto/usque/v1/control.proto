@@ -173,6 +173,7 @@ message EndpointSettings {
   string sni = 4;
   EndpointSelection selection = 5;
   string preset_region = 6;
+  string subscription_id = 7;
 }
 
 message ProxySettings {
@@ -304,6 +305,20 @@ message ScenarioRequest {
 
 message ScenarioResponse {
   string metadata_json = 1;
+}
+
+// Bounded, non-secret endpoint subscription commands shared with the Android owner process.
+// Subscription URLs, notes, and endpoint inventories stay local and never enter diagnostics.
+message EndpointSubscriptionRequest {
+  string command_json = 1;
+}
+
+message EndpointSubscriptionResponse {
+  string metadata_json = 1;
+}
+
+message EndpointSubscriptionProbeProgress {
+  string progress_json = 1;
 }
 
 // Only command metadata may be serialized for diagnostics. Authentication and
@@ -553,6 +568,10 @@ message Capabilities {
   // Zero means an older engine: 256 rules per kind and no total target budget.
   uint32 max_routing_rules_per_kind = 58;
   uint32 max_routing_target_bytes = 59;
+  bool endpoint_subscriptions = 60;
+  bool endpoint_subscription_domain_endpoints = 61;
+  bool endpoint_subscription_probe = 62;
+  bool endpoint_subscription_connected_tun_probe = 63;
 }
 
 message FrontendStatus {
@@ -1399,6 +1418,7 @@ message ControlRequest {
     UpdateAdsRulesRequest update_ads_rules = 51;
     ProtonVpnRequest proton_vpn = 52;
     ScenarioRequest scenario = 53;
+    EndpointSubscriptionRequest endpoint_subscription = 54;
   }
 }
 
@@ -1460,6 +1480,7 @@ message ControlResponse {
     SensitiveClipboardValue sensitive_clipboard = 27;
     ProtonVpnResponse proton_vpn = 28;
     ScenarioResponse scenario = 29;
+    EndpointSubscriptionResponse endpoint_subscription = 30;
   }
 }
 
@@ -1534,6 +1555,7 @@ message EventEnvelope {
     NetworkQualityUpdated network_quality_updated = 23;
     NetworkSettingsState network_settings_changed = 24;
     DiagnosticSessionSnapshot diagnostics_snapshot = 25;
+    EndpointSubscriptionProbeProgress endpoint_subscription_probe_progress = 26;
   }
 }
 

@@ -779,6 +779,7 @@ impl DataPlaneRuntime {
         let mut proton_attempt = 0;
         #[cfg(feature = "wireguard")]
         let saved_proton = prepared.clone();
+        #[cfg_attr(not(feature = "wireguard"), allow(clippy::never_loop))]
         let (mut driver, tunnel, mut network) = loop {
             #[cfg(feature = "wireguard")]
             let lease = if proton_source {

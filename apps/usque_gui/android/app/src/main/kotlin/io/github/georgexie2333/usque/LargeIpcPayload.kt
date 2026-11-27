@@ -34,6 +34,12 @@ internal object LargeIpcPayload {
     /** A settings result carries up to four profiles. */
     const val MAX_SETTINGS_CHARS = 8 * 1024 * 1024
 
+    /**
+     * A full endpoint subscription catalogue: 32 lists of 512 endpoints with
+     * maximum-length hostnames, identifiers and notes (about 12.3 Mi chars).
+     */
+    const val MAX_SUBSCRIPTION_CHARS = 16 * 1024 * 1024
+
     const val STALE_MILLIS = 10 * 60 * 1000L
     private const val NAME_SUFFIX = "#handoff"
     private const val DIGEST_SUFFIX = "#sha256"

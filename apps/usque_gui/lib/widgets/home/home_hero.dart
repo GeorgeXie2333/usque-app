@@ -16,6 +16,7 @@ import '../live_duration.dart';
 import '../profile_identity_dialog.dart';
 import '../setup_handoff.dart';
 import 'home_details.dart';
+import 'home_endpoint_subscription.dart';
 import 'home_scenario.dart';
 
 typedef _HeroView = ({
@@ -517,6 +518,7 @@ class _DesktopSessionReadout extends StatelessWidget {
           ),
           const SizedBox(height: UsqueSpace.l - 4),
           ScenarioHomeLink(controller: controller),
+          EndpointSubscriptionHomeLink(controller: controller),
           HomeProtectionLine(
             killKey: view.killKey,
             alwaysOn: view.alwaysOn,

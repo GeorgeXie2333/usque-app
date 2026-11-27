@@ -7,7 +7,10 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use uuid::Uuid;
 
-use crate::{AppConfig, ConnectionPhase, Profile, ReconfigureClass, SharedNetworkSettings};
+use crate::{
+    AppConfig, ConnectionPhase, EndpointPresetTier, Profile, ReconfigureClass,
+    SharedNetworkSettings,
+};
 
 macro_rules! network_fields {
     ($consumer:ident) => {
@@ -26,6 +29,7 @@ macro_rules! network_fields {
             "endpoint.sni" => endpoint.sni,
             "endpoint.selection" => endpoint.selection,
             "endpoint.preset_region" => endpoint.preset_region,
+            "endpoint.subscription_id" => endpoint.subscription_id,
             "ip_policy" => ip_policy,
             "mtu" => mtu,
             "dns_mode" => dns_mode,
@@ -155,10 +159,18 @@ impl NetworkSettingsState {
         self.sequence = self.sequence.saturating_add(1);
         self.deferred_fields = match (&self.applied_profile, &self.stored_profile) {
             (Some(applied), Some(stored)) if applied.id == stored.id => {
-                changed_fields(applied, stored)
+                let mut fields = changed_fields(applied, stored)
                     .into_iter()
                     .filter(|field| field != "auto_connect")
-                    .collect()
+                    .collect::<Vec<_>>();
+                if applied.subscription_endpoint != stored.subscription_endpoint
+                    && !fields
+                        .iter()
+                        .any(|field| field == "endpoint.subscription_id")
+                {
+                    fields.push("endpoint.subscription_id".to_owned());
+                }
+                fields
             }
             (_, Some(_)) => NETWORK_FIELDS
                 .iter()
@@ -207,22 +219,37 @@ pub fn merge_patch(
     config: &mut AppConfig,
     patch: &NetworkSettingsPatch,
 ) -> Result<Profile, SettingsError> {
+    let tier = config.account_tier(patch.account_id);
+    merge_patch_with_tier(config, patch, tier)
+}
+
+pub fn merge_patch_with_tier(
+    config: &mut AppConfig,
+    patch: &NetworkSettingsPatch,
+    tier: Option<EndpointPresetTier>,
+) -> Result<Profile, SettingsError> {
     if config.active_profile_id != Some(patch.account_id) || patch.values.id != patch.account_id {
         return Err(SettingsError::AccountChanged);
     }
-    let mut profile = config
-        .runtime_profile(patch.account_id)
+    let account = config
+        .account(patch.account_id)
         .ok_or(SettingsError::AccountChanged)?;
+    let mut profile = config.network.hydrate_for_tier(account, tier);
     if patch.changed_fields.len() > NETWORK_FIELDS.len() {
         return Err(SettingsError::InvalidField);
     }
-    let managed = config
-        .account(patch.account_id)
-        .is_some_and(|account| account.managed_endpoint_ips.is_some())
-        || config.is_zero_trust_account(patch.account_id);
+    let managed = account.managed_endpoint_ips.is_some()
+        || config.is_zero_trust_account(patch.account_id)
+        || tier == Some(EndpointPresetTier::ZeroTrust);
     for field in &patch.changed_fields {
         if matches!(field.as_str(), "split_exclusions" | "bypass_domains") {
             return Err(crate::ConfigError::RoutingUpgradeRequired.into());
+        }
+        if field == "endpoint.subscription_id"
+            && patch.values.endpoint.subscription_id.is_some()
+            && tier.is_none()
+        {
+            return Err(crate::ConfigError::EndpointSubscriptionRequiresVerifiedAccount.into());
         }
         if managed
             && (field == "endpoint.selection"
@@ -235,8 +262,62 @@ pub fn merge_patch(
         }
         copy_field(&mut profile, &patch.values, field)?;
     }
+    let sub_changed = patch
+        .changed_fields
+        .iter()
+        .any(|field| field == "endpoint.subscription_id");
+    let preset_changed = patch
+        .changed_fields
+        .iter()
+        .any(|field| field == "endpoint.preset_region");
+    let selection_changed = patch
+        .changed_fields
+        .iter()
+        .any(|field| field == "endpoint.selection");
+    let manual_ip_changed = patch
+        .changed_fields
+        .iter()
+        .any(|field| matches!(field.as_str(), "endpoint.ipv4" | "endpoint.ipv6"));
+    // One patch cannot ask for two endpoint sources at once.
+    if sub_changed && profile.endpoint.subscription_id.is_some() {
+        if preset_changed && profile.endpoint.preset_region.is_some() {
+            return Err(crate::ConfigError::EndpointPresetAndSubscriptionConflict.into());
+        }
+        if selection_changed && profile.endpoint.selection == crate::EndpointSelection::Automatic {
+            return Err(crate::ConfigError::EndpointSubscriptionRequiresCustom.into());
+        }
+    }
+    if sub_changed && profile.endpoint.subscription_id.is_some() {
+        profile.endpoint.selection = crate::EndpointSelection::Custom;
+        profile.endpoint.preset_region = None;
+    } else if selection_changed && profile.endpoint.selection == crate::EndpointSelection::Automatic
+    {
+        profile.endpoint.preset_region = None;
+        profile.endpoint.subscription_id = None;
+    } else if preset_changed && profile.endpoint.preset_region.is_some() {
+        profile.endpoint.selection = crate::EndpointSelection::Custom;
+        profile.endpoint.subscription_id = None;
+    } else if manual_ip_changed && !sub_changed {
+        // Manual addresses (with or without clearing a preset) replace any
+        // bound subscription unless the patch explicitly re-binds one.
+        profile.endpoint.subscription_id = None;
+    }
     normalize(&mut profile)?;
+    let updated_subscription_id = profile.endpoint.subscription_id;
+    let deactivating_only = sub_changed
+        && updated_subscription_id.is_none()
+        && !selection_changed
+        && !preset_changed
+        && !manual_ip_changed;
     let mut network = SharedNetworkSettings::from_profile(&profile);
+    network.consumer_tier_subscriptions = config.network.consumer_tier_subscriptions.clone();
+    network.endpoint.subscription_id = None;
+    if updated_subscription_id.is_some() || deactivating_only {
+        // Keep the user's underlying Automatic / Preset / Manual fallback intact.
+        network.endpoint.selection = config.network.endpoint.selection;
+        network.endpoint.preset_region = config.network.endpoint.preset_region;
+    }
+    let mut updated_account = account.clone();
     if managed {
         network.endpoint.ipv4 = config.network.endpoint.ipv4;
         network.endpoint.ipv6 = config.network.endpoint.ipv6;
@@ -245,26 +326,44 @@ pub fn merge_patch(
         } else {
             config.network.endpoint.selection
         };
-        if patch
-            .changed_fields
-            .iter()
-            .any(|field| matches!(field.as_str(), "endpoint.ipv4" | "endpoint.ipv6"))
-        {
+        updated_account.zero_trust_subscription_id = updated_subscription_id;
+        if manual_ip_changed {
             let pair = crate::ManagedEndpointIps::from_endpoint(&profile.endpoint);
-            let account = config
-                .account_mut(patch.account_id)
-                .ok_or(SettingsError::AccountChanged)?;
-            account.zero_trust_endpoint_override =
-                (account.managed_endpoint_ips.as_ref() != Some(&pair)).then_some(pair);
+            updated_account.zero_trust_endpoint_override =
+                (updated_account.managed_endpoint_ips.as_ref() != Some(&pair)).then_some(pair);
         }
+    } else if let Some(tier) = tier {
+        network
+            .consumer_tier_subscriptions
+            .set_for_tier(tier, updated_subscription_id);
+    }
+    if network.endpoint.preset_region.is_some()
+        && !matches!(
+            network.ip_policy,
+            crate::IpPolicy::Ipv6Only | crate::IpPolicy::PreferIpv6
+        )
+    {
+        network.endpoint.preset_region = None;
+    }
+    let mut final_profile = network.hydrate_for_tier(&updated_account, tier);
+    if final_profile.endpoint.subscription_id == profile.endpoint.subscription_id {
+        final_profile.subscription_endpoint = profile.subscription_endpoint.clone();
+    }
+    normalize(&mut final_profile)?;
+    if let Some(account_slot) = config.account_mut(patch.account_id) {
+        *account_slot = updated_account;
     }
     config.network = network;
-    Ok(profile)
+    Ok(final_profile)
 }
 
 fn normalize(profile: &mut Profile) -> Result<(), SettingsError> {
     if profile.endpoint.selection == crate::EndpointSelection::Automatic {
         profile.endpoint.preset_region = None;
+        profile.endpoint.subscription_id = None;
+    }
+    if profile.endpoint.subscription_id.is_none() {
+        profile.subscription_endpoint = None;
     }
     if let Some(chain) = &profile.chain_exit {
         profile.vpn_gate.enabled =
@@ -317,6 +416,21 @@ pub fn plan_application(
     for field in fields {
         if !matches!(field.as_str(), "congestion_control" | "auto_connect") {
             copy_field(&mut target, stored, field)?;
+            if field == "endpoint.subscription_id" {
+                target
+                    .subscription_endpoint
+                    .clone_from(&stored.subscription_endpoint);
+                if target.endpoint.subscription_id.is_some() {
+                    target.endpoint.selection = crate::EndpointSelection::Custom;
+                    target.endpoint.preset_region = None;
+                }
+            } else if (field == "endpoint.preset_region" && target.endpoint.preset_region.is_some())
+                || (matches!(field.as_str(), "endpoint.ipv4" | "endpoint.ipv6")
+                    && stored.endpoint.subscription_id.is_none())
+            {
+                target.endpoint.subscription_id = None;
+                target.subscription_endpoint = None;
+            }
         }
     }
     normalize(&mut target)?;
@@ -328,6 +442,7 @@ pub fn plan_application(
             status: if changed_fields(previous, stored)
                 .iter()
                 .any(|field| field != "auto_connect")
+                || previous.subscription_endpoint != stored.subscription_endpoint
             {
                 ApplyStatus::Deferred
             } else {
@@ -973,5 +1088,233 @@ mod tests {
         assert!(!target.proxy.system_proxy);
         assert_eq!(target.frontends.tunnel, previous.frontends.tunnel);
         assert_eq!(target.frontends.socks5, previous.frontends.socks5);
+    }
+
+    #[test]
+    fn subscription_patch_rejects_conflicting_sources_and_manual_edits_unbind() {
+        let mut config = AppConfig::default();
+        let free_id = config.active_profile_id.unwrap();
+        config.set_consumer_entitlement(free_id, Some(crate::ConsumerEntitlement::Free));
+        let sub = Uuid::new_v4();
+
+        let mut both = patch(
+            &config,
+            &["endpoint.subscription_id", "endpoint.preset_region"],
+        );
+        both.values.endpoint.subscription_id = Some(sub);
+        both.values.endpoint.preset_region = Some(crate::EndpointPresetRegion::De);
+        assert!(matches!(
+            merge_patch(&mut config, &both),
+            Err(SettingsError::Configuration(
+                crate::ConfigError::EndpointPresetAndSubscriptionConflict
+            ))
+        ));
+
+        let mut automatic = patch(&config, &["endpoint.subscription_id", "endpoint.selection"]);
+        automatic.values.endpoint.subscription_id = Some(sub);
+        automatic.values.endpoint.selection = crate::EndpointSelection::Automatic;
+        assert!(matches!(
+            merge_patch(&mut config, &automatic),
+            Err(SettingsError::Configuration(
+                crate::ConfigError::EndpointSubscriptionRequiresCustom
+            ))
+        ));
+
+        let mut bind = patch(&config, &["endpoint.subscription_id"]);
+        bind.values.endpoint.subscription_id = Some(sub);
+        merge_patch(&mut config, &bind).unwrap();
+
+        // Manual addresses while clearing a preset replace the binding even
+        // when an older client omits endpoint.subscription_id from the mask.
+        let mut manual = patch(
+            &config,
+            &[
+                "endpoint.ipv4",
+                "endpoint.preset_region",
+                "endpoint.selection",
+            ],
+        );
+        manual.values.endpoint.selection = crate::EndpointSelection::Custom;
+        manual.values.endpoint.preset_region = None;
+        manual.values.endpoint.ipv4 = "162.159.192.9".parse().unwrap();
+        let stored = merge_patch(&mut config, &manual).unwrap();
+        assert_eq!(stored.endpoint.subscription_id, None);
+    }
+
+    #[test]
+    fn endpoint_subscriptions_are_tier_isolated_and_preserve_fallbacks() {
+        let mut config = AppConfig::default();
+        let free_id = config.active_profile_id.unwrap();
+        let plus_id = Uuid::new_v4();
+        let zt_id = Uuid::new_v4();
+        let unknown_consumer_id = Uuid::new_v4();
+        config.insert_account(plus_id, "Plus".into(), None).unwrap();
+        config
+            .insert_account(unknown_consumer_id, "Unverified".into(), None)
+            .unwrap();
+        config
+            .insert_account(
+                zt_id,
+                "Work".into(),
+                Some(crate::ManagedEndpointIps {
+                    ipv4: "162.159.197.8".parse().unwrap(),
+                    ipv6: "2606:4700:102::8".parse().unwrap(),
+                }),
+            )
+            .unwrap();
+        config
+            .identity_bindings
+            .insert(zt_id, crate::IdentityProvider::zero_trust("acme").unwrap());
+        config.set_consumer_entitlement(free_id, Some(crate::ConsumerEntitlement::Free));
+        config.set_consumer_entitlement(plus_id, Some(crate::ConsumerEntitlement::WarpPlus));
+
+        // Unverified consumer accounts fail closed.
+        config.active_profile_id = Some(unknown_consumer_id);
+        let mut reject_edit = patch(&config, &["endpoint.subscription_id"]);
+        reject_edit.values.endpoint.subscription_id = Some(Uuid::new_v4());
+        assert!(matches!(
+            merge_patch(&mut config, &reject_edit),
+            Err(SettingsError::Configuration(
+                crate::ConfigError::EndpointSubscriptionRequiresVerifiedAccount
+            ))
+        ));
+
+        // Free starts with a built-in IPv6 preset fallback, then activates free_sub.
+        config.active_profile_id = Some(free_id);
+        let mut preset_edit = patch(
+            &config,
+            &["ip_policy", "endpoint.selection", "endpoint.preset_region"],
+        );
+        preset_edit.values.ip_policy = crate::IpPolicy::PreferIpv6;
+        preset_edit.values.endpoint.selection = crate::EndpointSelection::Custom;
+        preset_edit.values.endpoint.preset_region = Some(crate::EndpointPresetRegion::De);
+        merge_patch(&mut config, &preset_edit).unwrap();
+
+        let free_sub = Uuid::new_v4();
+        let plus_sub = Uuid::new_v4();
+        let zt_sub = Uuid::new_v4();
+
+        let mut free_edit = patch(&config, &["endpoint.subscription_id"]);
+        free_edit.values.endpoint.subscription_id = Some(free_sub);
+        let free_stored = merge_patch(&mut config, &free_edit).unwrap();
+        assert_eq!(free_stored.endpoint.subscription_id, Some(free_sub));
+        assert_eq!(
+            free_stored.endpoint.selection,
+            crate::EndpointSelection::Custom
+        );
+        assert!(free_stored.endpoint.preset_region.is_none());
+
+        // Switching to Plus and ZT sets independent subscriptions without overwriting Free.
+        config.active_profile_id = Some(plus_id);
+        let mut plus_edit = patch(&config, &["endpoint.subscription_id"]);
+        plus_edit.values.endpoint.subscription_id = Some(plus_sub);
+        merge_patch(&mut config, &plus_edit).unwrap();
+
+        config.active_profile_id = Some(zt_id);
+        let mut zt_edit = patch(&config, &["endpoint.subscription_id"]);
+        zt_edit.values.endpoint.subscription_id = Some(zt_sub);
+        merge_patch(&mut config, &zt_edit).unwrap();
+
+        // Editing MTU on Free preserves Free's dormant preset fallback and Plus/ZT subs.
+        config.active_profile_id = Some(free_id);
+        let mut mtu_edit = patch(&config, &["mtu"]);
+        mtu_edit.values.mtu = 1400;
+        let free_after_mtu = merge_patch(&mut config, &mtu_edit).unwrap();
+        assert_eq!(free_after_mtu.endpoint.subscription_id, Some(free_sub));
+        assert_eq!(
+            config
+                .runtime_profile(plus_id)
+                .unwrap()
+                .endpoint
+                .subscription_id,
+            Some(plus_sub)
+        );
+        assert_eq!(
+            config
+                .runtime_profile(zt_id)
+                .unwrap()
+                .endpoint
+                .subscription_id,
+            Some(zt_sub)
+        );
+
+        // Deactivating Free restores its underlying preset fallback while keeping Plus/ZT intact.
+        let mut deactivate_edit = patch(&config, &["endpoint.subscription_id"]);
+        deactivate_edit.values.endpoint.subscription_id = None;
+        let restored = merge_patch(&mut config, &deactivate_edit).unwrap();
+        assert_eq!(restored.endpoint.subscription_id, None);
+        assert_eq!(
+            restored.endpoint.preset_region,
+            Some(crate::EndpointPresetRegion::De)
+        );
+        assert_eq!(
+            config
+                .runtime_profile(plus_id)
+                .unwrap()
+                .endpoint
+                .subscription_id,
+            Some(plus_sub)
+        );
+        assert_eq!(
+            config
+                .runtime_profile(zt_id)
+                .unwrap()
+                .endpoint
+                .subscription_id,
+            Some(zt_sub)
+        );
+
+        // Changing subscription_endpoint produces a valid NETWORK_FIELDS deferred diff and ColdReconnect plan.
+        let mut applied = config.runtime_profile(plus_id).unwrap();
+        let mut stored = applied.clone();
+        applied.subscription_endpoint = Some(crate::endpoint_subscriptions::SubscriptionEndpoint {
+            id: "v4:162.159.193.10:2408".into(),
+            host: crate::endpoint_subscriptions::SubscriptionEndpointHost::Ipv4(
+                "162.159.193.10".parse().unwrap(),
+            ),
+            port: Some(2408),
+            note: String::new(),
+            pinned: false,
+        });
+        stored.subscription_endpoint = Some(crate::endpoint_subscriptions::SubscriptionEndpoint {
+            id: "v4:162.159.193.11:443".into(),
+            host: crate::endpoint_subscriptions::SubscriptionEndpointHost::Ipv4(
+                "162.159.193.11".parse().unwrap(),
+            ),
+            port: Some(443),
+            note: String::new(),
+            pinned: false,
+        });
+        let mut state = NetworkSettingsState {
+            applied_profile: Some(applied.clone()),
+            stored_profile: Some(stored.clone()),
+            ..Default::default()
+        };
+        state.advance();
+        assert!(
+            state
+                .deferred_fields
+                .iter()
+                .all(|f| NETWORK_FIELDS.contains(&f.as_str()))
+        );
+        assert!(
+            state
+                .deferred_fields
+                .iter()
+                .any(|f| f == "endpoint.subscription_id")
+        );
+        let plan = plan_application(
+            Some(&applied),
+            &stored,
+            &state.deferred_fields,
+            ConnectionPhase::Connected,
+            true,
+        )
+        .unwrap();
+        assert_eq!(plan.class, ReconfigureClass::ColdReconnect);
+        assert_eq!(
+            plan.target.unwrap().subscription_endpoint,
+            stored.subscription_endpoint
+        );
     }
 }

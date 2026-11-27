@@ -86,6 +86,8 @@ impl ControlService {
             .await
             .runtime_profile(profile_id)
             .ok_or(ControlServiceError::ProfileNotFound(profile_id))?;
+        self.hydrate_profile_subscription_endpoint(&mut target)
+            .await?;
         self.attach_proxy_auth(&mut target).await?;
         if !target.frontends.tunnel {
             // Selecting proxy-only explicitly removes VPN capture. Complete

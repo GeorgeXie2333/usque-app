@@ -180,6 +180,7 @@ pub struct ScenarioContext {
     pub source_epoch: Uuid,
     pub session_id: Option<String>,
     pub applied_profile: Option<Profile>,
+    pub current_subscription_endpoint: Option<crate::endpoint_subscriptions::SubscriptionEndpoint>,
     pub apply_status: ApplyStatus,
     pub dependency_fingerprint: String,
 }
@@ -190,6 +191,7 @@ impl Default for ScenarioContext {
             source_epoch: Uuid::nil(),
             session_id: None,
             applied_profile: None,
+            current_subscription_endpoint: None,
             apply_status: ApplyStatus::Unknown,
             dependency_fingerprint: String::new(),
         }
@@ -480,6 +482,7 @@ pub fn retire_restore_after_change(before: &AppConfig, next: &mut AppConfig) {
                     (
                         account.managed_endpoint_ips.clone(),
                         account.zero_trust_endpoint_override.clone(),
+                        account.zero_trust_subscription_id,
                     )
                 })
             };
@@ -489,8 +492,9 @@ pub fn retire_restore_after_change(before: &AppConfig, next: &mut AppConfig) {
     let next_settings = ScenarioSettings::from_network(&next.network);
     // Dormant Consumer endpoints can conflict with DNS while every hydrated
     // ZT profile is valid. Failed generic validation is not itself an edit.
-    let managed_changed =
-        before_settings != next_settings && !before_settings.equivalent(&next_settings);
+    let managed_changed = (before_settings != next_settings
+        && !before_settings.equivalent(&next_settings))
+        || before.network.consumer_tier_subscriptions != next.network.consumer_tier_subscriptions;
     let changed = previous.recovery_retired
         || before.active_profile_id != next.active_profile_id
         || account_endpoints_changed
@@ -541,8 +545,10 @@ fn apply_settings(
     let managed =
         account.managed_endpoint_ips.is_some() || config.is_zero_trust_account(account_id);
     let previous_endpoint = config.network.endpoint.clone();
+    let previous_tier_subs = config.network.consumer_tier_subscriptions.clone();
     settings.apply_to(&mut config.network)?;
     config.network.endpoint = previous_endpoint;
+    config.network.consumer_tier_subscriptions = previous_tier_subs;
     config.active_profile_id = Some(account_id);
     let mut target = config
         .active_profile()
@@ -552,11 +558,12 @@ fn apply_settings(
     target.endpoint = endpoint.clone();
     if managed {
         target.endpoint.selection = crate::EndpointSelection::Custom;
-        // Reusable presets follow the account's current fallback, but an
-        // undo must restore the address pair frozen in its source snapshot.
+        // Reusable presets and subscriptions follow the account's current fallback,
+        // but an undo must restore the address pair frozen in its source snapshot.
         if !restoring
             && (endpoint.selection == crate::EndpointSelection::Automatic
-                || endpoint.preset_region.is_some())
+                || endpoint.preset_region.is_some()
+                || endpoint.subscription_id.is_some())
         {
             target.endpoint.ipv4 = inherited.ipv4;
             target.endpoint.ipv6 = inherited.ipv6;
@@ -566,6 +573,7 @@ fn apply_settings(
         "endpoint.port".into(),
         "endpoint.sni".into(),
         "endpoint.preset_region".into(),
+        "endpoint.subscription_id".into(),
     ];
     if !managed {
         changed_fields.push("endpoint.selection".into());
@@ -573,7 +581,8 @@ fn apply_settings(
     if !managed
         || restoring
         || (endpoint.selection == crate::EndpointSelection::Custom
-            && endpoint.preset_region.is_none())
+            && endpoint.preset_region.is_none()
+            && endpoint.subscription_id.is_none())
     {
         changed_fields.extend(["endpoint.ipv4".into(), "endpoint.ipv6".into()]);
     }
@@ -743,6 +752,7 @@ pub fn managed_changed_fields(
     const FIELDS: &[&str] = &[
         "endpoint.selection",
         "endpoint.preset_region",
+        "endpoint.subscription_id",
         "endpoint.ipv4",
         "endpoint.ipv6",
         "endpoint.port",
@@ -831,6 +841,10 @@ pub fn catalogue(config: &AppConfig, context: &ScenarioContext) -> Value {
     let applied_matches = context.applied_profile.as_ref().map(|applied| {
         Some(applied.id) == config.active_profile_id
             && current.equivalent(&ScenarioSettings::from_profile(applied))
+            && crate::endpoint_subscriptions::same_subscription_target(
+                applied.subscription_endpoint.as_ref(),
+                context.current_subscription_endpoint.as_ref(),
+            )
     });
     // Unmanaged next-session preferences can remain deferred even though the
     // entire scene is confirmed. Never turn a failed/unknown outcome into a pass.
@@ -1091,6 +1105,23 @@ fn preview_value(
     context: &ScenarioContext,
     kind: SwitchKind,
 ) -> Result<Value, ScenarioError> {
+    // Scene targets are stored unhydrated. The context resolves only the
+    // active binding; any other subscription differs in endpoint settings and
+    // reconnects regardless of its selected endpoint.
+    let mut hydrated = profile.clone();
+    if hydrated.subscription_endpoint.is_none()
+        && hydrated.endpoint.subscription_id.is_some()
+        && config.active_profile_id == Some(hydrated.id)
+        && hydrated.endpoint.subscription_id
+            == config
+                .active_profile()
+                .and_then(|active| active.endpoint.subscription_id)
+    {
+        hydrated
+            .subscription_endpoint
+            .clone_from(&context.current_subscription_endpoint);
+    }
+    let profile = &hydrated;
     let runtime_target = context
         .applied_profile
         .as_ref()
@@ -1144,8 +1175,9 @@ fn preview_value(
         "target_settings":ScenarioSettings::from_profile(profile),
         "zero_trust_endpoint_warning":config.is_zero_trust_account(profile.id)
             && profile.endpoint.preset_region.is_none()
-            && config.account(profile.id).and_then(|a|a.managed_endpoint_ips.as_ref())
-                .is_some_and(|registered| *registered != crate::ManagedEndpointIps::from_endpoint(&profile.endpoint)),
+            && (profile.endpoint.subscription_id.is_some()
+                || config.account(profile.id).and_then(|a|a.managed_endpoint_ips.as_ref())
+                    .is_some_and(|registered| *registered != crate::ManagedEndpointIps::from_endpoint(&profile.endpoint))),
         "applied_settings":if applied_fits{applied_settings}else{None},
         "applied_settings_omitted":!applied_fits
     }))

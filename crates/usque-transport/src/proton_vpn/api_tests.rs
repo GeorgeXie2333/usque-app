@@ -203,6 +203,7 @@ impl Http for Peer {
             status,
             retry_after: None,
             last_modified: None,
+            location: None,
             body: Zeroizing::new(serde_json::to_vec(&value).unwrap()),
         })
     }

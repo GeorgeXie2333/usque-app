@@ -405,6 +405,11 @@ impl Supervisor {
                         && let Some(target) = observed
                         && handle.enabled()
                         && self.profile.endpoint.preset_region.is_none()
+                        && !self
+                            .profile
+                            .subscription_endpoint
+                            .as_ref()
+                            .is_some_and(|ep| ep.host.is_domain())
                         && self.protector.endpoint_family_available(handle.endpoint())
                             != Some(false)
                     {
@@ -605,7 +610,7 @@ impl Supervisor {
                                     if self.profile.endpoint.selection == usque_core::EndpointSelection::Automatic && identity.endpoint_pool() != self.identity.endpoint_pool() {
                                         self.fail(TransportError::EndpointAssignmentChanged, reconnects); break;
                                     }
-                                    if self.profile.endpoint.preset_region.is_some() && identity.endpoint_preset_tier().ok() != self.identity.endpoint_preset_tier().ok() {
+                                    if (self.profile.endpoint.preset_region.is_some() || self.profile.endpoint.subscription_id.is_some()) && identity.endpoint_preset_tier().ok() != self.identity.endpoint_preset_tier().ok() {
                                         self.fail(TransportError::EndpointAssignmentChanged, reconnects); break;
                                     }
                                     self.identity = Arc::new(identity.with_fingerprint(self.profile.tls_fingerprint));
@@ -712,6 +717,72 @@ impl Setup {
             _ = self.cancellation.cancelled() => return Err(TransportError::UnderlyingNetworkChanged),
             result = self.slots.clone().acquire_owned() => result.map_err(|_| TransportError::TunnelClosed)?,
         });
+        if self.profile.endpoint.subscription_id.is_some() {
+            let Some(sub_ep) = self.profile.subscription_endpoint.as_ref() else {
+                return Err(TransportError::AllEndpointsFailed(
+                    "endpoint subscription has no active endpoint".into(),
+                ));
+            };
+            let port = sub_ep.effective_port(self.profile.endpoint.port);
+            match &sub_ep.host {
+                usque_core::endpoint_subscriptions::SubscriptionEndpointHost::Ipv4(ip) => {
+                    let target = SocketAddr::new(std::net::IpAddr::V4(*ip), port);
+                    if self.protector.endpoint_family_available(target) == Some(false) {
+                        return Err(TransportError::EndpointFamilyUnavailable(
+                            AddressFamily::Ipv4,
+                        ));
+                    }
+                    let setup = Arc::new(self);
+                    return crate::endpoint_race::race_batch(
+                        vec![crate::endpoint_race::RaceTarget {
+                            endpoint: target,
+                            delay: Duration::ZERO,
+                        }],
+                        None,
+                        move |endpoint, cancellation| {
+                            let setup = setup.clone();
+                            let slot = slot.clone();
+                            async move {
+                                setup
+                                    .candidate_with_cancellation(endpoint, slot, cancellation)
+                                    .await
+                            }
+                        },
+                    )
+                    .await;
+                }
+                usque_core::endpoint_subscriptions::SubscriptionEndpointHost::Ipv6(ip) => {
+                    let target = SocketAddr::new(std::net::IpAddr::V6(*ip), port);
+                    if self.protector.endpoint_family_available(target) == Some(false) {
+                        return Err(TransportError::EndpointFamilyUnavailable(
+                            AddressFamily::Ipv6,
+                        ));
+                    }
+                    let setup = Arc::new(self);
+                    return crate::endpoint_race::race_batch(
+                        vec![crate::endpoint_race::RaceTarget {
+                            endpoint: target,
+                            delay: Duration::ZERO,
+                        }],
+                        None,
+                        move |endpoint, cancellation| {
+                            let setup = setup.clone();
+                            let slot = slot.clone();
+                            async move {
+                                setup
+                                    .candidate_with_cancellation(endpoint, slot, cancellation)
+                                    .await
+                            }
+                        },
+                    )
+                    .await;
+                }
+                usque_core::endpoint_subscriptions::SubscriptionEndpointHost::Domain(host) => {
+                    let host = host.clone();
+                    return self.connect_subscription_domain(&host, port, slot).await;
+                }
+            }
+        }
         if self.profile.endpoint.preset_region.is_some() {
             return self.connect_preset(slot).await;
         }
@@ -782,22 +853,62 @@ impl Setup {
         .await
     }
 
-    async fn connect_preset(
-        mut self,
+    /// A copy of this setup whose sockets are fenced to one physical network
+    /// generation. Each resolution round supplies its own generation; the
+    /// unfenced protector is never replaced, so a later round can proceed
+    /// after a network change instead of failing every attempt as stale.
+    fn fenced_to(&self, generation: u64) -> Arc<Self> {
+        Arc::new(Self {
+            cancellation: self.cancellation.clone(),
+            #[cfg(test)]
+            test_options: self.test_options,
+            profile: self.profile.clone(),
+            identity: self.identity.clone(),
+            protector: crate::endpoint_preset::for_generation(self.protector.clone(), generation),
+            telemetry: self.telemetry.clone(),
+            budget: self.budget.clone(),
+            metrics: self.metrics.clone(),
+            changed: self.changed.clone(),
+            slots: self.slots.clone(),
+            startup_slots: self.startup_slots.clone(),
+        })
+    }
+
+    async fn connect_subscription_domain(
+        self,
+        host: &str,
+        port: u16,
         slot: Arc<tokio::sync::OwnedSemaphorePermit>,
     ) -> Result<Session, TransportError> {
-        let generation = self.protector.network_generation().unwrap_or_default();
-        let original_protector = self.protector.clone();
-        self.protector = crate::endpoint_preset::for_generation(self.protector.clone(), generation);
-        let setup = Arc::new(self);
+        let base = Arc::new(self);
+        crate::endpoint_subscription::connect_domain_cancellable(
+            &base.profile,
+            host,
+            port,
+            &base.protector,
+            &base.cancellation,
+            |candidates, generation| {
+                let setup = base.fenced_to(generation);
+                let slot = slot.clone();
+                async move { setup.connect_preset_candidates(&candidates, slot).await }
+            },
+        )
+        .await
+    }
+
+    async fn connect_preset(
+        self,
+        slot: Arc<tokio::sync::OwnedSemaphorePermit>,
+    ) -> Result<Session, TransportError> {
+        let base = Arc::new(self);
         crate::endpoint_preset::connect_cancellable(
-            &setup.profile,
-            &setup.identity,
-            &original_protector,
-            &setup.telemetry,
-            &setup.cancellation,
-            |candidates, _| {
-                let setup = setup.clone();
+            &base.profile,
+            &base.identity,
+            &base.protector,
+            &base.telemetry,
+            &base.cancellation,
+            |candidates, generation| {
+                let setup = base.fenced_to(generation);
                 let slot = slot.clone();
                 async move { setup.connect_preset_candidates(&candidates, slot).await }
             },
@@ -895,6 +1006,11 @@ impl Setup {
         actor.session_slot = Some(slot);
         if self.profile.endpoint.selection == usque_core::EndpointSelection::Automatic
             || self.profile.endpoint.preset_region.is_some()
+            || self
+                .profile
+                .subscription_endpoint
+                .as_ref()
+                .is_some_and(|ep| ep.host.is_domain())
             || self.profile.masque_connections > 1
         {
             actor.limit_startup(startup_slot);
@@ -907,6 +1023,11 @@ impl Setup {
         }
         let handle = actor.handle.clone();
         let attempt = if self.profile.endpoint.selection == usque_core::EndpointSelection::Automatic
+            || self
+                .profile
+                .subscription_endpoint
+                .as_ref()
+                .is_some_and(|ep| ep.host.is_domain())
         {
             ConnectionAttemptTelemetry::candidate(self.telemetry.clone(), Transport::Http3, family)
         } else {

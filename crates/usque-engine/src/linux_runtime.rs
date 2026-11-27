@@ -137,6 +137,7 @@ pub(crate) struct LinuxVpnRuntime {
     replacement_target: Option<Uuid>,
     replacement_source: Option<Uuid>,
     target_committed: bool,
+    connected_tun_probe_supported: bool,
 }
 impl std::ops::Deref for LinuxVpnRuntime {
     type Target = DataPlaneRuntime;
@@ -368,6 +369,7 @@ impl LinuxVpnRuntime {
             replacement_target: None,
             replacement_source: None,
             target_committed: true,
+            connected_tun_probe_supported: caps.connected_endpoint_probe_leases,
         };
         startup.armed = false;
         let activation = async {
@@ -428,6 +430,18 @@ impl LinuxVpnRuntime {
         &self,
     ) -> Option<(Arc<dyn SocketProtector>, CancellationToken)> {
         Some(self.tunnel.diagnostic_dns_context())
+    }
+    pub(crate) fn probe_protector(
+        &self,
+        dns_hostname: Option<String>,
+    ) -> Option<(Arc<dyn SocketProtector>, CancellationToken)> {
+        Some((
+            self.protector.probe_protector(dns_hostname),
+            self.cancel.clone(),
+        ))
+    }
+    pub(crate) fn connected_tun_probe_supported(&self) -> bool {
+        self.connected_tun_probe_supported
     }
     pub(crate) fn needs_warp_bootstrap(&self) -> bool {
         false
@@ -636,7 +650,8 @@ impl LinuxVpnRuntime {
             .collect::<Result<Vec<std::net::SocketAddr>, _>>()
             .map_err(error)?;
         let mut plan = desktop_tunnel_plan::tunnel_plan(profile, &identity, &registration, true);
-        validate_capabilities(&self.agent.capabilities().await?, profile)?;
+        let caps = self.agent.capabilities().await?;
+        validate_capabilities(&caps, profile)?;
         let state = self.agent.state().await?;
         let target = self.replacement_target.unwrap_or_else(Uuid::new_v4);
         self.tunnel.quiesce_final();
@@ -708,6 +723,7 @@ impl LinuxVpnRuntime {
         self.replacement_target = None;
         self.replacement_source = None;
         self.retained = false;
+        self.connected_tun_probe_supported = caps.connected_endpoint_probe_leases;
         Ok(())
     }
     pub(crate) async fn shutdown(&mut self) -> io::Result<()> {
@@ -864,6 +880,17 @@ pub(crate) fn validate_capabilities(
     }
     if profile.endpoint.preset_region.is_some() && !caps.endpoint_preset_leases {
         return Err(error("Linux Agent does not support preset endpoint leases"));
+    }
+    if profile.endpoint.subscription_id.is_some()
+        && profile
+            .subscription_endpoint
+            .as_ref()
+            .is_some_and(|ep| ep.host.is_domain())
+        && !caps.dynamic_hostname_endpoint_leases
+    {
+        return Err(error(
+            "Linux Agent does not support domain endpoint subscription leases",
+        ));
     }
     Ok(())
 }

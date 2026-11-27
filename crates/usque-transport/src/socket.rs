@@ -556,6 +556,87 @@ pub trait SocketProtector: Send + Sync {
         }
         Ok(addresses)
     }
+
+    /// Resolves a subscription endpoint hostname on the active physical network
+    /// for a specific generation, honoring `ip_policy`.
+    async fn resolve_endpoint_hostname(
+        &self,
+        host: &str,
+        port: u16,
+        ip_policy: usque_core::IpPolicy,
+        expected_generation: u64,
+    ) -> Result<Vec<SocketAddr>, String> {
+        crate::endpoint_subscription::resolve_physical_endpoint_hostname(
+            self,
+            host,
+            port,
+            ip_policy,
+            expected_generation,
+        )
+        .await
+    }
+
+    /// Authorizes dynamic IP candidates for an active subscription hostname in
+    /// the platform firewall / tunnel plan on `expected_generation`.
+    async fn authorize_endpoint_hostname_candidates(
+        &self,
+        _host: &str,
+        _candidates: &[SocketAddr],
+        expected_generation: u64,
+    ) -> Result<(), String> {
+        if self.network_generation().unwrap_or_default() != expected_generation {
+            return Err(STALE_GENERATION_REASON.to_owned());
+        }
+        Ok(())
+    }
+
+    /// Acquires a bounded volatile firewall permit lease for probing MASQUE
+    /// targets while TUN/Kill Switch is connected.
+    async fn acquire_endpoint_probe_lease(
+        &self,
+        _probe_session_id: &str,
+        _targets: &[ProbeLeaseTarget],
+        _dns_hostname: Option<&str>,
+        expected_generation: u64,
+    ) -> Result<EndpointProbeLeaseHandle, String> {
+        if self.requires_owned_sockets() {
+            return Err("AGENT_CAPABILITY_REQUIRED:connected_endpoint_probe_leases".to_owned());
+        }
+        if self.network_generation().unwrap_or_default() != expected_generation {
+            return Err(STALE_GENERATION_REASON.to_owned());
+        }
+        Ok(EndpointProbeLeaseHandle {
+            lease_id: String::new(),
+            expires_at_unix_ms: 0,
+        })
+    }
+
+    /// Releases a previously acquired endpoint probe lease.
+    async fn release_endpoint_probe_lease(
+        &self,
+        _probe_session_id: &str,
+        _lease_id: &str,
+    ) -> Result<(), String> {
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProbeTransportProtocol {
+    Udp,
+    Tcp,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ProbeLeaseTarget {
+    pub addr: SocketAddr,
+    pub protocol: ProbeTransportProtocol,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EndpointProbeLeaseHandle {
+    pub lease_id: String,
+    pub expires_at_unix_ms: u64,
 }
 
 #[derive(Debug, Default)]
@@ -574,6 +655,16 @@ impl SocketProtector for NoopSocketProtector {
         _expected_generation: u64,
     ) -> Result<Vec<SocketAddr>, String> {
         crate::endpoint_preset::resolve_system_ipv6(host, port).await
+    }
+
+    async fn resolve_endpoint_hostname(
+        &self,
+        host: &str,
+        port: u16,
+        ip_policy: usque_core::IpPolicy,
+        _expected_generation: u64,
+    ) -> Result<Vec<SocketAddr>, String> {
+        crate::endpoint_subscription::resolve_system_endpoint_hostname(host, port, ip_policy).await
     }
 }
 

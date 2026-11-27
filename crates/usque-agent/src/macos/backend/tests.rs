@@ -125,6 +125,10 @@ fn fixture() -> (tempfile::TempDir, NativeBackend<FakeRunner>, Fence) {
         active: false,
         uncertain: false,
         preset_candidates: vec![],
+        hostname_candidates: vec![],
+        active_probe_lease: None,
+        next_probe_lease: 0,
+        retired_probe_sockets: std::collections::BTreeSet::new(),
         snapshot: physical,
         boot: || Ok(Uuid::from_u128(42)),
     };
@@ -371,6 +375,7 @@ fn lan_capture_is_independent_of_allow_lan_and_keeps_both_families_in_shared_rul
         defer_network_configuration: false,
         automatic_endpoint_policy: None,
         preset_endpoint_policy: None,
+        hostname_endpoint_policy: None,
     };
     let interface = InterfaceReceipt {
         name: "utun4".into(),

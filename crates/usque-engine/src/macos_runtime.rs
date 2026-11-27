@@ -956,6 +956,8 @@ impl ControlService {
             .await
             .runtime_profile(profile_id)
             .ok_or(ControlServiceError::ProfileNotFound(profile_id))?;
+        self.hydrate_profile_subscription_endpoint(&mut profile)
+            .await?;
         self.attach_proxy_auth(&mut profile).await?;
         if !profile.frontends.tunnel {
             // Releasing protection for a proxy-only target is an explicit user

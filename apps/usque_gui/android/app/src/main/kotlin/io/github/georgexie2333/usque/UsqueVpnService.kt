@@ -70,6 +70,8 @@ class UsqueVpnService : VpnService() {
         const val MSG_TILE_SNAPSHOT = 21
         const val MSG_PROTON_VPN = 22
         const val MSG_SCENARIOS = 23
+        const val MSG_ENDPOINT_SUBSCRIPTIONS = 24
+        const val MSG_ENDPOINT_SUBSCRIPTION_EVENT = 25
 
         private const val NATIVE_STATUS_INTERVAL_MILLIS = 1_000L
         private const val PHYSICAL_NETWORK_WAIT_MILLIS = 8_000L
@@ -146,6 +148,10 @@ class UsqueVpnService : VpnService() {
     private val clearAllRequested = AtomicBoolean()
     private val activeProfileJson = AtomicReference<String?>(null)
     private val settingsExecutor = Executors.newSingleThreadExecutor()
+    private val subscriptionExecutor =
+        Executors.newCachedThreadPool { task ->
+            Thread(task, "usque-android-sub").apply { isDaemon = true }
+        }
     private val handoffDirectory: File by lazy { LargeIpcPayload.directory(this) }
     private val settingsApplication = NetworkSettingsApplicationTracker()
     private var settingsStateJson: String? = null
@@ -222,6 +228,11 @@ class UsqueVpnService : VpnService() {
                 when (message.what) {
                     MSG_SCENARIOS -> {
                         networkSettingsRequest(Message.obtain(message))
+                        true
+                    }
+
+                    MSG_ENDPOINT_SUBSCRIPTIONS -> {
+                        endpointSubscriptionRequest(Message.obtain(message))
                         true
                     }
 
@@ -612,6 +623,9 @@ class UsqueVpnService : VpnService() {
         submitNativeStop(beginNativeStop(previousLogContext))
         engineExecutor.shutdownNow()
         settingsExecutor.shutdownNow()
+        // NativeEngine.cancel() above already cancelled in-flight downloads
+        // and probes; no new subscription work may start on this service.
+        subscriptionExecutor.shutdownNow()
         statusExecutor.shutdownNow()
         stopExecutor.shutdown()
         networkMonitor.unregister(getSystemService(ConnectivityManager::class.java))
@@ -686,7 +700,13 @@ class UsqueVpnService : VpnService() {
                 broadcastSnapshot()
                 return
             }
-        if (continuous && nativeRuntimeActive.get() && activeProfileJson.get() == profileJson) {
+        // Only a repeated user connect intent may join the running continuous
+        // session. A settings or reconfigure cold reconnect has already
+        // published its target as the active profile and must still restart.
+        if (
+            continuous && newSession && settingsToken == null && !networkRecovery &&
+            nativeRuntimeActive.get() && activeProfileJson.get() == profileJson
+        ) {
             NativeEngine.wakeRecovery()
             return
         }
@@ -2646,6 +2666,203 @@ class UsqueVpnService : VpnService() {
     ) {
         request.replyTo?.let { client ->
             sendSettings(client, Message.obtain(null, request.what, request.arg1, 0), json, error)
+        }
+    }
+
+    @Keep
+    fun onEndpointSubscriptionProbeProgress(json: String) {
+        mainHandler.post {
+            if (destroyed) return@post
+            eventClients.toList().forEach { client ->
+                var handoff: LargeIpcPayload.Handoff? = null
+                try {
+                    val message = Message.obtain(null, MSG_ENDPOINT_SUBSCRIPTION_EVENT)
+                    message.data =
+                        Bundle().apply {
+                            handoff = LargeIpcPayload.putString(handoffDirectory, this, "probe_progress", json)
+                        }
+                    client.send(message)
+                } catch (_: Exception) {
+                    handoff?.let { LargeIpcPayload.discard(listOf(it)) }
+                }
+            }
+        }
+    }
+
+    private fun endpointSubscriptionRequest(request: Message) {
+        if (clearAllRequested.get() || destroyed) {
+            replySettings(request, null, "SUBSCRIPTION_STORAGE_UNAVAILABLE")
+            return
+        }
+        val rawRequest = request.data.getString("settings_request").orEmpty()
+        val parsedRequest = runCatching { JSONObject(rawRequest) }.getOrNull()
+        val action = parsedRequest?.optString("action")
+        val validActions =
+            setOf(
+                "list",
+                "add",
+                "update",
+                "delete",
+                "refresh",
+                "cancel_refresh",
+                "select_endpoint",
+                "deactivate",
+                "set_pinned",
+                "start_probe",
+                "cancel_probe",
+            )
+        if (action == null || action !in validActions) {
+            replySettings(request, null, "SUBSCRIPTION_INVALID_REQUEST")
+            return
+        }
+        val generation = connectionGeneration.get()
+        settingsApplication.cancelIfStale(generation)
+        val phase = snapshotState.phase
+        val available =
+            !destroyed && !settingsApplication.busy && !settingsUncertain && !runtimeReconfigureInFlight &&
+                nativeRuntimeActive.get() && phase in setOf("connected", "degraded")
+        // An update can re-tier the active subscription and clear its binding,
+        // so it joins the settings transaction and its reconnect like delete.
+        val mutatingEndpoint = action in setOf("select_endpoint", "deactivate", "delete", "update")
+        if (mutatingEndpoint &&
+            (
+                settingsApplication.busy || settingsUncertain || runtimeReconfigureInFlight ||
+                    phase !in setOf("disconnected", "idle", "error", "connected", "degraded")
+            )
+        ) {
+            replySettings(request, null, "SUBSCRIPTION_BUSY")
+            return
+        }
+        val token = if (mutatingEndpoint && available) settingsApplication.begin(generation) else null
+        val executor = if (mutatingEndpoint) settingsExecutor else subscriptionExecutor
+        executor.execute {
+            var secret = ByteArray(0)
+            val outcome =
+                runCatching {
+                    val envelope =
+                        JSONObject()
+                            .put("request", parsedRequest)
+                            .put("phase", phase)
+                            .put("available", available)
+                            .put("session_id", generation.toString())
+                            .put("allow_physical", cataloguePhysicalAllowed())
+                    if (action == "start_probe") {
+                        val catalog =
+                            JSONObject(
+                                requireNotNull(
+                                    NativeEngine.applyProfileCommand(
+                                        settingsPath,
+                                        """{"command":"list_profiles"}""",
+                                    ),
+                                ),
+                            )
+                        val activeId = catalog.optString("active_profile_id")
+                        val profiles = catalog.optJSONArray("profiles")
+                        val activeProfile =
+                            if (profiles != null) {
+                                (0 until profiles.length())
+                                    .asSequence()
+                                    .map { profiles.getJSONObject(it) }
+                                    .firstOrNull { it.optString("id") == activeId }
+                            } else {
+                                null
+                            }
+                        if (activeId.isBlank() || activeProfile == null) {
+                            error("WARP_IDENTITY_REQUIRED")
+                        }
+                        secret = loadWarpSecret(activeId, activeProfile.toString(), readOnly = true)
+                            ?: error("WARP_IDENTITY_REQUIRED")
+                    }
+                    JSONObject(
+                        requireNotNull(
+                            NativeEngine.endpointSubscriptionCommand(
+                                settingsPath,
+                                envelope.toString(),
+                                secret,
+                                this,
+                            ),
+                        ),
+                    )
+                }.also {
+                    secret.fill(0)
+                }
+            mainHandler.post {
+                val source = outcome.getOrNull()
+                if (source == null) {
+                    if (token != null) settingsApplication.finish(token, generation)
+                    val msg = outcome.exceptionOrNull()?.message
+                    val code =
+                        msg?.takeIf {
+                            it.matches(Regex("(SUBSCRIPTION_[A-Z_]{1,64}|WARP_IDENTITY_REQUIRED)"))
+                        } ?: "SUBSCRIPTION_STORAGE_UNAVAILABLE"
+                    replySettings(request, null, code)
+                    return@post
+                }
+                val target = source.optJSONObject("target")?.toString()
+                source.remove("target")
+                val settingsObj = source.optJSONObject("network_settings")
+                val settings = settingsObj?.toString()
+                val committedOpId =
+                    parsedRequest.optString("operation_id").ifEmpty {
+                        settingsObj?.optString("operation_id").orEmpty()
+                    }
+                source.remove("network_settings")
+                if (isCurrent(generation) && (token == null || settingsApplication.owns(token, generation))) {
+                    if (settings != null) publishSettings(settings)
+                }
+                replySettings(request, source.toString(), null)
+                if (token == null || !isCurrent(generation) || !settingsApplication.owns(token, generation)) return@post
+                val phaseReady = snapshotState.phase == "connected" || snapshotState.phase == "degraded"
+                if (target == null || !phaseReady || committedOpId.isEmpty()) {
+                    settingsApplication.finish(token, generation)
+                    observeNetworkSettings()
+                    return@post
+                }
+                if (!settingsApplication.committed(token, generation, committedOpId)) return@post
+                val reply =
+                    Messenger(
+                        Handler(Looper.getMainLooper()) { replyMessage ->
+                            val currentGeneration = connectionGeneration.get()
+                            if (!isCurrent(currentGeneration)) return@Handler true
+                            val application =
+                                settingsApplication.runtimeReplied(token, currentGeneration) ?: return@Handler true
+                            val errorCode = replyMessage.data.getString("control_error_code")
+                            if (errorCode != null) {
+                                val failedGeneration = application.generation
+                                val failure = NetworkSettingsRuntimeFailure.fromReply(application, errorCode)
+                                settingsUncertain = failure.uncertain
+                                settingsApplication.finish(token, failedGeneration)
+                                settingsExecutor.execute {
+                                    val json =
+                                        runCatching {
+                                            NativeEngine.networkSettings(
+                                                settingsPath,
+                                                failure.command(application).toString(),
+                                            )
+                                        }.getOrNull()
+                                    mainHandler.post {
+                                        if (isCurrent(failedGeneration) && settingsApplication.isLatest(token) &&
+                                            json != null
+                                        ) {
+                                            publishSettings(json)
+                                        }
+                                    }
+                                }
+                                return@Handler true
+                            }
+                            observeNetworkSettings()
+                            refreshNativeSnapshot()
+                            true
+                        },
+                    )
+                reconfigureConnection(
+                    Message.obtain(null, MSG_RECONFIGURE).apply {
+                        replyTo = reply
+                        data = Bundle().apply { putString(EXTRA_PROFILE_JSON, target) }
+                    },
+                    settingsToken = token,
+                )
+            }
         }
     }
 

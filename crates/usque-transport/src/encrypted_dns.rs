@@ -1835,6 +1835,52 @@ impl SocketProtector for ConfiguredDnsProtector {
             .authorize_endpoint_preset_candidates(host, candidates, expected_generation)
             .await
     }
+    async fn resolve_endpoint_hostname(
+        &self,
+        host: &str,
+        port: u16,
+        ip_policy: usque_core::IpPolicy,
+        expected_generation: u64,
+    ) -> Result<Vec<SocketAddr>, String> {
+        self.protector
+            .resolve_endpoint_hostname(host, port, ip_policy, expected_generation)
+            .await
+    }
+    async fn authorize_endpoint_hostname_candidates(
+        &self,
+        host: &str,
+        candidates: &[SocketAddr],
+        expected_generation: u64,
+    ) -> Result<(), String> {
+        self.protector
+            .authorize_endpoint_hostname_candidates(host, candidates, expected_generation)
+            .await
+    }
+    async fn acquire_endpoint_probe_lease(
+        &self,
+        probe_session_id: &str,
+        targets: &[crate::socket::ProbeLeaseTarget],
+        dns_hostname: Option<&str>,
+        expected_generation: u64,
+    ) -> Result<crate::socket::EndpointProbeLeaseHandle, String> {
+        self.protector
+            .acquire_endpoint_probe_lease(
+                probe_session_id,
+                targets,
+                dns_hostname,
+                expected_generation,
+            )
+            .await
+    }
+    async fn release_endpoint_probe_lease(
+        &self,
+        probe_session_id: &str,
+        lease_id: &str,
+    ) -> Result<(), String> {
+        self.protector
+            .release_endpoint_probe_lease(probe_session_id, lease_id)
+            .await
+    }
     async fn protect_endpoint_preset_dns_generation(
         &self,
         socket: SocketHandle,

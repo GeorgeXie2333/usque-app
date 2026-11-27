@@ -51,12 +51,15 @@ pub(crate) fn command(path: &str, request: &str) -> Result<String, String> {
         _ => None,
     };
     let parent = path.parent().ok_or("SCENARIO_INVALID_REQUEST")?;
+    crate::record_config_dir(parent);
     let store = ConfigStore::new(path);
     if operation.is_some() {
         // Reject a stale, unavailable or unauthorized activation before it
         // stops unrelated account, provider or catalogue work.
         let (mut context, stable, _, _) = owner_context(&envelope, operation)?;
         let mut config = load(&store)?;
+        context.current_subscription_endpoint =
+            crate::endpoint_subscriptions::current_subscription_endpoint(parent, &config);
         prepare(&config, &request, &envelope, parent, &mut context, stable)?;
         scenarios::command(&mut config, request.clone(), &context)
             .map_err(|error| error.to_string())?;
@@ -82,6 +85,8 @@ pub(crate) fn command(path: &str, request: &str) -> Result<String, String> {
         .load_or_default()
         .map_err(|_| "SCENARIO_STORAGE_UNAVAILABLE")?;
     resolve_unconfirmed(&store, &mut config)?;
+    context.current_subscription_endpoint =
+        crate::endpoint_subscriptions::current_subscription_endpoint(parent, &config);
     prepare(&config, &request, &envelope, parent, &mut context, stable)?;
     let mut result = scenarios::command(&mut config, request.clone(), &context)
         .map_err(|error| error.to_string())?;
@@ -123,12 +128,16 @@ pub(crate) fn command(path: &str, request: &str) -> Result<String, String> {
             let _ = usque_core::vpngate::CatalogueStore::new(parent).retain_selections(&retained);
         }
     }
-    let runtime_target = result.target.as_ref().map(|stored| {
+    let mut runtime_target = result.target.as_ref().map(|stored| {
         context.applied_profile.as_ref().map_or_else(
             || stored.clone(),
             |applied| scenarios::runtime_target(stored, applied),
         )
     });
+    if let Some(target) = runtime_target.as_mut() {
+        let _ =
+            crate::endpoint_subscriptions::hydrate_profile_in_dir(parent, Some(&config), target);
+    }
     let requires_runtime = stable
         && runtime_target.as_ref().is_some_and(|target| {
             context.applied_profile.as_ref().is_none_or(|applied| {
@@ -148,8 +157,12 @@ pub(crate) fn command(path: &str, request: &str) -> Result<String, String> {
         } else {
             ApplyStatus::Deferred
         };
-        let confirmed =
-            crate::network_settings::record_scenario_commit(&config, operation_id, apply_status)?;
+        let confirmed = crate::network_settings::record_scenario_commit(
+            &config,
+            parent,
+            operation_id,
+            apply_status,
+        )?;
         confirmed_operations.clone_from(&confirmed.persisted_operation_ids);
         // This marker is written only after the target commit returned success.
         // Failure to persist it cannot erase that process-local acknowledgement;
@@ -158,6 +171,9 @@ pub(crate) fn command(path: &str, request: &str) -> Result<String, String> {
             let _ = store.save(&config);
         }
         context.apply_status = confirmed.apply_status;
+        // The commit may have bound another subscription endpoint.
+        context.current_subscription_endpoint =
+            crate::endpoint_subscriptions::current_subscription_endpoint(parent, &config);
         result.response = scenarios::catalogue(&config, &context);
         result.response["persisted"] = json!(true);
         result.response["network_settings"] =
@@ -211,6 +227,7 @@ fn owner_context(
         session_id: (!matches!(envelope.phase.as_str(), "disconnected" | "idle"))
             .then(|| envelope.session_id.clone()),
         applied_profile: stable.then_some(state.applied_profile).flatten(),
+        current_subscription_endpoint: None,
         apply_status: if stable
             || state.operation_id.is_some()
                 && matches!(
@@ -252,7 +269,8 @@ fn prepare(
     let candidate =
         scenarios::candidate_profile(config, request).map_err(|error| error.to_string())?;
     if let Some(target) = candidate.as_ref() {
-        context.dependency_fingerprint = validate_dependencies(parent, target)?;
+        context.dependency_fingerprint =
+            validate_dependencies(parent, target, config.account_tier(target.id))?;
         if request.is_mutation() {
             if envelope.identity_account_id != Some(target.id) {
                 return Err("SCENARIO_ACCOUNT_UNAVAILABLE".into());
@@ -295,7 +313,11 @@ fn resolve_unconfirmed(
     Ok(())
 }
 
-fn validate_dependencies(parent: &Path, profile: &Profile) -> Result<String, String> {
+fn validate_dependencies(
+    parent: &Path,
+    profile: &Profile,
+    tier: Option<usque_core::EndpointPresetTier>,
+) -> Result<String, String> {
     profile
         .validate()
         .map_err(|_| "SCENARIO_INVALID_SETTINGS")?;
@@ -306,6 +328,11 @@ fn validate_dependencies(parent: &Path, profile: &Profile) -> Result<String, Str
         .validate_geo_cache(parent)
         .map_err(|_| "SCENARIO_RULES_UNAVAILABLE")?;
     let mut revisions = Vec::new();
+    if let Some(sub_rev) =
+        crate::endpoint_subscriptions::validate_scenario_subscription_at(parent, profile, tier)?
+    {
+        revisions.push(sub_rev);
+    }
     for code in &profile.geo_direct_countries {
         let country =
             usque_geo::CountryCode::parse(code).map_err(|_| "SCENARIO_INVALID_SETTINGS")?;

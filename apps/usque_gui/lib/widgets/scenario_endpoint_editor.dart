@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 
 import '../core/app_strings.dart';
 import '../models/app_models.dart';
+import '../models/endpoint_subscriptions.dart';
 import 'common.dart';
 import 'endpoint_fields.dart';
 import 'tv_text_input.dart';
@@ -20,6 +21,9 @@ class ScenarioEndpointEditor extends StatefulWidget {
     required this.strings,
     required this.onChanged,
     required this.enabled,
+    this.subscriptions = const <EndpointSubscription>[],
+    this.accountTier,
+    this.inheritsSubscriptionConfirmation = true,
     super.key,
   });
   final UsqueProfile value, account;
@@ -28,6 +32,13 @@ class ScenarioEndpointEditor extends StatefulWidget {
   final AppStrings strings;
   final ValueChanged<UsqueProfile> onChanged;
   final bool enabled;
+  final List<EndpointSubscription> subscriptions;
+  final EndpointSubscriptionTier? accountTier;
+
+  /// False after the scene was re-bound to another account: the draft's
+  /// subscription was never confirmed for this account, so only the
+  /// account's own current binding needs no Zero Trust warning.
+  final bool inheritsSubscriptionConfirmation;
 
   @override
   State<ScenarioEndpointEditor> createState() => ScenarioEndpointEditorState();
@@ -39,11 +50,31 @@ class ScenarioEndpointEditorState extends State<ScenarioEndpointEditor> {
   late EndpointSelection _selection;
   late EndpointPresetRegion _region;
   late bool _preset;
+  late bool _subscriptionMode;
+  String? _subscriptionId;
+  String? _initialSubscriptionId;
+  bool _ztSubscriptionConfirmed = false;
   bool _unlocked = false, _dialogOpen = false;
   final _v4Focus = FocusNode();
   bool get _managed => widget.identity.provider == IdentityProvider.zeroTrust;
+  bool get _subscriptionSupported =>
+      widget.capabilities?.endpointSubscriptions == true;
+  bool get _usingSubscription =>
+      _subscriptionSupported &&
+      _subscriptionMode &&
+      (_managed || _selection == EndpointSelection.custom);
   bool get _usingPreset =>
-      _preset && (_managed || _selection == EndpointSelection.custom);
+      !_usingSubscription &&
+      _preset &&
+      (_managed || _selection == EndpointSelection.custom);
+  List<EndpointSubscription> get _compatibleSubscriptions {
+    final tier = widget.accountTier;
+    if (tier == null) return const <EndpointSubscription>[];
+    return widget.subscriptions
+        .where((s) => s.accountTier == tier)
+        .toList(growable: false);
+  }
+
   bool get _registered =>
       InternetAddress.tryParse(widget.identity.registeredEndpointIpv4)?.type ==
           InternetAddressType.IPv4 &&
@@ -63,7 +94,8 @@ class ScenarioEndpointEditorState extends State<ScenarioEndpointEditor> {
     final inherited =
         _managed &&
         (value.endpointSelection == EndpointSelection.automatic ||
-            value.endpointPresetRegion != null);
+            value.endpointPresetRegion != null ||
+            value.endpointSubscriptionId != null);
     _savedV4 = inherited ? widget.account.endpointIpv4 : value.endpointIpv4;
     _savedV6 = inherited ? widget.account.endpointIpv6 : value.endpointIpv6;
     _v4 = TextEditingController(text: _savedV4);
@@ -71,7 +103,15 @@ class ScenarioEndpointEditorState extends State<ScenarioEndpointEditor> {
     _port = TextEditingController(text: '${value.endpointPort}');
     _sni = TextEditingController(text: value.sni);
     _selection = _managed ? EndpointSelection.custom : value.endpointSelection;
-    _preset = value.endpointPresetRegion != null;
+    _initialSubscriptionId = widget.inheritsSubscriptionConfirmation
+        ? value.endpointSubscriptionId
+        : widget.account.endpointSubscriptionId;
+    _subscriptionMode =
+        _subscriptionSupported && value.endpointSubscriptionId != null;
+    _subscriptionId =
+        value.endpointSubscriptionId ??
+        _compatibleSubscriptions.firstOrNull?.id;
+    _preset = !_subscriptionMode && value.endpointPresetRegion != null;
     _region = value.endpointPresetRegion ?? EndpointPresetRegion.us;
   }
 
@@ -81,6 +121,7 @@ class ScenarioEndpointEditorState extends State<ScenarioEndpointEditor> {
     if (oldWidget.identity != widget.identity ||
         oldWidget.account.id != widget.account.id) {
       _unlocked = false;
+      _ztSubscriptionConfirmed = false;
     }
   }
 
@@ -96,6 +137,7 @@ class ScenarioEndpointEditorState extends State<ScenarioEndpointEditor> {
   void _emit({IpPolicy? policy}) {
     final preserve =
         _usingPreset ||
+        _usingSubscription ||
         _selection == EndpointSelection.automatic ||
         (_managed && (!_ztSupported || !_registered));
     widget.onChanged(
@@ -103,6 +145,9 @@ class ScenarioEndpointEditorState extends State<ScenarioEndpointEditor> {
         endpointSelection: _selection,
         endpointPresetRegion: _usingPreset ? _region : null,
         clearEndpointPresetRegion: !_usingPreset,
+        endpointSubscriptionId: _usingSubscription ? _subscriptionId : null,
+        clearEndpointSubscriptionId:
+            !_usingSubscription || _subscriptionId == null,
         endpointIpv4: preserve ? _savedV4 : _v4.text.trim(),
         endpointIpv6: preserve ? _savedV6 : _v6.text.trim(),
         endpointPort: int.tryParse(_port.text) ?? 0,
@@ -110,6 +155,46 @@ class ScenarioEndpointEditorState extends State<ScenarioEndpointEditor> {
         ipPolicy: policy,
       ),
     );
+  }
+
+  Future<void> _customSourceChanged(EndpointCustomSource source) async {
+    if (_dialogOpen || !widget.enabled) return;
+    if (source == EndpointCustomSource.preset) {
+      _dialogOpen = true;
+      final identity = widget.identity;
+      final policy = !_ipv6Policy
+          ? await chooseEndpointPresetPolicy(context, widget.strings)
+          : widget.value.ipPolicy;
+      _dialogOpen = false;
+      if (!mounted ||
+          !widget.enabled ||
+          policy == null ||
+          identity != widget.identity) {
+        return;
+      }
+      setState(() {
+        _subscriptionMode = false;
+        _preset = true;
+      });
+      _emit(policy: policy);
+      return;
+    }
+    if (source == EndpointCustomSource.subscription) {
+      setState(() {
+        _preset = false;
+        _subscriptionMode = true;
+        if (!_compatibleSubscriptions.any((s) => s.id == _subscriptionId)) {
+          _subscriptionId = _compatibleSubscriptions.firstOrNull?.id;
+        }
+      });
+      _emit();
+      return;
+    }
+    setState(() {
+      _preset = false;
+      _subscriptionMode = false;
+    });
+    _emit();
   }
 
   Future<void> _presetMode(bool value) async {
@@ -150,11 +235,57 @@ class ScenarioEndpointEditorState extends State<ScenarioEndpointEditor> {
     _v4Focus.requestFocus();
   }
 
+  /// Why the last [prepareSave] refused, when the user must act on it. A
+  /// declined confirmation dialog needs no message and leaves this null.
+  String? prepareError;
+
   /// Presets require an IPv6 policy, including after a later policy edit.
   Future<bool> prepareSave() async {
+    prepareError = null;
     if (_dialogOpen) return false;
+    if (_usingSubscription) {
+      if (!_subscriptionSupported) {
+        prepareError = widget.strings.get('sub_err_unavailable');
+        return false;
+      }
+      if (widget.accountTier == null) {
+        prepareError = widget.strings.get('sub_verify_account');
+        return false;
+      }
+      if (_subscriptionId == null ||
+          !_compatibleSubscriptions.any((s) => s.id == _subscriptionId)) {
+        prepareError = widget.strings.get(
+          _compatibleSubscriptions.isEmpty
+              ? 'sub_no_matching_tier'
+              : 'sub_choose',
+        );
+        return false;
+      }
+      if (_managed &&
+          _subscriptionId != _initialSubscriptionId &&
+          !_ztSubscriptionConfirmed) {
+        _dialogOpen = true;
+        final identity = widget.identity;
+        final accepted = await showDialog<bool>(
+          context: context,
+          barrierDismissible: false,
+          builder: (_) => ZeroTrustEndpointWarning(strings: widget.strings),
+        );
+        _dialogOpen = false;
+        if (!mounted || accepted != true || identity != widget.identity) {
+          return false;
+        }
+        _ztSubscriptionConfirmed = true;
+      }
+      return true;
+    }
     if (_usingPreset) {
       if (widget.capabilities?.endpointPresets != true || !_verified) {
+        prepareError = widget.strings.get(
+          widget.capabilities?.endpointPresets != true
+              ? 'endpoint_preset_unsupported'
+              : 'endpoint_preset_verify',
+        );
         return false;
       }
       if (!_ipv6Policy) {
@@ -176,7 +307,9 @@ class ScenarioEndpointEditorState extends State<ScenarioEndpointEditor> {
   Widget build(BuildContext context) {
     final s = widget.strings;
     final addresses =
-        (_managed || _selection == EndpointSelection.custom) && !_usingPreset;
+        (_managed || _selection == EndpointSelection.custom) &&
+        !_usingPreset &&
+        !_usingSubscription;
     Widget address(
       TextEditingController controller,
       InternetAddressType type,
@@ -207,11 +340,30 @@ class ScenarioEndpointEditorState extends State<ScenarioEndpointEditor> {
       ztEditingSupported: _ztSupported,
       ztRegistered: _registered,
       ztUnlocked: _unlocked,
+      subscriptionSupported: _subscriptionSupported,
+      subscriptionMode: _subscriptionMode,
+      subscriptionId: _subscriptionId,
+      availableSubscriptions: _compatibleSubscriptions,
+      accountTierVerified: widget.accountTier != null,
       onSelection: (value) {
         setState(() => _selection = value);
         _emit();
       },
       onPresetMode: _presetMode,
+      onCustomSourceChanged: _customSourceChanged,
+      onSubscriptionIdChanged: (value) {
+        setState(() {
+          _subscriptionId = value;
+          _ztSubscriptionConfirmed = false;
+        });
+        _emit();
+      },
+      subscriptionMissingMessage:
+          _usingSubscription &&
+              _subscriptionId != null &&
+              !_compatibleSubscriptions.any((s) => s.id == _subscriptionId)
+          ? s.get('scenario_reference_missing')
+          : null,
       onRegion: (value) {
         setState(() => _region = value);
         _emit();

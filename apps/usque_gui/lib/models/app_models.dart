@@ -969,6 +969,7 @@ class UsqueProfile {
     this.ipPolicy = IpPolicy.automatic,
     this.endpointSelection = EndpointSelection.automatic,
     this.endpointPresetRegion,
+    this.endpointSubscriptionId,
     this.endpointIpv4 = defaultEndpointIpv4,
     this.endpointIpv6 = defaultEndpointIpv6,
     this.endpointPort = defaultEndpointPort,
@@ -1013,6 +1014,7 @@ class UsqueProfile {
   final IpPolicy ipPolicy;
   final EndpointSelection endpointSelection;
   final EndpointPresetRegion? endpointPresetRegion;
+  final String? endpointSubscriptionId;
   final String endpointIpv4;
   final String endpointIpv6;
   final int endpointPort;
@@ -1076,6 +1078,7 @@ class UsqueProfile {
       ipPolicy: IpPolicy.automatic,
       endpointSelection: EndpointSelection.automatic,
       clearEndpointPresetRegion: true,
+      clearEndpointSubscriptionId: true,
       endpointIpv4: defaultEndpointIpv4,
       endpointIpv6: defaultEndpointIpv6,
       endpointPort: defaultEndpointPort,
@@ -1105,6 +1108,8 @@ class UsqueProfile {
     EndpointSelection? endpointSelection,
     EndpointPresetRegion? endpointPresetRegion,
     bool clearEndpointPresetRegion = false,
+    String? endpointSubscriptionId,
+    bool clearEndpointSubscriptionId = false,
     String? endpointIpv4,
     String? endpointIpv6,
     int? endpointPort,
@@ -1147,6 +1152,9 @@ class UsqueProfile {
       endpointPresetRegion: clearEndpointPresetRegion
           ? null
           : endpointPresetRegion ?? this.endpointPresetRegion,
+      endpointSubscriptionId: clearEndpointSubscriptionId
+          ? null
+          : endpointSubscriptionId ?? this.endpointSubscriptionId,
       endpointIpv4: endpointIpv4 ?? this.endpointIpv4,
       endpointIpv6: endpointIpv6 ?? this.endpointIpv6,
       endpointPort: endpointPort ?? this.endpointPort,
@@ -1187,6 +1195,8 @@ class UsqueProfile {
       'ip_policy': ipPolicy.name,
       'endpoint_selection': endpointSelection.name,
       'endpoint_preset_region': endpointPresetRegion?.name,
+      if (endpointSubscriptionId != null)
+        'endpoint_subscription_id': endpointSubscriptionId,
       'endpoint_v4': endpointIpv4,
       'endpoint_v6': endpointIpv6,
       'endpoint_port': endpointPort,
@@ -1293,6 +1303,11 @@ class UsqueProfile {
       endpointPresetRegion: EndpointPresetRegion.parse(
         map['endpoint_preset_region'],
       ),
+      endpointSubscriptionId:
+          map['endpoint_subscription_id'] is String &&
+              (map['endpoint_subscription_id'] as String).trim().isNotEmpty
+          ? (map['endpoint_subscription_id'] as String).trim()
+          : null,
       endpointIpv4: _string(map, 'endpoint_v4'),
       endpointIpv6: _string(map, 'endpoint_v6'),
       endpointPort: _boundedInt(map, 'endpoint_port', 1, 65535),
@@ -2277,6 +2292,10 @@ class EngineCapabilities {
     this.encryptedWarpDns = false,
     this.quicMigration = false,
     this.automaticPmtu = false,
+    this.endpointSubscriptions = false,
+    this.endpointSubscriptionDomainEndpoints = false,
+    this.endpointSubscriptionProbe = false,
+    this.endpointSubscriptionConnectedTunProbe = false,
   });
 
   factory EngineCapabilities.fromMap(
@@ -2344,6 +2363,12 @@ class EngineCapabilities {
     encryptedWarpDns: map['encrypted_warp_dns'] == true,
     quicMigration: map['quic_migration'] == true,
     automaticPmtu: map['automatic_pmtu'] == true,
+    endpointSubscriptions: map['endpoint_subscriptions'] == true,
+    endpointSubscriptionDomainEndpoints:
+        map['endpoint_subscription_domain_endpoints'] == true,
+    endpointSubscriptionProbe: map['endpoint_subscription_probe'] == true,
+    endpointSubscriptionConnectedTunProbe:
+        map['endpoint_subscription_connected_tun_probe'] == true,
   );
 
   final bool vpn;
@@ -2402,6 +2427,10 @@ class EngineCapabilities {
   final bool encryptedWarpDns;
   final bool quicMigration;
   final bool automaticPmtu;
+  final bool endpointSubscriptions;
+  final bool endpointSubscriptionDomainEndpoints;
+  final bool endpointSubscriptionProbe;
+  final bool endpointSubscriptionConnectedTunProbe;
 
   @override
   bool operator ==(Object other) =>
@@ -2451,7 +2480,13 @@ class EngineCapabilities {
           encryptedDirectDns == other.encryptedDirectDns &&
           encryptedWarpDns == other.encryptedWarpDns &&
           quicMigration == other.quicMigration &&
-          automaticPmtu == other.automaticPmtu;
+          automaticPmtu == other.automaticPmtu &&
+          endpointSubscriptions == other.endpointSubscriptions &&
+          endpointSubscriptionDomainEndpoints ==
+              other.endpointSubscriptionDomainEndpoints &&
+          endpointSubscriptionProbe == other.endpointSubscriptionProbe &&
+          endpointSubscriptionConnectedTunProbe ==
+              other.endpointSubscriptionConnectedTunProbe;
 
   @override
   int get hashCode => Object.hash(
@@ -2497,8 +2532,14 @@ class EngineCapabilities {
     ),
     networkQuality,
     Object.hash(encryptedDirectDns, encryptedWarpDns),
-    quicMigration,
-    automaticPmtu,
+    Object.hash(
+      quicMigration,
+      automaticPmtu,
+      endpointSubscriptions,
+      endpointSubscriptionDomainEndpoints,
+      endpointSubscriptionProbe,
+      endpointSubscriptionConnectedTunProbe,
+    ),
   );
 }
 

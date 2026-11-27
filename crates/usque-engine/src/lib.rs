@@ -61,6 +61,7 @@ type DataPlaneSlot = Mutex<Option<ActiveDataPlane>>;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 mod desktop_chain;
 pub mod diagnostics;
+mod endpoint_subscriptions;
 #[cfg(any(windows, target_os = "macos", target_os = "linux", test))]
 mod event_stream;
 mod gui_startup;
@@ -233,6 +234,7 @@ pub struct ControlServiceState {
     test_windows_agent: Mutex<Option<windows_agent::WindowsAgentClient>>,
     #[cfg(any(windows, target_os = "macos", target_os = "linux", test))]
     event_sequence: AtomicU64,
+    endpoint_subscriptions: endpoint_subscriptions::EndpointSubscriptionRuntime,
     #[cfg(test)]
     remote_license_unbinds: Mutex<Vec<Uuid>>,
 }
@@ -549,6 +551,7 @@ impl ControlService {
         let retained = usque_core::scenarios::retained_vpn_gate_selections(&config);
         let _ = usque_core::vpngate::CatalogueStore::new(&cache_dir).recover_references(&retained);
         let (geo_progress_tx, _) = tokio::sync::broadcast::channel(16);
+        let (probe_progress_tx, _) = tokio::sync::broadcast::channel(32);
         let (network_quality_tx, _) = watch::channel(network_quality::disconnected_snapshot());
         let (settings_tx, _) = watch::channel(0);
         Ok(Self {
@@ -621,7 +624,7 @@ impl ControlService {
                 continuous_connection: Mutex::new(None),
                 proton_selection: Default::default(),
                 cache_dir,
-                profile_dir,
+                profile_dir: profile_dir.clone(),
                 chain_cipher,
                 geo_progress_tx,
                 network_quality_tx,
@@ -652,6 +655,10 @@ impl ControlService {
                 test_windows_agent: Mutex::new(None),
                 #[cfg(any(windows, target_os = "macos", target_os = "linux", test))]
                 event_sequence: AtomicU64::new(0),
+                endpoint_subscriptions: endpoint_subscriptions::EndpointSubscriptionRuntime::new(
+                    &profile_dir,
+                    probe_progress_tx,
+                ),
                 #[cfg(test)]
                 remote_license_unbinds: Mutex::new(Vec::new()),
             }),
@@ -1155,6 +1162,11 @@ impl ControlService {
             control_request::Payload::Scenario(request) => Ok(control_response::Payload::Scenario(
                 Box::pin(self.scenario_command(request)).await?,
             )),
+            control_request::Payload::EndpointSubscription(request) => {
+                Ok(control_response::Payload::EndpointSubscription(
+                    Box::pin(self.endpoint_subscription_command(request)).await?,
+                ))
+            }
             control_request::Payload::ProtonVpn(request) => {
                 Ok(control_response::Payload::ProtonVpn(
                     Box::pin(self.proton_vpn_command(request)).await?,
@@ -1207,7 +1219,7 @@ impl ControlService {
                 Ok(control_response::Payload::ProfileList(catalog))
             }
             control_request::Payload::GetCapabilities(_) => Ok(
-                control_response::Payload::Capabilities(runtime_capabilities().await),
+                control_response::Payload::Capabilities(self.service_capabilities().await),
             ),
             control_request::Payload::ChainProfile(request) => {
                 Ok(control_response::Payload::ChainProfiles(
@@ -1874,6 +1886,14 @@ impl ControlService {
             return None;
         }
         let protector: Arc<dyn usque_transport::SocketProtector> = Arc::new(NoopSocketProtector);
+        // H3 probes dial the subscription's selected endpoint. An unresolved
+        // binding leaves no probe target rather than a dormant manual address.
+        let mut profile = profile;
+        let _ = tokio::time::timeout(
+            std::time::Duration::from_millis(250),
+            self.hydrate_profile_subscription_endpoint(&mut profile),
+        )
+        .await;
         let identity = tokio::time::timeout(
             std::time::Duration::from_millis(250),
             self.load_diagnostic_tls_identity(profile.id),
@@ -2594,6 +2614,15 @@ impl ControlService {
             .filter(|session| session.id == profile_id)
         {
             profile = session.clone();
+        }
+        if let Err(error) = self
+            .hydrate_profile_subscription_endpoint(&mut profile)
+            .await
+        {
+            if !startup_cancel.is_cancelled() {
+                self.mark_connection_error(&error).await;
+            }
+            return Err(error);
         }
         #[cfg(target_os = "macos")]
         let macos_dial_request = startup_wake
@@ -3657,6 +3686,9 @@ impl ControlService {
                 .runtime_profile(profile_id)
                 .ok_or(ControlServiceError::ProfileNotFound(profile_id))?;
             self.attach_proxy_auth(&mut profile).await?;
+            // The running profile carries a resolved subscription endpoint.
+            self.hydrate_profile_subscription_endpoint(&mut profile)
+                .await?;
             if matches!(
                 usque_core::classify_reconfigure(&previous, &profile),
                 usque_core::ReconfigureClass::PersistOnly
@@ -3825,6 +3857,9 @@ impl ControlService {
             cipher.reset_session_key();
         }
         self.maintenance.clear_local_state().await?;
+        self.endpoint_subscriptions
+            .cancel_active_tasks_and_clear()
+            .await?;
         *self.settings.lock().await = Default::default();
         self.settings_tx.send_replace(0);
         Ok(())
@@ -4328,6 +4363,14 @@ impl ControlService {
         is_zero_trust: bool,
     ) -> Result<(), ControlServiceError> {
         let profile_id = profile.id;
+        let entitlement = if matches!(identity_provider, IdentityProvider::Consumer) {
+            self.load_identity_metadata(profile_id)
+                .await
+                .ok()
+                .and_then(|metadata| metadata.entitlement)
+        } else {
+            None
+        };
         let mut committed = self.config.read().await.clone();
         committed
             .pending_identity_creations
@@ -4335,6 +4378,7 @@ impl ControlService {
         committed
             .identity_bindings
             .insert(profile.id, identity_provider);
+        committed.set_consumer_entitlement(profile.id, entitlement);
         if let Err(error) = committed.insert_account(profile.id, profile.name, managed_endpoint_ips)
         {
             self.abort_pending_identity_creation(profile.id).await;
@@ -4862,6 +4906,10 @@ impl ControlService {
             (IdentityProvider::ZeroTrust { .. }, None) => {}
         }
         next.identity_bindings.insert(profile_id, new_provider);
+        next.set_consumer_entitlement(profile_id, new_identity.entitlement());
+        if let Some(account) = next.account_mut(profile_id) {
+            account.zero_trust_subscription_id = None;
+        }
 
         let previous = match self.load_warp_identity(profile_id).await {
             Ok(identity) => Some(identity),
@@ -5148,6 +5196,7 @@ impl ControlService {
         }
         next.profiles.remove(index);
         next.identity_bindings.remove(&id);
+        next.set_consumer_entitlement(id, None);
         if next.active_profile_id == Some(id) {
             next.active_profile_id = next.profiles.first().map(|profile| profile.id);
         }
@@ -5211,6 +5260,8 @@ impl ControlService {
                     .await
                     .runtime_profile(id)
                     .ok_or(ControlServiceError::ProfileNotFound(id))?;
+                self.hydrate_profile_subscription_endpoint(&mut target)
+                    .await?;
                 self.attach_proxy_auth(&mut target).await?;
                 Box::pin(self.execute_settings_plan(
                     &target,
@@ -5443,6 +5494,8 @@ pub enum ControlServiceError {
     #[error("{0}")]
     Scenario(#[from] usque_core::scenarios::ScenarioError),
     #[error("{0}")]
+    EndpointSubscription(#[from] usque_core::endpoint_subscriptions::SubscriptionError),
+    #[error("{0}")]
     ScenarioUnavailable(&'static str),
     #[error("{0}")]
     VpnGate(usque_core::vpngate::DirectoryError),
@@ -5594,6 +5647,14 @@ impl ControlServiceError {
         }
         let (code, retryable) = match self {
             Self::Scenario(error) => (error.code(), false),
+            Self::EndpointSubscription(error) => (
+                error.code(),
+                matches!(
+                    error,
+                    usque_core::endpoint_subscriptions::SubscriptionError::Network
+                        | usque_core::endpoint_subscriptions::SubscriptionError::Timeout
+                ),
+            ),
             Self::ScenarioUnavailable(code) => (*code, true),
             Self::InvalidRequest(_) | Self::InvalidConfiguration(_) => ("INVALID_ARGUMENT", false),
             Self::InvalidDirectDnsConfiguration { code, .. } => (*code, false),
@@ -6190,6 +6251,11 @@ fn profile_from_proto(source: v1::Profile) -> Result<Profile, ControlServiceErro
                     )?,
                 )
             },
+            subscription_id: if endpoint.subscription_id.is_empty() {
+                None
+            } else {
+                Some(parse_profile_id(&endpoint.subscription_id)?)
+            },
         },
         ip_policy: match source.ip_policy {
             value if value == v1::IpPolicy::Unspecified as i32 => IpPolicy::Auto,
@@ -6288,6 +6354,7 @@ fn profile_from_proto(source: v1::Profile) -> Result<Profile, ControlServiceErro
         direct_dns,
         warp_dns,
         vpn_gate: vpngate::settings_from_proto(source.vpn_gate)?,
+        subscription_endpoint: None,
     };
     profile.canonicalize_mode();
     profile
@@ -6374,6 +6441,11 @@ pub(crate) fn profile_to_proto(profile: &Profile) -> v1::Profile {
                 .endpoint
                 .preset_region
                 .map(|region| region.as_str().to_owned())
+                .unwrap_or_default(),
+            subscription_id: profile
+                .endpoint
+                .subscription_id
+                .map(|id| id.to_string())
                 .unwrap_or_default(),
             ipv4: profile.endpoint.ipv4.to_string(),
             ipv6: profile.endpoint.ipv6.to_string(),
@@ -6507,7 +6579,9 @@ fn profile_list_to_proto(config: &AppConfig) -> v1::ProfileList {
                 .iter()
                 .map(|account| v1::Profile {
                     routing: None,
-                    ..profile_to_proto(&network.hydrate(account))
+                    ..profile_to_proto(
+                        &network.hydrate_for_tier(account, config.account_tier(account.id)),
+                    )
                 })
                 .collect()
         },
@@ -6567,14 +6641,15 @@ async fn runtime_capabilities() -> v1::Capabilities {
             let agent = linux_agent::LinuxAgentClient::connect().await.ok()?;
             let caps = agent.capabilities().await.ok()?;
             linux_runtime::validate_capabilities(&caps, &Profile::default()).ok()?;
-            Some(())
+            Some(caps.connected_endpoint_probe_leases)
         };
-        capabilities.vpn = tokio::time::timeout(std::time::Duration::from_secs(5), available)
+        let connected_probe = tokio::time::timeout(std::time::Duration::from_secs(5), available)
             .await
             .ok()
-            .flatten()
-            .is_some();
+            .flatten();
+        capabilities.vpn = connected_probe.is_some();
         capabilities.l4_tun_tcp = capabilities.vpn;
+        capabilities.endpoint_subscription_connected_tun_probe = connected_probe.unwrap_or(false);
         capabilities
     }
     #[cfg(all(target_os = "macos", not(test)))]
@@ -6594,10 +6669,27 @@ async fn runtime_capabilities() -> v1::Capabilities {
         capabilities.vpn = status.as_ref().is_some_and(macos_agent::capability);
         capabilities.l4_tun_tcp = capabilities.vpn;
         capabilities.platform_lockdown = capabilities.vpn;
+        capabilities.endpoint_subscription_connected_tun_probe = capabilities.vpn
+            && status
+                .as_ref()
+                .is_some_and(|s| s.connected_endpoint_probe_leases);
         capabilities
     }
     #[cfg(not(all(any(target_os = "linux", target_os = "macos"), not(test))))]
     current_capabilities()
+}
+
+impl ControlService {
+    pub(crate) async fn service_capabilities(&self) -> v1::Capabilities {
+        let mut caps = runtime_capabilities().await;
+        if let Some(active) = self.data_plane.lock().await.as_ref()
+            && active.runtime.is_vpn()
+        {
+            caps.endpoint_subscription_connected_tun_probe =
+                active.runtime.connected_tun_probe_supported();
+        }
+        caps
+    }
 }
 
 fn current_capabilities() -> v1::Capabilities {
@@ -6686,6 +6778,10 @@ fn current_capabilities() -> v1::Capabilities {
         encrypted_warp_dns: usque_transport::ENCRYPTED_DIRECT_DNS_ENABLED,
         quic_migration: usque_transport::PRODUCTION_NETWORK_FEATURES.quic_migration,
         automatic_pmtu: usque_transport::PRODUCTION_NETWORK_FEATURES.automatic_pmtu,
+        endpoint_subscriptions: true,
+        endpoint_subscription_domain_endpoints: true,
+        endpoint_subscription_probe: true,
+        endpoint_subscription_connected_tun_probe: cfg!(windows),
     }
 }
 
@@ -7139,6 +7235,7 @@ mod tests {
                 name: format!("Account {}", config.profiles.len()),
                 managed_endpoint_ips: None,
                 zero_trust_endpoint_override: None,
+                zero_trust_subscription_id: None,
             });
         }
         config.validate().unwrap();
@@ -7841,7 +7938,7 @@ mod tests {
         test_identity_with_entitlement(provider, license, entitlement)
     }
 
-    fn test_identity_with_entitlement(
+    pub(crate) fn test_identity_with_entitlement(
         provider: IdentityProvider,
         license: Option<&str>,
         entitlement: Option<ConsumerEntitlement>,
@@ -8338,6 +8435,7 @@ mod tests {
                 sni: usque_core::ZERO_TRUST_SNI.to_owned(),
                 selection: usque_core::EndpointSelection::Custom,
                 preset_region: None,
+                subscription_id: None,
             },
             ..Profile::default()
         };
@@ -9733,6 +9831,7 @@ mod tests {
             sni: usque_core::ZERO_TRUST_SNI.to_owned(),
             selection: usque_core::EndpointSelection::Custom,
             preset_region: None,
+            subscription_id: None,
         };
         service
             .update_config(move |latest| {
@@ -10495,6 +10594,7 @@ mod tests {
             sni: "shared.example.com".to_owned(),
             selection: usque_core::EndpointSelection::Custom,
             preset_region: None,
+            subscription_id: None,
         };
         let managed = ManagedEndpointIps {
             ipv4: "162.159.197.8".parse().unwrap(),

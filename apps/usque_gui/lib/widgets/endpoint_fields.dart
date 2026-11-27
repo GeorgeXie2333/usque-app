@@ -3,8 +3,11 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../core/app_strings.dart';
 import '../models/app_models.dart';
+import '../models/endpoint_subscriptions.dart';
 import 'common.dart';
 import 'usque_dialog.dart';
+
+enum EndpointCustomSource { manual, preset, subscription }
 
 /// Shared presentation only: callers own drafts, validation and persistence.
 class EndpointFields extends StatelessWidget {
@@ -27,6 +30,15 @@ class EndpointFields extends StatelessWidget {
     required this.onUnlock,
     required this.fields,
     required this.ipPolicyField,
+    this.subscriptionSupported = false,
+    this.subscriptionMode = false,
+    this.subscriptionId,
+    this.availableSubscriptions = const <EndpointSubscription>[],
+    this.accountTierVerified = true,
+    this.onCustomSourceChanged,
+    this.onSubscriptionIdChanged,
+    this.onManageSubscriptions,
+    this.subscriptionMissingMessage,
     super.key,
   });
   final AppStrings strings;
@@ -40,16 +52,40 @@ class EndpointFields extends StatelessWidget {
       presetVerified,
       ztEditingSupported,
       ztRegistered,
-      ztUnlocked;
+      ztUnlocked,
+      subscriptionSupported,
+      subscriptionMode,
+      accountTierVerified;
+  final String? subscriptionId;
+  final List<EndpointSubscription> availableSubscriptions;
   final ValueChanged<EndpointSelection> onSelection;
   final ValueChanged<bool> onPresetMode;
   final ValueChanged<EndpointPresetRegion> onRegion;
   final VoidCallback onUnlock;
+  final ValueChanged<EndpointCustomSource>? onCustomSourceChanged;
+  final ValueChanged<String?>? onSubscriptionIdChanged;
+  final VoidCallback? onManageSubscriptions;
+  final String? subscriptionMissingMessage;
   final Widget fields, ipPolicyField;
   bool get usingPreset =>
-      presetMode && (managed || selection == EndpointSelection.custom);
+      !usingSubscription &&
+      presetMode &&
+      (managed || selection == EndpointSelection.custom);
+  bool get usingSubscription =>
+      subscriptionSupported &&
+      subscriptionMode &&
+      (managed || selection == EndpointSelection.custom);
+  EndpointCustomSource get _customSource => usingSubscription
+      ? EndpointCustomSource.subscription
+      : usingPreset
+      ? EndpointCustomSource.preset
+      : EndpointCustomSource.manual;
   @override
   Widget build(BuildContext context) {
+    final validSubscriptionId =
+        availableSubscriptions.any((s) => s.id == subscriptionId)
+        ? subscriptionId
+        : null;
     final custom = managed || selection == EndpointSelection.custom;
     return FormGroup(
       title: strings.get('endpoint_section'),
@@ -87,7 +123,7 @@ class EndpointFields extends StatelessWidget {
               ),
             ),
           ),
-          if (!usingPreset) ...[
+          if (!usingPreset && !usingSubscription) ...[
             const SizedBox(height: 8),
             HintText(
               automaticAvailable
@@ -102,33 +138,73 @@ class EndpointFields extends StatelessWidget {
           const SizedBox(height: 16),
         ],
         if (custom) ...<Widget>[
-          LayoutBuilder(
-            builder: (context, constraints) => SegmentedButton<bool>(
-              key: const ValueKey('endpoint-custom-source'),
-              direction:
-                  constraints.maxWidth < 300 ||
-                      MediaQuery.textScalerOf(context).scale(1) > 1.3
-                  ? Axis.vertical
-                  : Axis.horizontal,
-              segments: [
-                ButtonSegment(
-                  value: false,
-                  label: Text(strings.get('endpoint_manual')),
-                ),
-                ButtonSegment(
-                  value: true,
-                  label: Text(strings.get('endpoint_presets')),
-                  enabled: presetSupported && presetVerified,
-                ),
-              ],
-              selected: {presetMode},
-              onSelectionChanged: saving
-                  ? null
-                  : (values) => onPresetMode(values.first),
-              showSelectedIcon: false,
+          if (!subscriptionSupported)
+            LayoutBuilder(
+              builder: (context, constraints) => SegmentedButton<bool>(
+                key: const ValueKey('endpoint-custom-source'),
+                direction:
+                    constraints.maxWidth < 300 ||
+                        MediaQuery.textScalerOf(context).scale(1) > 1.3
+                    ? Axis.vertical
+                    : Axis.horizontal,
+                segments: [
+                  ButtonSegment(
+                    value: false,
+                    label: Text(strings.get('endpoint_manual')),
+                  ),
+                  ButtonSegment(
+                    value: true,
+                    label: Text(strings.get('endpoint_presets')),
+                    enabled: presetSupported && presetVerified,
+                  ),
+                ],
+                selected: {presetMode},
+                onSelectionChanged: saving
+                    ? null
+                    : (values) => onPresetMode(values.first),
+                showSelectedIcon: false,
+              ),
+            )
+          else
+            LayoutBuilder(
+              builder: (context, constraints) =>
+                  SegmentedButton<EndpointCustomSource>(
+                    key: const ValueKey('endpoint-custom-source'),
+                    direction:
+                        constraints.maxWidth < 360 ||
+                            MediaQuery.textScalerOf(context).scale(1) > 1.3
+                        ? Axis.vertical
+                        : Axis.horizontal,
+                    segments: [
+                      ButtonSegment(
+                        value: EndpointCustomSource.manual,
+                        label: Text(strings.get('endpoint_manual')),
+                      ),
+                      ButtonSegment(
+                        value: EndpointCustomSource.preset,
+                        label: Text(strings.get('endpoint_presets')),
+                        enabled: presetSupported && presetVerified,
+                      ),
+                      ButtonSegment(
+                        value: EndpointCustomSource.subscription,
+                        label: Text(strings.get('endpoint_subscription_mode')),
+                      ),
+                    ],
+                    selected: {_customSource},
+                    onSelectionChanged: saving
+                        ? null
+                        : (values) {
+                            final next = values.first;
+                            if (onCustomSourceChanged != null) {
+                              onCustomSourceChanged!(next);
+                            } else {
+                              onPresetMode(next == EndpointCustomSource.preset);
+                            }
+                          },
+                    showSelectedIcon: false,
+                  ),
             ),
-          ),
-          if (!presetSupported || !presetVerified) ...[
+          if (!usingSubscription && (!presetSupported || !presetVerified)) ...[
             const SizedBox(height: 8),
             HintText(
               strings.get(
@@ -137,6 +213,57 @@ class EndpointFields extends StatelessWidget {
                     : 'endpoint_preset_verify',
               ),
             ),
+          ],
+          if (usingSubscription) ...[
+            const SizedBox(height: 16),
+            if (!accountTierVerified)
+              WarningBanner(
+                title: null,
+                message: strings.get('sub_verify_account'),
+              )
+            else if (availableSubscriptions.isEmpty && subscriptionId == null)
+              HintText(strings.get('sub_no_matching_tier'))
+            else
+              DropdownButtonFormField<String>(
+                // Key and value follow the same validated id, so a deleted or
+                // re-tiered subscription rebuilds the field without it.
+                key: ValueKey(
+                  'endpoint-subscription-picker-$validSubscriptionId',
+                ),
+                initialValue: validSubscriptionId,
+                style: FieldDropdown.valueStyle(context),
+                iconSize: FieldDropdown.iconSize,
+                isExpanded: true,
+                decoration: FieldDropdown.decoration(
+                  context,
+                  labelText: strings.get('endpoint_subscription_field'),
+                ),
+                items: [
+                  for (final sub in availableSubscriptions)
+                    DropdownMenuItem<String>(
+                      value: sub.id,
+                      child: Text(sub.name),
+                    ),
+                ],
+                onChanged: saving ? null : onSubscriptionIdChanged,
+              ),
+            if (subscriptionMissingMessage case final msg?) ...[
+              const SizedBox(height: 8),
+              HintText(msg),
+            ],
+            if (onManageSubscriptions != null) ...[
+              const SizedBox(height: 8),
+              Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: TextButton.icon(
+                  key: const ValueKey('endpoint-manage-subscriptions'),
+                  onPressed: saving ? null : onManageSubscriptions,
+                  icon: const Icon(LucideIcons.slidersHorizontal, size: 16),
+                  label: Text(strings.get('sub_manage')),
+                ),
+              ),
+            ],
+            const SizedBox(height: 16),
           ],
           if (usingPreset) ...[
             const SizedBox(height: 16),
@@ -169,9 +296,12 @@ class EndpointFields extends StatelessWidget {
             ],
             const SizedBox(height: 16),
           ],
-          if (!usingPreset) const SizedBox(height: 16),
+          if (!usingPreset && !usingSubscription) const SizedBox(height: 16),
         ],
-        if (managed && !usingPreset && !ztUnlocked) ...<Widget>[
+        if (managed &&
+            !usingPreset &&
+            !usingSubscription &&
+            !ztUnlocked) ...<Widget>[
           if (ztEditingSupported && ztRegistered)
             Align(
               alignment: AlignmentDirectional.centerStart,

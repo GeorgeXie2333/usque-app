@@ -54,6 +54,8 @@ pub(crate) struct MacAgentRuntime {
     tunnel: DataPlaneRuntime,
     identity: MasqueTlsIdentity,
     refresher: Arc<dyn EndpointPinRefresher>,
+    protector: Arc<MacSocketProtector>,
+    connected_tun_probe_supported: bool,
     agent: MacAgentClient,
     fence: p::MacosFence,
     cancel: CancellationToken,
@@ -132,6 +134,17 @@ impl MacAgentRuntime {
                 "macOS TUN acceptance or service preflight incomplete",
             ));
         }
+        if profile.endpoint.subscription_id.is_some()
+            && profile
+                .subscription_endpoint
+                .as_ref()
+                .is_some_and(|ep| ep.host.is_domain())
+            && !status.dynamic_hostname_endpoint_leases
+        {
+            return Err(io::Error::other(
+                "macOS Agent does not support domain endpoint subscription leases",
+            ));
+        }
         let physical = status
             .physical_network
             .ok_or_else(|| io::Error::other("physical network unavailable"))?;
@@ -198,7 +211,15 @@ impl MacAgentRuntime {
             resumed = resume,
             "macOS TUN Agent prepared the physical egress"
         );
-        let protector = MacSocketProtector::new(agent.clone(), fence.clone(), &physical, control)?;
+        let protector = MacSocketProtector::new(
+            agent.clone(),
+            fence.clone(),
+            &physical,
+            control,
+            plan.hostname_endpoint_policy
+                .as_ref()
+                .map(|p| p.hostname.clone()),
+        )?;
         let cancel = gate.cancellation.child_token();
         gate.cancellation = cancel.clone();
         let (failure_tx, failure) = watch::channel(None);
@@ -313,6 +334,8 @@ impl MacAgentRuntime {
             tunnel,
             identity,
             refresher,
+            protector,
+            connected_tun_probe_supported: status.connected_endpoint_probe_leases,
             agent,
             fence,
             cancel,
@@ -367,6 +390,18 @@ impl MacAgentRuntime {
     }
     pub fn diagnostic_dns_context(&self) -> Option<(Arc<dyn SocketProtector>, CancellationToken)> {
         Some(self.tunnel.diagnostic_dns_context())
+    }
+    pub fn probe_protector(
+        &self,
+        dns_hostname: Option<String>,
+    ) -> Option<(Arc<dyn SocketProtector>, CancellationToken)> {
+        Some((
+            self.protector.probe_protector(dns_hostname),
+            self.cancel.clone(),
+        ))
+    }
+    pub fn connected_tun_probe_supported(&self) -> bool {
+        self.connected_tun_probe_supported
     }
     pub fn failure(&self) -> Option<String> {
         self.failure

@@ -45,6 +45,7 @@ pub(crate) fn vpn_gate_epoch_guard(
 
 pub(crate) fn record_scenario_commit(
     config: &usque_core::AppConfig,
+    config_dir: &std::path::Path,
     operation_id: Uuid,
     apply_status: ApplyStatus,
 ) -> Result<NetworkSettingsState, String> {
@@ -55,7 +56,17 @@ pub(crate) fn record_scenario_commit(
     state.operation_id = Some(operation_id);
     state.persisted = Some(true);
     state.record_persisted_operation(operation_id);
-    state.stored_profile = config.active_profile();
+    // Compare like with like: the applied profile carries its resolved
+    // subscription endpoint, so the stored one must too.
+    let mut stored = config.active_profile();
+    if let Some(profile) = stored.as_mut() {
+        let _ = crate::endpoint_subscriptions::hydrate_profile_in_dir(
+            config_dir,
+            Some(config),
+            profile,
+        );
+    }
+    state.stored_profile = stored;
     state.shared_network_profile = Some(
         config
             .network
@@ -86,6 +97,45 @@ pub(crate) fn record_scenario_uncertain(
     state.error_code = Some("SCENARIO_COMMIT_UNCONFIRMED".into());
     state.advance();
     Ok(())
+}
+
+pub(crate) fn record_subscription_mutation(
+    config: &usque_core::AppConfig,
+    stored: &usque_core::Profile,
+    operation_id: Uuid,
+    phase: &str,
+    available: bool,
+    session_id: &str,
+) -> Result<(ApplyStatus, Option<usque_core::Profile>, Value), String> {
+    let mut state = STATE
+        .get_or_init(|| Mutex::new(NetworkSettingsState::default()))
+        .lock()
+        .map_err(|_| "SUBSCRIPTION_STORAGE_UNAVAILABLE")?;
+    let same_session = state.session_id.as_deref() == Some(session_id);
+    let (status, target) = crate::endpoint_subscriptions::plan_requires_runtime_target(
+        state
+            .applied_profile
+            .as_ref()
+            .filter(|_| available && same_session),
+        stored,
+        phase,
+        available && same_session,
+    );
+    state.operation_id = Some(operation_id);
+    state.persisted = Some(true);
+    state.record_persisted_operation(operation_id);
+    state.stored_profile = Some(stored.clone());
+    state.shared_network_profile = Some(
+        config
+            .network
+            .hydrate(&usque_core::Account::default_account()),
+    );
+    state.apply_status = status;
+    state.error_code = None;
+    state.advance();
+    let encoded = serde_json::from_str(&encode(&state, None)?)
+        .map_err(|_| "SUBSCRIPTION_STORAGE_UNAVAILABLE")?;
+    Ok((status, target, encoded))
 }
 
 #[derive(Default, Deserialize, PartialEq)]
@@ -153,6 +203,9 @@ pub(crate) fn command(path: &str, request: &str) -> Result<String, String> {
         })
         .transpose()?;
     let store = ConfigStore::new(path);
+    if let Some(dir) = path.parent() {
+        crate::record_config_dir(dir);
+    }
     let mut state = STATE
         .get_or_init(|| Mutex::new(NetworkSettingsState::default()))
         .lock()
@@ -174,6 +227,9 @@ pub(crate) fn command(path: &str, request: &str) -> Result<String, String> {
                 values: android_profile_to_core(values)?,
                 changed_fields,
             };
+            let dir = path
+                .parent()
+                .ok_or_else(|| "invalid configuration path".to_owned())?;
             let commit = store.update(|config| {
                 if patch.values.custom_chain().is_none()
                     && patch.changed_fields.iter().any(|f| f == "vpn_gate")
@@ -185,8 +241,24 @@ pub(crate) fn command(path: &str, request: &str) -> Result<String, String> {
                     )
                     .map_err(StoreError::NetworkSettings)?;
                 }
-                let profile = merge_patch(config, &patch)
+                // As on desktop: merge only the explicit fields first, then
+                // resolve the merged binding. An unrelated edit must not fail
+                // or rewrite selection because the submitted copy carries a
+                // stale or unresolved subscription.
+                let mut profile = merge_patch(config, &patch)
                     .map_err(|error| StoreError::NetworkSettings(error.to_string()))?;
+                let sub_changed = patch
+                    .changed_fields
+                    .iter()
+                    .any(|field| field == "endpoint.subscription_id");
+                let hydrated = crate::endpoint_subscriptions::hydrate_profile_in_dir(
+                    dir,
+                    Some(config),
+                    &mut profile,
+                );
+                if sub_changed && profile.endpoint.subscription_id.is_some() {
+                    hydrated.map_err(StoreError::NetworkSettings)?;
+                }
                 if profile.chain_enabled() && profile.custom_chain().is_some() {
                     crate::chain_exit::prepare(
                         path.parent().ok_or_else(|| {
@@ -199,7 +271,12 @@ pub(crate) fn command(path: &str, request: &str) -> Result<String, String> {
                 Ok(profile)
             });
             let stored = match commit {
-                Ok((config, profile)) => {
+                Ok((config, mut profile)) => {
+                    let _ = crate::endpoint_subscriptions::hydrate_profile_in_dir(
+                        dir,
+                        Some(&config),
+                        &mut profile,
+                    );
                     state.shared_network_profile = Some(
                         config
                             .network
@@ -263,6 +340,7 @@ pub(crate) fn command(path: &str, request: &str) -> Result<String, String> {
             if !crate::vpngate::cancel_refresh() {
                 return Err("VPN_GATE_CLEANUP_PENDING".into());
             }
+            crate::endpoint_subscriptions::signal_cancel();
             *state = NetworkSettingsState::default();
         }
         Command::Get => {
@@ -272,7 +350,15 @@ pub(crate) fn command(path: &str, request: &str) -> Result<String, String> {
             let config = store
                 .load_or_default()
                 .map_err(|_| "NETWORK_SETTINGS_UNCONFIRMED")?;
-            state.stored_profile = config.active_profile();
+            let mut stored = config.active_profile();
+            if let (Some(profile), Some(dir)) = (&mut stored, path.parent()) {
+                let _ = crate::endpoint_subscriptions::hydrate_profile_in_dir(
+                    dir,
+                    Some(&config),
+                    profile,
+                );
+            }
+            state.stored_profile = stored;
             state.shared_network_profile = Some(
                 config
                     .network
@@ -285,7 +371,12 @@ pub(crate) fn command(path: &str, request: &str) -> Result<String, String> {
             applying,
             unconfirmed,
         } => {
-            let profile = profile.map(android_profile_to_core).transpose()?;
+            let mut profile = profile.map(android_profile_to_core).transpose()?;
+            // The applied endpoint is what the runtime dials. A catalogue edit
+            // made after the session started must not read as applied.
+            if let Some(p) = &mut profile {
+                p.subscription_endpoint = running_subscription_endpoint(p);
+            }
             // Polling the unchanged session cannot turn a rejected application
             // into a success. A new save or changed session/profile retires it.
             let retain_rejection = !unconfirmed
@@ -324,8 +415,12 @@ pub(crate) fn command(path: &str, request: &str) -> Result<String, String> {
                 && (outcome != RuntimeFailureOutcome::Rejected
                     || state.operation_id == Some(operation_id))
             {
-                let confirmed_profile =
-                    confirmed_profile.and_then(|profile| android_profile_to_core(profile).ok());
+                let confirmed_profile = confirmed_profile
+                    .and_then(|profile| android_profile_to_core(profile).ok())
+                    .map(|mut profile| {
+                        profile.subscription_endpoint = running_subscription_endpoint(&profile);
+                        profile
+                    });
                 let retained = outcome == RuntimeFailureOutcome::Rejected
                     && confirmed_profile.is_some()
                     && confirmed_profile == state.applied_profile;
@@ -350,6 +445,9 @@ fn save_failure(error: StoreError) -> String {
         let message = message
             .strip_prefix("network settings validation failed: ")
             .unwrap_or(&message);
+        if message.starts_with("SUBSCRIPTION_") && message.len() <= 64 {
+            return message.to_owned();
+        }
         let parts = message.split(':').collect::<Vec<_>>();
         let count = match parts[0] {
             "ROUTING_RULE_CONFLICT" => Some(2),
@@ -610,6 +708,60 @@ mod tests {
     }
 
     #[test]
+    fn applied_subscription_endpoint_comes_from_the_running_session() {
+        let _test = TEST_STATE.lock().unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("profiles-v2.json");
+        let store = ConfigStore::new(&path);
+        let config = usque_core::AppConfig::default();
+        store.save(&config).unwrap();
+        let mut profile = config.active_profile().unwrap();
+        profile.endpoint.selection = usque_core::EndpointSelection::Custom;
+        profile.endpoint.subscription_id = Some(Uuid::new_v4());
+        let running = usque_core::endpoint_subscriptions::SubscriptionEndpoint {
+            id: "v4:162.159.193.10:2408".into(),
+            host: usque_core::endpoint_subscriptions::SubscriptionEndpointHost::Ipv4(
+                "162.159.193.10".parse().unwrap(),
+            ),
+            port: Some(2408),
+            note: String::new(),
+            pinned: false,
+        };
+        test_running_endpoint::set(Some(running.clone()));
+        let request = |value: Value| -> Value {
+            serde_json::from_str(&command(path.to_str().unwrap(), &value.to_string()).unwrap())
+                .unwrap()
+        };
+        request(json!({"command":"reset"}));
+        request(json!({
+            "command":"observe", "profile":profile_value(&profile),
+            "session_id":"7", "applying":false
+        }));
+        let applied = STATE.get().unwrap().lock().unwrap().applied_profile.clone();
+        assert_eq!(applied.unwrap().subscription_endpoint, Some(running));
+
+        // A rejected application whose confirmed profile is the running one
+        // keeps the applied session instead of clearing it.
+        let operation = Uuid::new_v4();
+        let mut desired = config.active_profile().unwrap();
+        desired.disable_quic = !desired.disable_quic;
+        request(json!({
+            "command":"save", "operation_id":operation, "account_id":profile.id,
+            "values":profile_value(&desired), "changed_fields":["disable_quic"],
+            "phase":"connected", "available":true, "session_id":"7"
+        }));
+        let result = request(json!({
+            "command":"failed", "operation_id":operation, "session_id":"7",
+            "outcome":"rejected", "confirmed_profile":profile_value(&profile)
+        }));
+        assert_eq!(
+            result["applied_profile"]["endpoint_subscription_id"],
+            json!(profile.endpoint.subscription_id.map(|id| id.to_string()))
+        );
+        test_running_endpoint::set(None);
+    }
+
+    #[test]
     fn json_readback_retains_durable_save_receipts_after_later_saves() {
         let _test = TEST_STATE.lock().unwrap();
         let directory = tempfile::tempdir().unwrap();
@@ -765,5 +917,40 @@ mod tests {
         assert_eq!(unconfirmed["apply_status"], "unknown");
         assert!(unconfirmed["applied_profile"].is_null());
         assert!(command(path, "{malformed").is_err());
+    }
+}
+
+/// The running runtime's resolved endpoint for a bound profile. Without a
+/// running session nothing is applied, so no endpoint is reported.
+fn running_subscription_endpoint(
+    profile: &usque_core::Profile,
+) -> Option<usque_core::endpoint_subscriptions::SubscriptionEndpoint> {
+    profile.endpoint.subscription_id?;
+    #[cfg(target_os = "android")]
+    {
+        crate::android_runtime::running_subscription_endpoint().flatten()
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        test_running_endpoint::get()
+    }
+}
+
+#[cfg(not(target_os = "android"))]
+pub(crate) mod test_running_endpoint {
+    use std::sync::Mutex;
+    use usque_core::endpoint_subscriptions::SubscriptionEndpoint;
+
+    static VALUE: Mutex<Option<SubscriptionEndpoint>> = Mutex::new(None);
+
+    pub(crate) fn get() -> Option<SubscriptionEndpoint> {
+        VALUE.lock().ok().and_then(|value| value.clone())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set(endpoint: Option<SubscriptionEndpoint>) {
+        if let Ok(mut value) = VALUE.lock() {
+            *value = endpoint;
+        }
     }
 }

@@ -205,6 +205,8 @@ internal class AndroidEngineMethodHandler(
 
         fun readPersistedScenarios(configPath: String): String? = null
 
+        fun readPersistedEndpointSubscriptions(configPath: String): String? = null
+
         fun isReady(): Boolean
 
         fun applyProfileCommand(
@@ -248,6 +250,14 @@ internal class AndroidEngineMethodHandler(
             NativeEngine.scenarioCommand(
                 configPath,
                 """{"request":{"action":"list"},"phase":"unknown","available":false,"session_id":"","vpn_authorized":false}""",
+            )
+
+        override fun readPersistedEndpointSubscriptions(configPath: String): String? =
+            NativeEngine.endpointSubscriptionCommand(
+                configPath,
+                """{"request":{"action":"list"},"phase":"disconnected","available":false,"session_id":"","allow_physical":false}""",
+                ByteArray(0),
+                null,
             )
 
         override fun isReady(): Boolean = NativeEngine.isReady()
@@ -427,10 +437,35 @@ internal class AndroidEngineMethodHandler(
             "scenarioCommand" -> {
                 val request = flutterValueToJson(call.arguments)
                 val passive = runCatching { ScenarioFields.action(request) == "list" }.getOrDefault(false)
-                controlClient.requestScenarios(
-                    request,
-                    if (passive) persistedReadFallback(result, scenario = true) else result,
-                )
+                if (passive) {
+                    controlClient.requestScenarios(request, persistedReadFallback(result, scenario = true))
+                } else {
+                    // A scene may bind a tier-matched subscription.
+                    afterEntitlementSync(result) { controlClient.requestScenarios(request, result) }
+                }
+            }
+
+            "endpointSubscriptionCommand" -> {
+                if (call.arguments !is Map<*, *>) {
+                    result.error("SUBSCRIPTION_INVALID_REQUEST", "The subscription request is malformed.", null)
+                    return
+                }
+                val request = flutterValueToJson(call.arguments)
+                val passive = runCatching { JSONObject(request).optString("action") == "list" }.getOrDefault(false)
+                val generation = dataGeneration.get()
+                identityExecutor.execute {
+                    runCatching { syncConsumerEntitlements() }
+                    mainScheduler.post {
+                        if (generation != dataGeneration.get() || controlClient.isClosed) {
+                            result.error("ENGINE_IPC_CLOSED", "The subscription service is unavailable.", null)
+                        } else {
+                            controlClient.requestEndpointSubscriptions(
+                                request,
+                                if (passive) persistedEndpointSubscriptionFallback(result) else result,
+                            )
+                        }
+                    }
+                }
             }
 
             "beginControlOperation" -> {
@@ -456,16 +491,12 @@ internal class AndroidEngineMethodHandler(
                     } else {
                         null
                     }
-                controlClient.requestNetworkSettings(
-                    request,
-                    if (request ==
-                        null
-                    ) {
-                        persistedReadFallback(result, scenario = false)
-                    } else {
-                        result
-                    },
-                )
+                if (request == null) {
+                    controlClient.requestNetworkSettings(null, persistedReadFallback(result, scenario = false))
+                } else {
+                    // Subscription bindings are resolved for the account tier.
+                    afterEntitlementSync(result) { controlClient.requestNetworkSettings(request, result) }
+                }
             }
 
             "getCapabilities" -> {
@@ -1813,6 +1844,105 @@ internal class AndroidEngineMethodHandler(
         }
     }
 
+    private fun persistedEndpointSubscriptionFallback(result: MethodChannel.Result): MethodChannel.Result {
+        val generation = dataGeneration.get()
+        return object : MethodChannel.Result {
+            override fun success(value: Any?) = result.success(value)
+
+            override fun notImplemented() = result.notImplemented()
+
+            override fun error(
+                code: String,
+                message: String?,
+                details: Any?,
+            ) {
+                if (code != "CONTROL_SERVICE_INACTIVE") {
+                    result.error(code, message, details)
+                    return
+                }
+                identityExecutor.execute {
+                    val read =
+                        runCatching {
+                            check(generation == dataGeneration.get() && !controlClient.isClosed)
+                            NetworkSettingsFields.decodeObject(
+                                requireNotNull(engineBridge.readPersistedEndpointSubscriptions(profileConfigPath)),
+                            )
+                        }
+                    mainScheduler.post {
+                        if (generation != dataGeneration.get() || controlClient.isClosed) {
+                            result.error("ENGINE_REQUEST_CANCELLED", "The subscription read was retired.", null)
+                        } else {
+                            read.fold(
+                                onSuccess = result::success,
+                                onFailure = {
+                                    result.error(
+                                        "SUBSCRIPTION_STORAGE_UNAVAILABLE",
+                                        "Saved endpoint subscriptions could not be read.",
+                                        null,
+                                    )
+                                },
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Mirrors every Consumer account's verified entitlement into Rust storage,
+     * clearing a value whose identity is no longer a valid Consumer license.
+     * Subscription tiers are resolved from this value, so a downgrade or an
+     * invalid identity must never keep a higher tier's binding usable.
+     */
+    private fun syncConsumerEntitlements() {
+        val catalog = loadProfileCatalog()
+        val profiles = catalog.optJSONArray("profiles") ?: return
+        for (index in 0 until profiles.length()) {
+            val profile = profiles.optJSONObject(index) ?: continue
+            val profileId = profile.optString("id")
+            if (profileId.isBlank()) continue
+            val provider = runCatching { storedIdentityProvider(profileId, profile) }.getOrNull() ?: continue
+            if (provider.provider != "consumer") continue
+            val desired =
+                provider.entitlement
+                    ?.takeIf { provider.valid && (it == "free" || it == "warp_plus") }
+            val current = profile.optString("consumer_entitlement").takeIf { it.isNotEmpty() }
+            if (current == desired) continue
+            engineBridge.applyProfileCommand(
+                profileConfigPath,
+                JSONObject()
+                    .put("command", "set_consumer_entitlement")
+                    .put("profile_id", profileId)
+                    .put("entitlement", desired ?: JSONObject.NULL)
+                    .toString(),
+            )
+        }
+    }
+
+    private fun consumerMetadataEntitlement(metadata: ByteArray?): String? =
+        metadata
+            ?.let { runCatching { JSONObject(it.toString(Charsets.UTF_8)).optString("entitlement") }.getOrNull() }
+            ?.takeIf { it == "free" || it == "warp_plus" }
+
+    /** Runs [action] on the main thread after a best-effort entitlement sync. */
+    private fun afterEntitlementSync(
+        result: MethodChannel.Result,
+        action: () -> Unit,
+    ) {
+        val generation = dataGeneration.get()
+        identityExecutor.execute {
+            runCatching { syncConsumerEntitlements() }
+            mainScheduler.post {
+                if (generation != dataGeneration.get() || controlClient.isClosed) {
+                    result.error("ENGINE_IPC_CLOSED", "The engine request was retired.", null)
+                } else {
+                    action()
+                }
+            }
+        }
+    }
+
     private fun clearAllData(
         call: MethodCall,
         result: MethodChannel.Result,
@@ -2745,6 +2875,8 @@ internal class AndroidEngineMethodHandler(
                         )
                 if (method == "zeroTrust") {
                     commitCommand.put("organization", team)
+                } else {
+                    consumerMetadataEntitlement(metadata)?.let { commitCommand.put("entitlement", it) }
                 }
                 val response =
                     engineBridge.applyProfileCommand(
@@ -3386,6 +3518,9 @@ internal class AndroidEngineMethodHandler(
         val intent = connectionIntent.incrementAndGet()
         identityExecutor.execute {
             try {
+                // The session hydrates a bound subscription for the account's
+                // current tier; mirror the verified entitlement first.
+                runCatching { syncConsumerEntitlements() }
                 val catalog =
                     requireNotNull(
                         engineBridge.applyProfileCommand(profileConfigPath, """{"command":"list_profiles"}"""),

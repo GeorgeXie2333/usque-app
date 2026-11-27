@@ -182,6 +182,7 @@ impl Http for SystemHttp {
                 status,
                 retry_after,
                 last_modified,
+                location: None,
                 body: bytes,
             })
         };

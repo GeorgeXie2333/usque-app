@@ -94,7 +94,15 @@ requests wait for the section to mount and cannot bypass unsaved-change guards.
 Home shows the selected scene directly above Kill Switch at the same visual level:
 in the desktop session card and the phone status card. With saved scenes the
 row opens a switcher that uses a scene through the same preview and ends with
-**Profiles**; with none it opens Profiles.
+**Profiles**; with none it opens Profiles. When **Endpoint subscriptions** are
+supported, **Profiles** adds a top segmented switcher (**Scenes** |
+**Subscriptions**) inside the 880-pixel column, switching the header action to
+**Add subscription**; **Home** places a compact subscription endpoint
+quick-switch row directly under the scene row only while active, and
+`EndpointFields` offers matching-tier **Subscription** selection in Advanced
+settings and Scene drafts. The Linux preview engine (`PreviewEngine`) includes an
+isolated in-memory subscription list and simulated timer probe disposed cleanly
+with the engine.
 
 Scene forms keep local drafts. Saving a template never calls the live network
 settings save path. Schema 27 scenes own account binding, chain-proxy selection,
@@ -342,8 +350,8 @@ Fire OS 输入法实测。
 - 国家预设下载有效 GeoIP 后即可启用；GeoSite 国家分类为可选，没有分类时仍按 IP 目标匹配，域名目标沿用隧道路由。CN 保留带校验的单国数据，其他国家从已校验的共用总库提取。
 
 Home shows a non-dismissible risk banner above the connection controls when the
-selected account has custom Zero Trust IPv4/IPv6 addresses or a still-active ZT
-session uses them. It reads saved/confirmed state, not editor drafts, and remains
+selected account has custom Zero Trust IPv4/IPv6 addresses, an active Zero
+Trust endpoint subscription, or a still-active ZT session uses them. It reads saved/confirmed state, not editor drafts, and remains
 visible during a deferred reset until that session stops or registered addresses
 are applied. Ordinary WARP and unchanged registration addresses have no banner.
 

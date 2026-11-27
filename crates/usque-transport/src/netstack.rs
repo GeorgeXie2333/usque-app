@@ -1369,7 +1369,9 @@ fn ensure_endpoint_pool_unchanged(
     {
         return Err(TransportError::EndpointAssignmentChanged);
     }
-    if profile.endpoint.preset_region.is_some()
+    // Presets and subscriptions are bound to the account tier. A refreshed
+    // identity of another tier must not keep dialing the old tier's endpoint.
+    if (profile.endpoint.preset_region.is_some() || profile.endpoint.subscription_id.is_some())
         && (current.provider != refreshed.provider
             || current.endpoint_preset_tier()? != refreshed.endpoint_preset_tier()?)
     {
@@ -1463,11 +1465,35 @@ async fn connect_single_with_policy(
     if profile.data_plane != usque_core::DataPlaneMode::ConnectIp {
         return Err(TransportError::UnsupportedOperatingMode);
     }
-    if profile.endpoint.preset_region.is_some() && profile.transport != TransportPolicy::Auto {
+    if profile.endpoint.subscription_id.is_some() {
+        let Some(sub_ep) = profile.subscription_endpoint.as_ref() else {
+            return Err(TransportError::AllEndpointsFailed(
+                "endpoint subscription has no active endpoint".to_owned(),
+            ));
+        };
+        // Auto resolves the domain once and races H3/H2 over the same
+        // authorized candidates. Independent per-transport resolutions would
+        // replace each other's Agent authorization mid-dial.
+        if let usque_core::endpoint_subscriptions::SubscriptionEndpointHost::Domain(host) =
+            &sub_ep.host
+        {
+            return connect_endpoint_subscription_domain(
+                profile,
+                host,
+                sub_ep.effective_port(profile.endpoint.port),
+                identity,
+                protector,
+                telemetry,
+            )
+            .await;
+        }
+    }
+    if profile.endpoint.preset_region.is_some() {
         return connect_endpoint_preset(profile, identity, protector, telemetry).await;
     }
     if profile.endpoint.selection == usque_core::EndpointSelection::Automatic
         && profile.endpoint.preset_region.is_none()
+        && profile.endpoint.subscription_id.is_none()
     {
         return connect_automatic_policy(profile, identity, protector, telemetry).await;
     }
@@ -1519,6 +1545,56 @@ async fn connect_happy_eyeballs(
     protector: Arc<dyn SocketProtector>,
     telemetry: &ConnectionTelemetry,
 ) -> Result<(MasqueTunnel, AddressFamily), TransportError> {
+    if profile.endpoint.subscription_id.is_some() {
+        let Some(sub_ep) = profile.subscription_endpoint.as_ref() else {
+            return Err(TransportError::AllEndpointsFailed(
+                "endpoint subscription has no active endpoint".to_owned(),
+            ));
+        };
+        let port = sub_ep.effective_port(profile.endpoint.port);
+        match &sub_ep.host {
+            usque_core::endpoint_subscriptions::SubscriptionEndpointHost::Domain(host) => {
+                let mut probe_profile = profile.clone();
+                probe_profile.transport = match transport {
+                    Transport::Http3 => TransportPolicy::Http3,
+                    Transport::Http2 => TransportPolicy::Http2,
+                };
+                return connect_endpoint_subscription_domain(
+                    &probe_profile,
+                    host,
+                    port,
+                    identity,
+                    protector,
+                    telemetry,
+                )
+                .await;
+            }
+            usque_core::endpoint_subscriptions::SubscriptionEndpointHost::Ipv4(ip) => {
+                let endpoint = std::net::SocketAddr::new(std::net::IpAddr::V4(*ip), port);
+                return connect_subscription_single_ip(
+                    transport,
+                    EndpointCandidate::new(endpoint, AddressFamily::Ipv4),
+                    profile,
+                    identity,
+                    protector,
+                    telemetry,
+                )
+                .await;
+            }
+            usque_core::endpoint_subscriptions::SubscriptionEndpointHost::Ipv6(ip) => {
+                let endpoint = std::net::SocketAddr::new(std::net::IpAddr::V6(*ip), port);
+                return connect_subscription_single_ip(
+                    transport,
+                    EndpointCandidate::new(endpoint, AddressFamily::Ipv6),
+                    profile,
+                    identity,
+                    protector,
+                    telemetry,
+                )
+                .await;
+            }
+        }
+    }
     if profile.endpoint.preset_region.is_some() {
         let mut probe_profile = profile.clone();
         probe_profile.transport = match transport {
@@ -1625,6 +1701,65 @@ async fn connect_happy_eyeballs(
     }
 }
 
+async fn connect_subscription_single_ip(
+    transport: Transport,
+    target: EndpointCandidate,
+    profile: &Profile,
+    identity: &MasqueTlsIdentity,
+    protector: Arc<dyn SocketProtector>,
+    telemetry: &ConnectionTelemetry,
+) -> Result<(MasqueTunnel, AddressFamily), TransportError> {
+    if protector.endpoint_family_available(target.socket) == Some(false) {
+        return Err(TransportError::EndpointFamilyUnavailable(target.family));
+    }
+    let tunnel = connect_endpoint(
+        transport,
+        target,
+        &profile.endpoint.sni,
+        identity,
+        usize::from(profile.mtu),
+        profile.congestion_control,
+        protector,
+        telemetry,
+    )
+    .await?;
+    Ok((tunnel, target.family))
+}
+
+async fn connect_endpoint_subscription_domain(
+    profile: &Profile,
+    host: &str,
+    port: u16,
+    identity: &MasqueTlsIdentity,
+    protector: Arc<dyn SocketProtector>,
+    telemetry: &ConnectionTelemetry,
+) -> Result<(MasqueTunnel, AddressFamily), TransportError> {
+    // Startup cancellation also abandons the bounded hostname lookup.
+    let cancel = telemetry.startup_cancellation();
+    crate::endpoint_subscription::connect_domain_cancellable(
+        profile,
+        host,
+        port,
+        &protector,
+        &cancel,
+        |candidates, generation| {
+            let protector = protector.clone();
+            async move {
+                connect_resolved_candidate_set(
+                    profile,
+                    identity,
+                    &candidates,
+                    generation,
+                    protector,
+                    telemetry,
+                )
+                .await
+            }
+        },
+    )
+    .await
+}
+
 async fn connect_endpoint_preset(
     profile: &Profile,
     identity: &MasqueTlsIdentity,
@@ -1639,7 +1774,7 @@ async fn connect_endpoint_preset(
         |candidates, generation| {
             let protector = protector.clone();
             async move {
-                connect_preset_candidate_set(
+                connect_resolved_candidate_set(
                     profile,
                     identity,
                     &candidates,
@@ -1652,6 +1787,72 @@ async fn connect_endpoint_preset(
         },
     )
     .await
+}
+
+/// Connects one authorized candidate batch. Auto races H3 against a delayed
+/// H2 over the same batch; a fixed policy uses only its transport.
+async fn connect_resolved_candidate_set(
+    profile: &Profile,
+    identity: &MasqueTlsIdentity,
+    candidates: &[std::net::SocketAddr],
+    generation: u64,
+    protector: Arc<dyn SocketProtector>,
+    telemetry: &ConnectionTelemetry,
+) -> Result<(MasqueTunnel, AddressFamily), TransportError> {
+    if profile.transport != TransportPolicy::Auto {
+        return connect_preset_candidate_set(
+            profile, identity, candidates, generation, protector, telemetry,
+        )
+        .await;
+    }
+    let mut h3_profile = profile.clone();
+    h3_profile.transport = TransportPolicy::Http3;
+    let mut h2_profile = profile.clone();
+    h2_profile.transport = TransportPolicy::Http2;
+    let h3 = connect_preset_candidate_set(
+        &h3_profile,
+        identity,
+        candidates,
+        generation,
+        protector.clone(),
+        telemetry,
+    );
+    let h2 = connect_preset_candidate_set(
+        &h2_profile,
+        identity,
+        candidates,
+        generation,
+        protector,
+        telemetry,
+    );
+    match race_candidates(
+        h3,
+        h2,
+        usque_core::recovery::TRANSPORT_RACE_DELAY,
+        |error| !RecoveryDecision::may_try_another_candidate(error),
+    )
+    .await
+    {
+        Ok((connected, h2)) => {
+            if h2 {
+                telemetry.increment_fallback();
+            }
+            Ok(connected)
+        }
+        Err(CandidateErrors::Terminal(error)) => Err(error),
+        Err(CandidateErrors::Both(h3, h2)) => {
+            // Keep a stale-network outcome visible to the resolution loop.
+            if matches!(h3, TransportError::UnderlyingNetworkChanged)
+                || matches!(h2, TransportError::UnderlyingNetworkChanged)
+            {
+                return Err(TransportError::UnderlyingNetworkChanged);
+            }
+            Err(TransportError::AllTransportsFailed {
+                h3: Box::new(h3.failure(Some(Transport::Http3), None)),
+                h2: Box::new(h2.failure(Some(Transport::Http2), None)),
+            })
+        }
+    }
 }
 
 async fn connect_preset_candidate_set(
@@ -2953,7 +3154,12 @@ async fn pump_active_tunnel(
                 }
                 observed_generation = current;
                 record_migration_network_change(telemetry, active_path);
-                if profile.endpoint.preset_region.is_some() {
+                if profile.endpoint.preset_region.is_some()
+                    || profile
+                        .subscription_endpoint
+                        .as_ref()
+                        .is_some_and(|ep| ep.host.is_domain())
+                {
                     break ActiveOutcome::Reconnect(network_change_failure(active_path));
                 }
                 let Some(target_generation) = current else {
@@ -4633,5 +4839,128 @@ mod tests {
                 | ConnectionEventType::PinRetryFailed
                 | ConnectionEventType::Failed
         )));
+    }
+
+    #[tokio::test]
+    async fn single_stack_subscription_dial_never_touches_dormant_manual_other_family() {
+        use std::net::SocketAddr;
+        use std::sync::Mutex;
+
+        #[derive(Default)]
+        struct RecordingProtector {
+            dialed: Mutex<Vec<SocketAddr>>,
+        }
+        #[async_trait::async_trait]
+        impl SocketProtector for RecordingProtector {
+            fn protect(&self, _: crate::SocketHandle) -> Result<(), String> {
+                Err("must call prepare_*".into())
+            }
+            async fn prepare_tcp(
+                &self,
+                remote: SocketAddr,
+                _: crate::PhysicalSocketPurpose,
+                _: u64,
+            ) -> Result<(crate::PreparedTcpSocket, crate::DirectEgressLease), String> {
+                self.dialed.lock().unwrap().push(remote);
+                Err("recorded_stop".into())
+            }
+            async fn prepare_udp(
+                &self,
+                remote: SocketAddr,
+                _: crate::PhysicalSocketPurpose,
+                _: u64,
+            ) -> Result<(std::net::UdpSocket, crate::DirectEgressLease), String> {
+                self.dialed.lock().unwrap().push(remote);
+                Err("recorded_stop".into())
+            }
+            fn network_generation(&self) -> Option<u64> {
+                Some(1)
+            }
+        }
+
+        let key = usque_core::MasqueKeyPair::generate();
+        let identity = MasqueTlsIdentity::new(
+            key.private_sec1_der().unwrap(),
+            &key.public_spki_der().unwrap(),
+            "172.16.0.2".parse().unwrap(),
+            "2001:db8::2".parse().unwrap(),
+        )
+        .unwrap();
+
+        // Missing active endpoint fails closed cleanly without dialing dormant IPs.
+        let protector = Arc::new(RecordingProtector::default());
+        let mut missing_profile = Profile::default();
+        missing_profile.endpoint.selection = usque_core::EndpointSelection::Custom;
+        missing_profile.endpoint.subscription_id = Some(uuid::Uuid::new_v4());
+        missing_profile.subscription_endpoint = None;
+        let err = connect_with_policy(
+            &missing_profile,
+            &identity,
+            protector.clone(),
+            &ConnectionTelemetry::default(),
+        )
+        .await
+        .err()
+        .unwrap();
+        assert!(
+            matches!(err, TransportError::AllEndpointsFailed(_)),
+            "{err:?}"
+        );
+        assert!(protector.dialed.lock().unwrap().is_empty());
+
+        // Single-stack IPv4 subscription endpoint with PreferIpv6 dials ONLY exact IPv4.
+        let mut v4_profile = missing_profile.clone();
+        v4_profile.ip_policy = IpPolicy::PreferIpv6;
+        v4_profile.transport = TransportPolicy::Http3;
+        v4_profile.subscription_endpoint =
+            Some(usque_core::endpoint_subscriptions::SubscriptionEndpoint {
+                id: "v4:162.159.193.10:2408".into(),
+                host: usque_core::endpoint_subscriptions::SubscriptionEndpointHost::Ipv4(
+                    "162.159.193.10".parse().unwrap(),
+                ),
+                port: Some(2408),
+                note: String::new(),
+                pinned: false,
+            });
+        let protector_v4 = Arc::new(RecordingProtector::default());
+        let _ = connect_with_policy(
+            &v4_profile,
+            &identity,
+            protector_v4.clone(),
+            &ConnectionTelemetry::default(),
+        )
+        .await;
+        assert_eq!(
+            *protector_v4.dialed.lock().unwrap(),
+            vec!["162.159.193.10:2408".parse::<SocketAddr>().unwrap()]
+        );
+
+        // Single-stack IPv6 subscription endpoint with PreferIpv4 dials ONLY exact IPv6.
+        let mut v6_profile = missing_profile;
+        v6_profile.ip_policy = IpPolicy::PreferIpv4;
+        v6_profile.transport = TransportPolicy::Http2;
+        v6_profile.endpoint.port = 8443;
+        v6_profile.subscription_endpoint =
+            Some(usque_core::endpoint_subscriptions::SubscriptionEndpoint {
+                id: "v6:2606:4700:103::9:default".into(),
+                host: usque_core::endpoint_subscriptions::SubscriptionEndpointHost::Ipv6(
+                    "2606:4700:103::9".parse().unwrap(),
+                ),
+                port: None,
+                note: String::new(),
+                pinned: false,
+            });
+        let protector_v6 = Arc::new(RecordingProtector::default());
+        let _ = connect_with_policy(
+            &v6_profile,
+            &identity,
+            protector_v6.clone(),
+            &ConnectionTelemetry::default(),
+        )
+        .await;
+        assert_eq!(
+            *protector_v6.dialed.lock().unwrap(),
+            vec!["[2606:4700:103::9]:8443".parse::<SocketAddr>().unwrap()]
+        );
     }
 }

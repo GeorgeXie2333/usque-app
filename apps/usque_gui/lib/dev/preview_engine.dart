@@ -10,7 +10,8 @@ class PreviewEngine
     implements
         EngineClient,
         InitialIdentityClient,
-        OnboardingPermissionsClient {
+        OnboardingPermissionsClient,
+        EndpointSubscriptionClient {
   @override
   Future<Map<String, Object?>> scenarioCommand(
     Map<String, Object?> command,
@@ -46,9 +47,361 @@ class PreviewEngine
     networkQuality: true,
     encryptedDirectDns: true,
     encryptedWarpDns: true,
+    endpointSubscriptions: true,
+    endpointSubscriptionDomainEndpoints: true,
+    endpointSubscriptionProbe: true,
+    endpointSubscriptionConnectedTunProbe: true,
     h3CongestionControlAlgorithms: CongestionControlAlgorithm.values,
     tlsFingerprints: TlsFingerprint.values,
   );
+
+  Timer? _probeTimer;
+  String? _activeProbeId;
+  String? _activeProbeSubId;
+  String? _activeSubscriptionId;
+  int _subRevision = 1;
+  final List<Map<String, Object?>> _subscriptions = _initialPreviewSubs();
+
+  static List<Map<String, Object?>> _initialPreviewSubs() => [
+    <String, Object?>{
+      'id': '11111111-1111-4111-8111-111111111111',
+      'revision': 'rev-free-1',
+      'name': 'Cloudflare Edge (Preview)',
+      'url': 'https://masque.pages.dev/endpoint/3rd/warp-ipv4.txt',
+      'account_tier': 'free',
+      'auto_refresh': 'daily',
+      'last_refreshed_at_unix_ms': 1795800000000,
+      'skipped_line_count': 0,
+      'selected_endpoint_id': 'v4:162.159.193.10:2408',
+      'endpoints': <Map<String, Object?>>[
+        <String, Object?>{
+          'id': 'v4:162.159.193.10:2408',
+          'host': <String, Object?>{'kind': 'ipv4', 'value': '162.159.193.10'},
+          'port': 2408,
+          'note': 'Tokyo Edge #1',
+          'pinned': true,
+        },
+        <String, Object?>{
+          'id': 'v4:162.159.192.1:500',
+          'host': <String, Object?>{'kind': 'ipv4', 'value': '162.159.192.1'},
+          'port': 500,
+          'note': 'Osaka Anycast',
+          'pinned': false,
+        },
+        <String, Object?>{
+          'id': 'v6:2606:4700:103::2:443',
+          'host': <String, Object?>{
+            'kind': 'ipv6',
+            'value': '2606:4700:103::2',
+          },
+          'port': 443,
+          'note': 'IPv6 Anycast',
+          'pinned': false,
+        },
+        <String, Object?>{
+          'id': 'host:engage.cloudflareclient.com:2408',
+          'host': <String, Object?>{
+            'kind': 'domain',
+            'value': 'engage.cloudflareclient.com',
+          },
+          'port': 2408,
+          'note': 'Domain Endpoint',
+          'pinned': false,
+        },
+      ],
+    },
+    <String, Object?>{
+      'id': '22222222-2222-4222-8222-222222222222',
+      'revision': 'rev-plus-1',
+      'name': 'WARP+ High Speed (Preview)',
+      'url': 'https://masque.pages.dev/endpoint/3rd/warp-plus.txt',
+      'account_tier': 'plus',
+      'auto_refresh': 'weekly',
+      'last_refreshed_at_unix_ms': 1795800000000,
+      'skipped_line_count': 0,
+      'selected_endpoint_id': 'v4:162.159.195.2:2408',
+      'endpoints': <Map<String, Object?>>[
+        <String, Object?>{
+          'id': 'v4:162.159.195.2:2408',
+          'host': <String, Object?>{'kind': 'ipv4', 'value': '162.159.195.2'},
+          'port': 2408,
+          'note': 'Plus Singapore',
+          'pinned': false,
+        },
+      ],
+    },
+    <String, Object?>{
+      'id': '33333333-3333-4333-8333-333333333333',
+      'revision': 'rev-zt-1',
+      'name': 'Zero Trust Custom (Preview)',
+      'url': 'https://masque.pages.dev/endpoint/3rd/zt-ipv4.txt',
+      'account_tier': 'zero_trust',
+      'auto_refresh': 'off',
+      'last_refreshed_at_unix_ms': 1795800000000,
+      'skipped_line_count': 0,
+      'selected_endpoint_id': 'v4:162.159.198.10:2408',
+      'endpoints': <Map<String, Object?>>[
+        <String, Object?>{
+          'id': 'v4:162.159.198.10:2408',
+          'host': <String, Object?>{'kind': 'ipv4', 'value': '162.159.198.10'},
+          'port': 2408,
+          'note': 'ZT Gateway',
+          'pinned': false,
+        },
+      ],
+    },
+  ];
+
+  Map<String, Object?> _subscriptionListPayload({
+    String? applyStatus,
+    Map<String, Object?>? subscription,
+    String? probeId,
+  }) {
+    final activeSub = _subscriptions
+        .where((s) => s['id'] == _activeSubscriptionId)
+        .firstOrNull;
+    final activeTier = switch (_identities[_activeId]?.provider) {
+      IdentityProvider.zeroTrust => 'zero_trust',
+      _ => switch (_identities[_activeId]?.licenseState) {
+        LicenseState.warpPlus => 'plus',
+        LicenseState.free => 'free',
+        _ => null,
+      },
+    };
+    return <String, Object?>{
+      'revision': 'preview-$_subRevision-$_activeId-$_activeSubscriptionId',
+      'unchanged': false,
+      'subscriptions': [
+        for (final s in _subscriptions)
+          Map<String, Object?>.from(s)
+            ..['endpoints'] = [
+              for (final ep in (s['endpoints'] as List))
+                Map<String, Object?>.from(ep as Map),
+            ],
+      ],
+      'active_account_id': _activeId,
+      'active_account_tier': activeTier,
+      'active_subscription_id': _activeSubscriptionId,
+      'active_endpoint_id': activeSub?['selected_endpoint_id'],
+      'refreshing_subscription_ids': const <String>[],
+      if (_activeProbeId != null && _activeProbeSubId != null)
+        'active_probe': <String, Object?>{
+          'probe_id': _activeProbeId,
+          'subscription_id': _activeProbeSubId,
+        },
+      'apply_status': ?applyStatus,
+      'subscription': ?subscription,
+      'probe_id': ?probeId,
+    };
+  }
+
+  @override
+  Future<Map<String, Object?>> endpointSubscriptionCommand(
+    Map<String, Object?> request,
+  ) async {
+    if (_disposed) _unavailable();
+    final action = request['action'] as String? ?? 'list';
+    switch (action) {
+      case 'list':
+        return _subscriptionListPayload();
+      case 'add':
+        final id = 'sub-${++_subRevision}';
+        final created = <String, Object?>{
+          'id': id,
+          'revision': 'rev-$_subRevision',
+          'name': request['name'] as String? ?? 'Custom Subscription',
+          'url': request['url'] as String? ?? 'https://example.com/list.txt',
+          'account_tier': request['account_tier'] as String? ?? 'free',
+          'auto_refresh': request['auto_refresh'] as String? ?? 'off',
+          'last_refreshed_at_unix_ms': DateTime.now().millisecondsSinceEpoch,
+          'skipped_line_count': 0,
+          'selected_endpoint_id': 'v4:162.159.193.20:2408',
+          'endpoints': <Map<String, Object?>>[
+            <String, Object?>{
+              'id': 'v4:162.159.193.20:2408',
+              'host': <String, Object?>{
+                'kind': 'ipv4',
+                'value': '162.159.193.20',
+              },
+              'port': 2408,
+              'note': 'Demo Added Edge',
+              'pinned': false,
+            },
+          ],
+        };
+        _subscriptions.add(created);
+        return _subscriptionListPayload(subscription: created);
+      case 'update':
+        final id = request['id'];
+        final index = _subscriptions.indexWhere((s) => s['id'] == id);
+        if (index < 0) {
+          throw const EngineException('SUBSCRIPTION_NOT_FOUND', 'Not found.');
+        }
+        _subRevision++;
+        _subscriptions[index] = <String, Object?>{
+          ..._subscriptions[index],
+          'revision': 'rev-$_subRevision',
+          'name': request['name'] ?? _subscriptions[index]['name'],
+          'url': request['url'] ?? _subscriptions[index]['url'],
+          'account_tier':
+              request['account_tier'] ?? _subscriptions[index]['account_tier'],
+          'auto_refresh':
+              request['auto_refresh'] ?? _subscriptions[index]['auto_refresh'],
+        };
+        return _subscriptionListPayload();
+      case 'delete':
+        final id = request['id'];
+        _subscriptions.removeWhere((s) => s['id'] == id);
+        if (_activeSubscriptionId == id) {
+          _activeSubscriptionId = null;
+          await upsertProfile(
+            _active.copyWith(clearEndpointSubscriptionId: true),
+          );
+        }
+        _subRevision++;
+        return _subscriptionListPayload();
+      case 'refresh':
+        final id = request['id'];
+        final index = _subscriptions.indexWhere((s) => s['id'] == id);
+        if (index < 0) {
+          throw const EngineException('SUBSCRIPTION_NOT_FOUND', 'Not found.');
+        }
+        _subRevision++;
+        _subscriptions[index] = <String, Object?>{
+          ..._subscriptions[index],
+          'revision': 'rev-$_subRevision',
+          'last_refreshed_at_unix_ms': DateTime.now().millisecondsSinceEpoch,
+        };
+        return _subscriptionListPayload(subscription: _subscriptions[index]);
+      case 'select_endpoint':
+        final subId = request['subscription_id'] as String?;
+        final epId = request['endpoint_id'] as String?;
+        final index = _subscriptions.indexWhere((s) => s['id'] == subId);
+        if (index < 0 || epId == null) {
+          throw const EngineException('SUBSCRIPTION_NOT_FOUND', 'Not found.');
+        }
+        _subRevision++;
+        _activeSubscriptionId = subId;
+        _subscriptions[index] = <String, Object?>{
+          ..._subscriptions[index],
+          'revision': 'rev-$_subRevision',
+          'selected_endpoint_id': epId,
+        };
+        await upsertProfile(
+          _active.copyWith(
+            endpointSelection: EndpointSelection.custom,
+            clearEndpointPresetRegion: true,
+            endpointSubscriptionId: subId,
+          ),
+        );
+        return _subscriptionListPayload(
+          applyStatus: _current.isConnected ? 'applied' : 'deferred',
+        );
+      case 'deactivate':
+        _subRevision++;
+        _activeSubscriptionId = null;
+        await upsertProfile(
+          _active.copyWith(clearEndpointSubscriptionId: true),
+        );
+        return _subscriptionListPayload(
+          applyStatus: _current.isConnected ? 'applied' : 'deferred',
+        );
+      case 'set_pinned':
+        final subId = request['subscription_id'] as String?;
+        final epId = request['endpoint_id'] as String?;
+        final pinned = request['pinned'] == true;
+        final index = _subscriptions.indexWhere((s) => s['id'] == subId);
+        if (index >= 0) {
+          final eps = [
+            for (final ep in (_subscriptions[index]['endpoints'] as List))
+              Map<String, Object?>.from(ep as Map)
+                ..['pinned'] = (ep['id'] == epId ? pinned : ep['pinned']),
+          ];
+          _subscriptions[index] = <String, Object?>{
+            ..._subscriptions[index],
+            'revision': 'rev-${++_subRevision}',
+            'endpoints': eps,
+          };
+        }
+        return _subscriptionListPayload();
+      case 'start_probe':
+        _probeTimer?.cancel();
+        final subId = request['subscription_id'] as String? ?? '';
+        final probeId = request['probe_id'] as String? ?? 'preview-probe';
+        final sub = _subscriptions.where((s) => s['id'] == subId).firstOrNull;
+        final rawIds = request['endpoint_ids'] as List?;
+        final allEps = (sub?['endpoints'] as List? ?? const [])
+            .whereType<Map<Object?, Object?>>()
+            .map((e) => e['id'] as String)
+            .toList(growable: false);
+        final targets = rawIds == null
+            ? allEps
+            : rawIds.whereType<String>().toList(growable: false);
+        _activeProbeId = probeId;
+        _activeProbeSubId = subId;
+        final results = <Map<String, Object?>>[];
+        var nextIndex = 0;
+        _probeTimer = Timer.periodic(const Duration(milliseconds: 90), (t) {
+          if (_disposed || _activeProbeId != probeId) {
+            t.cancel();
+            return;
+          }
+          if (nextIndex < targets.length) {
+            final epId = targets[nextIndex];
+            results.add(<String, Object?>{
+              'endpoint_id': epId,
+              'status': 'reachable',
+              'rtt_ms': 28 + (nextIndex * 14) % 90,
+              'protocol': epId.startsWith('host:') ? 'http2' : 'http3',
+            });
+            nextIndex++;
+          }
+          final done = nextIndex >= targets.length;
+          if (done) {
+            t.cancel();
+            _activeProbeId = null;
+            _activeProbeSubId = null;
+          }
+          _events.add(
+            EngineSnapshotEvent(
+              endpointSubscriptionProbeProgress: <String, Object?>{
+                'probe_id': probeId,
+                'subscription_id': subId,
+                'state': done ? 'completed' : 'running',
+                'completed': results.length,
+                'total': targets.length,
+                'results': List<Map<String, Object?>>.from(results),
+              },
+            ),
+          );
+        });
+        return _subscriptionListPayload(probeId: probeId);
+      case 'cancel_probe':
+        final probeId = request['probe_id'] as String?;
+        if (_activeProbeId == probeId && probeId != null) {
+          _probeTimer?.cancel();
+          _probeTimer = null;
+          final subId = _activeProbeSubId ?? '';
+          _activeProbeId = null;
+          _activeProbeSubId = null;
+          _events.add(
+            EngineSnapshotEvent(
+              endpointSubscriptionProbeProgress: <String, Object?>{
+                'probe_id': probeId,
+                'subscription_id': subId,
+                'state': 'cancelled',
+                'completed': 0,
+                'total': 0,
+                'results': const <Object>[],
+              },
+            ),
+          );
+        }
+        return _subscriptionListPayload();
+      default:
+        return _subscriptionListPayload();
+    }
+  }
 
   late List<UsqueProfile> _profiles;
   String _activeId = UsqueProfile.defaultProfileId;
@@ -445,6 +798,14 @@ class PreviewEngine
   @override
   Future<void> clearAllData({required bool confirmed}) async {
     if (!confirmed) _unavailable();
+    _probeTimer?.cancel();
+    _probeTimer = null;
+    _activeProbeId = null;
+    _activeProbeSubId = null;
+    _activeSubscriptionId = null;
+    _subscriptions
+      ..clear()
+      ..addAll(_initialPreviewSubs());
     _identities.clear();
     _settings = null;
     _diagnostics = null;
@@ -463,6 +824,8 @@ class PreviewEngine
     if (_disposed) return;
     _disposed = true;
     _intent++;
+    _probeTimer?.cancel();
+    _probeTimer = null;
     _ticker?.cancel();
     unawaited(_events.close());
   }

@@ -1980,6 +1980,91 @@ pub async fn resolve_endpoint_preset_aaaa<S: SocketProtector + ?Sized>(
     Err("endpoint preset physical DNS lookup failed".to_owned())
 }
 
+/// Resolves a subscription endpoint hostname through the active physical DNS
+/// servers, querying A and/or AAAA according to `ip_policy` with generation checks.
+pub(crate) async fn resolve_endpoint_hostname_ips<S: SocketProtector + ?Sized>(
+    protector: &S,
+    host: &str,
+    port: u16,
+    ip_policy: usque_core::IpPolicy,
+    expected_generation: u64,
+) -> Result<Vec<SocketAddr>, String> {
+    if port == 0 || protector.network_generation().unwrap_or_default() != expected_generation {
+        return Err(crate::socket::STALE_GENERATION_REASON.to_owned());
+    }
+    let query_types: &[u16] = match ip_policy {
+        usque_core::IpPolicy::Ipv4Only => &[1],
+        usque_core::IpPolicy::Ipv6Only => &[28],
+        usque_core::IpPolicy::PreferIpv4 => &[1, 28],
+        usque_core::IpPolicy::Auto | usque_core::IpPolicy::PreferIpv6 => &[28, 1],
+    };
+    let servers = protector
+        .physical_dns_servers()
+        .into_iter()
+        .take(16)
+        .filter(|server| {
+            server.port() != 0 && !server.ip().is_unspecified() && !server.ip().is_multicast()
+        })
+        .collect::<Vec<_>>();
+    if servers.is_empty() {
+        return Err("endpoint subscription physical DNS servers unavailable".to_owned());
+    }
+    let deadline = tokio::time::Instant::now() + DNS_TIMEOUT;
+    let mut all_addresses = Vec::new();
+    let total_steps = (query_types.len() * servers.len()).max(1);
+    let mut step = 0usize;
+    for &query_type in query_types {
+        let wire = build_host_query(host, query_type, next_udp_port())?;
+        let query = parse_query(&wire)?;
+        for &server in &servers {
+            let now = tokio::time::Instant::now();
+            let remaining = deadline.saturating_duration_since(now);
+            if remaining.is_zero() {
+                break;
+            }
+            let remaining_steps = total_steps.saturating_sub(step).max(1) as u32;
+            step += 1;
+            let attempt_deadline = now + remaining / remaining_steps;
+            let response = timeout_at_preset(attempt_deadline, async {
+                let response =
+                    preset_dns_udp(protector, server, &wire, expected_generation).await?;
+                if response_is_truncated(&response) {
+                    preset_dns_tcp(protector, server, &wire, expected_generation).await
+                } else {
+                    Ok(response)
+                }
+            })
+            .await;
+            if protector.network_generation().unwrap_or_default() != expected_generation {
+                return Err(crate::socket::STALE_GENERATION_REASON.to_owned());
+            }
+            let response = match response {
+                Ok(response) => response,
+                Err(reason) if reason.starts_with("preset_dns_protection:") => return Err(reason),
+                Err(_) => continue,
+            };
+            if validate_resolver_response(&wire, &response).is_err() {
+                continue;
+            }
+            let Ok(hints) = response_hints(&response, &query) else {
+                continue;
+            };
+            all_addresses.extend(hints.into_iter().map(|(ip, _)| SocketAddr::new(ip, port)));
+            break;
+        }
+    }
+    let candidates = crate::endpoint_subscription::canonical_subscription_candidates(
+        all_addresses,
+        port,
+        ip_policy,
+    );
+    if candidates.is_empty() {
+        Err("endpoint subscription physical DNS lookup failed".to_owned())
+    } else {
+        Ok(candidates)
+    }
+}
+
 async fn timeout_at_preset<T>(
     deadline: tokio::time::Instant,
     future: impl std::future::Future<Output = Result<T, String>>,

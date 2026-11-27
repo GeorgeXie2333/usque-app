@@ -11,6 +11,7 @@ import 'package:usque/core/l10n/chain.dart';
 import 'package:usque/core/l10n/countries.dart';
 import 'package:usque/core/l10n/diagnostics.dart';
 import 'package:usque/core/l10n/endpoint_presets.dart';
+import 'package:usque/core/l10n/endpoint_subscriptions.dart';
 import 'package:usque/core/l10n/l4.dart';
 import 'package:usque/core/l10n/linux_desktop.dart';
 import 'package:usque/core/l10n/macos_desktop.dart';
@@ -35,6 +36,7 @@ const _tables = {
   'chain': kChainCatalogs,
   'diagnostics': kDiagnosticsCatalogs,
   'endpoint presets': kEndpointPresetCatalogs,
+  'endpoint subscriptions': kEndpointSubscriptionCatalogs,
   'L4': kL4Catalogs,
   'Linux': kLinuxDesktopCatalogs,
   'macOS': kMacDesktopCatalogs,

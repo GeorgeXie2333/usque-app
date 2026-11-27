@@ -303,6 +303,187 @@ mod tests {
     }
 
     #[test]
+    fn endpoint_subscriptions_wire_contract_is_append_only() {
+        let endpoint = v1::EndpointSettings {
+            subscription_id: "sub-1".into(),
+            ..Default::default()
+        };
+        assert_eq!(
+            endpoint.encode_to_vec(),
+            [0x3a, 0x05, b's', b'u', b'b', b'-', b'1']
+        );
+        let caps = v1::Capabilities {
+            endpoint_subscriptions: true,
+            endpoint_subscription_domain_endpoints: true,
+            endpoint_subscription_probe: true,
+            endpoint_subscription_connected_tun_probe: true,
+            ..Default::default()
+        };
+        assert_eq!(
+            caps.encode_to_vec(),
+            [0xe0, 0x03, 1, 0xe8, 0x03, 1, 0xf0, 0x03, 1, 0xf8, 0x03, 1]
+        );
+        assert_eq!(
+            v1::ControlRequest {
+                request_id: String::new(),
+                payload: Some(v1::control_request::Payload::EndpointSubscription(
+                    Default::default(),
+                )),
+            }
+            .encode_to_vec(),
+            [0xb2, 0x03, 0]
+        );
+        assert_eq!(
+            v1::ControlResponse {
+                payload: Some(v1::control_response::Payload::EndpointSubscription(
+                    Default::default(),
+                )),
+                ..Default::default()
+            }
+            .encode_to_vec(),
+            [0xf2, 0x01, 0]
+        );
+        assert_eq!(
+            v1::EventEnvelope {
+                payload: Some(
+                    v1::event_envelope::Payload::EndpointSubscriptionProbeProgress(
+                        Default::default(),
+                    )
+                ),
+                ..Default::default()
+            }
+            .encode_to_vec(),
+            [0xd2, 0x01, 0]
+        );
+        let agent_caps = agent_v1::AgentCapabilities {
+            dynamic_hostname_endpoint_leases: true,
+            connected_endpoint_probe_leases: true,
+            ..Default::default()
+        };
+        assert_eq!(agent_caps.encode_to_vec(), [0xb8, 0x01, 1, 0xc0, 0x01, 1]);
+        let plan = agent_v1::TunnelPlan {
+            hostname_endpoint_policy: Some(Default::default()),
+            ..Default::default()
+        };
+        assert_eq!(plan.encode_to_vec(), [0x8a, 0x01, 0]);
+        for (purpose, value) in [
+            (agent_v1::DirectEgressPurpose::HostnameDns, 4),
+            (agent_v1::DirectEgressPurpose::HostnameMasque, 5),
+            (agent_v1::DirectEgressPurpose::EndpointProbe, 6),
+        ] {
+            assert_eq!(
+                agent_v1::AcquireDirectEgressRequest {
+                    purpose: purpose as i32,
+                    ..Default::default()
+                }
+                .encode_to_vec(),
+                [0x28, value]
+            );
+        }
+        assert_eq!(
+            agent_v1::AgentRequest {
+                payload: Some(
+                    agent_v1::agent_request::Payload::SetHostnameEndpointCandidates(
+                        Default::default()
+                    )
+                ),
+                ..Default::default()
+            }
+            .encode_to_vec(),
+            [0xaa, 0x02, 0]
+        );
+        assert_eq!(
+            agent_v1::AgentRequest {
+                payload: Some(agent_v1::agent_request::Payload::AcquireEndpointProbeLease(
+                    Default::default()
+                )),
+                ..Default::default()
+            }
+            .encode_to_vec(),
+            [0xb2, 0x02, 0]
+        );
+        assert_eq!(
+            agent_v1::AgentRequest {
+                payload: Some(agent_v1::agent_request::Payload::ReleaseEndpointProbeLease(
+                    Default::default()
+                )),
+                ..Default::default()
+            }
+            .encode_to_vec(),
+            [0xba, 0x02, 0]
+        );
+        assert_eq!(
+            agent_v1::AgentResponse {
+                payload: Some(agent_v1::agent_response::Payload::EndpointProbeLease(
+                    Default::default()
+                )),
+                ..Default::default()
+            }
+            .encode_to_vec(),
+            [0xa2, 0x01, 0]
+        );
+        assert_eq!(
+            agent_v1::MacosSocketRequest {
+                purpose: agent_v1::MacosSocketPurpose::EndpointProbe as i32,
+                ..Default::default()
+            }
+            .encode_to_vec(),
+            [0x20, 5]
+        );
+        assert_eq!(
+            agent_v1::MacosPlatformStatus {
+                dynamic_hostname_endpoint_leases: true,
+                connected_endpoint_probe_leases: true,
+                ..Default::default()
+            }
+            .encode_to_vec(),
+            [0x98, 0x01, 1, 0xa0, 0x01, 1]
+        );
+        assert_eq!(
+            agent_v1::MacosAgentRequest {
+                operation: Some(
+                    agent_v1::macos_agent_request::Operation::SetHostnameEndpointCandidates(
+                        Default::default()
+                    )
+                ),
+                ..Default::default()
+            }
+            .encode_to_vec(),
+            [0xc2, 0x01, 0]
+        );
+        assert_eq!(
+            agent_v1::MacosAgentRequest {
+                operation: Some(agent_v1::macos_agent_request::Operation::AcquireProbeLease(
+                    Default::default()
+                )),
+                ..Default::default()
+            }
+            .encode_to_vec(),
+            [0xca, 0x01, 0]
+        );
+        assert_eq!(
+            agent_v1::MacosAgentRequest {
+                operation: Some(agent_v1::macos_agent_request::Operation::ReleaseProbeLease(
+                    Default::default()
+                )),
+                ..Default::default()
+            }
+            .encode_to_vec(),
+            [0xd2, 0x01, 0]
+        );
+        assert_eq!(
+            agent_v1::MacosAgentResponse {
+                payload: Some(agent_v1::macos_agent_response::Payload::ProbeLease(
+                    Default::default()
+                )),
+                ..Default::default()
+            }
+            .encode_to_vec(),
+            [0x6a, 0]
+        );
+    }
+
+    #[test]
     fn network_settings_wire_numbers_are_append_only() {
         assert_eq!(
             v1::NetworkSettingsState {

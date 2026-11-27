@@ -18,14 +18,20 @@ pub(crate) fn tunnel_plan(
         split_dns,
     );
     plan.defer_network_configuration = profile.chain_enabled();
-    if profile.endpoint.selection == usque_core::EndpointSelection::Automatic {
+    if profile.endpoint.selection == usque_core::EndpointSelection::Automatic
+        && profile.endpoint.subscription_id.is_none()
+    {
         apply_automatic_observation_policy(
             &mut plan,
             profile,
             usque_core::AutomaticEndpointPolicy::for_profile(profile, identity.endpoint_pool()),
         );
     }
-    if let Some(region) = profile.endpoint.preset_region {
+    if let Some(region) = profile
+        .endpoint
+        .preset_region
+        .filter(|_| profile.endpoint.subscription_id.is_none())
+    {
         plan.preset_endpoint_policy = Some(preset_policy(
             profile,
             identity
@@ -51,13 +57,14 @@ pub(crate) fn tunnel_plan_from_assignment(
             && (profile.dns_mode == usque_core::DnsMode::Tunnel
                 || profile.custom_chain().is_some())
         || profile.data_plane == usque_core::DataPlaneMode::L4Proxy && !profile.chain_enabled();
-    let automatic_policy = (profile.endpoint.selection == usque_core::EndpointSelection::Automatic)
-        .then(|| {
-            usque_core::AutomaticEndpointPolicy::for_profile(
-                profile,
-                usque_core::EndpointPool::WarpPlus,
-            )
-        });
+    let automatic_policy = (profile.endpoint.selection == usque_core::EndpointSelection::Automatic
+        && profile.endpoint.subscription_id.is_none())
+    .then(|| {
+        usque_core::AutomaticEndpointPolicy::for_profile(
+            profile,
+            usque_core::EndpointPool::WarpPlus,
+        )
+    });
     let (mut ipv4, mut ipv6) = automatic_policy.map_or_else(
         || {
             (
@@ -77,22 +84,51 @@ pub(crate) fn tunnel_plan_from_assignment(
             profile.endpoint.port,
         );
     }
+    let mut hostname_endpoint_policy = None;
+    let mut subscription_numeric = false;
+    if profile.endpoint.subscription_id.is_some()
+        && let Some(sub_endpoint) = &profile.subscription_endpoint
+    {
+        let port = sub_endpoint.effective_port(profile.endpoint.port);
+        match &sub_endpoint.host {
+            usque_core::endpoint_subscriptions::SubscriptionEndpointHost::Ipv4(addr) => {
+                let target = SocketAddr::new(std::net::IpAddr::V4(*addr), port);
+                ipv4 = target;
+                ipv6 = target;
+                subscription_numeric = true;
+            }
+            usque_core::endpoint_subscriptions::SubscriptionEndpointHost::Ipv6(addr) => {
+                let target = SocketAddr::new(std::net::IpAddr::V6(*addr), port);
+                ipv4 = target;
+                ipv6 = target;
+                subscription_numeric = true;
+            }
+            usque_core::endpoint_subscriptions::SubscriptionEndpointHost::Domain(host) => {
+                ipv4 = SocketAddr::new(usque_core::config::DEFAULT_ENDPOINT_V4.into(), port);
+                ipv6 = SocketAddr::new(usque_core::config::DEFAULT_ENDPOINT_V6.into(), port);
+                hostname_endpoint_policy = Some(hostname_policy(profile, host, port));
+            }
+        }
+    }
     let mut endpoint = match profile.ip_policy {
         IpPolicy::PreferIpv6 | IpPolicy::Ipv6Only => ipv6,
         IpPolicy::Auto | IpPolicy::PreferIpv4 | IpPolicy::Ipv4Only => ipv4,
     };
-    let mut endpoint_candidates = match profile.ip_policy {
-        IpPolicy::Ipv4Only => vec![ipv4.to_string()],
-        IpPolicy::Ipv6Only => vec![ipv6.to_string()],
-        IpPolicy::Auto | IpPolicy::PreferIpv4 | IpPolicy::PreferIpv6 => {
-            vec![ipv4.to_string(), ipv6.to_string()]
-        }
-    };
-    if profile.endpoint.preset_region.is_some() {
+    let mut endpoint_candidates = if subscription_numeric {
+        vec![endpoint.to_string()]
+    } else if profile.endpoint.preset_region.is_some() {
         // Canonical anchors observe physical interfaces only. Preset
         // sockets require explicit, generation-scoped DNS/candidate leases.
-        endpoint_candidates = vec![ipv4.to_string(), ipv6.to_string()];
-    }
+        vec![ipv4.to_string(), ipv6.to_string()]
+    } else {
+        match profile.ip_policy {
+            IpPolicy::Ipv4Only => vec![ipv4.to_string()],
+            IpPolicy::Ipv6Only => vec![ipv6.to_string()],
+            IpPolicy::Auto | IpPolicy::PreferIpv4 | IpPolicy::PreferIpv6 => {
+                vec![ipv4.to_string(), ipv6.to_string()]
+            }
+        }
+    };
     if automatic_policy.is_some() {
         endpoint_candidates.retain(|candidate| {
             candidate.parse::<SocketAddr>().is_ok_and(|value| {
@@ -146,6 +182,7 @@ pub(crate) fn tunnel_plan_from_assignment(
         defer_network_configuration: false,
         automatic_endpoint_policy: automatic_policy.map(automatic_policy_to_proto),
         preset_endpoint_policy: None,
+        hostname_endpoint_policy,
     }
 }
 
@@ -253,5 +290,87 @@ pub(crate) fn preset_policy(profile: &Profile, hostname: &str) -> agent_v1::Pres
             && profile.transport != usque_core::TransportPolicy::Http3,
         udp: profile.data_plane == usque_core::DataPlaneMode::L4Proxy
             || profile.transport != usque_core::TransportPolicy::Http2,
+    }
+}
+
+pub(crate) fn hostname_policy(
+    profile: &Profile,
+    hostname: &str,
+    port: u16,
+) -> agent_v1::HostnameEndpointPolicy {
+    agent_v1::HostnameEndpointPolicy {
+        hostname: hostname.to_owned(),
+        port: u32::from(port),
+        ipv4: !matches!(profile.ip_policy, IpPolicy::Ipv6Only),
+        ipv6: !matches!(profile.ip_policy, IpPolicy::Ipv4Only),
+        tcp: profile.data_plane == usque_core::DataPlaneMode::ConnectIp
+            && profile.transport != usque_core::TransportPolicy::Http3,
+        udp: profile.data_plane == usque_core::DataPlaneMode::L4Proxy
+            || profile.transport != usque_core::TransportPolicy::Http2,
+    }
+}
+
+#[cfg(test)]
+mod subscription_plan_tests {
+    use super::*;
+    use std::net::{Ipv4Addr, Ipv6Addr};
+    use usque_core::endpoint_subscriptions::{SubscriptionEndpoint, SubscriptionEndpointHost};
+
+    #[test]
+    fn numeric_subscription_plan_is_strictly_single_stack() {
+        let mut profile = Profile {
+            endpoint: usque_core::EndpointSettings {
+                selection: usque_core::EndpointSelection::Custom,
+                subscription_id: Some(uuid::Uuid::new_v4()),
+                ipv4: Ipv4Addr::new(192, 0, 2, 10),
+                ipv6: Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 10),
+                port: 443,
+                ..Default::default()
+            },
+            ip_policy: IpPolicy::Auto,
+            subscription_endpoint: Some(SubscriptionEndpoint {
+                id: "v6:2606:4700:103::55:2408".into(),
+                host: SubscriptionEndpointHost::Ipv6("2606:4700:103::55".parse().unwrap()),
+                port: Some(2408),
+                note: String::new(),
+                pinned: false,
+            }),
+            ..Default::default()
+        };
+        let plan = tunnel_plan_from_assignment(
+            &profile,
+            Ipv4Addr::new(172, 16, 0, 2),
+            Ipv6Addr::new(0x2606, 0x4700, 0x110, 0, 0, 0, 0, 2),
+            &[],
+            true,
+        );
+        assert_eq!(plan.endpoint, "[2606:4700:103::55]:2408");
+        assert_eq!(plan.endpoint_candidates, vec!["[2606:4700:103::55]:2408"]);
+        assert!(plan.automatic_endpoint_policy.is_none());
+        assert!(plan.preset_endpoint_policy.is_none());
+        assert!(plan.hostname_endpoint_policy.is_none());
+
+        profile.ip_policy = IpPolicy::Ipv6Only;
+        profile.subscription_endpoint = Some(SubscriptionEndpoint {
+            id: "host:edge.example.com:default".into(),
+            host: SubscriptionEndpointHost::Domain("edge.example.com".into()),
+            port: None,
+            note: String::new(),
+            pinned: false,
+        });
+        let domain_plan = tunnel_plan_from_assignment(
+            &profile,
+            Ipv4Addr::new(172, 16, 0, 2),
+            Ipv6Addr::new(0x2606, 0x4700, 0x110, 0, 0, 0, 0, 2),
+            &[],
+            true,
+        );
+        assert_eq!(
+            domain_plan.endpoint_candidates,
+            vec!["[2606:4700:103::2]:443"]
+        );
+        let policy = domain_plan.hostname_endpoint_policy.unwrap();
+        assert_eq!(policy.hostname, "edge.example.com");
+        assert!(!policy.ipv4 && policy.ipv6);
     }
 }

@@ -87,6 +87,7 @@ impl Http for System {
             status,
             retry_after: None,
             last_modified: None,
+            location: None,
             body: Zeroizing::new(b"{\"Code\":1000}".to_vec()),
         })
     }

@@ -158,6 +158,10 @@ message AgentCapabilities {
   bool linux_tun = 20;
   bool nftables_kill_switch = 21;
   bool unix_fd_transfer = 22;
+  // Bounded, generation-scoped dynamic hostname DNS and exact MASQUE candidate leases.
+  bool dynamic_hostname_endpoint_leases = 23;
+  // Volatile, generation-scoped single-session leases for probing public endpoints while connected.
+  bool connected_endpoint_probe_leases = 24;
 }
 
 enum AutomaticEndpointPool {
@@ -187,6 +191,17 @@ message PresetEndpointPolicy {
   bool udp = 5;
 }
 
+// Generalized public FQDN authorization descriptor for endpoint subscriptions.
+// Numeric observation anchors in TunnelPlan do not authorize hostname data traffic.
+message HostnameEndpointPolicy {
+  string hostname = 1;
+  uint32 port = 2;
+  bool ipv4 = 3;
+  bool ipv6 = 4;
+  bool tcp = 5;
+  bool udp = 6;
+}
+
 message TunnelPlan {
   string profile_id = 1;
   string endpoint = 2;
@@ -213,6 +228,7 @@ message TunnelPlan {
   bool defer_network_configuration = 14;
   AutomaticEndpointPolicy automatic_endpoint_policy = 15;
   PresetEndpointPolicy preset_endpoint_policy = 16;
+  HostnameEndpointPolicy hostname_endpoint_policy = 17;
 }
 
 // Replaces only this operation's volatile DNS-derived authorization. It is
@@ -222,6 +238,15 @@ message SetPresetEndpointCandidatesRequest {
   string hostname = 2;
   uint64 expected_generation = 3;
   repeated string ipv6_candidates = 4;
+}
+
+// Replaces only this operation's volatile hostname DNS-derived authorization.
+// Invalidated by physical-network generation changes and operation cleanup.
+message SetHostnameEndpointCandidatesRequest {
+  string operation_id = 1;
+  string hostname = 2;
+  uint64 expected_generation = 3;
+  repeated string candidates = 4;
 }
 
 message FinalizeTunnelRequest {
@@ -602,6 +627,36 @@ enum DirectEgressPurpose {
   DIRECT_EGRESS_PURPOSE_AUTOMATIC_MASQUE = 1;
   DIRECT_EGRESS_PURPOSE_PRESET_DNS = 2;
   DIRECT_EGRESS_PURPOSE_PRESET_MASQUE = 3;
+  DIRECT_EGRESS_PURPOSE_HOSTNAME_DNS = 4;
+  DIRECT_EGRESS_PURPOSE_HOSTNAME_MASQUE = 5;
+  DIRECT_EGRESS_PURPOSE_ENDPOINT_PROBE = 6;
+}
+
+message ProbeTarget {
+  string remote_endpoint = 1;
+  uint32 protocol = 2;
+}
+
+// Volatile single-session authorization for active TUN endpoint probing.
+// Never persisted in recovery journals and strictly scoped by generation & TTL.
+message AcquireEndpointProbeLeaseRequest {
+  string operation_id = 1;
+  string probe_session_id = 2;
+  uint64 expected_generation = 3;
+  repeated ProbeTarget targets = 4;
+  string dns_hostname = 5;
+}
+
+message ReleaseEndpointProbeLeaseRequest {
+  string operation_id = 1;
+  string probe_session_id = 2;
+  uint64 lease_id = 3;
+}
+
+message EndpointProbeLease {
+  uint64 lease_id = 1;
+  uint64 network_generation = 2;
+  uint32 ttl_seconds = 3;
 }
 
 message AcquireDirectEgressRequest {
@@ -721,6 +776,9 @@ message AgentRequest {
     SetPresetEndpointCandidatesRequest set_preset_endpoint_candidates = 34;
     ReleaseLinuxDirectEgressRequest release_linux_direct_egress = 35;
     MacosAgentRequest macos = 36;
+    SetHostnameEndpointCandidatesRequest set_hostname_endpoint_candidates = 37;
+    AcquireEndpointProbeLeaseRequest acquire_endpoint_probe_lease = 38;
+    ReleaseEndpointProbeLeaseRequest release_endpoint_probe_lease = 39;
   }
 }
 
@@ -738,6 +796,7 @@ message AgentResponse {
     DeviceLease device_lease = 17;
     LinuxTunSession linux_tun_session = 18;
     MacosAgentResponse macos = 19;
+    EndpointProbeLease endpoint_probe_lease = 20;
   }
 }
 
@@ -764,11 +823,28 @@ enum MacosSocketPurpose {
   MACOS_SOCKET_PURPOSE_BOOTSTRAP_DNS = 2;
   MACOS_SOCKET_PURPOSE_DIRECT = 3;
   MACOS_SOCKET_PURPOSE_CONTROL = 4;
+  MACOS_SOCKET_PURPOSE_ENDPOINT_PROBE = 5;
 }
 message MacosEndpointCandidates {
   MacosFence fence = 1;
   string hostname = 2;
   repeated string ipv6_candidates = 3;
+}
+message MacosHostnameEndpointCandidates {
+  MacosFence fence = 1;
+  string hostname = 2;
+  repeated string candidates = 3;
+}
+message MacosAcquireProbeLease {
+  MacosFence fence = 1;
+  string probe_session_id = 2;
+  repeated ProbeTarget targets = 3;
+  string dns_hostname = 4;
+}
+message MacosReleaseProbeLease {
+  MacosFence fence = 1;
+  string probe_session_id = 2;
+  uint64 lease_id = 3;
 }
 message MacosReleaseSocket {
   MacosFence fence = 1;
@@ -807,6 +883,9 @@ message MacosAgentRequest {
     MacosProxyListener acquire_proxy = 21;
     MacosProxyRelease release_proxy = 22;
     Empty recover_proxy = 23;
+    MacosHostnameEndpointCandidates set_hostname_endpoint_candidates = 24;
+    MacosAcquireProbeLease acquire_probe_lease = 25;
+    MacosReleaseProbeLease release_probe_lease = 26;
   }
 }
 enum MacosFailure {
@@ -826,6 +905,9 @@ enum MacosFailure {
   MACOS_FAILURE_PROXY_NO_SERVICE = 13;
   // The physical connect failed and its unpublished egress permit was revoked.
   MACOS_FAILURE_ENDPOINT_UNREACHABLE = 14;
+  // An endpoint probe lease or probe socket was refused (busy, expired, or an
+  // invalid target). The owner stream, session and protection are unaffected.
+  MACOS_FAILURE_PROBE_REJECTED = 15;
 }
 message MacosPlatformStatus {
   uint32 protocol_version = 1;
@@ -848,6 +930,8 @@ message MacosPlatformStatus {
   bool test_tun_enabled = 17;
   // The authenticated caller still owns the live transaction control connection.
   bool caller_owns_transaction = 18;
+  bool dynamic_hostname_endpoint_leases = 19;
+  bool connected_endpoint_probe_leases = 20;
 }
 message MacosDescriptor {
   MacosFence fence = 1;
@@ -866,5 +950,6 @@ message MacosAgentResponse {
     MacosPlatformStatus status = 11;
     // Exactly one SCM_RIGHTS FD, never a serialized descriptor integer.
     MacosDescriptor descriptor = 12;
+    EndpointProbeLease probe_lease = 13;
   }
 }

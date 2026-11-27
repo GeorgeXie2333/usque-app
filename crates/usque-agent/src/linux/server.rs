@@ -173,6 +173,16 @@ pub fn serve(stopping: Arc<AtomicBool>) -> io::Result<()> {
             {
                 tracing::error!(kind = ?error.kind(), "Linux physical network changed but lease invalidation failed");
             }
+            // Enforce the probe lease TTL without waiting for another probe RPC.
+            if let Ok(mut state) = service.lock()
+                && let Some(resources) = state.coordinator.state().resources.clone()
+                && let Err(error) = state
+                    .coordinator
+                    .backend_mut()
+                    .reap_expired_probe_lease(&resources)
+            {
+                tracing::warn!(kind = ?error.kind(), "Linux expired probe lease cleanup failed");
+            }
             last_snapshot = Instant::now();
         }
         let socket = match listener.accept() {
@@ -406,7 +416,10 @@ fn dispatch(
         Some(
             Request::AcquireDirectEgress(_)
             | Request::ReleaseLinuxDirectEgress(_)
-            | Request::SetPresetEndpointCandidates(_),
+            | Request::SetPresetEndpointCandidates(_)
+            | Request::SetHostnameEndpointCandidates(_)
+            | Request::AcquireEndpointProbeLease(_)
+            | Request::ReleaseEndpointProbeLease(_),
         ) => S::EgressPermission,
         Some(Request::GetPhysicalNetworkInfo(_)) => S::PhysicalSnapshot,
         Some(
@@ -583,6 +596,12 @@ fn dispatch_inner(
                 .resources
                 .clone()
                 .expect("validated resources");
+            let is_probe = request.purpose == agent_v1::DirectEgressPurpose::EndpointProbe as i32;
+            if is_probe {
+                coordinator
+                    .backend_mut()
+                    .prune_expired_probe_lease(&current)?;
+            }
             coordinator.backend_mut().validate_egress_purpose(
                 &plan,
                 &current,
@@ -606,6 +625,11 @@ fn dispatch_inner(
                 request.protocol,
                 reserved_mark,
             )?;
+            if is_probe {
+                coordinator
+                    .backend_mut()
+                    .record_probe_socket_lease(lease_id);
+            }
             Response::DirectEgressLease(agent_v1::DirectEgressLease {
                 remote_endpoint: request.remote_endpoint,
                 protocol: request.protocol,
@@ -659,6 +683,97 @@ fn dispatch_inner(
                 &request.hostname,
                 request.expected_generation,
                 candidates,
+            )?;
+            Response::Empty(agent_v1::Empty {})
+        }
+        Request::SetHostnameEndpointCandidates(request) => {
+            coordinator.check_owner(&caller, parse_operation(&request.operation_id)?)?;
+            require_physical_network(coordinator)?;
+            validate_network_generation(
+                request.expected_generation,
+                coordinator.state().resources.as_ref(),
+            )?;
+            let candidates = request
+                .candidates
+                .iter()
+                .map(|address| {
+                    address
+                        .parse()
+                        .map_err(|_| denied("invalid Linux hostname candidate"))
+                })
+                .collect::<io::Result<Vec<_>>>()?;
+            let plan = coordinator.state().plan.clone().expect("active plan");
+            let resources = coordinator
+                .state()
+                .resources
+                .clone()
+                .expect("active resources");
+            coordinator.backend_mut().set_hostname_candidates(
+                &plan,
+                &resources,
+                &request.hostname,
+                request.expected_generation,
+                candidates,
+            )?;
+            Response::Empty(agent_v1::Empty {})
+        }
+        Request::AcquireEndpointProbeLease(request) => {
+            coordinator.check_owner(&caller, parse_operation(&request.operation_id)?)?;
+            require_physical_network(coordinator)?;
+            validate_network_generation(
+                request.expected_generation,
+                coordinator.state().resources.as_ref(),
+            )?;
+            let targets = request
+                .targets
+                .iter()
+                .map(|target| {
+                    let remote = target
+                        .remote_endpoint
+                        .trim()
+                        .parse()
+                        .map_err(|_| denied("invalid Linux probe target"))?;
+                    let protocol = u8::try_from(target.protocol)
+                        .map_err(|_| denied("invalid Linux probe protocol"))?;
+                    Ok((remote, protocol))
+                })
+                .collect::<io::Result<Vec<_>>>()?;
+            let dns_hostname =
+                (!request.dns_hostname.trim().is_empty()).then_some(request.dns_hostname.trim());
+            let plan = coordinator.state().plan.clone().expect("active plan");
+            let phase = coordinator.state().phase;
+            let resources = coordinator
+                .state()
+                .resources
+                .clone()
+                .expect("active resources");
+            let (lease_id, network_generation, ttl_seconds) =
+                coordinator.backend_mut().acquire_probe_lease(
+                    &plan,
+                    &resources,
+                    phase,
+                    &request.probe_session_id,
+                    request.expected_generation,
+                    targets,
+                    dns_hostname,
+                )?;
+            Response::EndpointProbeLease(agent_v1::EndpointProbeLease {
+                lease_id,
+                network_generation,
+                ttl_seconds,
+            })
+        }
+        Request::ReleaseEndpointProbeLease(request) => {
+            coordinator.check_owner(&caller, parse_operation(&request.operation_id)?)?;
+            let resources = coordinator
+                .state()
+                .resources
+                .clone()
+                .ok_or_else(|| denied("active Linux resources unavailable"))?;
+            coordinator.backend_mut().release_probe_lease(
+                &resources,
+                &request.probe_session_id,
+                request.lease_id,
             )?;
             Response::Empty(agent_v1::Empty {})
         }
@@ -777,6 +892,8 @@ pub fn capabilities() -> agent_v1::AgentCapabilities {
         automatic_endpoint_leases: true,
         endpoint_preset_leases: true,
         protected_tunnel_replacement: true,
+        dynamic_hostname_endpoint_leases: true,
+        connected_endpoint_probe_leases: true,
         ..Default::default()
     }
 }
@@ -1081,5 +1198,6 @@ mod tests {
         assert!(value.linux_tun && value.nftables_kill_switch && value.unix_fd_transfer);
         assert!(!value.wintun && !value.shared_packet_ring && !value.system_proxy);
         assert!(value.deferred_network_configuration && value.protected_tunnel_replacement);
+        assert!(value.dynamic_hostname_endpoint_leases && value.connected_endpoint_probe_leases);
     }
 }

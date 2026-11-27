@@ -52,6 +52,9 @@ class ControlCodec {
       ..string(4, profile.sni)
       ..enumeration(5, profile.endpointSelection.index + 1)
       ..string(6, profile.endpointPresetRegion?.name ?? '');
+    if (profile.endpointSubscriptionId case final subId?) {
+      endpoint.string(7, subId);
+    }
     final proxy = ControlPayloadWriter();
     for (final listener in profile.proxy.socksListeners) {
       proxy.string(1, listener);
@@ -203,6 +206,7 @@ class ControlCodec {
       ChainProfileResult? chainProfiles;
       Map<String, Object?>? warpWireguard;
       Map<String, Object?>? scenario;
+      Map<String, Object?>? endpointSubscription;
       ProtonVpnResult? protonVpn;
       InitialIdentityState? initialIdentityState;
       SensitiveClipboardValue? sensitiveClipboard;
@@ -247,6 +251,8 @@ class ControlCodec {
             protonVpn = _decodeProtonVpn(reader.message(field));
           case 29:
             scenario = _decodeChainJson(reader.message(field));
+          case 30:
+            endpointSubscription = _decodeChainJson(reader.message(field));
           case 24:
             chainProfiles = ChainProfileResult.fromMap(
               _decodeChainJson(reader.message(field)),
@@ -289,6 +295,7 @@ class ControlCodec {
         chainProfiles: chainProfiles,
         warpWireguard: warpWireguard,
         scenario: scenario,
+        endpointSubscription: endpointSubscription,
         protonVpn: protonVpn,
         initialIdentityState: initialIdentityState,
         sensitiveClipboard: sensitiveClipboard,
@@ -326,6 +333,7 @@ class ControlCodec {
       EngineCapabilities? capabilities;
       var diagnosticsChanged = false;
       NetworkSettingsState? networkSettings;
+      Map<String, Object?>? endpointSubscriptionProbeProgress;
       while (!envelope.isDone) {
         final field = envelope.field();
         switch (field.number) {
@@ -389,6 +397,10 @@ class ControlCodec {
             }
           case 24:
             networkSettings = _decodeNetworkSettings(envelope.message(field));
+          case 26:
+            endpointSubscriptionProbeProgress = _decodeChainJson(
+              envelope.message(field),
+            );
           default:
             envelope.skip(field);
         }
@@ -401,6 +413,7 @@ class ControlCodec {
         networkSettings: networkSettings,
         networkQuality: networkQuality,
         capabilities: capabilities,
+        endpointSubscriptionProbeProgress: endpointSubscriptionProbeProgress,
       );
     } on FormatException catch (error) {
       throw _invalidIpcResponse(error);
@@ -436,6 +449,7 @@ class ControlResponse {
     this.chainProfiles,
     this.warpWireguard,
     this.scenario,
+    this.endpointSubscription,
     this.protonVpn,
     this.initialIdentityState,
     this.sensitiveClipboard,
@@ -455,6 +469,7 @@ class ControlResponse {
   final ChainProfileResult? chainProfiles;
   final Map<String, Object?>? warpWireguard;
   final Map<String, Object?>? scenario;
+  final Map<String, Object?>? endpointSubscription;
   final ProtonVpnResult? protonVpn;
   final InitialIdentityState? initialIdentityState;
   final SensitiveClipboardValue? sensitiveClipboard;
@@ -903,6 +918,7 @@ UsqueProfile _decodeProfile(_ProtoReader reader) {
   var endpointPort = defaults.endpointPort;
   var endpointSelection = EndpointSelection.custom;
   EndpointPresetRegion? endpointPresetRegion;
+  String? endpointSubscriptionId;
   var sni = defaults.sni;
   var mtu = defaults.mtu;
   final dnsServers = <String>[];
@@ -962,6 +978,9 @@ UsqueProfile _decodeProfile(_ProtoReader reader) {
               endpointPresetRegion = EndpointPresetRegion.parse(
                 endpoint.string(endpointField),
               );
+            case 7:
+              final subId = endpoint.string(endpointField).trim();
+              endpointSubscriptionId = subId.isEmpty ? null : subId;
             default:
               endpoint.skip(endpointField);
           }
@@ -1087,6 +1106,7 @@ UsqueProfile _decodeProfile(_ProtoReader reader) {
     endpointPort: endpointPort,
     endpointSelection: endpointSelection,
     endpointPresetRegion: endpointPresetRegion,
+    endpointSubscriptionId: endpointSubscriptionId,
     sni: sni,
     mtu: mtu,
     dnsIpv4:
@@ -1917,6 +1937,10 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
   var zeroTrustEndpointEditing = false;
   var quicMigration = false;
   var automaticPmtu = false;
+  var endpointSubscriptions = false;
+  var endpointSubscriptionDomainEndpoints = false;
+  var endpointSubscriptionProbe = false;
+  var endpointSubscriptionConnectedTunProbe = false;
   while (!reader.isDone) {
     final field = reader.field();
     switch (field.number) {
@@ -2016,6 +2040,14 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
         quicMigration = reader.varint(field) != 0;
       case 23:
         automaticPmtu = reader.varint(field) != 0;
+      case 60:
+        endpointSubscriptions = reader.varint(field) != 0;
+      case 61:
+        endpointSubscriptionDomainEndpoints = reader.varint(field) != 0;
+      case 62:
+        endpointSubscriptionProbe = reader.varint(field) != 0;
+      case 63:
+        endpointSubscriptionConnectedTunProbe = reader.varint(field) != 0;
       case 24:
         final values = field.wireType == 2 ? reader.message(field) : null;
         if (values != null && values.isDone) break;
@@ -2077,6 +2109,11 @@ EngineCapabilities _decodeCapabilities(_ProtoReader reader) {
     zeroTrustEndpointEditing: zeroTrustEndpointEditing,
     quicMigration: quicMigration,
     automaticPmtu: automaticPmtu,
+    endpointSubscriptions: endpointSubscriptions,
+    endpointSubscriptionDomainEndpoints: endpointSubscriptionDomainEndpoints,
+    endpointSubscriptionProbe: endpointSubscriptionProbe,
+    endpointSubscriptionConnectedTunProbe:
+        endpointSubscriptionConnectedTunProbe,
   );
 }
 

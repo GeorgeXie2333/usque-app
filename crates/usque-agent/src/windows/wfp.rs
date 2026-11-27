@@ -355,7 +355,9 @@ fn bootstrap_endpoints(
         // Automatic data endpoints are authorized only by their exact,
         // generation-scoped dynamic lease, including observation seed hosts.
         .filter(|_| {
-            plan.automatic_endpoint_policy.is_none() && plan.preset_endpoint_policy.is_none()
+            plan.automatic_endpoint_policy.is_none()
+                && plan.preset_endpoint_policy.is_none()
+                && plan.hostname_endpoint_policy.is_none()
         })
         .flat_map(|endpoint| {
             [
@@ -1216,6 +1218,7 @@ mod tests {
             defer_network_configuration: false,
             automatic_endpoint_policy: None,
             preset_endpoint_policy: None,
+            hostname_endpoint_policy: None,
             profile_id: Uuid::new_v4(),
             endpoint,
             endpoint_candidates: vec![endpoint],

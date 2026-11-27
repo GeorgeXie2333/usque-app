@@ -153,6 +153,10 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeCap
             "automatic_endpoints": engine_ready(),
             "endpoint_presets": engine_ready(),
             "zero_trust_endpoint_editing": engine_ready(),
+            "endpoint_subscriptions": engine_ready(),
+            "endpoint_subscription_domain_endpoints": engine_ready(),
+            "endpoint_subscription_probe": engine_ready(),
+            "endpoint_subscription_connected_tun_probe": engine_ready(),
             "routing_rules": engine_ready(),
             "live_ads_rules": engine_ready(),
             "chain_openvpn_multi_endpoint": engine_ready(),
@@ -263,6 +267,11 @@ fn native_start<'local>(environment: &mut Env<'local>, request: NativeVpnStart<'
         Ok(path) if PathBuf::from(&path).is_absolute() => PathBuf::from(path),
         _ => return START_INVALID_PROFILE,
     };
+    record_config_dir(&geo_cache_dir);
+    let mut profile = profile;
+    if endpoint_subscriptions::hydrate_profile_in_dir(&geo_cache_dir, None, &mut profile).is_err() {
+        return START_INVALID_PROFILE;
+    }
     let identity = match warp_identity_from_secret(&secret) {
         Ok(identity) => identity,
         Err(_) => return INVALID_WARP_SECRET,
@@ -358,6 +367,11 @@ fn native_start_proxy<'local>(
         Ok(path) if PathBuf::from(&path).is_absolute() => PathBuf::from(path),
         _ => return START_INVALID_PROFILE,
     };
+    record_config_dir(&geo_cache_dir);
+    let mut profile = profile;
+    if endpoint_subscriptions::hydrate_profile_in_dir(&geo_cache_dir, None, &mut profile).is_err() {
+        return START_INVALID_PROFILE;
+    }
     let identity = match warp_identity_from_secret(&secret) {
         Ok(identity) => identity,
         Err(_) => return INVALID_WARP_SECRET,
@@ -490,10 +504,13 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeRec
             Ok(bytes) => Zeroizing::new(bytes),
             Err(_) => return START_INVALID_PROFILE,
         };
-        let profile = match attach_android_proxy_password(profile, password) {
+        let mut profile = match attach_android_proxy_password(profile, password) {
             Ok(profile) => profile,
             Err(code) => return code,
         };
+        if hydrate_android_profile(&mut profile).is_err() {
+            return START_INVALID_PROFILE;
+        }
         reconfigure_engine(profile)
     })
 }
@@ -522,10 +539,13 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeAtt
             Ok(bytes) => Zeroizing::new(bytes),
             Err(_) => return START_INVALID_PROFILE,
         };
-        let profile = match attach_android_proxy_password(profile, password) {
+        let mut profile = match attach_android_proxy_password(profile, password) {
             Ok(profile) => profile,
             Err(code) => return code,
         };
+        if hydrate_android_profile(&mut profile).is_err() {
+            return START_INVALID_PROFILE;
+        }
         attach_tun_engine(tun_file_descriptor, profile)
     })
 }
@@ -882,9 +902,34 @@ fn native_apply_profile_command(
     }
 }
 
+mod endpoint_subscriptions;
 mod network_settings;
 mod scenarios;
 mod vpngate;
+
+static LAST_CONFIG_DIR: OnceLock<std::sync::Mutex<Option<PathBuf>>> = OnceLock::new();
+
+pub(crate) fn record_config_dir(dir: &std::path::Path) {
+    if let Ok(mut guard) = LAST_CONFIG_DIR
+        .get_or_init(|| std::sync::Mutex::new(None))
+        .lock()
+    {
+        *guard = Some(dir.to_path_buf());
+    }
+}
+
+fn hydrate_android_profile(profile: &mut Profile) -> Result<(), String> {
+    if profile.endpoint.subscription_id.is_none() {
+        profile.subscription_endpoint = None;
+        return Ok(());
+    }
+    let dir = LAST_CONFIG_DIR
+        .get()
+        .and_then(|guard| guard.lock().ok())
+        .and_then(|guard| guard.clone())
+        .ok_or_else(|| "SUBSCRIPTION_STORAGE_UNAVAILABLE".to_owned())?;
+    endpoint_subscriptions::hydrate_profile_in_dir(&dir, None, profile)
+}
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeVpnGate<'local>(
@@ -988,6 +1033,164 @@ pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeVpn
             Ok(value) => environment
                 .new_string(value)
                 .map_or(std::ptr::null_mut(), |v| v.into_raw()),
+            Err(error) => {
+                throw_io_error(environment, &error);
+                std::ptr::null_mut()
+            }
+        }
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_georgexie2333_usque_NativeEngine_nativeEndpointSubscriptionCommand<
+    'local,
+>(
+    mut environment: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    config_path: JString<'local>,
+    request_json: JString<'local>,
+    warp_secret: JByteArray<'local>,
+    vpn_service: JObject<'local>,
+) -> jstring {
+    with_jni_env(&mut environment, |environment| {
+        let result = (|| -> Result<String, String> {
+            let path = config_path
+                .try_to_string(environment)
+                .map_err(|_| "SUBSCRIPTION_INVALID_REQUEST".to_owned())?;
+            if let Some(dir) = std::path::Path::new(&path).parent() {
+                record_config_dir(dir);
+            }
+            let request = request_json
+                .try_to_string(environment)
+                .map_err(|_| "SUBSCRIPTION_INVALID_REQUEST".to_owned())?;
+            let secret = Zeroizing::new(
+                environment
+                    .convert_byte_array(&warp_secret)
+                    .map_err(|_| "SUBSCRIPTION_INVALID_REQUEST".to_owned())?,
+            );
+            let warp_identity = if secret.is_empty() {
+                None
+            } else {
+                Some(
+                    warp_identity_from_secret(&secret)
+                        .map_err(|_| "WARP_IDENTITY_REQUIRED".to_owned())?,
+                )
+            };
+            #[cfg(target_os = "android")]
+            let warp = android_runtime::internal_networks().map(|(_, warp)| warp);
+            #[cfg(not(target_os = "android"))]
+            let warp = None;
+
+            let context = if !vpn_service.is_null() {
+                let allow_physical = environment
+                    .call_method(
+                        &vpn_service,
+                        jni_str!("cataloguePhysicalAllowed"),
+                        jni_sig!("()Z"),
+                        &[],
+                    )
+                    .and_then(|v| v.z())
+                    .unwrap_or(false)
+                    && warp.is_none();
+                // A thrown check is a refusal; no further JNI call may run
+                // with its exception pending.
+                clear_pending_exception(environment);
+                let java_vm = environment
+                    .get_java_vm()
+                    .map_err(|_| "SUBSCRIPTION_STORAGE_UNAVAILABLE".to_owned())?;
+                let progress_service = environment
+                    .new_global_ref(&vpn_service)
+                    .map_err(|_| "SUBSCRIPTION_STORAGE_UNAVAILABLE".to_owned())?;
+                let service_ref = environment
+                    .new_global_ref(vpn_service)
+                    .map_err(|_| "SUBSCRIPTION_STORAGE_UNAVAILABLE".to_owned())?;
+                let progress_vm = java_vm.clone();
+                let on_probe_progress: std::sync::Arc<dyn Fn(&str) + Send + Sync> =
+                    std::sync::Arc::new(move |json: &str| {
+                        let _ =
+                            progress_vm.attach_current_thread(|env| -> jni::errors::Result<()> {
+                                let arg = env.new_string(json)?;
+                                let obj = JObject::from(arg);
+                                let _ = env.call_method(
+                                    &progress_service,
+                                    jni_str!("onEndpointSubscriptionProbeProgress"),
+                                    jni_sig!("(Ljava/lang/String;)V"),
+                                    &[JValue::Object(&obj)],
+                                )?;
+                                Ok(())
+                            });
+                    });
+                #[cfg(target_os = "android")]
+                let (protector, runtime_cancel): (
+                    Arc<dyn SocketProtector>,
+                    Option<tokio_util::sync::CancellationToken>,
+                ) = if let Some(runtime_cancel) = android_runtime::runtime_cancellation() {
+                    let generation = environment
+                        .call_method(
+                            &service_ref,
+                            jni_str!("getUnderlyingNetworkGeneration"),
+                            jni_sig!("()J"),
+                            &[],
+                        )
+                        .and_then(|v| v.j())
+                        .unwrap_or_default()
+                        .max(0) as u64;
+                    clear_pending_exception(environment);
+                    // Match the running session: only a TUN session can use
+                    // VpnService.protect; a proxy-only session binds directly.
+                    let policy = if android_runtime::requires_vpn_protection().unwrap_or(true) {
+                        AndroidSocketRoutePolicy::Vpn
+                    } else {
+                        AndroidSocketRoutePolicy::Proxy
+                    };
+                    let inner = AndroidSocketProtector {
+                        java_vm,
+                        service: service_ref,
+                        policy,
+                        network_generation: AtomicU64::new(generation),
+                        physical_watch: OnceLock::new(),
+                    };
+                    (
+                        Arc::new(diagnostic_probe::ProbeProtector(inner)),
+                        Some(runtime_cancel),
+                    )
+                } else {
+                    (Arc::new(usque_transport::NoopSocketProtector), None)
+                };
+                #[cfg(not(target_os = "android"))]
+                let (protector, runtime_cancel): (
+                    Arc<dyn SocketProtector>,
+                    Option<tokio_util::sync::CancellationToken>,
+                ) = {
+                    let _ = (java_vm, service_ref);
+                    (Arc::new(usque_transport::NoopSocketProtector), None)
+                };
+                endpoint_subscriptions::AndroidFetchContext {
+                    warp,
+                    allow_physical,
+                    allow_auto_refresh: true,
+                    warp_identity,
+                    protector,
+                    runtime_cancel,
+                    on_probe_progress: Some(on_probe_progress),
+                }
+            } else {
+                endpoint_subscriptions::AndroidFetchContext {
+                    warp,
+                    allow_physical: false,
+                    allow_auto_refresh: false,
+                    warp_identity,
+                    protector: Arc::new(usque_transport::NoopSocketProtector),
+                    runtime_cancel: None,
+                    on_probe_progress: None,
+                }
+            };
+            endpoint_subscriptions::command(&path, &request, context)
+        })();
+        match result {
+            Ok(value) => environment
+                .new_string(value)
+                .map_or(std::ptr::null_mut(), |value| value.into_raw()),
             Err(error) => {
                 throw_io_error(environment, &error);
                 std::ptr::null_mut()
@@ -1137,6 +1340,8 @@ struct AndroidProfile {
     endpoint_selection: usque_core::EndpointSelection,
     #[serde(default)]
     endpoint_preset_region: Option<usque_core::EndpointPresetRegion>,
+    #[serde(default)]
+    endpoint_subscription_id: Option<uuid::Uuid>,
     endpoint_port: u16,
     sni: String,
     mtu: u16,
@@ -1358,6 +1563,7 @@ fn android_profile_to_core(source: AndroidProfile) -> Result<Profile, String> {
             sni: source.sni,
             selection: source.endpoint_selection,
             preset_region: source.endpoint_preset_region,
+            subscription_id: source.endpoint_subscription_id,
         },
         ip_policy,
         mtu: source.mtu,
@@ -1380,6 +1586,7 @@ fn android_profile_to_core(source: AndroidProfile) -> Result<Profile, String> {
         routing: source.routing.unwrap_or_default(),
         direct_dns,
         warp_dns,
+        subscription_endpoint: None,
         proxy: ProxySettings {
             socks5_listeners: source.proxy.socks5_listeners.unwrap_or_else(|| {
                 vec![
@@ -1463,6 +1670,8 @@ enum AndroidConfigCommand {
         error_code: Option<String>,
         endpoint_ipv4: Option<String>,
         endpoint_ipv6: Option<String>,
+        #[serde(default)]
+        entitlement: Option<ConsumerEntitlement>,
     },
     GetInitialIdentityState {
         profile_id: String,
@@ -1475,6 +1684,8 @@ enum AndroidConfigCommand {
         profile: Box<AndroidProfile>,
         identity_provider: Option<String>,
         organization: Option<String>,
+        #[serde(default)]
+        entitlement: Option<ConsumerEntitlement>,
     },
     SetProxyUsername {
         profile_id: String,
@@ -1490,6 +1701,10 @@ enum AndroidConfigCommand {
     SetActiveProfile {
         profile_id: String,
     },
+    SetConsumerEntitlement {
+        profile_id: String,
+        entitlement: Option<ConsumerEntitlement>,
+    },
     CompleteIdentityDeletions {
         profile_ids: Vec<String>,
     },
@@ -1500,6 +1715,8 @@ enum AndroidConfigCommand {
         profile: Box<AndroidProfile>,
         identity_provider: Option<String>,
         organization: Option<String>,
+        #[serde(default)]
+        entitlement: Option<ConsumerEntitlement>,
     },
     CompleteIdentityCreations {
         profile_ids: Vec<String>,
@@ -1514,6 +1731,8 @@ enum AndroidConfigCommand {
         profile: Box<AndroidProfile>,
         identity_provider: Option<String>,
         organization: Option<String>,
+        #[serde(default)]
+        entitlement: Option<ConsumerEntitlement>,
     },
     CompleteIdentityReplacements {
         profile_ids: Vec<String>,
@@ -1554,6 +1773,9 @@ fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String
         || config_path.file_name().and_then(|name| name.to_str()) != Some("profiles-v2.json")
     {
         return Err("Android profile-store path is invalid".to_owned());
+    }
+    if let Some(dir) = config_path.parent() {
+        record_config_dir(dir);
     }
     let command: AndroidConfigCommand = serde_json::from_str(request_json)
         .map_err(|error| format!("invalid profile-store command: {error}"))?;
@@ -1640,6 +1862,7 @@ fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String
             error_code,
             endpoint_ipv4,
             endpoint_ipv6,
+            entitlement,
         } => {
             let operation_id = parse_value(&operation_id, "initial operation ID")?;
             let profile_id = parse_value(&profile_id, "profile ID")?;
@@ -1680,11 +1903,15 @@ fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String
                     config
                         .set_managed_endpoint_ips(profile_id, endpoints)
                         .map_err(|error| error.to_string())?;
+                    config.set_consumer_entitlement(profile_id, None);
                     usque_core::IdentityProvider::zero_trust(team)
                         .map_err(|error| error.to_string())?
                 } else {
                     if endpoint_ipv4.is_some() || endpoint_ipv6.is_some() {
                         return Err("Consumer initial identity has managed endpoints".into());
+                    }
+                    if let Some(ent) = entitlement {
+                        config.set_consumer_entitlement(profile_id, Some(ent));
                     }
                     usque_core::IdentityProvider::Consumer
                 };
@@ -1761,6 +1988,7 @@ fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String
             profile,
             identity_provider,
             organization,
+            entitlement,
         } => {
             validate_android_routing_client(&profile, &config)?;
             let binding = parse_identity_binding(identity_provider, organization)?;
@@ -1776,7 +2004,14 @@ fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String
                 return Err("profile identity provider cannot be changed".to_owned());
             }
             if let Some(binding) = binding {
+                if matches!(binding, IdentityProvider::ZeroTrust { .. }) {
+                    config.set_consumer_entitlement(profile_id, None);
+                } else if let Some(ent) = entitlement {
+                    config.set_consumer_entitlement(profile_id, Some(ent));
+                }
                 config.identity_bindings.insert(profile_id, binding);
+            } else if let Some(ent) = entitlement {
+                config.set_consumer_entitlement(profile_id, Some(ent));
             }
             config
                 .upsert_runtime_profile(profile)
@@ -1824,6 +2059,7 @@ fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String
                 .ok_or_else(|| "profile does not exist".to_owned())?;
             config.profiles.remove(index);
             config.identity_bindings.remove(&profile_id);
+            config.set_consumer_entitlement(profile_id, None);
             if config
                 .initial_identity_operation
                 .as_ref()
@@ -1849,6 +2085,17 @@ fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String
                 return Err("profile does not exist".to_owned());
             }
             config.active_profile_id = Some(profile_id);
+            changed = true;
+        }
+        AndroidConfigCommand::SetConsumerEntitlement {
+            profile_id,
+            entitlement,
+        } => {
+            let profile_id = parse_value(&profile_id, "profile ID")?;
+            if config.account(profile_id).is_none() {
+                return Err("profile does not exist".to_owned());
+            }
+            config.set_consumer_entitlement(profile_id, entitlement);
             changed = true;
         }
         AndroidConfigCommand::CompleteIdentityDeletions { profile_ids } => {
@@ -1882,6 +2129,7 @@ fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String
             profile,
             identity_provider,
             organization,
+            entitlement,
         } => {
             let binding = parse_identity_binding(identity_provider, organization)?;
             let profile = android_profile_to_core(*profile)?;
@@ -1898,11 +2146,21 @@ fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String
             {
                 return Err("profile already exists".to_owned());
             }
+            let committed_profile_id = profile.id;
             config
                 .pending_identity_creations
-                .retain(|profile_id| *profile_id != profile.id);
+                .retain(|profile_id| *profile_id != committed_profile_id);
             if let Some(binding) = binding {
-                config.identity_bindings.insert(profile.id, binding);
+                if matches!(binding, IdentityProvider::ZeroTrust { .. }) {
+                    config.set_consumer_entitlement(committed_profile_id, None);
+                } else if let Some(ent) = entitlement {
+                    config.set_consumer_entitlement(committed_profile_id, Some(ent));
+                }
+                config
+                    .identity_bindings
+                    .insert(committed_profile_id, binding);
+            } else if let Some(ent) = entitlement {
+                config.set_consumer_entitlement(committed_profile_id, Some(ent));
             }
             config
                 .insert_account(profile.id, profile.name, managed_endpoint_ips)
@@ -1959,6 +2217,7 @@ fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String
             profile,
             identity_provider,
             organization,
+            entitlement,
         } => {
             let binding = parse_identity_binding(identity_provider, organization)?;
             let profile = android_profile_to_core(*profile)?;
@@ -1982,7 +2241,14 @@ fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String
                 return Err("profile identity provider cannot be changed".to_owned());
             }
             if let Some(binding) = binding {
+                if matches!(binding, IdentityProvider::ZeroTrust { .. }) {
+                    config.set_consumer_entitlement(profile_id, None);
+                } else if let Some(ent) = entitlement {
+                    config.set_consumer_entitlement(profile_id, Some(ent));
+                }
                 config.identity_bindings.insert(profile_id, binding);
+            } else if let Some(ent) = entitlement {
+                config.set_consumer_entitlement(profile_id, Some(ent));
             }
             config
                 .upsert_runtime_profile(profile)
@@ -1991,6 +2257,9 @@ fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String
                 config
                     .set_managed_endpoint_ips(profile_id, managed_endpoint_ips)
                     .map_err(|error| error.to_string())?;
+                if let Some(account) = config.account_mut(profile_id) {
+                    account.zero_trust_subscription_id = None;
+                }
             }
             config.pending_identity_replacements.remove(&profile_id);
             changed = true;
@@ -2072,10 +2341,10 @@ fn apply_profile_command(config_path: &str, request_json: &str) -> Result<String
             }
         }
         if clear_all_data {
-            usque_core::chain_exit::store::clear_library(
-                store.path().parent().ok_or("Invalid storage path")?,
-            )
-            .map_err(|_| "Chain profile cleanup failed")?;
+            let dir = store.path().parent().ok_or("Invalid storage path")?;
+            usque_core::chain_exit::store::clear_library(dir)
+                .map_err(|_| "Chain profile cleanup failed")?;
+            endpoint_subscriptions::cancel_all_and_clear(dir)?;
             let _ = std::fs::remove_file(store.backup_path());
         }
     }
@@ -2178,6 +2447,9 @@ fn android_profile_catalog(config: &AppConfig) -> serde_json::Value {
                     value["registered_endpoint_ipv4"] = serde_json::json!(pair.ipv4.to_string());
                     value["registered_endpoint_ipv6"] = serde_json::json!(pair.ipv6.to_string());
                 }
+                if let Some(entitlement) = config.consumer_entitlements.get(&account.id) {
+                    value["consumer_entitlement"] = serde_json::json!(entitlement);
+                }
                 Some(value)
             })
             .collect::<Vec<_>>(),
@@ -2266,6 +2538,7 @@ fn android_profile_value(
         "endpoint_v6": profile.endpoint.ipv6.to_string(),
         "endpoint_selection": profile.endpoint.selection,
         "endpoint_preset_region": profile.endpoint.preset_region,
+        "endpoint_subscription_id": profile.endpoint.subscription_id.map(|id| id.to_string()),
         "endpoint_port": profile.endpoint.port,
         "sni": profile.endpoint.sni,
         "identity_provider": match binding {
@@ -2646,6 +2919,66 @@ impl SocketProtector for AndroidSocketProtector {
         Ok(DirectEgressLease::for_generation(expected_generation))
     }
 
+    async fn protect_masque_endpoint_generation(
+        &self,
+        socket: SocketHandle,
+        remote: SocketAddr,
+        protocol: DirectProtocol,
+        expected_generation: u64,
+    ) -> Result<DirectEgressLease, String> {
+        self.protect_for_target_generation(socket, remote, protocol, expected_generation)
+            .await
+    }
+
+    async fn protect_endpoint_preset_dns_generation(
+        &self,
+        socket: SocketHandle,
+        remote: SocketAddr,
+        protocol: DirectProtocol,
+        expected_generation: u64,
+    ) -> Result<DirectEgressLease, String> {
+        self.protect_for_target_generation(socket, remote, protocol, expected_generation)
+            .await
+    }
+
+    async fn resolve_endpoint_hostname(
+        &self,
+        host: &str,
+        port: u16,
+        ip_policy: IpPolicy,
+        expected_generation: u64,
+    ) -> Result<Vec<SocketAddr>, String> {
+        if self.physical_dns_servers().is_empty() {
+            if self.network_generation().unwrap_or_default() != expected_generation {
+                return Err(STALE_GENERATION_REASON.to_owned());
+            }
+            // Java DNS blocks; never stall a Tokio worker on it.
+            let service = self
+                .java_vm
+                .attach_current_thread(|environment| environment.new_global_ref(&self.service))
+                .map_err(|error| format!("resolve on Android underlying network: {error}"))?;
+            let java_vm = self.java_vm.clone();
+            let host = host.to_owned();
+            let addrs = tokio::task::spawn_blocking(move || {
+                resolve_underlying_host(&java_vm, &service, &host, port)
+            })
+            .await
+            .map_err(|_| "Android underlying DNS task failed".to_owned())??;
+            if self.network_generation().unwrap_or_default() != expected_generation {
+                return Err(STALE_GENERATION_REASON.to_owned());
+            }
+            return Ok(addrs);
+        }
+        usque_transport::resolve_physical_endpoint_hostname(
+            self,
+            host,
+            port,
+            ip_policy,
+            expected_generation,
+        )
+        .await
+    }
+
     fn tun_direct_available(&self) -> bool {
         self.policy.requires_vpn_protection()
     }
@@ -2726,51 +3059,60 @@ impl SocketProtector for AndroidSocketProtector {
     }
 
     fn resolve(&self, host: &str, port: u16) -> Result<Vec<SocketAddr>, String> {
-        let resolved = self
-            .java_vm
-            .attach_current_thread(|environment| -> jni::errors::Result<Vec<String>> {
-                let host = environment.new_string(host)?;
-                let host_object = JObject::from(host);
-                let resolved = environment
-                    .call_method(
-                        &self.service,
-                        jni_str!("resolveUnderlyingHost"),
-                        jni_sig!("(Ljava/lang/String;)[Ljava/lang/String;"),
-                        &[JValue::Object(&host_object)],
-                    )?
-                    .l()?;
-                let resolved =
-                    environment.cast_local::<JObjectArray<JString<'static>>>(resolved)?;
-                let length = resolved.len(environment)?;
-                let mut values = Vec::with_capacity(length);
-                for index in 0..length {
-                    let value = resolved.get_element(environment, index)?;
-                    values.push(value.try_to_string(environment)?);
-                }
-                Ok(values)
-            })
-            .map_err(|error| format!("resolve on Android underlying network: {error}"))?;
-        let mut addresses = Vec::with_capacity(resolved.len());
-        for value in resolved {
-            if let Ok(ip) = value
-                .split('%')
-                .next()
-                .unwrap_or_default()
-                .parse::<IpAddr>()
-                && !ip.is_unspecified()
-                && !ip.is_multicast()
-            {
-                addresses.push(SocketAddr::new(ip, port));
+        resolve_underlying_host(&self.java_vm, &self.service, host, port)
+    }
+}
+
+/// Resolves through `Network.getAllByName` on the underlying network. This
+/// blocks on Java DNS; async callers run it on a blocking thread.
+fn resolve_underlying_host(
+    java_vm: &JavaVM,
+    service: &Global<JObject<'static>>,
+    host: &str,
+    port: u16,
+) -> Result<Vec<SocketAddr>, String> {
+    let resolved = java_vm
+        .attach_current_thread(|environment| -> jni::errors::Result<Vec<String>> {
+            let host = environment.new_string(host)?;
+            let host_object = JObject::from(host);
+            let resolved = environment
+                .call_method(
+                    service,
+                    jni_str!("resolveUnderlyingHost"),
+                    jni_sig!("(Ljava/lang/String;)[Ljava/lang/String;"),
+                    &[JValue::Object(&host_object)],
+                )?
+                .l()?;
+            let resolved = environment.cast_local::<JObjectArray<JString<'static>>>(resolved)?;
+            let length = resolved.len(environment)?;
+            let mut values = Vec::with_capacity(length);
+            for index in 0..length {
+                let value = resolved.get_element(environment, index)?;
+                values.push(value.try_to_string(environment)?);
             }
+            Ok(values)
+        })
+        .map_err(|error| format!("resolve on Android underlying network: {error}"))?;
+    let mut addresses = Vec::with_capacity(resolved.len());
+    for value in resolved {
+        if let Ok(ip) = value
+            .split('%')
+            .next()
+            .unwrap_or_default()
+            .parse::<IpAddr>()
+            && !ip.is_unspecified()
+            && !ip.is_multicast()
+        {
+            addresses.push(SocketAddr::new(ip, port));
         }
-        addresses.sort();
-        addresses.dedup();
-        addresses.truncate(16);
-        if addresses.is_empty() {
-            Err("Android underlying network returned no usable address".to_owned())
-        } else {
-            Ok(addresses)
-        }
+    }
+    addresses.sort();
+    addresses.dedup();
+    addresses.truncate(16);
+    if addresses.is_empty() {
+        Err("Android underlying network returned no usable address".to_owned())
+    } else {
+        Ok(addresses)
     }
 }
 
@@ -3497,6 +3839,7 @@ fn stop_engine() {
 }
 
 fn stop_engine_confirmed() -> bool {
+    endpoint_subscriptions::signal_cancel();
     if !vpngate::cancel_refresh() {
         return false;
     }
@@ -3511,12 +3854,14 @@ fn stop_engine_confirmed() -> bool {
 }
 
 fn cancel_engine() {
+    endpoint_subscriptions::signal_cancel();
     vpngate::signal_cancel();
     #[cfg(target_os = "android")]
     android_runtime::cancel();
 }
 
 fn notify_network_changed(generation: u64) {
+    endpoint_subscriptions::signal_cancel();
     vpngate::signal_cancel();
     #[cfg(target_os = "android")]
     android_runtime::notify_network_changed(generation);
@@ -3764,7 +4109,17 @@ fn check_for_updates() -> Result<String, String> {
     serde_json::to_string(&result).map_err(|_| "UPDATE_CHECK_FAILED".to_owned())
 }
 
+/// Clears a Java exception left by a failed upcall whose result was already
+/// mapped to a fail-closed value, before any further JNI call is made.
+fn clear_pending_exception(environment: &mut Env<'_>) {
+    if environment.exception_check() {
+        environment.exception_clear();
+    }
+}
+
 fn throw_io_error(environment: &mut Env<'_>, message: &str) {
+    // ThrowNew is undefined with another exception already pending.
+    clear_pending_exception(environment);
     let message: String = message.chars().take(512).collect();
     let message = JNIString::from(message);
     let _ = environment.throw_new(jni_str!("java/io/IOException"), &message);

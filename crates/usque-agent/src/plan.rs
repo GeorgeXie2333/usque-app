@@ -129,6 +129,147 @@ fn preset_policy_to_proto(value: &PresetEndpointPolicy) -> agent_v1::PresetEndpo
     }
 }
 
+pub const MAX_HOSTNAME_CANDIDATES_PER_FAMILY: usize = 16;
+pub const MAX_HOSTNAME_CANDIDATES: usize = MAX_HOSTNAME_CANDIDATES_PER_FAMILY * 2;
+pub const MAX_PROBE_LEASE_TARGETS: usize = 8;
+pub const PROBE_LEASE_TTL_SECONDS: u32 = 15;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct HostnameEndpointPolicy {
+    pub hostname: String,
+    pub port: u16,
+    pub ipv4: bool,
+    pub ipv6: bool,
+    pub tcp: bool,
+    pub udp: bool,
+}
+
+impl HostnameEndpointPolicy {
+    pub fn validate(&self) -> Result<(), PlanError> {
+        let valid_host =
+            usque_core::endpoint_subscriptions::canonical_public_domain(&self.hostname)
+                .is_some_and(|canonical| canonical == self.hostname);
+        if !valid_host || self.port == 0 || !(self.ipv4 || self.ipv6) || !(self.tcp || self.udp) {
+            return Err(PlanError::HostnameEndpointPolicy);
+        }
+        Ok(())
+    }
+
+    pub fn permits_protocol(&self, protocol: u8) -> bool {
+        match protocol {
+            6 => self.tcp,
+            17 => self.udp,
+            _ => false,
+        }
+    }
+
+    pub fn validate_candidates(&self, candidates: &[SocketAddr]) -> Result<(), PlanError> {
+        if candidates.len() > MAX_HOSTNAME_CANDIDATES {
+            return Err(PlanError::HostnameEndpointPolicy);
+        }
+        let mut ipv4_count = 0usize;
+        let mut ipv6_count = 0usize;
+        for candidate in candidates {
+            if candidate.port() != self.port
+                || !usque_core::endpoint_subscriptions::is_usable_public_endpoint_ip(candidate.ip())
+            {
+                return Err(PlanError::HostnameEndpointPolicy);
+            }
+            if candidate.is_ipv4() {
+                if !self.ipv4 {
+                    return Err(PlanError::HostnameEndpointPolicy);
+                }
+                ipv4_count += 1;
+            } else {
+                if !self.ipv6 {
+                    return Err(PlanError::HostnameEndpointPolicy);
+                }
+                ipv6_count += 1;
+            }
+        }
+        if ipv4_count > MAX_HOSTNAME_CANDIDATES_PER_FAMILY
+            || ipv6_count > MAX_HOSTNAME_CANDIDATES_PER_FAMILY
+        {
+            return Err(PlanError::HostnameEndpointPolicy);
+        }
+        Ok(())
+    }
+}
+
+fn hostname_policy_from_proto(
+    value: agent_v1::HostnameEndpointPolicy,
+) -> Result<HostnameEndpointPolicy, PlanError> {
+    let policy = HostnameEndpointPolicy {
+        hostname: value.hostname,
+        port: u16::try_from(value.port).map_err(|_| PlanError::HostnameEndpointPolicy)?,
+        ipv4: value.ipv4,
+        ipv6: value.ipv6,
+        tcp: value.tcp,
+        udp: value.udp,
+    };
+    policy.validate()?;
+    Ok(policy)
+}
+
+fn hostname_policy_to_proto(value: &HostnameEndpointPolicy) -> agent_v1::HostnameEndpointPolicy {
+    agent_v1::HostnameEndpointPolicy {
+        hostname: value.hostname.clone(),
+        port: u32::from(value.port),
+        ipv4: value.ipv4,
+        ipv6: value.ipv6,
+        tcp: value.tcp,
+        udp: value.udp,
+    }
+}
+
+/// Validates one resolution's hostname candidates for this plan on every
+/// platform. A tunnel DNS server can never also be a physical MASQUE target.
+pub fn validate_hostname_candidates(
+    plan: &ValidatedTunnelPlan,
+    candidates: &[SocketAddr],
+) -> Result<(), PlanError> {
+    let policy = plan
+        .hostname_endpoint_policy
+        .as_ref()
+        .ok_or(PlanError::HostnameEndpointPolicy)?;
+    policy.validate_candidates(candidates)?;
+    if candidates
+        .iter()
+        .any(|candidate| plan.dns_servers.contains(&candidate.ip()))
+    {
+        return Err(PlanError::HostnameEndpointPolicy);
+    }
+    Ok(())
+}
+
+pub fn validate_probe_targets(
+    targets: &[(SocketAddr, u8)],
+    dns_hostname: Option<&str>,
+    plan_dns_servers: &[IpAddr],
+) -> Result<Option<String>, PlanError> {
+    if (targets.is_empty() && dns_hostname.is_none()) || targets.len() > MAX_PROBE_LEASE_TARGETS {
+        return Err(PlanError::ProbeLease);
+    }
+    let canonical_dns_hostname = if let Some(hostname) = dns_hostname {
+        Some(
+            usque_core::endpoint_subscriptions::canonical_public_domain(hostname)
+                .ok_or(PlanError::ProbeLease)?,
+        )
+    } else {
+        None
+    };
+    for &(remote, protocol) in targets {
+        if remote.port() == 0
+            || !matches!(protocol, 6 | 17)
+            || !usque_core::endpoint_subscriptions::is_usable_public_endpoint_ip(remote.ip())
+            || plan_dns_servers.contains(&remote.ip())
+        {
+            return Err(PlanError::ProbeLease);
+        }
+    }
+    Ok(canonical_dns_hostname)
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ValidatedTunnelPlan {
     pub profile_id: Uuid,
@@ -153,6 +294,8 @@ pub struct ValidatedTunnelPlan {
     pub automatic_endpoint_policy: Option<AutomaticEndpointPolicy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub preset_endpoint_policy: Option<PresetEndpointPolicy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hostname_endpoint_policy: Option<HostnameEndpointPolicy>,
 }
 
 impl TryFrom<agent_v1::TunnelPlan> for ValidatedTunnelPlan {
@@ -284,6 +427,10 @@ impl ValidatedTunnelPlan {
                 .preset_endpoint_policy
                 .map(preset_policy_from_proto)
                 .transpose()?,
+            hostname_endpoint_policy: value
+                .hostname_endpoint_policy
+                .map(hostname_policy_from_proto)
+                .transpose()?,
         };
         validate(&plan)?;
         Ok(plan)
@@ -330,6 +477,10 @@ impl ValidatedTunnelPlan {
                 .preset_endpoint_policy
                 .as_ref()
                 .map(preset_policy_to_proto),
+            hostname_endpoint_policy: self
+                .hostname_endpoint_policy
+                .as_ref()
+                .map(hostname_policy_to_proto),
         }
     }
     pub fn validate(&self) -> Result<(), PlanError> {
@@ -347,12 +498,26 @@ impl ValidatedTunnelPlan {
         if let Some(policy) = &self.preset_endpoint_policy {
             policy.validate()?;
             if self.automatic_endpoint_policy.is_some()
+                || self.hostname_endpoint_policy.is_some()
                 || self
                     .endpoint_candidates
                     .iter()
                     .any(|candidate| candidate.port() != policy.port)
             {
                 return Err(PlanError::PresetEndpointPolicy);
+            }
+        }
+        if let Some(policy) = &self.hostname_endpoint_policy {
+            policy.validate()?;
+            if self.automatic_endpoint_policy.is_some()
+                || self.preset_endpoint_policy.is_some()
+                || self.endpoint_candidates.iter().any(|candidate| {
+                    candidate.port() != policy.port
+                        || (candidate.is_ipv4() && !policy.ipv4)
+                        || (candidate.is_ipv6() && !policy.ipv6)
+                })
+            {
+                return Err(PlanError::HostnameEndpointPolicy);
             }
         }
         if let Some(policy) = self.automatic_endpoint_policy {
@@ -539,6 +704,10 @@ fn validate_endpoint_candidates(
 pub enum PlanError {
     #[error("invalid built-in preset endpoint policy or candidate set")]
     PresetEndpointPolicy,
+    #[error("invalid hostname endpoint policy or candidate set")]
+    HostnameEndpointPolicy,
+    #[error("invalid volatile endpoint probe lease request")]
+    ProbeLease,
     #[error(
         "automatic endpoint policy must describe an allowed pool, nonzero port, address family and protocol"
     )]
@@ -599,6 +768,7 @@ mod tests {
             defer_network_configuration: false,
             automatic_endpoint_policy: None,
             preset_endpoint_policy: None,
+            hostname_endpoint_policy: None,
             profile_id: Uuid::new_v4().to_string(),
             endpoint: "162.159.198.2:443".to_owned(),
             endpoint_candidates: vec![
@@ -813,5 +983,127 @@ mod tests {
             ValidatedTunnelPlan::try_from(unsafe_plan),
             Err(PlanError::SplitDnsServers)
         );
+    }
+
+    #[test]
+    fn hostname_policy_is_validated_bounded_and_mutually_exclusive() {
+        let mut wire = valid_plan();
+        let policy = HostnameEndpointPolicy {
+            hostname: "edge.example.com".into(),
+            port: 443,
+            ipv4: true,
+            ipv6: true,
+            tcp: true,
+            udp: true,
+        };
+        wire.hostname_endpoint_policy = Some(hostname_policy_to_proto(&policy));
+        let plan = ValidatedTunnelPlan::try_from(wire.clone()).unwrap();
+        assert_eq!(plan.to_proto(), wire);
+        let parsed = plan.hostname_endpoint_policy.as_ref().unwrap();
+        let mut v4_and_v6 = (1..=MAX_HOSTNAME_CANDIDATES_PER_FAMILY)
+            .map(|octet| format!("162.159.193.{octet}:443").parse().unwrap())
+            .collect::<Vec<_>>();
+        v4_and_v6.extend((1..=MAX_HOSTNAME_CANDIDATES_PER_FAMILY).map(|last| {
+            format!("[2606:4700:103::{last}]:443")
+                .parse::<SocketAddr>()
+                .unwrap()
+        }));
+        assert!(parsed.validate_candidates(&v4_and_v6).is_ok());
+
+        let mut too_many_v4 = (1..=MAX_HOSTNAME_CANDIDATES_PER_FAMILY + 1)
+            .map(|octet| format!("162.159.193.{octet}:443").parse().unwrap())
+            .collect::<Vec<_>>();
+        assert!(parsed.validate_candidates(&too_many_v4).is_err());
+        too_many_v4.pop();
+
+        for bad in [
+            "127.0.0.1:443",
+            "10.0.0.1:443",
+            "100.64.0.1:443",
+            "[::1]:443",
+            "[fe80::1]:443",
+            "[fc00::1]:443",
+            "[::ffff:162.159.193.1]:443",
+            "162.159.193.1:8443",
+        ] {
+            assert!(
+                parsed.validate_candidates(&[bad.parse().unwrap()]).is_err(),
+                "{bad}"
+            );
+        }
+
+        for bad_host in [
+            "localhost",
+            "edge.local",
+            "162.159.193.1",
+            "Edge.Example.Com",
+        ] {
+            let mut malformed = wire.clone();
+            malformed
+                .hostname_endpoint_policy
+                .as_mut()
+                .unwrap()
+                .hostname = bad_host.into();
+            assert_eq!(
+                ValidatedTunnelPlan::try_from(malformed).unwrap_err(),
+                PlanError::HostnameEndpointPolicy
+            );
+        }
+
+        let mut conflicting = wire.clone();
+        conflicting.preset_endpoint_policy = Some(agent_v1::PresetEndpointPolicy {
+            hostname: "us.v6.free.orangesky.dev".into(),
+            port: 443,
+            ipv4_fallback: String::new(),
+            tcp: true,
+            udp: true,
+        });
+        assert!(ValidatedTunnelPlan::try_from(conflicting).is_err());
+
+        let mut ipv4_only_policy = wire.clone();
+        ipv4_only_policy
+            .hostname_endpoint_policy
+            .as_mut()
+            .unwrap()
+            .ipv6 = false;
+        assert_eq!(
+            ValidatedTunnelPlan::try_from(ipv4_only_policy).unwrap_err(),
+            PlanError::HostnameEndpointPolicy
+        );
+    }
+
+    #[test]
+    fn probe_targets_enforce_public_unicast_and_quota() {
+        let dns = vec!["1.1.1.1".parse().unwrap()];
+        let valid = vec![
+            ("162.159.193.10:2408".parse().unwrap(), 17),
+            ("[2606:4700:103::2]:443".parse().unwrap(), 6),
+        ];
+        assert_eq!(
+            validate_probe_targets(&valid, Some("Edge.Example.Com."), &dns).unwrap(),
+            Some("edge.example.com".to_owned())
+        );
+        assert!(validate_probe_targets(&[], None, &dns).is_err());
+        assert!(validate_probe_targets(&[], Some("edge.example.com"), &dns).is_ok());
+
+        let too_many = (1..=MAX_PROBE_LEASE_TARGETS + 1)
+            .map(|octet| (format!("162.159.193.{octet}:443").parse().unwrap(), 17))
+            .collect::<Vec<_>>();
+        assert!(validate_probe_targets(&too_many, None, &dns).is_err());
+
+        for (target, proto) in [
+            ("127.0.0.1:443", 17),
+            ("10.0.0.1:443", 6),
+            ("192.168.1.1:443", 17),
+            ("1.1.1.1:53", 17),
+            ("162.159.193.1:0", 17),
+            ("162.159.193.1:443", 1),
+        ] {
+            assert!(
+                validate_probe_targets(&[(target.parse().unwrap(), proto)], None, &dns).is_err(),
+                "{target}/{proto}"
+            );
+        }
+        assert!(validate_probe_targets(&valid, Some("localhost"), &dns).is_err());
     }
 }

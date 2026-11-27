@@ -952,6 +952,7 @@ fn zero_trust_endpoint(enrollment: &AccountData) -> Result<EndpointSettings, Reg
         sni: ZERO_TRUST_SNI.to_owned(),
         selection: crate::EndpointSelection::Custom,
         preset_region: None,
+        subscription_id: None,
     };
     settings
         .validate()

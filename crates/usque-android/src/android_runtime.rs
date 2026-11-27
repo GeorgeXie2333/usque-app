@@ -39,6 +39,30 @@ pub(super) fn internal_networks() -> Option<InternalNetworks> {
     NETWORKS.lock().ok().and_then(|v| v.clone())
 }
 
+/// The subscription endpoint the running data plane actually dials. Settings
+/// observation must report this, never a value re-read from the catalogue.
+static RUNNING_SUBSCRIPTION_ENDPOINT: Mutex<
+    Option<usque_core::endpoint_subscriptions::SubscriptionEndpoint>,
+> = Mutex::new(None);
+
+fn publish_running_subscription_endpoint(profile: &Profile) {
+    if let Ok(mut slot) = RUNNING_SUBSCRIPTION_ENDPOINT.lock() {
+        slot.clone_from(&profile.subscription_endpoint);
+    }
+}
+
+/// `None` while no runtime runs. Otherwise the running profile's resolved
+/// subscription endpoint (itself `None` without a bound subscription).
+pub(super) fn running_subscription_endpoint()
+-> Option<Option<usque_core::endpoint_subscriptions::SubscriptionEndpoint>> {
+    is_running().then(|| {
+        RUNNING_SUBSCRIPTION_ENDPOINT
+            .lock()
+            .ok()
+            .and_then(|slot| slot.clone())
+    })
+}
+
 pub(super) fn is_running() -> bool {
     ENGINE
         .get()
@@ -395,6 +419,25 @@ pub(super) fn cancel() {
     if let Some(handle) = slot.as_ref() {
         handle.cancellation.cancel();
     }
+}
+
+/// Whether the running session protects sockets through `VpnService`. A
+/// proxy-only session has no TUN, so its sockets need the proxy route policy.
+pub(super) fn requires_vpn_protection() -> Option<bool> {
+    ENGINE
+        .get()
+        .and_then(|engine| engine.lock().ok())
+        .and_then(|slot| {
+            slot.as_ref()
+                .map(|handle| handle.protector.policy.requires_vpn_protection())
+        })
+}
+
+pub(super) fn runtime_cancellation() -> Option<CancellationToken> {
+    ENGINE
+        .get()
+        .and_then(|engine| engine.lock().ok())
+        .and_then(|slot| slot.as_ref().map(|handle| handle.cancellation.clone()))
 }
 
 pub(super) fn notify_network_changed(generation: u64) {
@@ -831,6 +874,7 @@ async fn run_session(
     let mut pending_write: Option<bytes::Bytes> = None;
     let mut write_observer = tun_io.as_ref().and_then(TunPacketIo::write_observer);
     let mut write_sample = None;
+    publish_running_subscription_endpoint(&profile);
 
     loop {
         let mut completed_write = None;
@@ -855,6 +899,7 @@ async fn run_session(
                     &gate_context,
                 )
                 .await;
+                publish_running_subscription_endpoint(&profile);
                 if tunnel.gate_status().stage == usque_core::vpngate::GateStage::Error
                     || (profile.chain_enabled() && status.lock().is_ok_and(|s| s.phase == "error"))
                 {

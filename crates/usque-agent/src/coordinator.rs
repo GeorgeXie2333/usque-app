@@ -646,7 +646,10 @@ where
             ]
         };
 
-        if plan.automatic_endpoint_policy.is_some() || plan.preset_endpoint_policy.is_some() {
+        if plan.automatic_endpoint_policy.is_some()
+            || plan.preset_endpoint_policy.is_some()
+            || plan.hostname_endpoint_policy.is_some()
+        {
             kinds.insert(1, MutationKind::WfpMetadata);
         }
         for kind in kinds {
@@ -2730,6 +2733,7 @@ mod tests {
             defer_network_configuration: false,
             automatic_endpoint_policy: None,
             preset_endpoint_policy: None,
+            hostname_endpoint_policy: None,
             profile_id: Uuid::new_v4(),
             endpoint: SocketAddrV4::new(Ipv4Addr::new(162, 159, 198, 2), 443).into(),
             endpoint_candidates: vec![

@@ -15,6 +15,8 @@ import '../state/app_controller.dart';
 import '../widgets/chain_source_icon.dart';
 import '../widgets/common.dart';
 import '../widgets/desktop_shortcuts.dart';
+import '../widgets/endpoint_subscription_dialog.dart';
+import '../widgets/endpoint_subscriptions_view.dart';
 import '../widgets/profiles_status.dart';
 import '../widgets/proton_vpn_panel.dart' show loadCachedProtonServers;
 import '../widgets/usque_dialog.dart';
@@ -73,6 +75,9 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
     if (app.scenarios.supported) {
       unawaited(app.scenarios.refresh());
       _refreshExitNames();
+    }
+    if (app.endpointSubscriptions.supported) {
+      unawaited(app.endpointSubscriptions.refresh());
     }
   }
 
@@ -202,8 +207,16 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
                           strings,
                           scene.settings.values,
                           field,
+                          exitNames: _exitNames,
+                          subscriptionNames: _subscriptionNames(),
                         ),
-                        to: scenarioValueLabel(strings, current.values, field),
+                        to: scenarioValueLabel(
+                          strings,
+                          current.values,
+                          field,
+                          exitNames: _exitNames,
+                          subscriptionNames: _subscriptionNames(),
+                        ),
                       ),
                   ],
                 ),
@@ -279,7 +292,11 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
         label: scenarioFact(
           strings,
           strings.get('endpoint_section'),
-          scenarioEndpointLabel(strings, profile),
+          scenarioEndpointLabel(
+            strings,
+            profile,
+            subscriptionNames: _subscriptionNames(),
+          ),
         ),
       ),
       if (profile.transport != TransportPolicy.automatic)
@@ -342,7 +359,29 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
     final invalid = state?.invalidIds.contains(scene.id) == true;
     final bindingMissing = scene.boundAccountId != null && account == null;
     final profile = scene.settings.toProfile(app.activeProfile);
-    final usable = !busy && !invalid && !bindingMissing;
+    final subCatalog = app.endpointSubscriptions.catalog;
+    final subId = profile.endpointSubscriptionId;
+    final sub = subId == null || subCatalog == null
+        ? null
+        : subCatalog.byId(subId);
+    final subMissing =
+        app.endpointSubscriptions.supported &&
+        subId != null &&
+        subCatalog != null &&
+        sub == null;
+    final targetAccount =
+        account ??
+        app.profiles
+            .where((a) => a.id == state?.currentAccountId)
+            .firstOrNull ??
+        app.activeProfile;
+    final targetTier = app.accountSubscriptionTierFor(targetAccount.id);
+    final subTierMismatch =
+        app.endpointSubscriptions.supported &&
+        sub != null &&
+        (targetTier == null || sub.accountTier != targetTier);
+    final usable =
+        !busy && !invalid && !bindingMissing && !subMissing && !subTierMismatch;
     final details = Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -442,6 +481,19 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
           ),
         ),
       ],
+      if (subMissing && !bindingMissing)
+        _SceneNotice(message: strings.get('scenario_reference_missing')),
+      if (subTierMismatch)
+        _SceneNotice(
+          message: targetTier == null
+              ? strings.get('sub_verify_account')
+              : strings
+                    .get('sub_tier_mismatch')
+                    .replaceAll(
+                      '{tier}',
+                      strings.subscriptionTierLabel(sub.accountTier),
+                    ),
+        ),
       if (invalid)
         _SceneNotice(message: strings.get('scenario_settings_invalid')),
       if (selected) ..._selectionExtras(scene, usable: usable),
@@ -888,26 +940,48 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
     );
   }
 
+  Map<String, String> _subscriptionNames() => _catalogSubscriptionNames(app);
+
+  Future<void> _addSubscription() async {
+    await showEndpointSubscriptionDialog(context, controller: app);
+  }
+
   @override
   Widget build(BuildContext context) {
     final strings = app.strings, scenes = app.scenarios;
     final available = scenes.supported;
     final state = scenes.catalog;
+    final subs = app.endpointSubscriptions;
+    final subsSupported = subs.supported;
+    final subsCatalog = subs.catalog;
+    final subsTab =
+        subsSupported && app.profilesTab == ProfilesTab.subscriptions;
     return PageShortcut(
       activator: const SingleActivator(LogicalKeyboardKey.f5),
-      onInvoke: available && !scenes.busy ? scenes.refresh : null,
+      onInvoke: subsTab
+          ? (!subs.busy ? subs.refresh : null)
+          : (available && !scenes.busy ? scenes.refresh : null),
       child: PageFrame(
         title: strings.get('profiles'),
         subtitle: strings.get('profiles_subtitle'),
         contentWidth: 880,
         actions: [
-          if (available) ...[
+          if (available || subsSupported)
             TextButton.icon(
               key: const ValueKey('profiles-manage-accounts'),
               onPressed: _openAccounts,
               icon: const Icon(LucideIcons.users, size: 18),
               label: Text(strings.get('profiles_manage_accounts')),
             ),
+          if (subsTab) ...[
+            if (subsCatalog == null || subsCatalog.subscriptions.isNotEmpty)
+              FilledButton.icon(
+                key: const ValueKey('subscription-add'),
+                onPressed: subs.busy ? null : _addSubscription,
+                icon: const Icon(LucideIcons.plus),
+                label: Text(strings.get('sub_add')),
+              ),
+          ] else if (available) ...[
             // An empty library carries its only create action in the list.
             if (state == null || state.scenarios.isNotEmpty) _createButton(),
           ],
@@ -915,24 +989,67 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            if (subsSupported) ...[
+              LayoutBuilder(
+                builder: (context, constraints) => Semantics(
+                  container: true,
+                  label: strings.get('profiles'),
+                  child: SegmentedButton<ProfilesTab>(
+                    key: const ValueKey('profiles-tab-switcher'),
+                    direction:
+                        constraints.maxWidth < 360 ||
+                            MediaQuery.textScalerOf(context).scale(1) > 1.3
+                        ? Axis.vertical
+                        : Axis.horizontal,
+                    showSelectedIcon: false,
+                    segments: [
+                      ButtonSegment<ProfilesTab>(
+                        value: ProfilesTab.scenes,
+                        icon: const Icon(LucideIcons.layers3, size: 18),
+                        label: Text(strings.get('scenario_scenes')),
+                      ),
+                      ButtonSegment<ProfilesTab>(
+                        value: ProfilesTab.subscriptions,
+                        icon: const Icon(LucideIcons.listChecks, size: 18),
+                        label: Text(strings.get('sub_tab_label')),
+                      ),
+                    ],
+                    selected: {app.profilesTab},
+                    onSelectionChanged: (values) =>
+                        app.setProfilesTab(values.first),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
             // The page has no standing refresh control, so a failed or
             // uncertain result offers the refresh that resolves it.
             BannerSlot(
-              child: profilesOperationBanner(app, refreshable: available),
-            ),
-            if (available)
-              _listHeading(state)
-            else ...[
-              // Without scenes there is nothing to switch to, only Accounts.
-              HintText(strings.get('scenario_unsupported')),
-              const SizedBox(height: 16),
-              Align(
-                alignment: AlignmentDirectional.centerEnd,
-                child: AddAccountButton(controller: app),
+              child: profilesOperationBanner(
+                app,
+                refreshable: available && !subsTab,
               ),
+            ),
+            if (subsTab)
+              EndpointSubscriptionsView(
+                controller: app,
+                onAddSubscription: _addSubscription,
+              )
+            else ...[
+              if (available)
+                _listHeading(state)
+              else ...[
+                // Without scenes there is nothing to switch to, only Accounts.
+                HintText(strings.get('scenario_unsupported')),
+                const SizedBox(height: 16),
+                Align(
+                  alignment: AlignmentDirectional.centerEnd,
+                  child: AddAccountButton(controller: app),
+                ),
+              ],
+              SizedBox(height: available ? 8 : 16),
+              if (!available) AccountsScreen(controller: app) else _scenes(),
             ],
-            SizedBox(height: available ? 8 : 16),
-            if (!available) AccountsScreen(controller: app) else _scenes(),
           ],
         ),
       ),
@@ -1248,6 +1365,7 @@ Future<bool> _previewAndUseScenario(
     if (acknowledged != true || !context.mounted || !canPresent()) return false;
   }
   final strings = app.strings;
+  final subNames = _catalogSubscriptionNames(app);
   final exitNames = await scenarioExitNames(
     app,
     settings: [
@@ -1351,12 +1469,14 @@ Future<bool> _previewAndUseScenario(
                         preview.appliedSettings ?? preview.beforeSettings,
                         field,
                         exitNames: exitNames,
+                        subscriptionNames: subNames,
                       ),
                       to: scenarioValueLabel(
                         strings,
                         preview.targetSettings,
                         field,
                         exitNames: exitNames,
+                        subscriptionNames: subNames,
                       ),
                     ),
                 ],
@@ -1427,6 +1547,7 @@ String scenarioFieldLabel(AppStrings strings, String field) =>
       'endpoint.sni' => 'sni',
       'endpoint.selection' => 'endpoint_selection',
       'endpoint.preset_region' => 'endpoint_preset_country',
+      'endpoint.subscription_id' => 'endpoint_subscription_field',
       'ip_policy' => 'ip_policy',
       'mtu' => 'mtu',
       'allow_lan' => 'allow_lan',
@@ -1453,6 +1574,7 @@ String scenarioFieldLabel(AppStrings strings, String field) =>
 const _managedScenarioFields = {
   'endpoint.selection',
   'endpoint.preset_region',
+  'endpoint.subscription_id',
   'endpoint.ipv4',
   'endpoint.ipv6',
   'endpoint.port',
@@ -1551,11 +1673,24 @@ String scenarioFact(AppStrings strings, String label, String value) => strings
       (match) => match[1] == 'label' ? label : value,
     );
 
+Map<String, String> _catalogSubscriptionNames(AppController app) {
+  final catalog = app.endpointSubscriptions.catalog;
+  if (catalog == null) return const {};
+  return {for (final sub in catalog.subscriptions) sub.id: sub.name};
+}
+
 /// A scene's endpoint in one short value: the selection mode, a preset's
-/// country, or the first manual address.
-String scenarioEndpointLabel(AppStrings strings, UsqueProfile profile) {
+/// country, a bound subscription, or the first manual address.
+String scenarioEndpointLabel(
+  AppStrings strings,
+  UsqueProfile profile, {
+  Map<String, String> subscriptionNames = const {},
+}) {
   if (profile.endpointSelection == EndpointSelection.automatic) {
     return strings.get('endpoint_automatic');
+  }
+  if (profile.endpointSubscriptionId case final subId?) {
+    return subscriptionNames[subId] ?? strings.get('not_available');
   }
   if (profile.endpointPresetRegion case final region?) {
     return strings.get('endpoint_preset_${region.name}');
@@ -1572,6 +1707,7 @@ String scenarioValueLabel(
   Map<String, Object?> settings,
   String field, {
   Map<String, String> exitNames = const {},
+  Map<String, String> subscriptionNames = const {},
 }) {
   // Bounded previews can omit the prior settings; absence is not Custom mode.
   if (field.startsWith('endpoint.') && settings['endpoint'] is! Map) {
@@ -1584,6 +1720,10 @@ String scenarioValueLabel(
     )[field.split('.').last];
   } else {
     value = settings[field];
+  }
+  if (field == 'endpoint.subscription_id') {
+    if (value == null) return strings.get('off');
+    return subscriptionNames[value] ?? strings.get('not_available');
   }
   if (field == 'endpoint.preset_region') {
     return value == null

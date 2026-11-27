@@ -15,6 +15,21 @@ internal object NetworkSettingsFields {
         return objectMap(projected)
     }
 
+    fun decodeObject(
+        value: String,
+        stripPrivate: Boolean = true,
+        maxChars: Int = LargeIpcPayload.MAX_SUBSCRIPTION_CHARS,
+    ): Map<String, Any?> {
+        require(value.length <= maxChars)
+        val source = JSONObject(value)
+        if (stripPrivate) {
+            source.remove("target")
+            source.remove("preview_target")
+            source.remove("network_settings")
+        }
+        return objectMap(source)
+    }
+
     fun decode(value: String): Map<String, Any?> {
         require(value.length <= LargeIpcPayload.MAX_SETTINGS_CHARS)
         val source = JSONObject(value)

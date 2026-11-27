@@ -93,6 +93,7 @@ fn protector(client: WindowsAgentClient, operation_id: Uuid) -> Arc<WindowsVpnSo
         proxy_mode: AtomicBool::new(false),
         automatic_endpoints: false,
         preset_hostname: None,
+        hostname_policy_host: None,
     })
 }
 

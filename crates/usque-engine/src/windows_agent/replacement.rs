@@ -477,6 +477,7 @@ impl WindowsVpnRuntime {
         }
         self.target_committed = target_is_committed(&prepared, self.operation_id);
         self.protection_committed |= self.target_committed;
+        self.connected_tun_probe_supported = capabilities.connected_endpoint_probe_leases;
         if cancellation.is_cancelled() {
             return Err(TransportError::TunnelClosed.into());
         }

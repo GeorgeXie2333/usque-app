@@ -52,6 +52,25 @@ internal object NativeEngine {
         request: String,
     ): String?
 
+    fun endpointSubscriptionCommand(
+        configPath: String,
+        request: String,
+        warpSecret: ByteArray,
+        service: UsqueVpnService?,
+    ): String? =
+        if (libraryLoaded) {
+            nativeEndpointSubscriptionCommand(configPath, request, warpSecret, service)
+        } else {
+            null
+        }
+
+    private external fun nativeEndpointSubscriptionCommand(
+        configPath: String,
+        request: String,
+        warpSecret: ByteArray,
+        service: UsqueVpnService?,
+    ): String?
+
     private val libraryLoaded: Boolean =
         try {
             System.loadLibrary("usque_android")

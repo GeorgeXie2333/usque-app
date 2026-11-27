@@ -537,6 +537,37 @@ impl ActiveRuntime {
         }
     }
 
+    pub(crate) fn connected_tun_probe_supported(&self) -> bool {
+        match self {
+            Self::Proxy(_) => false,
+            #[cfg(target_os = "macos")]
+            Self::MacVpn(_) => false,
+            #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+            Self::Vpn(runtime) => runtime.connected_tun_probe_supported(),
+            #[cfg(test)]
+            Self::Harness(_) => false,
+        }
+    }
+
+    pub(crate) fn probe_protector(
+        &self,
+        dns_hostname: Option<String>,
+    ) -> Option<(
+        std::sync::Arc<dyn usque_transport::SocketProtector>,
+        tokio_util::sync::CancellationToken,
+    )> {
+        let _ = &dns_hostname;
+        match self {
+            Self::Proxy(runtime) => Some(runtime.runtime.diagnostic_dns_context()),
+            #[cfg(target_os = "macos")]
+            Self::MacVpn(_) => None,
+            #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+            Self::Vpn(runtime) => runtime.probe_protector(dns_hostname),
+            #[cfg(test)]
+            Self::Harness(_) => None,
+        }
+    }
+
     pub(crate) fn failure(&self) -> Option<String> {
         match self {
             #[cfg(target_os = "macos")]

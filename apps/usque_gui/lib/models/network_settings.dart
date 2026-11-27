@@ -139,6 +139,7 @@ Map<String, Object?> _fields(UsqueProfile p) => {
   'tls_fingerprint': p.tlsFingerprint,
   'endpoint.selection': p.endpointSelection,
   'endpoint.preset_region': p.endpointPresetRegion,
+  'endpoint.subscription_id': p.endpointSubscriptionId,
   'endpoint.ipv4': p.endpointIpv4,
   'endpoint.ipv6': p.endpointIpv6,
   'endpoint.port': p.endpointPort,

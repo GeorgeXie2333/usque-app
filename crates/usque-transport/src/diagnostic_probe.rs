@@ -140,6 +140,14 @@ pub async fn probe_h3_handshake(
 /// The same family preference and forced-family policy as normal connection
 /// selection. No resolver lookup or endpoint discovery is performed.
 pub fn h3_probe_endpoints(profile: &Profile) -> Vec<SocketAddr> {
+    if profile.endpoint.subscription_id.is_some() {
+        return profile
+            .subscription_endpoint
+            .as_ref()
+            .and_then(|sub_ep| sub_ep.socket_addr(profile.endpoint.port))
+            .into_iter()
+            .collect();
+    }
     // Preset discovery requires authenticated tier and physical DNS. This
     // synchronous diagnostic must never probe the dormant manual IPv6 field.
     if profile.endpoint.preset_region.is_some() {
@@ -203,6 +211,61 @@ pub async fn h3_probe_endpoints_resolved(
     cancellation: CancellationToken,
 ) -> Result<ResolvedH3ProbeEndpoints, NetworkProbeResult> {
     let generation = protector.network_generation();
+    if profile.endpoint.subscription_id.is_some() {
+        let Some(sub_ep) = profile.subscription_endpoint.as_ref() else {
+            return Ok(ResolvedH3ProbeEndpoints {
+                endpoints: Vec::new(),
+                generation,
+            });
+        };
+        let port = sub_ep.effective_port(profile.endpoint.port);
+        match &sub_ep.host {
+            usque_core::endpoint_subscriptions::SubscriptionEndpointHost::Ipv4(ip) => {
+                return Ok(ResolvedH3ProbeEndpoints {
+                    endpoints: vec![SocketAddr::new(std::net::IpAddr::V4(*ip), port)],
+                    generation,
+                });
+            }
+            usque_core::endpoint_subscriptions::SubscriptionEndpointHost::Ipv6(ip) => {
+                return Ok(ResolvedH3ProbeEndpoints {
+                    endpoints: vec![SocketAddr::new(std::net::IpAddr::V6(*ip), port)],
+                    generation,
+                });
+            }
+            usque_core::endpoint_subscriptions::SubscriptionEndpointHost::Domain(host) => {
+                let expected = generation.unwrap_or_default();
+                let resolved = tokio::select! {
+                    biased;
+                    _ = cancellation.cancelled() => return Err(NetworkProbeResult::Cancelled),
+                    res = tokio::time::timeout(
+                        PROBE_IO_TIMEOUT,
+                        protector.resolve_endpoint_hostname(host, port, profile.ip_policy, expected),
+                    ) => match res {
+                        Ok(Ok(addrs)) => addrs,
+                        Ok(Err(_)) => {
+                            return Err(if protector.network_generation() != generation {
+                                NetworkProbeResult::NetworkChanged
+                            } else {
+                                NetworkProbeResult::Failed
+                            });
+                        }
+                        Err(_) => return Err(NetworkProbeResult::TimedOut),
+                    }
+                };
+                if protector.network_generation() != generation {
+                    return Err(NetworkProbeResult::NetworkChanged);
+                }
+                return Ok(ResolvedH3ProbeEndpoints {
+                    endpoints: crate::endpoint_subscription::canonical_subscription_candidates(
+                        resolved,
+                        port,
+                        profile.ip_policy,
+                    ),
+                    generation,
+                });
+            }
+        }
+    }
     if profile.endpoint.preset_region.is_none() {
         return Ok(ResolvedH3ProbeEndpoints {
             endpoints: h3_probe_endpoints(profile),
@@ -278,8 +341,10 @@ async fn probe_h3_candidates_for_generation(
     let candidates = endpoints
         .iter()
         .copied()
-        .take(2)
+        // Skip an unavailable family before bounding the probe count, so a
+        // single-stack network still probes its own family's candidates.
         .filter(|endpoint| protector.endpoint_family_available(*endpoint) != Some(false))
+        .take(2)
         .collect::<Vec<_>>();
     if candidates.is_empty() {
         return if cancellation.is_cancelled() {
@@ -360,6 +425,256 @@ where
     } else {
         NetworkProbeResult::Failed
     }
+}
+
+/// Result of probing one subscription MASQUE endpoint using a real TLS/QUIC
+/// handshake and P-256 SPKI verification (no CONNECT-IP session opened).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SubscriptionProbeOutcome {
+    Passed {
+        milliseconds: u64,
+        transport: usque_core::Transport,
+    },
+    PinMismatch,
+    TimedOut,
+    Cancelled,
+    NetworkChanged,
+    Failed,
+}
+
+impl From<NetworkProbeResult> for SubscriptionProbeOutcome {
+    fn from(value: NetworkProbeResult) -> Self {
+        match value {
+            NetworkProbeResult::Passed { milliseconds } => Self::Passed {
+                milliseconds,
+                transport: usque_core::Transport::Http3,
+            },
+            NetworkProbeResult::TimedOut => Self::TimedOut,
+            NetworkProbeResult::Cancelled => Self::Cancelled,
+            NetworkProbeResult::NetworkChanged => Self::NetworkChanged,
+            NetworkProbeResult::Failed | NetworkProbeResult::NotApplicable => Self::Failed,
+        }
+    }
+}
+
+/// Probes one concrete MASQUE socket target using real H3 (QUIC+Pin) and/or H2
+/// (TCP+TLS+ALPN+Pin) handshakes without creating any CONNECT-IP stream.
+#[allow(clippy::too_many_arguments)]
+pub async fn probe_resolved_subscription_target(
+    target: SocketAddr,
+    sni: &str,
+    transport: usque_core::TransportPolicy,
+    data_plane: usque_core::DataPlaneMode,
+    identity: &MasqueTlsIdentity,
+    protector: Arc<dyn SocketProtector>,
+    cancellation: CancellationToken,
+    io_timeout: Duration,
+) -> SubscriptionProbeOutcome {
+    let generation = protector.network_generation();
+    probe_resolved_subscription_target_at(
+        target,
+        sni,
+        transport,
+        data_plane,
+        identity,
+        protector,
+        cancellation,
+        io_timeout,
+        generation,
+    )
+    .await
+}
+
+/// Probes `target` only on the network generation that produced it. A
+/// hostname answer must never be dialed after the physical network changed.
+#[allow(clippy::too_many_arguments)]
+async fn probe_resolved_subscription_target_at(
+    target: SocketAddr,
+    sni: &str,
+    transport: usque_core::TransportPolicy,
+    data_plane: usque_core::DataPlaneMode,
+    identity: &MasqueTlsIdentity,
+    protector: Arc<dyn SocketProtector>,
+    cancellation: CancellationToken,
+    io_timeout: Duration,
+    generation: Option<u64>,
+) -> SubscriptionProbeOutcome {
+    if cancellation.is_cancelled() {
+        return SubscriptionProbeOutcome::Cancelled;
+    }
+    if protector.network_generation() != generation {
+        return SubscriptionProbeOutcome::NetworkChanged;
+    }
+    if protector.endpoint_family_available(target) == Some(false) {
+        return SubscriptionProbeOutcome::Failed;
+    }
+    let fenced = match generation {
+        Some(generation) => crate::endpoint_preset::for_generation(protector, generation),
+        None => protector,
+    };
+
+    let run_h3 = |budget: Duration| {
+        let fenced = Arc::clone(&fenced);
+        let cancellation = cancellation.clone();
+        async move {
+            if fenced.network_generation() != generation {
+                return SubscriptionProbeOutcome::NetworkChanged;
+            }
+            let outcome = tokio::select! {
+                biased;
+                _ = cancellation.cancelled() => NetworkProbeResult::Cancelled.into(),
+                res = tokio::time::timeout(
+                    budget,
+                    crate::h3::diagnostic::handshake(
+                        target,
+                        sni,
+                        identity,
+                        fenced.clone(),
+                        cancellation.clone(),
+                    ),
+                ) => res.unwrap_or_else(|_| NetworkProbeResult::TimedOut.into()),
+            };
+            if fenced.network_generation() != generation {
+                return SubscriptionProbeOutcome::NetworkChanged;
+            }
+            match outcome {
+                H3ProbeOutcome::Complete(res) => SubscriptionProbeOutcome::from(res),
+                H3ProbeOutcome::Terminal(H3ProbeTerminal::PinMismatch) => {
+                    SubscriptionProbeOutcome::PinMismatch
+                }
+                H3ProbeOutcome::Terminal(
+                    H3ProbeTerminal::Identity | H3ProbeTerminal::Protection,
+                ) => SubscriptionProbeOutcome::Failed,
+            }
+        }
+    };
+
+    let run_h2 = |budget: Duration| {
+        let fenced = Arc::clone(&fenced);
+        let cancellation = cancellation.clone();
+        async move {
+            crate::h2::diagnostic::handshake(target, sni, identity, fenced, cancellation, budget)
+                .await
+        }
+    };
+
+    if data_plane == usque_core::DataPlaneMode::L4Proxy
+        || transport == usque_core::TransportPolicy::Http3
+    {
+        return run_h3(io_timeout).await;
+    }
+    if transport == usque_core::TransportPolicy::Http2 {
+        return run_h2(io_timeout).await;
+    }
+
+    // Auto: prefer H3 within half budget, then fall back to H2 with remaining budget.
+    let started = Instant::now();
+    let half = io_timeout / 2;
+    let h3_outcome = run_h3(half.max(Duration::from_millis(250))).await;
+    match h3_outcome {
+        SubscriptionProbeOutcome::Passed { .. }
+        | SubscriptionProbeOutcome::PinMismatch
+        | SubscriptionProbeOutcome::Cancelled
+        | SubscriptionProbeOutcome::NetworkChanged => h3_outcome,
+        SubscriptionProbeOutcome::Failed | SubscriptionProbeOutcome::TimedOut => {
+            let remaining = io_timeout.saturating_sub(started.elapsed());
+            if remaining.is_zero() {
+                h3_outcome
+            } else {
+                let h2_outcome = run_h2(remaining).await;
+                if matches!(
+                    h2_outcome,
+                    SubscriptionProbeOutcome::Passed { .. }
+                        | SubscriptionProbeOutcome::PinMismatch
+                        | SubscriptionProbeOutcome::Cancelled
+                        | SubscriptionProbeOutcome::NetworkChanged
+                ) {
+                    h2_outcome
+                } else if h3_outcome == SubscriptionProbeOutcome::TimedOut
+                    || h2_outcome == SubscriptionProbeOutcome::TimedOut
+                {
+                    SubscriptionProbeOutcome::TimedOut
+                } else {
+                    h2_outcome
+                }
+            }
+        }
+    }
+}
+
+/// Resolves (if domain) and probes a single subscription endpoint on the physical network.
+#[allow(clippy::too_many_arguments)]
+pub async fn probe_subscription_endpoint(
+    host: &usque_core::endpoint_subscriptions::SubscriptionEndpointHost,
+    port: u16,
+    sni: &str,
+    transport: usque_core::TransportPolicy,
+    data_plane: usque_core::DataPlaneMode,
+    ip_policy: IpPolicy,
+    identity: &MasqueTlsIdentity,
+    protector: Arc<dyn SocketProtector>,
+    cancellation: CancellationToken,
+    io_timeout: Duration,
+) -> SubscriptionProbeOutcome {
+    if cancellation.is_cancelled() {
+        return SubscriptionProbeOutcome::Cancelled;
+    }
+    let generation = protector.network_generation();
+    let target = match host {
+        usque_core::endpoint_subscriptions::SubscriptionEndpointHost::Ipv4(ip) => {
+            SocketAddr::new(std::net::IpAddr::V4(*ip), port)
+        }
+        usque_core::endpoint_subscriptions::SubscriptionEndpointHost::Ipv6(ip) => {
+            SocketAddr::new(std::net::IpAddr::V6(*ip), port)
+        }
+        usque_core::endpoint_subscriptions::SubscriptionEndpointHost::Domain(domain) => {
+            let resolved = tokio::select! {
+                biased;
+                _ = cancellation.cancelled() => return SubscriptionProbeOutcome::Cancelled,
+                res = tokio::time::timeout(
+                    io_timeout,
+                    protector.resolve_endpoint_hostname(
+                        domain,
+                        port,
+                        ip_policy,
+                        generation.unwrap_or_default(),
+                    ),
+                ) => match res {
+                    Ok(Ok(addrs)) => addrs,
+                    Ok(Err(_)) => {
+                        return if protector.network_generation() != generation {
+                            SubscriptionProbeOutcome::NetworkChanged
+                        } else {
+                            SubscriptionProbeOutcome::Failed
+                        };
+                    }
+                    Err(_) => return SubscriptionProbeOutcome::TimedOut,
+                }
+            };
+            let candidates = crate::endpoint_subscription::canonical_subscription_candidates(
+                resolved, port, ip_policy,
+            );
+            let Some(chosen) = candidates
+                .into_iter()
+                .find(|addr| protector.endpoint_family_available(*addr) != Some(false))
+            else {
+                return SubscriptionProbeOutcome::Failed;
+            };
+            chosen
+        }
+    };
+    probe_resolved_subscription_target_at(
+        target,
+        sni,
+        transport,
+        data_plane,
+        identity,
+        protector,
+        cancellation,
+        io_timeout,
+        generation,
+    )
+    .await
 }
 
 pub(crate) fn elapsed_ms(started: Instant) -> u64 {
@@ -612,5 +927,60 @@ mod tests {
             NetworkProbeResult::Cancelled
         );
         assert_eq!(cancelled_calls.load(Ordering::Relaxed), 1);
+    }
+
+    #[tokio::test]
+    async fn subscription_probe_endpoints_are_single_stack_and_fail_closed() {
+        let mut profile = Profile {
+            ip_policy: IpPolicy::PreferIpv6,
+            ..Profile::default()
+        };
+        profile.endpoint.selection = usque_core::EndpointSelection::Custom;
+        profile.endpoint.subscription_id = Some(uuid::Uuid::new_v4());
+        profile.endpoint.port = 8443;
+
+        // Missing resolved subscription_endpoint fails closed (no fallback to profile.endpoint).
+        assert!(h3_probe_endpoints(&profile).is_empty());
+        let resolved_missing = h3_probe_endpoints_resolved(
+            &profile,
+            &identity_fixture(),
+            Arc::new(DiscoveryProtector {
+                generation: AtomicU64::new(1),
+                change_on_family_check: AtomicBool::new(false),
+                generation_reads_until_change: AtomicUsize::new(0),
+                protections: AtomicUsize::new(0),
+            }),
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+        assert!(resolved_missing.endpoints.is_empty());
+
+        // Single-stack numeric IPv4 never adds dormant manual IPv6.
+        profile.subscription_endpoint =
+            Some(usque_core::endpoint_subscriptions::SubscriptionEndpoint {
+                id: "v4:162.159.193.10:2408".into(),
+                host: usque_core::endpoint_subscriptions::SubscriptionEndpointHost::Ipv4(
+                    "162.159.193.10".parse().unwrap(),
+                ),
+                port: Some(2408),
+                note: String::new(),
+                pinned: false,
+            });
+        assert_eq!(
+            h3_probe_endpoints(&profile),
+            vec!["162.159.193.10:2408".parse::<SocketAddr>().unwrap()]
+        );
+    }
+
+    fn identity_fixture() -> MasqueTlsIdentity {
+        let key = usque_core::MasqueKeyPair::generate();
+        MasqueTlsIdentity::new(
+            key.private_sec1_der().unwrap(),
+            &key.public_spki_der().unwrap(),
+            "172.16.0.2".parse().unwrap(),
+            "2001:db8::2".parse().unwrap(),
+        )
+        .unwrap()
     }
 }

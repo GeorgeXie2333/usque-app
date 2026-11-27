@@ -40,7 +40,8 @@ class DesktopEngineClient
         LinuxServiceClient,
         MacosServiceClient,
         MacosKeychainClient,
-        AdsRulesClient {
+        AdsRulesClient,
+        EndpointSubscriptionClient {
   @override
   Future<MacosServiceState> getMacosServiceState() async =>
       MacosServiceState.fromMap(
@@ -200,6 +201,40 @@ class DesktopEngineClient
         }
         return result;
       });
+
+  @override
+  Future<Map<String, Object?>> endpointSubscriptionCommand(
+    Map<String, Object?> request,
+  ) {
+    Future<Map<String, Object?>> send() async {
+      final payload = ControlPayloadWriter()..string(1, jsonEncode(request));
+      final result = (await _request(
+        54,
+        payload.takeBytes(),
+      )).endpointSubscription;
+      if (result == null) {
+        throw const EngineException(
+          'SUBSCRIPTION_RESULT_UNKNOWN',
+          'The endpoint subscription result could not be confirmed.',
+        );
+      }
+      return result;
+    }
+
+    // Binding changes join the profile mutation order. Downloads, probes,
+    // reads and cancellations run beside it: a 15 s download must neither
+    // block other IPC nor delay the cancellation meant to stop it. The
+    // Engine serializes its own catalogue and settings transactions.
+    return _serializedSubscriptionActions.contains(request['action'])
+        ? _serialized(send)
+        : send();
+  }
+
+  static const _serializedSubscriptionActions = {
+    'select_endpoint',
+    'deactivate',
+    'delete',
+  };
 
   @override
   Future<Map<Object?, Object?>> warpWireguard(Map<String, Object?> request) =>
@@ -1308,6 +1343,8 @@ Duration linuxRequestTimeoutForPayload(int payloadField) {
     47,
     48,
     49,
+    // Probes and entitlement checks read the account identity.
+    54,
   };
   if (keyringOperations.contains(payloadField)) {
     return base + const Duration(seconds: 360);
@@ -1353,6 +1390,8 @@ Duration requestTimeoutForPayload(int payloadField) {
       // Checksum and rules downloads each try up to three 30-second hosts;
       // allow another 15 seconds for validation, cache commit and IPC reporting.
       return const Duration(seconds: 195);
+    case 54:
+      return const Duration(seconds: 30);
     default:
       return const Duration(seconds: 5);
   }

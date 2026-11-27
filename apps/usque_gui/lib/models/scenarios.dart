@@ -36,7 +36,13 @@ class ScenarioSettings {
     if (value.length != managedFields.length ||
         !managedFields.containsAll(value.keys) ||
         !endpoint.keys.toSet().containsAll(endpointFields) ||
-        !{...endpointFields, 'preset_region'}.containsAll(endpoint.keys) ||
+        !{
+          ...endpointFields,
+          'preset_region',
+          'subscription_id',
+        }.containsAll(endpoint.keys) ||
+        (endpoint['subscription_id'] != null &&
+            endpoint['subscription_id'] is! String) ||
         value['transport'] is! String ||
         value['ip_policy'] is! String ||
         value['vpn_gate'] is! Map ||
@@ -51,6 +57,7 @@ class ScenarioSettings {
         'endpoint': {
           'selection': profile.endpointSelection.name,
           'preset_region': profile.endpointPresetRegion?.name,
+          'subscription_id': ?profile.endpointSubscriptionId,
           'ipv4': profile.endpointIpv4,
           'ipv6': profile.endpointIpv6,
           'port': profile.endpointPort,
@@ -81,6 +88,15 @@ class ScenarioSettings {
               endpoint['preset_region'] as String,
             ),
       clearEndpointPresetRegion: endpoint['preset_region'] == null,
+      endpointSubscriptionId:
+          endpoint['subscription_id'] is String &&
+              (endpoint['subscription_id'] as String).trim().isNotEmpty
+          ? (endpoint['subscription_id'] as String).trim()
+          : null,
+      clearEndpointSubscriptionId:
+          endpoint['subscription_id'] == null ||
+          (endpoint['subscription_id'] is String &&
+              (endpoint['subscription_id'] as String).trim().isEmpty),
       endpointIpv4: endpoint['ipv4'] as String,
       endpointIpv6: endpoint['ipv6'] as String,
       endpointPort: endpoint['port'] as int,

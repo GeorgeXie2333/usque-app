@@ -11,9 +11,25 @@ use super::{
     transaction::{Backend, Fence, Step},
     utun::Utun,
 };
-use crate::plan::ValidatedTunnelPlan;
-use std::{collections::BTreeMap, io, net::SocketAddr, os::fd::OwnedFd};
+use crate::plan::{PROBE_LEASE_TTL_SECONDS, ValidatedTunnelPlan, validate_probe_targets};
+use std::{
+    collections::BTreeMap,
+    io,
+    net::SocketAddr,
+    os::fd::OwnedFd,
+    time::{Duration, Instant},
+};
 use usque_ipc::agent_v1::MacosSocketPurpose;
+
+#[derive(Debug, Clone)]
+pub struct MacosActiveProbeLease {
+    pub lease_id: u64,
+    pub probe_session_id: String,
+    pub expires_at: Instant,
+    pub targets: Vec<(SocketAddr, u8)>,
+    pub allow_dns: bool,
+    pub socket_lease_ids: Vec<u64>,
+}
 
 pub struct NativeBackend<R: Runner = NativeRunner> {
     store: SecureStore<NativeReceipts>,
@@ -27,6 +43,13 @@ pub struct NativeBackend<R: Runner = NativeRunner> {
     active: bool,
     uncertain: bool,
     preset_candidates: Vec<SocketAddr>,
+    hostname_candidates: Vec<SocketAddr>,
+    active_probe_lease: Option<MacosActiveProbeLease>,
+    next_probe_lease: u64,
+    /// Probe sockets already revoked with their lease. The Engine releases
+    /// each socket asynchronously when its handle drops; that late release is
+    /// acknowledged instead of being treated as a protocol violation.
+    retired_probe_sockets: std::collections::BTreeSet<u64>,
     snapshot: fn(&[DnsReceipt]) -> io::Result<Network>,
     boot: fn() -> io::Result<uuid::Uuid>,
 }
@@ -46,6 +69,10 @@ impl NativeBackend {
             active: false,
             uncertain: false,
             preset_candidates: vec![],
+            hostname_candidates: vec![],
+            active_probe_lease: None,
+            next_probe_lease: 0,
+            retired_probe_sockets: std::collections::BTreeSet::new(),
             snapshot: network::snapshot_with_original,
             boot: super::boot::identity,
         })
@@ -209,7 +236,14 @@ impl<R: Runner> NativeBackend<R> {
             return Err(error);
         }
         match self.leases[&id].duplicate() {
-            Ok(descriptor) => Ok((id, descriptor, permit)),
+            Ok(descriptor) => {
+                if purpose == MacosSocketPurpose::EndpointProbe
+                    && let Some(probe) = self.active_probe_lease.as_mut()
+                {
+                    probe.socket_lease_ids.push(id);
+                }
+                Ok((id, descriptor, permit))
+            }
             Err(error) => {
                 self.release_socket(fence, id)?;
                 Err(error)
@@ -218,6 +252,11 @@ impl<R: Runner> NativeBackend<R> {
     }
     pub fn release_socket(&mut self, fence: Fence, id: u64) -> io::Result<()> {
         self.check(fence)?;
+        // A probe lease release or expiry already revoked this socket. The
+        // Engine's deferred ReleaseSocket for it is then a confirmed no-op.
+        if !self.leases.contains_key(&id) && self.retired_probe_sockets.remove(&id) {
+            return Ok(());
+        }
         if !self.leases.contains_key(&id) {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -256,6 +295,127 @@ impl<R: Runner> NativeBackend<R> {
         self.preset_candidates = candidates;
         Ok(())
     }
+    pub fn hostname_endpoint_candidates(
+        &mut self,
+        hostname: &str,
+        mut candidates: Vec<SocketAddr>,
+    ) -> io::Result<()> {
+        let plan = self.plan.as_ref().ok_or_else(unavailable)?;
+        let policy = plan
+            .hostname_endpoint_policy
+            .as_ref()
+            .ok_or_else(unavailable)?;
+        if hostname != policy.hostname {
+            return Err(unavailable());
+        }
+        crate::plan::validate_hostname_candidates(plan, &candidates).map_err(io::Error::other)?;
+        candidates.sort();
+        candidates.dedup();
+        self.hostname_candidates = candidates;
+        Ok(())
+    }
+    pub fn prune_expired_probe_lease(&mut self, fence: Fence) -> io::Result<()> {
+        if self
+            .active_probe_lease
+            .as_ref()
+            .is_some_and(|lease| lease.expires_at <= Instant::now())
+        {
+            let lease = self.active_probe_lease.take().expect("checked lease");
+            self.revoke_probe_sockets(fence, lease)?;
+        }
+        Ok(())
+    }
+    /// Periodic reaping, so an abandoned lease and its sockets end at the TTL
+    /// even when no further probe RPC arrives.
+    pub fn reap_expired_probe_lease(&mut self) -> io::Result<()> {
+        let Some(fence) = self.receipts.as_ref().map(|receipts| receipts.fence) else {
+            self.active_probe_lease = None;
+            return Ok(());
+        };
+        self.prune_expired_probe_lease(fence)
+    }
+    fn revoke_probe_sockets(
+        &mut self,
+        fence: Fence,
+        lease: MacosActiveProbeLease,
+    ) -> io::Result<()> {
+        let mut first_error = None;
+        for socket_id in lease.socket_lease_ids {
+            if self.leases.contains_key(&socket_id) {
+                match self.release_socket(fence, socket_id) {
+                    Ok(()) => self.retire_probe_socket(socket_id),
+                    Err(error) => {
+                        first_error.get_or_insert(error);
+                    }
+                }
+            } else {
+                self.retire_probe_socket(socket_id);
+            }
+        }
+        first_error.map_or(Ok(()), Err)
+    }
+    fn retire_probe_socket(&mut self, socket_id: u64) {
+        const MAX_RETIRED_PROBE_SOCKETS: usize = 256;
+        self.retired_probe_sockets.insert(socket_id);
+        while self.retired_probe_sockets.len() > MAX_RETIRED_PROBE_SOCKETS {
+            self.retired_probe_sockets.pop_first();
+        }
+    }
+    pub fn acquire_probe_lease(
+        &mut self,
+        fence: Fence,
+        probe_session_id: &str,
+        targets: Vec<(SocketAddr, u8)>,
+        dns_hostname: Option<&str>,
+    ) -> io::Result<(u64, u32)> {
+        self.unchanged_network(fence)?;
+        if !self.active {
+            return Err(unavailable());
+        }
+        let session = probe_session_id.trim();
+        if session.is_empty() {
+            return Err(unavailable());
+        }
+        self.prune_expired_probe_lease(fence)?;
+        if self.active_probe_lease.is_some() {
+            return Err(io::Error::new(
+                io::ErrorKind::WouldBlock,
+                "active macOS probe lease already exists",
+            ));
+        }
+        let plan = self.plan.as_ref().ok_or_else(unavailable)?;
+        let canonical_dns = validate_probe_targets(&targets, dns_hostname, &plan.dns_servers)
+            .map_err(io::Error::other)?;
+        let lease_id = self.next_probe_lease.wrapping_add(1).max(1);
+        self.next_probe_lease = lease_id;
+        self.active_probe_lease = Some(MacosActiveProbeLease {
+            lease_id,
+            probe_session_id: session.to_owned(),
+            expires_at: Instant::now() + Duration::from_secs(u64::from(PROBE_LEASE_TTL_SECONDS)),
+            targets,
+            allow_dns: canonical_dns.is_some(),
+            socket_lease_ids: Vec::new(),
+        });
+        Ok((lease_id, PROBE_LEASE_TTL_SECONDS))
+    }
+    pub fn release_probe_lease(
+        &mut self,
+        fence: Fence,
+        probe_session_id: &str,
+        lease_id: u64,
+    ) -> io::Result<()> {
+        self.check(fence)?;
+        self.prune_expired_probe_lease(fence)?;
+        let session = probe_session_id.trim();
+        let Some(current) = self.active_probe_lease.as_ref() else {
+            return Ok(());
+        };
+        if current.lease_id != lease_id || current.probe_session_id != session {
+            return Err(unavailable());
+        }
+        let lease = self.active_probe_lease.take().expect("checked lease");
+        self.revoke_probe_sockets(fence, lease)
+    }
     fn authorize_destination(
         &self,
         remote: SocketAddr,
@@ -269,8 +429,11 @@ impl<R: Runner> NativeBackend<R> {
         }
         let allowed = match purpose {
             MacosSocketPurpose::Masque => {
-                plan.endpoint_candidates.contains(&remote)
-                    || plan.endpoint == remote
+                // Under a hostname policy the plan anchors are only observation
+                // hints, as on Windows and Linux. Only the current resolution's
+                // authorized candidates may be dialed.
+                plan.hostname_endpoint_policy.is_none()
+                    && (plan.endpoint_candidates.contains(&remote) || plan.endpoint == remote)
                     || plan.automatic_endpoint_policy.is_some_and(|p| {
                         p.permits(
                             remote,
@@ -286,11 +449,24 @@ impl<R: Runner> NativeBackend<R> {
                             && (p.ipv4_fallback == Some(remote)
                                 || self.preset_candidates.contains(&remote))
                     })
+                    || plan.hostname_endpoint_policy.as_ref().is_some_and(|p| {
+                        p.permits_protocol(protocol) && self.hostname_candidates.contains(&remote)
+                    })
             }
             MacosSocketPurpose::BootstrapDns => network.dns.contains(&remote),
             MacosSocketPurpose::Direct => self.active,
             MacosSocketPurpose::Control => {
                 protocol == 6 && plan.control_api_candidates.contains(&remote)
+            }
+            MacosSocketPurpose::EndpointProbe => {
+                self.active
+                    && self.active_probe_lease.as_ref().is_some_and(|lease| {
+                        lease.expires_at > Instant::now()
+                            && (lease.targets.contains(&(remote, protocol))
+                                || (lease.allow_dns
+                                    && remote.port() == 53
+                                    && network.dns.contains(&remote)))
+                    })
             }
             _ => false,
         };
@@ -618,6 +794,12 @@ impl<R: Runner> Backend for NativeBackend<R> {
         // proof of revocation: retain every original until PF removal has
         // succeeded and been read back, including never-published sockets.
         let _ = self.stop_io();
+        // Authorizations for future sockets end with the session on every
+        // path below, including the early returns for an already clean state.
+        // A new session restarts at generation 1 and must not inherit them.
+        self.preset_candidates.clear();
+        self.hostname_candidates.clear();
+        self.active_probe_lease = None;
         self.require_certain()?;
         if self.receipts.is_none() {
             return Ok(());
@@ -662,6 +844,8 @@ impl<R: Runner> Backend for NativeBackend<R> {
         self.leases.clear();
         self.active = false;
         self.preset_candidates.clear();
+        self.hostname_candidates.clear();
+        self.active_probe_lease = None;
         Ok(())
     }
     fn restore_and_verify(&mut self, fence: Fence, step: Step) -> io::Result<()> {

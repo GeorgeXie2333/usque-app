@@ -14,7 +14,7 @@ use uuid::Uuid;
 
 use crate::plan::{PlanError, ValidatedTunnelPlan};
 
-pub const JOURNAL_SCHEMA_VERSION: u32 = 6;
+pub const JOURNAL_SCHEMA_VERSION: u32 = 7;
 pub const MAX_JOURNAL_BYTES: u64 = 1024 * 1024;
 pub const MAX_JOURNAL_STEPS: usize = 16;
 pub(crate) const WFP_PROVIDER_KEY: Uuid = Uuid::from_u128(0x6d70fda5_3fa2_4c36_a86c_88650b58f013);
@@ -479,7 +479,9 @@ fn validate_receipt(
             sublayer_key,
         } => {
             let plan = tunnel_plan.expect("validated tunnel operation");
-            if (plan.automatic_endpoint_policy.is_none() && plan.preset_endpoint_policy.is_none())
+            if (plan.automatic_endpoint_policy.is_none()
+                && plan.preset_endpoint_policy.is_none()
+                && plan.hostname_endpoint_policy.is_none())
                 || *provider_key != WFP_PROVIDER_KEY
                 || *sublayer_key != WFP_SUBLAYER_KEY
             {
@@ -776,6 +778,28 @@ impl JournalStore {
             return Err(JournalError::TooLarge(bytes.len() as u64));
         }
         let mut journal: RecoveryJournal = serde_json::from_slice(&bytes)?;
+        if journal.schema_version < 7
+            && (journal
+                .plan
+                .as_ref()
+                .is_some_and(|plan| plan.hostname_endpoint_policy.is_some())
+                || journal.replacement.as_ref().is_some_and(|replacement| {
+                    replacement
+                        .original_source_plan
+                        .hostname_endpoint_policy
+                        .is_some()
+                        || replacement
+                            .guard_plan
+                            .target
+                            .hostname_endpoint_policy
+                            .is_some()
+                }))
+        {
+            return Err(JournalError::Schema {
+                found: journal.schema_version,
+                supported: JOURNAL_SCHEMA_VERSION,
+            });
+        }
         if journal.schema_version < 6
             && (journal
                 .plan
@@ -808,7 +832,9 @@ impl JournalStore {
         }
         if matches!(journal.schema_version, 2 | 3) {
             if journal.plan.as_ref().is_some_and(|plan| {
-                plan.automatic_endpoint_policy.is_some() || plan.preset_endpoint_policy.is_some()
+                plan.automatic_endpoint_policy.is_some()
+                    || plan.preset_endpoint_policy.is_some()
+                    || plan.hostname_endpoint_policy.is_some()
             }) || journal
                 .steps
                 .iter()
@@ -821,10 +847,7 @@ impl JournalStore {
             }
             journal.schema_version = JOURNAL_SCHEMA_VERSION;
         }
-        if journal.schema_version == 4 {
-            journal.schema_version = JOURNAL_SCHEMA_VERSION;
-        }
-        if journal.schema_version == 5 {
+        if matches!(journal.schema_version, 4..=6) {
             journal.schema_version = JOURNAL_SCHEMA_VERSION;
         }
         journal.validate()?;
@@ -1058,6 +1081,7 @@ mod tests {
             defer_network_configuration: false,
             automatic_endpoint_policy: None,
             preset_endpoint_policy: None,
+            hostname_endpoint_policy: None,
             profile_id: Uuid::new_v4(),
             endpoint: SocketAddrV4::new(Ipv4Addr::new(162, 159, 198, 2), 443).into(),
             endpoint_candidates: vec![
@@ -1504,5 +1528,33 @@ mod tests {
         journal
             .validate()
             .expect("empty control candidates skip the control-host intersection");
+    }
+
+    #[test]
+    fn schema_six_migrates_without_claims_and_rejects_hostname_policy() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = JournalStore::new(directory.path().join("recovery.json"));
+        let mut legacy = RecoveryJournal::clean(12);
+        legacy.schema_version = 6;
+        fs::write(store.path(), serde_json::to_vec(&legacy).unwrap()).unwrap();
+        let migrated = store.load_or_clean().unwrap();
+        assert_eq!(migrated.schema_version, JOURNAL_SCHEMA_VERSION);
+
+        let mut with_hostname = legacy.clone();
+        let mut p = plan();
+        p.hostname_endpoint_policy = Some(crate::plan::HostnameEndpointPolicy {
+            hostname: "edge.example.com".into(),
+            port: 443,
+            ipv4: true,
+            ipv6: true,
+            tcp: true,
+            udp: true,
+        });
+        with_hostname.plan = Some(p);
+        fs::write(store.path(), serde_json::to_vec(&with_hostname).unwrap()).unwrap();
+        assert!(matches!(
+            store.load_or_clean(),
+            Err(JournalError::Schema { found: 6, .. })
+        ));
     }
 }

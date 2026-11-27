@@ -2,6 +2,7 @@ pub mod chain_exit;
 pub mod config;
 pub mod diagnostics;
 pub mod diagnostics_contract_generated;
+pub mod endpoint_subscriptions;
 pub mod endpoints;
 pub mod exit_probe;
 pub mod failure;
@@ -22,6 +23,7 @@ pub mod update;
 pub mod vpngate;
 pub mod warp_wireguard;
 
+pub use config::ConsumerTierSubscriptions;
 pub use config::{
     Account, AppConfig, AppPreferences, CONSUMER_L4_SNI, ConfigError, CongestionControlAlgorithm,
     DEFAULT_PROFILE_ID, DataPlaneMode, DirectDnsMode, DirectDnsSettings, DnsMode,

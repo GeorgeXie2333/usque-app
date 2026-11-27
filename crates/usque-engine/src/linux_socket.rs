@@ -12,8 +12,9 @@ use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 use usque_ipc::agent_v1::{self, agent_request, agent_response};
 use usque_transport::{
-    DirectEgressLease, DirectProtocol, PhysicalNetworkAvailability, PhysicalNetworkSnapshot,
-    STALE_GENERATION_REASON, SocketHandle, SocketProtector,
+    DirectEgressLease, DirectProtocol, EndpointProbeLeaseHandle, PhysicalNetworkAvailability,
+    PhysicalNetworkSnapshot, ProbeLeaseTarget, STALE_GENERATION_REASON, SocketHandle,
+    SocketProtector,
 };
 use uuid::Uuid;
 
@@ -25,6 +26,7 @@ pub(crate) struct LinuxSocketProtector {
     registration: Vec<SocketAddr>,
     automatic: bool,
     preset: Option<String>,
+    hostname_policy_host: Option<String>,
     profile: String,
     retained_device: std::sync::Mutex<Option<OwnedFd>>,
 }
@@ -50,7 +52,22 @@ impl LinuxSocketProtector {
                 .preset_endpoint_policy
                 .as_ref()
                 .map(|p| p.hostname.clone()),
+            hostname_policy_host: plan
+                .hostname_endpoint_policy
+                .as_ref()
+                .map(|p| p.hostname.clone()),
         }))
+    }
+    pub(crate) fn probe_protector(
+        self: &Arc<Self>,
+        dns_hostname: Option<String>,
+    ) -> Arc<dyn SocketProtector> {
+        Arc::new(LinuxProbeSocketProtector {
+            inner: Arc::clone(self),
+            dns_hostname: dns_hostname
+                .as_deref()
+                .and_then(usque_core::endpoint_subscriptions::canonical_public_domain),
+        })
     }
     pub(crate) fn set_device(&self, descriptor: &OwnedFd) -> std::io::Result<()> {
         *self
@@ -307,7 +324,9 @@ impl SocketProtector for LinuxSocketProtector {
             remote,
             protocol,
             generation,
-            if self.preset.is_some() {
+            if self.hostname_policy_host.is_some() {
+                agent_v1::DirectEgressPurpose::HostnameMasque
+            } else if self.preset.is_some() {
                 agent_v1::DirectEgressPurpose::PresetMasque
             } else if self.automatic {
                 agent_v1::DirectEgressPurpose::AutomaticMasque
@@ -324,17 +343,18 @@ impl SocketProtector for LinuxSocketProtector {
         protocol: DirectProtocol,
         generation: u64,
     ) -> Result<DirectEgressLease, String> {
-        if self.preset.is_none() || remote.port() != 53 {
-            return Err("preset DNS policy unavailable".into());
+        if remote.port() != 53 {
+            return Err("physical DNS policy requires port 53".into());
         }
-        self.grant(
-            socket,
-            remote,
-            protocol,
-            generation,
-            agent_v1::DirectEgressPurpose::PresetDns,
-        )
-        .await
+        let purpose = if self.hostname_policy_host.is_some() {
+            agent_v1::DirectEgressPurpose::HostnameDns
+        } else if self.preset.is_some() {
+            agent_v1::DirectEgressPurpose::PresetDns
+        } else {
+            return Err("preset DNS policy unavailable".into());
+        };
+        self.grant(socket, remote, protocol, generation, purpose)
+            .await
     }
     async fn authorize_endpoint_preset_candidates(
         &self,
@@ -370,6 +390,209 @@ impl SocketProtector for LinuxSocketProtector {
             return Err(STALE_GENERATION_REASON.into());
         }
         Ok(())
+    }
+    async fn resolve_endpoint_hostname(
+        &self,
+        host: &str,
+        port: u16,
+        ip_policy: usque_core::IpPolicy,
+        generation: u64,
+    ) -> Result<Vec<SocketAddr>, String> {
+        let Some(expected_host) = self.hostname_policy_host.as_deref() else {
+            return Err("hostname endpoint policy is unavailable".into());
+        };
+        let Some(canonical) = usque_core::endpoint_subscriptions::canonical_public_domain(host)
+        else {
+            return Err("invalid endpoint subscription hostname".into());
+        };
+        if canonical != expected_host {
+            return Err("endpoint hostname does not match the active policy".into());
+        }
+        usque_transport::resolve_physical_endpoint_hostname(self, host, port, ip_policy, generation)
+            .await
+    }
+    async fn authorize_endpoint_hostname_candidates(
+        &self,
+        host: &str,
+        candidates: &[SocketAddr],
+        generation: u64,
+    ) -> Result<(), String> {
+        let Some(expected_host) = self.hostname_policy_host.as_deref() else {
+            return Err("hostname endpoint policy is unavailable".into());
+        };
+        let Some(canonical) = usque_core::endpoint_subscriptions::canonical_public_domain(host)
+        else {
+            return Err("invalid endpoint subscription hostname".into());
+        };
+        if canonical != expected_host {
+            return Err("endpoint hostname does not match the active policy".into());
+        }
+        if self.network_generation() != Some(generation) {
+            return Err(STALE_GENERATION_REASON.into());
+        }
+        self.agent
+            .set_hostname_endpoint_candidates(self.operation, &canonical, candidates, generation)
+            .await
+            .map_err(|error| {
+                authorization_error(error, "hostname endpoint authorization failed")
+            })?;
+        if self.network_generation() != Some(generation) {
+            return Err(STALE_GENERATION_REASON.into());
+        }
+        Ok(())
+    }
+    async fn acquire_endpoint_probe_lease(
+        &self,
+        probe_session_id: &str,
+        targets: &[ProbeLeaseTarget],
+        dns_hostname: Option<&str>,
+        generation: u64,
+    ) -> Result<EndpointProbeLeaseHandle, String> {
+        if self.network_generation() != Some(generation) {
+            return Err(STALE_GENERATION_REASON.into());
+        }
+        let lease = self
+            .agent
+            .acquire_endpoint_probe_lease(
+                self.operation,
+                probe_session_id,
+                generation,
+                targets,
+                dns_hostname,
+            )
+            .await
+            .map_err(|error| authorization_error(error, "probe lease acquisition failed"))?;
+        if lease.lease_id == 0
+            || lease.network_generation != generation
+            || self.network_generation() != Some(generation)
+        {
+            return Err(STALE_GENERATION_REASON.into());
+        }
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        Ok(EndpointProbeLeaseHandle {
+            lease_id: lease.lease_id.to_string(),
+            expires_at_unix_ms: now_ms.saturating_add(u64::from(lease.ttl_seconds) * 1000),
+        })
+    }
+    async fn release_endpoint_probe_lease(
+        &self,
+        probe_session_id: &str,
+        lease_id: &str,
+    ) -> Result<(), String> {
+        let Ok(parsed_id) = lease_id.parse::<u64>() else {
+            return Err("invalid Linux probe lease identifier".into());
+        };
+        self.agent
+            .release_endpoint_probe_lease(self.operation, probe_session_id, parsed_id)
+            .await
+            .map_err(|error| authorization_error(error, "probe lease release failed"))
+    }
+}
+
+struct LinuxProbeSocketProtector {
+    inner: Arc<LinuxSocketProtector>,
+    dns_hostname: Option<String>,
+}
+
+#[async_trait]
+impl SocketProtector for LinuxProbeSocketProtector {
+    fn protect(&self, socket: SocketHandle) -> Result<(), String> {
+        self.inner.protect(socket)
+    }
+    fn network_generation(&self) -> Option<u64> {
+        self.inner.network_generation()
+    }
+    fn subscribe_physical_network(&self) -> Option<watch::Receiver<PhysicalNetworkSnapshot>> {
+        self.inner.subscribe_physical_network()
+    }
+    fn endpoint_family_available(&self, remote: SocketAddr) -> Option<bool> {
+        self.inner.endpoint_family_available(remote)
+    }
+    fn physical_dns_servers(&self) -> Vec<SocketAddr> {
+        self.inner.physical_dns_servers()
+    }
+    fn tun_direct_available(&self) -> bool {
+        self.inner.tun_direct_available()
+    }
+    async fn protect_masque_endpoint_generation(
+        &self,
+        socket: SocketHandle,
+        remote: SocketAddr,
+        protocol: DirectProtocol,
+        generation: u64,
+    ) -> Result<DirectEgressLease, String> {
+        self.inner
+            .grant(
+                socket,
+                remote,
+                protocol,
+                generation,
+                agent_v1::DirectEgressPurpose::EndpointProbe,
+            )
+            .await
+    }
+    async fn protect_endpoint_preset_dns_generation(
+        &self,
+        socket: SocketHandle,
+        remote: SocketAddr,
+        protocol: DirectProtocol,
+        generation: u64,
+    ) -> Result<DirectEgressLease, String> {
+        if self.dns_hostname.is_none() || remote.port() != 53 {
+            return Err("probe DNS lease is unavailable".into());
+        }
+        self.inner
+            .grant(
+                socket,
+                remote,
+                protocol,
+                generation,
+                agent_v1::DirectEgressPurpose::EndpointProbe,
+            )
+            .await
+    }
+    async fn resolve_endpoint_hostname(
+        &self,
+        host: &str,
+        port: u16,
+        ip_policy: usque_core::IpPolicy,
+        generation: u64,
+    ) -> Result<Vec<SocketAddr>, String> {
+        let Some(expected) = self.dns_hostname.as_deref() else {
+            return Err("probe DNS lease is unavailable".into());
+        };
+        let Some(canonical) = usque_core::endpoint_subscriptions::canonical_public_domain(host)
+        else {
+            return Err("invalid endpoint subscription hostname".into());
+        };
+        if canonical != expected {
+            return Err("probe hostname does not match active lease".into());
+        }
+        usque_transport::resolve_physical_endpoint_hostname(self, host, port, ip_policy, generation)
+            .await
+    }
+    async fn acquire_endpoint_probe_lease(
+        &self,
+        probe_session_id: &str,
+        targets: &[ProbeLeaseTarget],
+        dns_hostname: Option<&str>,
+        generation: u64,
+    ) -> Result<EndpointProbeLeaseHandle, String> {
+        self.inner
+            .acquire_endpoint_probe_lease(probe_session_id, targets, dns_hostname, generation)
+            .await
+    }
+    async fn release_endpoint_probe_lease(
+        &self,
+        probe_session_id: &str,
+        lease_id: &str,
+    ) -> Result<(), String> {
+        self.inner
+            .release_endpoint_probe_lease(probe_session_id, lease_id)
+            .await
     }
 }
 fn authorization_error(error: std::io::Error, denied: &'static str) -> String {
@@ -434,6 +657,7 @@ mod tests {
                 registration: Vec::new(),
                 automatic: false,
                 preset: Some("us.v6.free.orangesky.dev".into()),
+                hostname_policy_host: None,
                 profile: Uuid::new_v4().to_string(),
                 retained_device: std::sync::Mutex::new(None),
             };
@@ -506,6 +730,7 @@ mod tests {
             registration: Vec::new(),
             automatic: false,
             preset: None,
+            hostname_policy_host: None,
             profile: Uuid::new_v4().to_string(),
             retained_device: std::sync::Mutex::new(None),
         });

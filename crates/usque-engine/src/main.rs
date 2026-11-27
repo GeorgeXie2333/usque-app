@@ -247,6 +247,7 @@ async fn run(
         info!(%pipe_name, "starting current-user Named Pipe control service");
         info!(%event_pipe_name, "starting current-user Named Pipe event service");
         let service = Arc::new(service);
+        service.start_endpoint_subscription_scheduler();
         let recovery_monitor = tokio::spawn(Arc::clone(&service).run_windows_recovery_monitor());
         tokio::select! {
             result = usque_engine::windows_ipc::serve(Arc::clone(&service), pipe_name) => result?,
@@ -273,6 +274,7 @@ async fn run(
     {
         info!("starting current-user Unix Socket control and event service");
         let service = Arc::new(service);
+        service.start_endpoint_subscription_scheduler();
         let mut terminate =
             tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
         let result = tokio::select! {
@@ -295,6 +297,7 @@ async fn run(
     #[cfg(target_os = "linux")]
     {
         let service = Arc::new(service);
+        service.start_endpoint_subscription_scheduler();
         // A locked Secret Service can wait for an interactive unlock. Keep
         // authenticated IPC available while serialized cleanup is waiting.
         let startup = tokio_util::task::AbortOnDropHandle::new(tokio::spawn({

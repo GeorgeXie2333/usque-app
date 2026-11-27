@@ -5,6 +5,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../core/chain_strings.dart';
 import '../models/app_models.dart';
+import '../models/endpoint_subscriptions.dart';
 import '../models/scenarios.dart';
 import '../state/app_controller.dart';
 import '../state/scenario_gate_leases.dart';
@@ -50,6 +51,7 @@ class _ScenarioEditorScreenState extends State<ScenarioEditorScreen> {
   late final TextEditingController _name;
   late UsqueProfile _draft;
   String? _binding, _endpointAccountId, _error;
+  bool _bindingChanged = false;
   ConnectionScenario? _savedScene;
   bool _dirty = false, _saving = false;
   Map<String, String> _exitNames = {};
@@ -108,7 +110,8 @@ class _ScenarioEditorScreenState extends State<ScenarioEditorScreen> {
     final exit = _draft.chainEnabled
         ? strings.chainSourceLabel(_draft.chainSource)
         : 'WARP';
-    final base = '$exit · ${scenarioEndpointLabel(strings, _draft)}';
+    final base =
+        '$exit · ${scenarioEndpointLabel(strings, _draft, subscriptionNames: {for (final sub in app.endpointSubscriptions.catalog?.subscriptions ?? const <EndpointSubscription>[]) sub.id: sub.name})}';
     final taken = {
       for (final scene in app.scenarios.catalog?.scenarios ?? const [])
         scene.name,
@@ -156,6 +159,7 @@ class _ScenarioEditorScreenState extends State<ScenarioEditorScreen> {
       _draft = _settings().toProfile(_accountBase);
       _endpointAccountId = _accountBase.id;
       _endpointKey = GlobalKey<ScenarioEndpointEditorState>();
+      _bindingChanged = true;
       _dirty = true;
     });
   }
@@ -216,9 +220,10 @@ class _ScenarioEditorScreenState extends State<ScenarioEditorScreen> {
 
   Future<void> _save({bool use = false}) async {
     if (_saving) return;
-    if (!await (_endpointKey.currentState?.prepareSave() ??
-            Future.value(true)) ||
-        !mounted) {
+    final endpoint = _endpointKey.currentState;
+    if (!await (endpoint?.prepareSave() ?? Future.value(true)) || !mounted) {
+      final reason = endpoint?.prepareError;
+      if (mounted && reason != null) setState(() => _error = reason);
       return;
     }
     if (_saving || !(_form.currentState?.validate() ?? false)) return;
@@ -402,6 +407,11 @@ class _ScenarioEditorScreenState extends State<ScenarioEditorScreen> {
                       capabilities: app.engineCapabilities,
                       strings: s,
                       enabled: !_saving,
+                      subscriptions:
+                          app.endpointSubscriptions.catalog?.subscriptions ??
+                          const <EndpointSubscription>[],
+                      accountTier: app.accountSubscriptionTierFor(account.id),
+                      inheritsSubscriptionConfirmation: !_bindingChanged,
                       onChanged: _edit,
                     ),
                     const SizedBox(height: 28),

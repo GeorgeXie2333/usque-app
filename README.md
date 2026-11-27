@@ -70,6 +70,7 @@
 - **Encrypted DNS** — DoH or DoT for the WARP exit and for direct-rule queries.
 - **Network diagnostics** — latency, packet loss and 60-second trends, with deep checks only after confirmation.
 - **Scenes** — save common network setups in **Profiles** and switch between them.
+- **Endpoint subscriptions** — import HTTPS plain-text MASQUE endpoint lists matched by WARP account tier (**Free**, **WARP+**, **Zero Trust**), test real handshake latency, and switch endpoints quickly in **Profiles** and **Home**. See [Endpoint subscriptions](docs/ENDPOINT_SUBSCRIPTIONS.md).
 - **Privacy** — a server-key check that cannot be skipped, system credential stores, redacted local diagnostics and no analytics.
 - **Platform integration** — Windows tray, Android Quick Settings tile and TV navigation; 21 languages with light and dark themes.
 

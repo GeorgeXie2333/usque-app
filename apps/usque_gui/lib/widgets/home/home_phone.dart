@@ -15,6 +15,7 @@ import '../common.dart';
 import '../controller_selector.dart';
 import '../usque_logo.dart';
 import 'home_details.dart';
+import 'home_endpoint_subscription.dart';
 import 'home_scenario.dart';
 
 /// Phone page heading: the brand and the active account, which opens
@@ -373,6 +374,7 @@ class HomeStatusCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           ScenarioHomeLink(controller: controller, compact: true),
+          EndpointSubscriptionHomeLink(controller: controller, compact: true),
           for (var i = 0; i < rows.length; i++) ...[
             if (i > 0) const SizedBox(height: UsqueSpace.m),
             rows[i],

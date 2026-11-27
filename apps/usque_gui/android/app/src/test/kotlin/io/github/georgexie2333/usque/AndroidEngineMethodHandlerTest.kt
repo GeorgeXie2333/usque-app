@@ -549,6 +549,35 @@ class AndroidEngineMethodHandlerTest {
     }
 
     @Test
+    fun tierSensitiveRequestsMirrorAndClearConsumerEntitlements() {
+        engineBridge.profileCatalogJson =
+            """{"active_profile_id":"p1","profiles":[""" +
+            """{"id":"p1","identity_provider":"consumer","consumer_entitlement":"warp_plus"},""" +
+            """{"id":"p2","identity_provider":"consumer","consumer_entitlement":"free"}]}"""
+        identityStore.put(
+            "p1",
+            SecureIdentityStore.Record.IDENTITY_METADATA,
+            """{"version":1,"provider":"consumer","entitlement":"free"}""".toByteArray(),
+        )
+        identityStore.put(
+            "p2",
+            SecureIdentityStore.Record.IDENTITY_METADATA,
+            """{"version":2,"provider":"consumer","entitlement":"free"}""".toByteArray(),
+        )
+
+        handler.handle(MethodCall("saveNetworkSettings", mapOf("command" to "save")), RecordingResult())
+
+        val updates =
+            engineBridge.commands
+                .map(::JSONObject)
+                .filter { it.optString("command") == "set_consumer_entitlement" }
+                .associate { it.getString("profile_id") to it.opt("entitlement") }
+        // A downgrade is mirrored, and an unverifiable identity loses its tier.
+        assertEquals("free", updates["p1"])
+        assertEquals(JSONObject.NULL, updates["p2"])
+    }
+
+    @Test
     fun dispatchesSnapshotToControlClient() {
         val result = RecordingResult()
         handler.handle(MethodCall("snapshot", null), result)
@@ -2410,6 +2439,7 @@ class AndroidEngineMethodHandlerTest {
         var capabilitiesJson: String? = null
         var persistedSettingsJson: String? = null
         var persistedScenariosJson: String? = null
+        var persistedEndpointSubscriptionsJson: String? = null
         var persistedReadCount = 0
         var zeroTrustFailure: IOException? = null
         var zeroTrustRegistrationCount = 0
@@ -2431,6 +2461,11 @@ class AndroidEngineMethodHandlerTest {
         override fun readPersistedScenarios(configPath: String): String? {
             persistedReadCount++
             return persistedScenariosJson
+        }
+
+        override fun readPersistedEndpointSubscriptions(configPath: String): String? {
+            persistedReadCount++
+            return persistedEndpointSubscriptionsJson
         }
 
         override fun applyProfileCommand(

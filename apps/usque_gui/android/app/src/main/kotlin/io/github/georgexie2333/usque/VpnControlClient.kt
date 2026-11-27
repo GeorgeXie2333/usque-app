@@ -36,6 +36,8 @@ internal class VpnControlClient(
     private val controlServiceProcessAbsent: () -> Boolean = { false },
 ) {
     companion object {
+        private const val SUBSCRIPTION_PROBE_JOB = "endpoint-subscription-probe"
+
         const val SNAPSHOT_TIMEOUT_MILLIS = 2_000L
         const val CLEAR_ALL_TIMEOUT_MILLIS = 45_000L
         const val EVENT_REFRESH_INTERVAL_MILLIS = 5_000L
@@ -141,6 +143,7 @@ internal class VpnControlClient(
     )
 
     private val pendingSettings = mutableMapOf<Int, SettingsRequest>()
+    private val pendingEndpointSubscriptions = mutableMapOf<Int, SettingsRequest>()
     private val pendingVpnGate = mutableMapOf<Int, SettingsRequest>()
 
     private class ProtonRequest(
@@ -496,6 +499,141 @@ internal class VpnControlClient(
                 )?.result
                 ?.error("CONTROL_SERVICE_INACTIVE", "No live VPN control service is available.", null)
         }
+        pendingEndpointSubscriptions.filterValues { it.passive && !it.sent }.keys.forEach { id ->
+            scheduler.cancel("sub-$id")
+            pendingEndpointSubscriptions
+                .remove(
+                    id,
+                )?.result
+                ?.error("CONTROL_SERVICE_INACTIVE", "No live VPN control service is available.", null)
+        }
+    }
+
+    fun requestEndpointSubscriptions(
+        json: String,
+        result: MethodChannel.Result,
+    ) {
+        if (destroyed) {
+            result.error("ENGINE_IPC_CLOSED", "The subscription service is unavailable.", null)
+            return
+        }
+        val id = allocateRequestId()
+        val passive = runCatching { JSONObject(json).optString("action") == "list" }.getOrDefault(false)
+        pendingEndpointSubscriptions[id] =
+            SettingsRequest(
+                json,
+                if (passive) result else creatingResult(result),
+                passive = passive,
+            )
+        postDelayed(25_000L, "sub-$id") {
+            pendingEndpointSubscriptions.remove(id)?.let { request ->
+                val inactive = passive && !request.sent
+                if (inactive && uiVisible && endpoint == null && !bindings.createsService) {
+                    controlServiceInactive = true
+                }
+                request.result.error(
+                    if (inactive) "CONTROL_SERVICE_INACTIVE" else "SUBSCRIPTION_STORAGE_UNAVAILABLE",
+                    if (inactive) {
+                        "No live VPN control service is available."
+                    } else {
+                        "The subscription request timed out."
+                    },
+                    null,
+                )
+            }
+            completeInactivePassiveReads()
+        }
+        bind()
+        flushEndpointSubscriptions()
+        if (passive && endpoint == null && (!bindings.isBound || controlServiceKnownInactive())) {
+            scheduler.cancel("sub-$id")
+            pendingEndpointSubscriptions
+                .remove(
+                    id,
+                )?.result
+                ?.error("CONTROL_SERVICE_INACTIVE", "No live VPN control service is available.", null)
+        }
+        reconcileBindings()
+    }
+
+    private fun flushEndpointSubscriptions() {
+        val service = endpoint ?: return
+        pendingEndpointSubscriptions.toMap().forEach { (id, request) ->
+            if (!request.sent) {
+                request.sent = true
+                markSent(request.result)
+                if (!service.send(
+                        UsqueVpnService.MSG_ENDPOINT_SUBSCRIPTIONS,
+                        id,
+                        mapOf("settings_request" to request.json),
+                    )
+                ) {
+                    scheduler.cancel("sub-$id")
+                    pendingEndpointSubscriptions.remove(id)?.result?.error(
+                        "SUBSCRIPTION_STORAGE_UNAVAILABLE",
+                        "The subscription request could not be delivered.",
+                        null,
+                    )
+                }
+            }
+        }
+    }
+
+    internal fun deliverEndpointSubscriptionReply(
+        id: Int,
+        json: String?,
+        error: String? = null,
+    ) {
+        scheduler.cancel("sub-$id")
+        pendingEndpointSubscriptions.remove(id)?.let { request ->
+            val result = request.result
+            val parsed = json?.let { runCatching { NetworkSettingsFields.decodeObject(it) }.getOrNull() }
+            if (parsed == null) {
+                result.error(
+                    error ?: "SUBSCRIPTION_STORAGE_UNAVAILABLE",
+                    error ?: "Endpoint subscription request failed.",
+                    null,
+                )
+            } else {
+                // A started probe keeps running in the service after this reply.
+                // Retain the service until the probe reports a terminal state.
+                // Registering before completing the reply keeps the binding.
+                trackEndpointProbe(request.json, parsed)
+                result.success(parsed)
+            }
+        }
+    }
+
+    private fun trackEndpointProbe(
+        requestJson: String?,
+        reply: Map<String, Any?>,
+    ) {
+        when (runCatching { JSONObject(requestJson.orEmpty()).optString("action") }.getOrDefault("")) {
+            "start_probe" -> {
+                val probeId = reply["probe_id"] as? String ?: return
+                jobs[SUBSCRIPTION_PROBE_JOB] = ServiceJob(SUBSCRIPTION_PROBE_JOB, probeId, serviceEpoch)
+                scheduleJobRefresh()
+            }
+
+            "cancel_probe" -> {
+                if (jobs.remove(SUBSCRIPTION_PROBE_JOB) != null) reconcileBindings()
+            }
+        }
+    }
+
+    /**
+     * Retires the probe job on its own terminal event, or when the service
+     * lists no running probe with its id (a lost event or a replaced probe).
+     */
+    private fun retireEndpointProbe(
+        probeId: String?,
+        running: Boolean,
+    ) {
+        val job = jobs[SUBSCRIPTION_PROBE_JOB] ?: return
+        val retire = if (running) probeId != job.id else probeId == null || probeId == job.id
+        if (!retire) return
+        jobs.remove(SUBSCRIPTION_PROBE_JOB)
+        reconcileBindings()
     }
 
     fun requestScenarios(
@@ -768,6 +906,7 @@ internal class VpnControlClient(
     private fun pendingLiveReads(): Boolean =
         pendingSnapshots.values.any { it !is ServiceResult } ||
             pendingSettings.values.any { it.result !is ServiceResult } ||
+            pendingEndpointSubscriptions.values.any { it.result !is ServiceResult } ||
             pendingDiagnosticProbes.isNotEmpty() || pendingTimeline != null || pendingLogs != null ||
             (pendingNetworkProbe != null && pendingNetworkProbeEpoch == serviceEpoch)
 
@@ -815,6 +954,7 @@ internal class VpnControlClient(
             sendClearAllData(result)
         }
         flushSettings()
+        flushEndpointSubscriptions()
         flushVpnGate()
         flushProton()
         flushLocale()
@@ -1007,9 +1147,40 @@ internal class VpnControlClient(
                     override fun notImplemented() = finished()
                 }
             when (job.domain) {
-                "proton" -> requestProtonVpn("""{"action":"get"}""", ByteArray(0), reply)
-                "warp" -> requestVpnGate("""{"command":"warp_wireguard","warp_wireguard":{"action":"get"}}""", reply)
-                else -> requestVpnGate("""{"command":"list","limit":1,"status_only":true}""", reply)
+                SUBSCRIPTION_PROBE_JOB -> {
+                    requestEndpointSubscriptions(
+                        """{"action":"list"}""",
+                        object : MethodChannel.Result {
+                            override fun success(result: Any?) {
+                                val active = (result as? Map<*, *>)?.get("active_probe") as? Map<*, *>
+                                // A list without this running probe retires it.
+                                val runningId = active?.get("probe_id") as? String
+                                retireEndpointProbe(runningId, running = true)
+                                reply.success(result)
+                            }
+
+                            override fun error(
+                                code: String,
+                                message: String?,
+                                details: Any?,
+                            ) = reply.error(code, message, details)
+
+                            override fun notImplemented() = reply.notImplemented()
+                        },
+                    )
+                }
+
+                "proton" -> {
+                    requestProtonVpn("""{"action":"get"}""", ByteArray(0), reply)
+                }
+
+                "warp" -> {
+                    requestVpnGate("""{"command":"warp_wireguard","warp_wireguard":{"action":"get"}}""", reply)
+                }
+
+                else -> {
+                    requestVpnGate("""{"command":"list","limit":1,"status_only":true}""", reply)
+                }
             }
         }
     }
@@ -1630,6 +1801,11 @@ internal class VpnControlClient(
             request.result.error("NETWORK_SETTINGS_UNCONFIRMED", "The settings result is not confirmed.", null)
         }
         pendingSettings.clear()
+        pendingEndpointSubscriptions.forEach { (id, request) ->
+            scheduler.cancel("sub-$id")
+            request.result.error("SUBSCRIPTION_STORAGE_UNAVAILABLE", "The subscription request was closed.", null)
+        }
+        pendingEndpointSubscriptions.clear()
         scheduler.cancel("clear-all-bind")
         pendingClearAllBind?.error("CLEAR_ALL_CANCELLED", "The Android UI closed before clearing data.", null)
         pendingClearAllBind = null
@@ -1914,6 +2090,31 @@ internal class VpnControlClient(
 
             UsqueVpnService.MSG_SAVE_SETTINGS, UsqueVpnService.MSG_GET_SETTINGS, UsqueVpnService.MSG_SCENARIOS -> {
                 deliverSettingsReply(arg1, data.getString("network_settings"), data.getString("settings_error"))
+                true
+            }
+
+            UsqueVpnService.MSG_ENDPOINT_SUBSCRIPTIONS -> {
+                deliverEndpointSubscriptionReply(
+                    arg1,
+                    data.getString("network_settings"),
+                    data.getString("settings_error"),
+                )
+                true
+            }
+
+            UsqueVpnService.MSG_ENDPOINT_SUBSCRIPTION_EVENT -> {
+                val progress =
+                    data.getString("probe_progress")?.let { json ->
+                        runCatching { NetworkSettingsFields.decodeObject(json) }.getOrNull()
+                    }
+                if (progress != null) {
+                    if (progress["state"] != "running") {
+                        retireEndpointProbe(progress["probe_id"] as? String, running = false)
+                    }
+                    if (eventDeliveryWanted) {
+                        eventListener?.onEvent(mapOf("endpoint_subscription_probe_progress" to progress))
+                    }
+                }
                 true
             }
 

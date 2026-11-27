@@ -201,6 +201,12 @@ fn run_probe(
     cancellation: CancellationToken,
 ) -> Option<usque_transport::NetworkProbeResult> {
     use usque_transport::NetworkProbeResult as ResultCode;
+    // H3 probes dial a bound subscription's selected endpoint; an unresolved
+    // binding yields no target instead of a dormant manual address.
+    let mut profile = profile;
+    if kind == "h3" && crate::hydrate_android_profile(&mut profile).is_err() {
+        return Some(ResultCode::NotApplicable);
+    }
     let (service, vpn) = platform;
     if kind != "dns" && kind != "h3" {
         return Some(ResultCode::NotApplicable);
@@ -287,7 +293,7 @@ fn run_probe(
 }
 
 #[cfg(target_os = "android")]
-struct ProbeProtector(AndroidSocketProtector);
+pub(crate) struct ProbeProtector(pub(crate) AndroidSocketProtector);
 
 #[cfg(target_os = "android")]
 #[async_trait::async_trait]
@@ -310,6 +316,53 @@ impl SocketProtector for ProbeProtector {
             return Err(STALE_GENERATION_REASON.to_owned());
         }
         Ok(DirectEgressLease::for_generation(generation))
+    }
+    async fn protect_masque_endpoint_generation(
+        &self,
+        socket: SocketHandle,
+        remote: SocketAddr,
+        protocol: DirectProtocol,
+        expected_generation: u64,
+    ) -> Result<DirectEgressLease, String> {
+        self.protect_for_target_generation(socket, remote, protocol, expected_generation)
+            .await
+    }
+    async fn protect_endpoint_preset_dns_generation(
+        &self,
+        socket: SocketHandle,
+        remote: SocketAddr,
+        protocol: DirectProtocol,
+        expected_generation: u64,
+    ) -> Result<DirectEgressLease, String> {
+        self.protect_for_target_generation(socket, remote, protocol, expected_generation)
+            .await
+    }
+    fn resolve(&self, host: &str, port: u16) -> Result<Vec<SocketAddr>, String> {
+        self.0.resolve(host, port)
+    }
+    async fn resolve_endpoint_hostname(
+        &self,
+        host: &str,
+        port: u16,
+        ip_policy: usque_core::IpPolicy,
+        expected_generation: u64,
+    ) -> Result<Vec<SocketAddr>, String> {
+        // Without an observed physical DNS server, use the platform resolver
+        // of the underlying network, as the runtime protector does.
+        if self.0.physical_dns_servers().is_empty() {
+            return self
+                .0
+                .resolve_endpoint_hostname(host, port, ip_policy, expected_generation)
+                .await;
+        }
+        usque_transport::resolve_physical_endpoint_hostname(
+            self,
+            host,
+            port,
+            ip_policy,
+            expected_generation,
+        )
+        .await
     }
     fn network_generation(&self) -> Option<u64> {
         self.0

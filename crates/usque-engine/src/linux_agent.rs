@@ -582,6 +582,76 @@ impl LinuxAgentClient {
         ))
         .await
     }
+    pub async fn set_hostname_endpoint_candidates(
+        &self,
+        operation_id: Uuid,
+        hostname: &str,
+        candidates: &[std::net::SocketAddr],
+        expected_generation: u64,
+    ) -> io::Result<()> {
+        self.empty(agent_request::Payload::SetHostnameEndpointCandidates(
+            agent_v1::SetHostnameEndpointCandidatesRequest {
+                operation_id: operation_id.to_string(),
+                hostname: hostname.to_owned(),
+                expected_generation,
+                candidates: candidates.iter().map(ToString::to_string).collect(),
+            },
+        ))
+        .await
+    }
+    pub async fn acquire_endpoint_probe_lease(
+        &self,
+        operation_id: Uuid,
+        probe_session_id: &str,
+        expected_generation: u64,
+        targets: &[usque_transport::ProbeLeaseTarget],
+        dns_hostname: Option<&str>,
+    ) -> io::Result<agent_v1::EndpointProbeLease> {
+        let targets = targets
+            .iter()
+            .map(|target| agent_v1::ProbeTarget {
+                remote_endpoint: target.addr.to_string(),
+                protocol: match target.protocol {
+                    usque_transport::ProbeTransportProtocol::Tcp => 6,
+                    usque_transport::ProbeTransportProtocol::Udp => 17,
+                },
+            })
+            .collect();
+        match self
+            .request(
+                agent_request::Payload::AcquireEndpointProbeLease(
+                    agent_v1::AcquireEndpointProbeLeaseRequest {
+                        operation_id: operation_id.to_string(),
+                        probe_session_id: probe_session_id.to_owned(),
+                        expected_generation,
+                        targets,
+                        dns_hostname: dns_hostname.unwrap_or_default().to_owned(),
+                    },
+                ),
+                None,
+            )
+            .await?
+            .0
+        {
+            agent_response::Payload::EndpointProbeLease(lease) => Ok(lease),
+            _ => Err(denied("Agent probe lease response mismatch")),
+        }
+    }
+    pub async fn release_endpoint_probe_lease(
+        &self,
+        operation_id: Uuid,
+        probe_session_id: &str,
+        lease_id: u64,
+    ) -> io::Result<()> {
+        self.empty(agent_request::Payload::ReleaseEndpointProbeLease(
+            agent_v1::ReleaseEndpointProbeLeaseRequest {
+                operation_id: operation_id.to_string(),
+                probe_session_id: probe_session_id.to_owned(),
+                lease_id,
+            },
+        ))
+        .await
+    }
     pub async fn recover(&self, state: &agent_v1::AgentState) -> io::Result<()> {
         self.empty(agent_request::Payload::RecoverOrphaned(
             agent_v1::RecoverOrphanedRequest {

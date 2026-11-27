@@ -333,6 +333,10 @@ impl ConnectionTelemetry {
         self.startup_cancellation.is_cancelled()
     }
 
+    pub(crate) fn startup_cancellation(&self) -> tokio_util::sync::CancellationToken {
+        self.startup_cancellation.clone()
+    }
+
     pub(crate) async fn startup_cancelled(&self) {
         self.startup_cancellation.cancelled().await;
     }
