@@ -2256,6 +2256,9 @@ impl ControlService {
                 *active = None;
             }
             drop(active);
+            // Ends the runtime-cancellation link task; the parent token and
+            // the reported final state are unaffected.
+            cancel.cancel();
             let _ = finished_tx.send(true);
         });
 

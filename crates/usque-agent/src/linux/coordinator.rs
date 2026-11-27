@@ -15,7 +15,7 @@ pub trait Backend: Send {
     fn preflight(&self, plan: &ValidatedTunnelPlan) -> io::Result<()>;
     /// Retires a probe lease, which belongs to the network configuration a
     /// chain transition is replacing.
-    fn retire_probe_lease(&mut self) {}
+    fn retire_probe_lease(&mut self, _resources: &Resources) {}
     fn take_reusable_egress_mark(&mut self) -> Option<u16> {
         None
     }
@@ -387,7 +387,9 @@ impl<B: Backend> Coordinator<B> {
         {
             return Ok(());
         }
-        self.backend.retire_probe_lease();
+        if let Some(resources) = self.journal.resources.as_ref() {
+            self.backend.retire_probe_lease(resources);
+        }
         let mut next = self.journal.clone();
         next.phase = Phase::Recovering;
         self.persist(next)?;

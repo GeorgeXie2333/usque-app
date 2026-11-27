@@ -272,7 +272,7 @@ impl MacAgentRuntime {
         let mut tunnel = Box::pin(DataPlaneRuntime::start_with_vpngate_and_telemetry(
             profile,
             identity.clone(),
-            protector,
+            protector.clone(),
             Some(refresher.clone()),
             policy,
             gate,

@@ -1,3 +1,6 @@
+import 'dart:ffi' show Abi;
+import 'dart:io' show Platform;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -137,7 +140,12 @@ SubscriptionTestEngine _goldenEngine({required bool zeroTrustAccount}) {
 }
 
 void main() {
-  setUpAll(loadLinuxGoldenFonts);
+  // Linux baselines use Linux font fixtures; other hosts skip them, as the
+  // Windows bitmap suite has its own baselines.
+  final supportedHost = Platform.isLinux && Abi.current() == Abi.linuxX64;
+  setUpAll(() async {
+    if (supportedHost) await loadLinuxGoldenFonts();
+  });
 
   setUp(() {
     SharedPreferences.setMockInitialValues(<String, Object>{
@@ -234,6 +242,7 @@ void main() {
         );
       },
       tags: const ['golden', 'linux-golden'],
+      skip: !supportedHost,
       variant: const TargetPlatformVariant({TargetPlatform.linux}),
     );
   }

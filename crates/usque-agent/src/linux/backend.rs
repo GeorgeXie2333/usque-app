@@ -97,8 +97,14 @@ impl Backend for NativeBackend {
         Ok(())
     }
 
-    fn retire_probe_lease(&mut self) {
-        self.active_probe_lease = None;
+    fn retire_probe_lease(&mut self, resources: &Resources) {
+        if let Some(lease) = self.active_probe_lease.take() {
+            for lease_id in lease.socket_lease_ids {
+                // Best effort: an uncertain cleanup is recorded by
+                // release_egress and blocks guard removal later.
+                let _ = self.release_egress(resources, lease_id);
+            }
+        }
     }
 
     fn initialize_guard(&self, resources: &mut Resources) -> io::Result<()> {
