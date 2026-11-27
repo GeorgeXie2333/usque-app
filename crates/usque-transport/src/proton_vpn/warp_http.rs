@@ -56,6 +56,24 @@ impl Http for WarpHttp {
     fn current(&self, generation: Option<u64>) -> bool {
         generation.is_some() && self.generation() == generation
     }
+
+    async fn wait_underlay_change(&self, generation: Option<u64>) {
+        let mut health = self.network.health();
+        loop {
+            if !self.current(generation) {
+                return;
+            }
+            tokio::select! {
+                biased;
+                _ = self.network.cancelled() => return,
+                changed = health.changed() => {
+                    if changed.is_err() {
+                        return;
+                    }
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]

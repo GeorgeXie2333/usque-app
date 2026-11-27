@@ -330,3 +330,153 @@ async fn native_ready_queued_before_warp_loss_keeps_the_final_packet_runtime_ali
     stack.shutdown().await;
     outer.shutdown().await;
 }
+
+#[tokio::test]
+async fn admitted_chain_reconnect_stays_reconnecting_without_reentering_configuring_network() {
+    let path = RuntimePath {
+        transport: usque_core::Transport::Http2,
+        endpoint_family: usque_core::AddressFamily::Ipv4,
+        ipv4_available: true,
+        ipv6_available: false,
+    };
+    let (mut outer, _underlay) =
+        ManagedTunnelRuntime::for_external_packets(path, Default::default());
+    let profile = profile(ChainSource::WireguardCustom);
+    let outer_profile = usque_core::Profile::default();
+    let addresses = (
+        "172.16.0.2".parse().unwrap(),
+        std::net::Ipv6Addr::UNSPECIFIED,
+    );
+    let (mut stack, _pipe) = crate::netstack::PacketStack::start_detached(
+        &outer_profile,
+        addresses,
+        &outer.monitor(),
+        &CancellationToken::new(),
+        crate::socket::noop_socket_protector(),
+        Arc::default(),
+    )
+    .await
+    .unwrap();
+    let warp = InternalNetwork::for_stack(&outer_profile, &stack, addresses.0, addresses.1);
+    let remote = "192.0.2.1:51820".parse().unwrap();
+    let mut native = Session::start(&profile, remote).unwrap();
+    let (transport_output, ip_output) = native.split_packet_outputs().unwrap();
+    let cancellation = CancellationToken::new();
+    let (status, observed) = watch::channel(GateStatus::default());
+    let (admission, admitted) = watch::channel(false);
+    let config = NetworkConfig {
+        ipv4: Some("10.2.0.2".parse().unwrap()),
+        ipv6: None,
+        mtu: 1280,
+        dns_servers: vec![],
+    };
+    let network = final_network(config.clone()).unwrap();
+    let (_cred_tx, cred_rx) = watch::channel(Arc::new(usque_core::proton_vpn::TunnelCredentials {
+        certificate_chain: zeroize::Zeroizing::new(String::new()),
+        private_key_pkcs8: zeroize::Zeroizing::new(Vec::new()),
+        server_name: "node.protonvpn.net".into(),
+        expires_at: i64::MAX,
+        label: None,
+    }));
+    let mut actor = Actor {
+        diagnostic_id: 0,
+        connection_deadline: Instant::now() + Duration::from_secs(35),
+        startup_attempt: StartupAttempt::Once,
+        native,
+        transport_output,
+        ip_output,
+        packet_tasks: Vec::new(),
+        remote,
+        udp: true,
+        tcp_packet_budget: None,
+        underlay_health: warp.health(),
+        transport_telemetry: Default::default(),
+        warp,
+        status,
+        ready: None,
+        channels: None,
+        network: Some(network.clone()),
+        generation: 1,
+        packet_generation: Arc::new(std::sync::atomic::AtomicU64::new(1)),
+        packet_ready: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        reconnect_count: 0,
+        connected: false,
+        connection: None,
+        cancellation: cancellation.clone(),
+        admitted,
+        proton_updates: Some(cred_rx),
+        proton_recovery: None,
+        agent: None,
+        agent_route: Arc::default(),
+        pending_runtime: None,
+    };
+    let (mut final_runtime, mut channels) =
+        ManagedTunnelRuntime::for_external_packets(path, Default::default());
+    actor.start_packet_tasks(&mut channels, &network).unwrap();
+    actor.channels = Some(channels);
+
+    // Pre-admission startup still reports ConfiguringNetwork until platform handoff.
+    actor
+        .event(Event::Network {
+            generation: 1,
+            config: config.clone(),
+        })
+        .await
+        .unwrap();
+    assert_eq!(observed.borrow().stage, GateStage::ConfiguringNetwork);
+    actor.publish_connected();
+    assert_eq!(observed.borrow().stage, GateStage::ConfiguringNetwork);
+    assert!(!actor.packet_ready.load(Ordering::Acquire));
+
+    // Once admitted, an internal reconnect with the same network stays in Reconnecting
+    // while waiting for the Proton local agent, never re-entering ConfiguringNetwork.
+    admission.send_replace(true);
+    actor.event(Event::Dial { generation: 2 }).await.unwrap();
+    assert_eq!(observed.borrow().stage, GateStage::ConnectingServer);
+    actor
+        .event(Event::Network {
+            generation: 2,
+            config,
+        })
+        .await
+        .unwrap();
+    assert_eq!(observed.borrow().stage, GateStage::Reconnecting);
+    actor
+        .event(Event::State {
+            generation: 2,
+            name: "CONNECTED".into(),
+            error: false,
+            fatal: false,
+        })
+        .await
+        .unwrap();
+    assert_eq!(observed.borrow().stage, GateStage::Reconnecting);
+    assert!(!actor.packet_ready.load(Ordering::Acquire));
+    assert!(matches!(
+        final_runtime.health(),
+        RuntimeHealth::Reconnecting { .. }
+    ));
+
+    // Without a pending agent gate, an already-admitted reconnect transitions straight to Connected.
+    actor.agent = None;
+    actor.proton_updates = None;
+    actor.publish_connected();
+    assert_eq!(observed.borrow().stage, GateStage::Connected);
+    assert!(actor.packet_ready.load(Ordering::Acquire));
+    assert!(matches!(
+        final_runtime.health(),
+        RuntimeHealth::Connected { .. }
+    ));
+
+    cancellation.cancel();
+    if let Some(connection) = actor.connection.take() {
+        connection.shutdown().await;
+    }
+    actor.native.shutdown().await.unwrap();
+    for task in actor.packet_tasks.drain(..) {
+        task.await.unwrap();
+    }
+    final_runtime.shutdown().await;
+    stack.shutdown().await;
+    outer.shutdown().await;
+}

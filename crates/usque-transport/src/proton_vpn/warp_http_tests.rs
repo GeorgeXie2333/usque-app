@@ -169,3 +169,63 @@ async fn cancelled_runtime_request_never_dials() {
     );
     assert!(dialer.calls.lock().unwrap().is_empty());
 }
+
+#[tokio::test(start_paused = true)]
+async fn wait_underlay_change_wakes_immediately_on_reconnect_or_cancellation() {
+    let (http, _dialer, health, cancel) = network(0, DialError::Refused);
+    let original = http.generation();
+    assert!(http.current(original));
+
+    // Stays pending while the underlay remains connected on the same generation.
+    assert!(
+        tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            http.wait_underlay_change(original)
+        )
+        .await
+        .is_err()
+    );
+
+    // Wakes immediately when the underlay enters Reconnecting.
+    let waiter = http.wait_underlay_change(original);
+    tokio::pin!(waiter);
+    let RuntimeHealth::Connected { path, .. } = connected(7) else {
+        unreachable!()
+    };
+    health.send_replace(RuntimeHealth::Reconnecting {
+        last_path: path,
+        attempt: 1,
+        reconnect_count: 7,
+        reason: "synthetic reconnect".into(),
+        failure: usque_core::TransportFailure::new(
+            usque_core::TransportFailureCode::H2StreamClosed,
+            usque_core::TransportStage::PacketReceive,
+        ),
+    });
+    tokio::time::timeout(std::time::Duration::from_millis(10), &mut waiter)
+        .await
+        .expect("reconnecting underlay must wake the lease waiter immediately");
+
+    // Wakes immediately when reconnect_count advances to a new Connected generation.
+    health.send_replace(connected(8));
+    tokio::time::timeout(
+        std::time::Duration::from_millis(10),
+        http.wait_underlay_change(original),
+    )
+    .await
+    .expect("new reconnect_count must wake an older generation immediately");
+
+    // Stays pending on the new generation until cancellation.
+    let replacement = http.generation();
+    let cancel_waiter = http.wait_underlay_change(replacement);
+    tokio::pin!(cancel_waiter);
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(50), &mut cancel_waiter)
+            .await
+            .is_err()
+    );
+    cancel.cancel();
+    tokio::time::timeout(std::time::Duration::from_millis(10), &mut cancel_waiter)
+        .await
+        .expect("underlay cancellation must wake the lease waiter immediately");
+}

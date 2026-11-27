@@ -457,6 +457,7 @@ impl Lease {
             tokio::select! {
                 biased;
                 _ = cancel.cancelled() => return Ok(()),
+                _ = self.http.wait_underlay_change(self.generation) => continue,
                 Some(request) = requests.recv() => {
                     let result = self.recover(request.code, cancel).await;
                     if let Ok(credentials) = &result {

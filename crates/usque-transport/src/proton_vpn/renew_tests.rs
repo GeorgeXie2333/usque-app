@@ -1831,3 +1831,89 @@ async fn connect_uses_a_valid_refresh_due_certificate_without_waiting_for_the_ap
     assert_eq!(http.requests.lock().unwrap().len(), 4);
     assert!(lease.current.expires_at > super::super::interaction::now());
 }
+
+#[tokio::test(start_paused = true)]
+async fn lease_fails_immediately_when_warp_underlay_changes_before_monitor_interval() {
+    use crate::{
+        InternalNetwork, RuntimeHealth,
+        netstack::RuntimePath,
+        tcp::{DialError, FlowClass, TcpDialer, TcpStream, TcpTarget},
+    };
+    struct IdleDialer;
+    #[async_trait]
+    impl TcpDialer for IdleDialer {
+        async fn connect(
+            &self,
+            _: TcpTarget,
+            _: tokio::time::Instant,
+            _: &CancellationToken,
+            _: FlowClass,
+        ) -> Result<TcpStream, DialError> {
+            Err(DialError::Refused)
+        }
+    }
+
+    let path = RuntimePath {
+        transport: usque_core::Transport::Http2,
+        endpoint_family: usque_core::AddressFamily::Ipv4,
+        ipv4_available: true,
+        ipv6_available: false,
+    };
+    for next_health in [
+        RuntimeHealth::Reconnecting {
+            last_path: path,
+            attempt: 1,
+            reconnect_count: 0,
+            reason: "h2 closed".into(),
+            failure: usque_core::TransportFailure::new(
+                usque_core::TransportFailureCode::H2StreamClosed,
+                usque_core::TransportStage::PacketReceive,
+            ),
+        },
+        RuntimeHealth::Connected {
+            path,
+            reconnect_count: 1,
+        },
+    ] {
+        let (record, prepared, storage) = fixture();
+        let (health_tx, health_rx) = watch::channel(RuntimeHealth::Connected {
+            path,
+            reconnect_count: 0,
+        });
+        let http = Arc::new(WarpHttp::new(InternalNetwork::for_streams(
+            Arc::new(IdleDialer),
+            health_rx,
+            CancellationToken::new(),
+        )));
+        let generation = http.generation();
+        let lease = Lease {
+            current: record,
+            persistence: storage,
+            generation,
+            http,
+            peer: None,
+            retry_at: None,
+        };
+        let (sender, _observed) = watch::channel(prepared.proton.unwrap());
+        let cancel = CancellationToken::new();
+        let task_cancel = cancel.clone();
+        let worker = tokio::spawn(async move { lease.run(sender, &task_cancel).await });
+        for _ in 0..10 {
+            tokio::task::yield_now().await;
+        }
+        assert!(!worker.is_finished());
+        let started = tokio::time::Instant::now();
+        health_tx.send_replace(next_health);
+        let outcome = tokio::time::timeout(Duration::from_millis(100), worker)
+            .await
+            .expect("lease must wake immediately on underlay change without waiting 5s")
+            .unwrap();
+        assert_eq!(
+            outcome,
+            Err(GateFailure::Proton(ConnectionFailure::new(
+                FailureKind::Transport
+            )))
+        );
+        assert!(started.elapsed() < Duration::from_secs(1));
+    }
+}

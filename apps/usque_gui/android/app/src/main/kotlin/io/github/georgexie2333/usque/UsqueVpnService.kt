@@ -213,7 +213,6 @@ class UsqueVpnService : VpnService() {
     private val statusTaskLock = Any()
     private var statusTaskGeneration = 0L
     private var statusTask: ScheduledFuture<*>? = null
-    private var gateHandoffGeneration = -1L
 
     private val controlMessenger =
         Messenger(
@@ -2674,31 +2673,9 @@ class UsqueVpnService : VpnService() {
         failureNetworkGeneration: Long = networkMonitor.generation(),
     ) {
         val merge = snapshotState.applyNativeSnapshot(source)
-        val gate = source.optJSONObject("vpn_gate")
-        val gateGeneration = gate?.optLong("generation", -1L) ?: -1L
-        if (gate?.optString("stage") == "configuring_network" &&
-            source.optJSONObject("final_network") != null &&
-            !runtimeReconfigureInFlight && gateGeneration != gateHandoffGeneration
-        ) {
-            val profileJson = activeProfileJson.get()
-            val profile = profileJson?.let { runCatching { AndroidVpnProfile.parse(it) }.getOrNull() }
-            if (profile?.vpnGateEnabled == true && VpnReconfigure.tunnelFrontendEnabled(JSONObject(profileJson))) {
-                gateHandoffGeneration = gateGeneration
-                val generation = connectionGeneration.get()
-                runtimeReconfigureInFlight = true
-                val request =
-                    Message.obtain(null, MSG_RECONFIGURE).apply {
-                        data = Bundle().apply { putLong("runtime_reconfigure_generation", generation) }
-                    }
-                engineExecutor.execute {
-                    if (isCurrent(generation)) {
-                        attachTunWhileRunning(generation, profileJson, request)
-                    } else {
-                        mainHandler.post { replyWithSnapshot(request) }
-                    }
-                }
-            }
-        }
+        // Startup and RECONFIGURE_NEED_ATTACH own TUN attachment directly; an
+        // established chain session already owns its attached TUN and must not
+        // re-run attachTunWhileRunning from periodic status snapshots.
         val publishObservedSnapshot = snapshotPublisher.observeNativeSnapshot()
         merge.cacheWrite?.let { write ->
             statusExecutor.execute {
@@ -3138,13 +3115,6 @@ class UsqueVpnService : VpnService() {
             secret.fill(0)
         }
 
-    private data class NativeStartFailure(
-        val code: String,
-        val message: String,
-        val gateStatus: String? = null,
-        val details: ServiceSnapshotState.FailureFields? = null,
-    )
-
     private fun withProxyPassword(
         profileJson: String,
         operation: (ByteArray) -> Int,
@@ -3270,72 +3240,14 @@ class UsqueVpnService : VpnService() {
         }.getOrNull() ?: ByteArray(0)
     }
 
-    private fun nativeStartFailure(result: Int): NativeStartFailure {
+    private fun nativeStartFailure(result: Int): ConnectionFailure {
         val nativeSnapshot =
             try {
                 NativeEngine.snapshot()?.let(::JSONObject)
             } catch (_: Exception) {
                 null
             }
-        val structuredCode = nativeSnapshot?.optNullableString("error_code")
-        val structuredMessage = nativeSnapshot?.optNullableString("warning")
-        val fallback =
-            when (result) {
-                NativeEngine.ERROR_INVALID_WARP_SECRET -> {
-                    NativeStartFailure(
-                        "IDENTITY_INVALID",
-                        "The stored WARP identity was rejected.",
-                    )
-                }
-
-                NativeEngine.ERROR_ALREADY_RUNNING -> {
-                    NativeStartFailure(
-                        "ANDROID_RUNTIME_FAILED",
-                        "Another native data channel is already running.",
-                    )
-                }
-
-                NativeEngine.ERROR_INVALID_PROFILE -> {
-                    NativeStartFailure(
-                        "ANDROID_RUNTIME_FAILED",
-                        "The Rust engine rejected this profile.",
-                    )
-                }
-
-                NativeEngine.ERROR_PLATFORM_FAILURE -> {
-                    NativeStartFailure(
-                        "ANDROID_RUNTIME_FAILED",
-                        "Android could not initialize the native runtime.",
-                    )
-                }
-
-                NativeEngine.ERROR_TRANSPORT_FAILURE -> {
-                    NativeStartFailure(
-                        "MASQUE_CONNECT_FAILED",
-                        "The MASQUE endpoint could not be reached with HTTP/3 or HTTP/2.",
-                    )
-                }
-
-                NativeEngine.ERROR_TUN_FAILURE -> {
-                    NativeStartFailure(
-                        "ANDROID_RUNTIME_FAILED",
-                        "The Rust engine could not own the VPN interface.",
-                    )
-                }
-
-                else -> {
-                    NativeStartFailure(
-                        "ANDROID_RUNTIME_FAILED",
-                        "The native engine rejected the network request ($result).",
-                    )
-                }
-            }
-        return NativeStartFailure(
-            structuredCode?.take(64) ?: fallback.code,
-            structuredMessage?.take(512) ?: fallback.message,
-            VpnGateFields.status(nativeSnapshot?.optJSONObject("vpn_gate"))?.let { JSONObject(it).toString() },
-            nativeSnapshot?.let { ServiceSnapshotState.fromNativeJson(it).failure },
-        )
+        return ConnectionFailure.fromNativeStartResult(result, nativeSnapshot)
     }
 
     private fun safeMessage(error: Exception): String = (error.message ?: error.javaClass.simpleName).take(256)

@@ -305,6 +305,10 @@ impl InternalNetwork {
     pub(crate) fn health(&self) -> watch::Receiver<RuntimeHealth> {
         self.health.clone()
     }
+    #[cfg(feature = "wireguard")]
+    pub(crate) async fn cancelled(&self) {
+        self.cancellation.cancelled().await;
+    }
     pub(crate) fn supports_udp(&self) -> bool {
         self.packet_channel.is_some()
     }

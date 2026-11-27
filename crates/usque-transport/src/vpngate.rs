@@ -889,7 +889,14 @@ impl Actor {
                 }
                 self.status.send_modify(|s| {
                     s.network = Some(network.clone());
-                    s.stage = GateStage::ConfiguringNetwork;
+                    // Once platform admission has already configured this
+                    // identical network, an internal reconnect must not re-enter
+                    // ConfiguringNetwork and trigger another platform TUN attach.
+                    s.stage = if *self.admitted.borrow() {
+                        GateStage::Reconnecting
+                    } else {
+                        GateStage::ConfiguringNetwork
+                    };
                 });
                 self.network = Some(network);
             }
@@ -1183,15 +1190,16 @@ impl Actor {
         path
     }
     fn publish_connected(&self) {
+        let platform_admitted = *self.admitted.borrow();
         #[cfg(feature = "wireguard")]
-        let admitted = *self.admitted.borrow()
-            && self
-                .agent
-                .as_ref()
-                .is_none_or(|agent| agent.gate().authorized());
+        let agent_authorized = self
+            .agent
+            .as_ref()
+            .is_none_or(|agent| agent.gate().authorized());
         #[cfg(not(feature = "wireguard"))]
-        let admitted = *self.admitted.borrow();
-        let admitted = admitted
+        let agent_authorized = true;
+        let admitted = platform_admitted
+            && agent_authorized
             && self.connected
             && matches!(
                 *self.underlay_health.borrow(),
@@ -1211,7 +1219,11 @@ impl Actor {
                     last_path: path,
                     attempt: 0,
                     reconnect_count: self.reconnect_count,
-                    reason: "VPN Gate platform configuration pending".into(),
+                    reason: if platform_admitted {
+                        "VPN Gate reconnecting".into()
+                    } else {
+                        "VPN Gate platform configuration pending".into()
+                    },
                     failure: TransportError::VpnGate(GateFailure::Transport).failure(None, None),
                 }
             };
@@ -1222,6 +1234,8 @@ impl Actor {
         self.status.send_modify(|s| {
             s.stage = if admitted {
                 GateStage::Connected
+            } else if platform_admitted {
+                GateStage::Reconnecting
             } else {
                 GateStage::ConfiguringNetwork
             };

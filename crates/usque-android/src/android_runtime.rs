@@ -1183,6 +1183,7 @@ async fn handle_runtime_command(
                                     {
                                         *deadline = None;
                                     }
+                                    update_health(status, tunnel, profile);
                                     update_frontends(status, tunnel);
                                     spawn_exit_probe(gate_context, tunnel, profile);
                                     RECONFIGURE_OK
@@ -1360,12 +1361,17 @@ async fn handle_runtime_command(
             if let Ok(mut deadline) = gate_context.connection_deadline.lock() {
                 *deadline = None;
             }
-            if super::jni_command_abandoned(&cancelled) || reply.send(RECONFIGURE_OK).is_err() {
+            if super::jni_command_abandoned(&cancelled) {
                 detach_tun_locked(tunnel, tun, tun_io);
                 return;
             }
             *profile = next;
+            update_health(status, tunnel, profile);
             update_frontends(status, tunnel);
+            if reply.send(RECONFIGURE_OK).is_err() {
+                detach_tun_locked(tunnel, tun, tun_io);
+                return;
+            }
             spawn_exit_probe(gate_context, tunnel, profile);
         }
         RuntimeCommand::DetachTun { reply, cancelled } => {

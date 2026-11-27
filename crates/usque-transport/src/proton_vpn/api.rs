@@ -76,6 +76,9 @@ pub(super) trait Http: Send + Sync {
     ) -> Result<InternalResponse, InternalHttpError>;
     fn generation(&self) -> Option<u64>;
     fn current(&self, generation: Option<u64>) -> bool;
+    async fn wait_underlay_change(&self, _generation: Option<u64>) {
+        std::future::pending().await
+    }
 }
 
 #[derive(Debug, Clone)]
