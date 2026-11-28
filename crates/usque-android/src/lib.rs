@@ -5691,11 +5691,32 @@ mod real_jvm_exception_tests {
     use jni::{JValue, JavaVM, jni_sig, jni_str, objects::JObject, sys};
     use std::sync::OnceLock;
 
+    /// A service whose JNI upcall throws, like a failing
+    /// `UsqueVpnService.cataloguePhysicalAllowed()`.
+    const THROWING_SERVICE: &str = "public final class ThrowingService {\n\
+        public boolean cataloguePhysicalAllowed() {\n\
+            throw new IllegalStateException(\"injected upcall failure\");\n\
+        }\n\
+        public void onEndpointSubscriptionProbeProgress(String json) {}\n\
+    }\n";
+
     fn jvm() -> Option<&'static JavaVM> {
         static VM: OnceLock<Option<JavaVM>> = OnceLock::new();
         VM.get_or_init(|| {
-            let home = std::env::var_os("JAVA_HOME")?;
-            let path = std::path::Path::new(&home).join("lib/server/libjvm.so");
+            let home = std::path::PathBuf::from(std::env::var_os("JAVA_HOME")?);
+            // The fixture class is compiled with the same JDK.
+            let classes: &'static tempfile::TempDir =
+                Box::leak(Box::new(tempfile::tempdir().expect("fixture directory")));
+            let source = classes.path().join("ThrowingService.java");
+            std::fs::write(&source, THROWING_SERVICE).expect("fixture source");
+            let compiled = std::process::Command::new(home.join("bin/javac"))
+                .arg("-d")
+                .arg(classes.path())
+                .arg(&source)
+                .status()
+                .expect("JAVA_HOME has no runnable bin/javac");
+            assert!(compiled.success(), "javac failed for the fixture");
+            let path = home.join("lib/server/libjvm.so");
             // SAFETY: loads the host JVM library, which stays loaded for the
             // rest of the test process (a JVM cannot be unloaded).
             let library: &'static libloading::Library = Box::leak(Box::new(
@@ -5711,13 +5732,21 @@ mod real_jvm_exception_tests {
             let create = unsafe { library.get::<CreateJavaVm>(b"JNI_CreateJavaVM\0") }
                 .expect("libjvm exports JNI_CreateJavaVM");
             let mut check = *b"-Xcheck:jni\0";
-            let mut options = [sys::JavaVMOption {
-                optionString: check.as_mut_ptr().cast(),
-                extraInfo: std::ptr::null_mut(),
-            }];
+            let mut class_path =
+                format!("-Djava.class.path={}\0", classes.path().display()).into_bytes();
+            let mut options = [
+                sys::JavaVMOption {
+                    optionString: check.as_mut_ptr().cast(),
+                    extraInfo: std::ptr::null_mut(),
+                },
+                sys::JavaVMOption {
+                    optionString: class_path.as_mut_ptr().cast(),
+                    extraInfo: std::ptr::null_mut(),
+                },
+            ];
             let mut arguments = sys::JavaVMInitArgs {
                 version: sys::JNI_VERSION_1_8,
-                nOptions: 1,
+                nOptions: 2,
                 options: options.as_mut_ptr(),
                 ignoreUnrecognized: sys::JNI_FALSE,
             };
@@ -5737,6 +5766,51 @@ mod real_jvm_exception_tests {
             Some(unsafe { JavaVM::from_raw(vm) })
         })
         .as_ref()
+    }
+
+    #[test]
+    fn a_throwing_service_upcall_still_completes_the_exported_command() {
+        let Some(vm) = jvm() else {
+            eprintln!("real-JVM JNI check not_run: JAVA_HOME is not set");
+            return;
+        };
+        let directory = tempfile::tempdir().unwrap();
+        let config_path = directory.path().join("profiles-v2.json");
+        vm.attach_current_thread(|env| -> jni::errors::Result<()> {
+            let service_class = env.find_class(jni_str!("ThrowingService"))?;
+            let service = env.new_object(&service_class, jni_sig!("()V"), &[])?;
+            let engine_class = env.find_class(jni_str!("java/lang/Object"))?;
+            let path = env.new_string(config_path.to_str().unwrap())?;
+            let request = env.new_string(
+                r#"{"request":{"action":"list"},"phase":"disconnected","available":false,"session_id":"","allow_physical":false}"#,
+            )?;
+            let secret = env.new_byte_array(0)?;
+            // SAFETY: `env` is this thread's live attachment; the unowned
+            // view is used only for the duration of the exported call.
+            let unowned = unsafe { jni::EnvUnowned::from_raw(env.get_raw()) };
+            // The exported JNI function, exactly as Java calls it. Its
+            // cataloguePhysicalAllowed() upcall throws a real Java exception.
+            let raw = super::Java_io_github_georgexie2333_usque_NativeEngine_nativeEndpointSubscriptionCommand(
+                unowned,
+                engine_class,
+                path,
+                request,
+                secret,
+                service,
+            );
+            // The thrown upcall was cleared and treated as "not allowed"; the
+            // command still returned its catalogue with nothing pending.
+            assert!(!env.exception_check(), "a Java exception was left pending");
+            assert!(!raw.is_null(), "the command failed after the upcall threw");
+            // SAFETY: `raw` is the local string reference just returned.
+            let reply = unsafe { JObject::from_raw(env, raw) };
+            let reply = env.cast_local::<jni::objects::JString>(reply)?;
+            let reply = reply.try_to_string(env)?;
+            let catalogue: serde_json::Value = serde_json::from_str(&reply).unwrap();
+            assert!(catalogue["subscriptions"].is_array());
+            Ok(())
+        })
+        .expect("JVM attachment");
     }
 
     #[test]
