@@ -3842,7 +3842,7 @@ fn stop_engine_confirmed() -> bool {
     endpoint_subscriptions::signal_cancel();
     // Cancelled downloads return promptly; join them so none outlives the
     // stopped session (their commits are epoch-checked regardless).
-    let _ = endpoint_subscriptions::join_in_flight_downloads(endpoint_subscriptions::DOWNLOAD_JOIN);
+    endpoint_subscriptions::join_in_flight_downloads();
     if !vpngate::cancel_refresh() {
         return false;
     }
@@ -5680,5 +5680,109 @@ mod pending_exception_tests {
         let mut clean = FakeEnv::default();
         clear_pending_exception(&mut clean);
         assert_eq!(clean.clears, 0);
+    }
+}
+
+/// The JNI exception handling exercised against a real JVM (the host
+/// libjvm, started with `-Xcheck:jni`) instead of a fake environment.
+#[cfg(all(test, target_os = "linux"))]
+mod real_jvm_exception_tests {
+    use super::{clear_pending_exception, throw_io_error};
+    use jni::{JValue, JavaVM, jni_sig, jni_str, objects::JObject, sys};
+    use std::sync::OnceLock;
+
+    fn jvm() -> Option<&'static JavaVM> {
+        static VM: OnceLock<Option<JavaVM>> = OnceLock::new();
+        VM.get_or_init(|| {
+            let home = std::env::var_os("JAVA_HOME")?;
+            let path = std::path::Path::new(&home).join("lib/server/libjvm.so");
+            // SAFETY: loads the host JVM library, which stays loaded for the
+            // rest of the test process (a JVM cannot be unloaded).
+            let library: &'static libloading::Library = Box::leak(Box::new(
+                unsafe { libloading::Library::new(&path) }
+                    .expect("JAVA_HOME does not contain a loadable lib/server/libjvm.so"),
+            ));
+            type CreateJavaVm = unsafe extern "system" fn(
+                *mut *mut sys::JavaVM,
+                *mut *mut std::ffi::c_void,
+                *mut std::ffi::c_void,
+            ) -> sys::jint;
+            // SAFETY: JNI_CreateJavaVM has exactly this C signature.
+            let create = unsafe { library.get::<CreateJavaVm>(b"JNI_CreateJavaVM\0") }
+                .expect("libjvm exports JNI_CreateJavaVM");
+            let mut check = *b"-Xcheck:jni\0";
+            let mut options = [sys::JavaVMOption {
+                optionString: check.as_mut_ptr().cast(),
+                extraInfo: std::ptr::null_mut(),
+            }];
+            let mut arguments = sys::JavaVMInitArgs {
+                version: sys::JNI_VERSION_1_8,
+                nOptions: 1,
+                options: options.as_mut_ptr(),
+                ignoreUnrecognized: sys::JNI_FALSE,
+            };
+            let mut vm = std::ptr::null_mut();
+            let mut env = std::ptr::null_mut();
+            // SAFETY: all pointers are valid for the call; the arguments only
+            // need to live until it returns.
+            let status = unsafe {
+                create(
+                    &mut vm,
+                    &mut env,
+                    (&raw mut arguments).cast::<std::ffi::c_void>(),
+                )
+            };
+            assert_eq!(status, sys::JNI_OK, "JNI_CreateJavaVM failed");
+            // SAFETY: `vm` is the live JavaVM created above.
+            Some(unsafe { JavaVM::from_raw(vm) })
+        })
+        .as_ref()
+    }
+
+    #[test]
+    fn a_thrown_java_upcall_is_cleared_and_an_io_error_replaces_it() {
+        let Some(vm) = jvm() else {
+            // Reported, not passed: the real-JVM check needs JAVA_HOME.
+            eprintln!("real-JVM JNI check not_run: JAVA_HOME is not set");
+            return;
+        };
+        vm.attach_current_thread(|env| -> jni::errors::Result<()> {
+            let throwing_call = |env: &mut jni::Env<'_>| -> bool {
+                let Ok(text) = env.new_string("not-a-number") else {
+                    return false;
+                };
+                let text = JObject::from(text);
+                // Like a thrown cataloguePhysicalAllowed(): fail closed.
+                env.call_static_method(
+                    jni_str!("java/lang/Integer"),
+                    jni_str!("parseInt"),
+                    jni_sig!("(Ljava/lang/String;)I"),
+                    &[JValue::Object(&text)],
+                )
+                .and_then(|value| value.i())
+                .map(|value| value != 0)
+                .unwrap_or(false)
+            };
+
+            // The upcall failure leaves a real Java exception pending.
+            assert!(!throwing_call(env));
+            assert!(env.exception_check());
+            clear_pending_exception(env);
+            assert!(!env.exception_check());
+            // The next JNI call runs cleanly (CheckJNI would report otherwise).
+            let _ = env.new_string("after the upcall")?;
+
+            // A pending exception is replaced by the IOException that the
+            // caller is meant to see, never left underneath it.
+            assert!(!throwing_call(env));
+            assert!(env.exception_check());
+            throw_io_error(env, "SUBSCRIPTION_STORAGE_UNAVAILABLE");
+            let thrown = env.exception_occurred().expect("an IOException is pending");
+            env.exception_clear();
+            assert!(env.is_instance_of(&thrown, jni_str!("java/io/IOException"))?);
+            assert!(!env.is_instance_of(&thrown, jni_str!("java/lang/NumberFormatException"))?);
+            Ok(())
+        })
+        .expect("JVM attachment");
     }
 }

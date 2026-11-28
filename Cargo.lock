@@ -3079,6 +3079,7 @@ dependencies = [
  "ipnet",
  "jni",
  "libc",
+ "libloading 0.9.1",
  "serde",
  "serde_json",
  "tempfile",

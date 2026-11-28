@@ -160,9 +160,8 @@ pub(crate) fn signal_cancel() {
 
 pub(crate) fn cancel_all_and_clear(dir: &Path) -> Result<(), String> {
     signal_cancel();
-    // Join cancelled downloads first. Their commits are epoch-checked too, so
-    // a download outliving this bound still cannot recreate the catalogue.
-    let _ = join_in_flight_downloads(DOWNLOAD_JOIN);
+    // Join cancelled downloads first; their commits are also epoch-checked.
+    join_in_flight_downloads();
     let mut epoch = STORE_EPOCH
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -371,10 +370,6 @@ fn build_list_json(
 /// removing the catalogue (the store epoch also rejects any late commit).
 static IN_FLIGHT_DOWNLOADS: (Mutex<usize>, std::sync::Condvar) =
     (Mutex::new(0), std::sync::Condvar::new());
-/// Every download ends within `FETCH_TOTAL_TIMEOUT` (sooner once cancelled),
-/// so waiting longer than that is a complete join, never a partial one.
-pub(crate) const DOWNLOAD_JOIN: Duration = Duration::from_secs(20);
-const _: () = assert!(DOWNLOAD_JOIN.as_secs() > FETCH_TOTAL_TIMEOUT.as_secs());
 
 struct InFlightDownload;
 
@@ -399,17 +394,28 @@ impl Drop for InFlightDownload {
     }
 }
 
-/// Waits (bounded) until every cancelled download has returned. Returns
-/// whether they all did.
-pub(crate) fn join_in_flight_downloads(limit: Duration) -> bool {
+/// Join barrier: waits until every in-flight download has returned. Each
+/// download ends within `FETCH_TOTAL_TIMEOUT` and sooner once cancelled, so
+/// the wait always completes.
+pub(crate) fn join_in_flight_downloads() {
     let guard = IN_FLIGHT_DOWNLOADS
         .0
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    IN_FLIGHT_DOWNLOADS
-        .1
-        .wait_timeout_while(guard, limit, |count| *count > 0)
-        .is_ok_and(|(count, _)| *count == 0)
+    drop(
+        IN_FLIGHT_DOWNLOADS
+            .1
+            .wait_while(guard, |count| *count > 0)
+            .unwrap_or_else(std::sync::PoisonError::into_inner),
+    );
+}
+
+#[cfg(test)]
+fn in_flight_downloads() -> usize {
+    *IN_FLIGHT_DOWNLOADS
+        .0
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 fn fetch_and_parse_sync(
@@ -1558,7 +1564,8 @@ mod tests {
             })
             .collect();
         let began = std::time::Instant::now();
-        assert!(join_in_flight_downloads(DOWNLOAD_JOIN));
+        join_in_flight_downloads();
+        assert_eq!(in_flight_downloads(), 0);
         // The join returned only after the slowest download finished.
         assert!(began.elapsed() >= Duration::from_millis(150));
         for download in downloads {
@@ -1574,9 +1581,9 @@ mod tests {
             std::thread::sleep(Duration::from_millis(150));
         });
         std::thread::sleep(Duration::from_millis(20));
-        assert!(join_in_flight_downloads(Duration::from_secs(5)));
+        join_in_flight_downloads();
+        assert_eq!(in_flight_downloads(), 0);
         download.join().unwrap();
-        assert!(join_in_flight_downloads(Duration::ZERO));
     }
     use super::*;
     use usque_core::endpoint_subscriptions::SubscriptionEndpointHost;

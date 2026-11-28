@@ -36,5 +36,10 @@ zeroize.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
 
+# Real-JVM JNI checks load the host libjvm. Same version as usque-platform,
+# so no new package enters Cargo.lock.
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+libloading = "0.9.0"
+
 [lints]
 workspace = true
