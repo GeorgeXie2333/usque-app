@@ -1257,6 +1257,15 @@ where
         self.direct_egress.lock().await.clear_probe_leases();
     }
 
+    async fn retire_probe_leases_for(&self, operation_id: Uuid) {
+        let mut registry = self.direct_egress.lock().await;
+        if let Some(lease) = registry.probe_leases.remove(&operation_id) {
+            for key in lease.egress_keys {
+                registry.release(key);
+            }
+        }
+    }
+
     async fn clear_direct_egress(&self) {
         let mut registry = self.direct_egress.lock().await;
         registry.clear_probe_leases();
@@ -2592,6 +2601,10 @@ where
                 .await;
         }
         Some(TunnelConnectionLease::Active(operation_id)) => {
+            // Probe leases are acquired over short per-request pipes, so they
+            // are bound to the Engine's long-lived session pipe instead: when
+            // that owner disappears, its probe permits end with it.
+            service.retire_probe_leases_for(operation_id).await;
             service.release_tunnel_lease(operation_id, &caller).await;
         }
         None => {}

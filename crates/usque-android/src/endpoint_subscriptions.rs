@@ -160,6 +160,9 @@ pub(crate) fn signal_cancel() {
 
 pub(crate) fn cancel_all_and_clear(dir: &Path) -> Result<(), String> {
     signal_cancel();
+    // Join cancelled downloads first. Their commits are epoch-checked too, so
+    // a download outliving this bound still cannot recreate the catalogue.
+    let _ = join_in_flight_downloads(CLEAR_DOWNLOAD_JOIN);
     let mut epoch = STORE_EPOCH
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -364,12 +367,55 @@ fn build_list_json(
     }))
 }
 
+/// Downloads in flight. Clear All Data cancels them and waits here before
+/// removing the catalogue (the store epoch also rejects any late commit).
+static IN_FLIGHT_DOWNLOADS: (Mutex<usize>, std::sync::Condvar) =
+    (Mutex::new(0), std::sync::Condvar::new());
+const CLEAR_DOWNLOAD_JOIN: Duration = Duration::from_secs(20);
+
+struct InFlightDownload;
+
+impl InFlightDownload {
+    fn begin() -> Self {
+        *IN_FLIGHT_DOWNLOADS
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) += 1;
+        Self
+    }
+}
+
+impl Drop for InFlightDownload {
+    fn drop(&mut self) {
+        let mut count = IN_FLIGHT_DOWNLOADS
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        *count = count.saturating_sub(1);
+        IN_FLIGHT_DOWNLOADS.1.notify_all();
+    }
+}
+
+/// Waits (bounded) until every cancelled download has returned. Returns
+/// whether they all did.
+fn join_in_flight_downloads(limit: Duration) -> bool {
+    let guard = IN_FLIGHT_DOWNLOADS
+        .0
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    IN_FLIGHT_DOWNLOADS
+        .1
+        .wait_timeout_while(guard, limit, |count| *count > 0)
+        .is_ok_and(|(count, _)| *count == 0)
+}
+
 fn fetch_and_parse_sync(
     url: &str,
     cancel: &CancellationToken,
     warp: Option<&InternalNetwork>,
     allow_physical: bool,
 ) -> Result<ParsedSubscription, SubscriptionError> {
+    let _in_flight = InFlightDownload::begin();
     if warp.is_none() && !allow_physical {
         return Err(SubscriptionError::Network);
     }
@@ -1479,6 +1525,18 @@ pub(crate) fn plan_requires_runtime_target(
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn clearing_joins_downloads_that_are_still_returning() {
+        let download = std::thread::spawn(|| {
+            let _in_flight = InFlightDownload::begin();
+            std::thread::sleep(Duration::from_millis(150));
+        });
+        std::thread::sleep(Duration::from_millis(20));
+        assert!(join_in_flight_downloads(Duration::from_secs(5)));
+        download.join().unwrap();
+        assert!(join_in_flight_downloads(Duration::ZERO));
+    }
     use super::*;
     use usque_core::endpoint_subscriptions::SubscriptionEndpointHost;
     use usque_core::{ConsumerEntitlement, IdentityProvider, ManagedEndpointIps};
