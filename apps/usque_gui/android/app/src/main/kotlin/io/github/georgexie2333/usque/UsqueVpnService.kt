@@ -71,6 +71,9 @@ class UsqueVpnService : VpnService() {
         const val MSG_PROTON_VPN = 22
         const val MSG_SCENARIOS = 23
         const val MSG_ENDPOINT_SUBSCRIPTIONS = 24
+        const val CONTROL_SERVICE_INACTIVE = "CONTROL_SERVICE_INACTIVE"
+        private val settingsRequestMessages =
+            setOf(MSG_SCENARIOS, MSG_ENDPOINT_SUBSCRIPTIONS, MSG_SAVE_SETTINGS, MSG_GET_SETTINGS)
         const val MSG_ENDPOINT_SUBSCRIPTION_EVENT = 25
 
         private const val NATIVE_STATUS_INTERVAL_MILLIS = 1_000L
@@ -225,6 +228,14 @@ class UsqueVpnService : VpnService() {
             Handler(Looper.getMainLooper()) { message ->
                 // Large requests arrive as file handoffs; resolve them once here.
                 LargeIpcPayload.inline(handoffDirectory, message.peekData())
+                // A destroyed instance can still receive messages through a
+                // client's stale Messenger. Answer at once instead of letting
+                // the request wait for its timeout; the client rebinds a
+                // write, and reads fall back to the saved configuration.
+                if (destroyed && message.what in settingsRequestMessages) {
+                    replySettings(Message.obtain(message), null, CONTROL_SERVICE_INACTIVE)
+                    return@Handler true
+                }
                 when (message.what) {
                     MSG_SCENARIOS -> {
                         networkSettingsRequest(Message.obtain(message))

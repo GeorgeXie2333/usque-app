@@ -584,6 +584,11 @@ internal class VpnControlClient(
         json: String?,
         error: String? = null,
     ) {
+        if (error == UsqueVpnService.CONTROL_SERVICE_INACTIVE) {
+            val request = pendingEndpointSubscriptions.remove(id) ?: return
+            if (retryAfterInactiveService(id, request, pendingEndpointSubscriptions)) return
+            pendingEndpointSubscriptions[id] = request
+        }
         scheduler.cancel("sub-$id")
         pendingEndpointSubscriptions.remove(id)?.let { request ->
             val result = request.result
@@ -669,11 +674,40 @@ internal class VpnControlClient(
         }
     }
 
+    /**
+     * A stopping service answers instead of accepting work. Nothing ran, so
+     * a write is resent through a fresh binding; a passive read completes as
+     * inactive and uses the saved configuration. Returns whether the reply
+     * was consumed here.
+     */
+    private fun retryAfterInactiveService(
+        id: Int,
+        request: SettingsRequest,
+        pending: MutableMap<Int, SettingsRequest>,
+    ): Boolean {
+        endpoint = null
+        eventSubscriptionReachable = false
+        if (request.passive) {
+            if (!bindings.createsService) controlServiceInactive = true
+            return false
+        }
+        request.sent = false
+        pending[id] = request
+        bind()
+        reconcileBindings()
+        return true
+    }
+
     internal fun deliverSettingsReply(
         id: Int,
         json: String?,
         error: String? = null,
     ) {
+        if (error == UsqueVpnService.CONTROL_SERVICE_INACTIVE) {
+            val request = pendingSettings.remove(id) ?: return
+            if (retryAfterInactiveService(id, request, pendingSettings)) return
+            pendingSettings[id] = request
+        }
         scheduler.cancel("settings-$id")
         pendingSettings.remove(id)?.let { request ->
             val result = request.result

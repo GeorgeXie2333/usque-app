@@ -34,6 +34,13 @@ class EndpointSubscriptionsController extends ChangeNotifier {
   int _generation = 0;
 
   Future<void> Function()? onMutationApplied;
+
+  void _runMutationFollowUp() {
+    final followUp = onMutationApplied;
+    if (followUp == null) return;
+    unawaited(followUp().catchError((Object _) {}));
+  }
+
   Future<void> Function()? onCatalogChanged;
 
   Map<String, EndpointProbeResult> probeResultsFor(String subscriptionId) =>
@@ -75,6 +82,22 @@ class EndpointSubscriptionsController extends ChangeNotifier {
       : catalog?.activeProbeSubscriptionId;
 
   bool get probeRunning => runningProbeId != null;
+
+  /// Endpoints each locally started probe targets; `null` means all of them.
+  final Map<String, Set<String>?> _probeTargets = {};
+
+  /// Whether [endpointId] in [subscriptionId] is part of the running probe.
+  /// A single-endpoint probe never shows its siblings as loading. A probe
+  /// started elsewhere (known only from the catalogue) covers every endpoint.
+  bool isProbingEndpoint(String subscriptionId, String endpointId) {
+    final probeId = runningProbeId;
+    if (probeId == null || runningProbeSubscriptionId != subscriptionId) {
+      return false;
+    }
+    if (!_probeTargets.containsKey(probeId)) return true;
+    final targets = _probeTargets[probeId];
+    return targets == null || targets.contains(endpointId);
+  }
 
   void setCapabilities(EngineCapabilities? capabilities) {
     final nextSupported = capabilities?.endpointSubscriptions ?? false;
@@ -245,7 +268,10 @@ class EndpointSubscriptionsController extends ChangeNotifier {
           await onCatalogChanged!();
         }
         if (onMutationApplied != null && gen == _generation && !_disposed) {
-          await onMutationApplied!();
+          // The Engine has confirmed the mutation. Refreshing accounts,
+          // settings and scenes must not keep the control busy: on Android
+          // the control service may be stopping after a disconnected write.
+          _runMutationFollowUp();
         }
         return (ok: true, errorCode: null);
       } on Object catch (error) {
@@ -283,7 +309,10 @@ class EndpointSubscriptionsController extends ChangeNotifier {
         }
         _acceptCatalog(reply, expectedGen: gen);
         if (onMutationApplied != null && gen == _generation && !_disposed) {
-          await onMutationApplied!();
+          // The Engine has confirmed the mutation. Refreshing accounts,
+          // settings and scenes must not keep the control busy: on Android
+          // the control service may be stopping after a disconnected write.
+          _runMutationFollowUp();
         }
         if (onCatalogChanged != null && gen == _generation && !_disposed) {
           await onCatalogChanged!();
@@ -371,7 +400,10 @@ class EndpointSubscriptionsController extends ChangeNotifier {
         });
         _acceptCatalog(reply, expectedGen: gen);
         if (onMutationApplied != null && gen == _generation && !_disposed) {
-          await onMutationApplied!();
+          // The Engine has confirmed the mutation. Refreshing accounts,
+          // settings and scenes must not keep the control busy: on Android
+          // the control service may be stopping after a disconnected write.
+          _runMutationFollowUp();
         }
         return (
           applied: true,
@@ -410,7 +442,10 @@ class EndpointSubscriptionsController extends ChangeNotifier {
         });
         _acceptCatalog(reply, expectedGen: gen);
         if (onMutationApplied != null && gen == _generation && !_disposed) {
-          await onMutationApplied!();
+          // The Engine has confirmed the mutation. Refreshing accounts,
+          // settings and scenes must not keep the control busy: on Android
+          // the control service may be stopping after a disconnected write.
+          _runMutationFollowUp();
         }
         return (
           applied: true,
@@ -468,6 +503,9 @@ class EndpointSubscriptionsController extends ChangeNotifier {
     final probeId = _newUuidV4();
     // The Engine replaces a running probe; its late events are stale.
     if (runningProbeId case final previous?) _retireProbe(previous);
+    _probeTargets
+      ..clear()
+      ..[probeId] = endpointIds?.toSet();
     lastProbeErrorCode = null;
     errorCode = null;
     final sub = catalog?.byId(subscriptionId);

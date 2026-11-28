@@ -545,7 +545,10 @@ class _EndpointSubscriptionsViewState extends State<EndpointSubscriptionsView> {
                 removedUpstream: true,
                 canActivate: canActivate,
                 probe: probeResults[retained.id],
-                probingThisSub: probingThisSub,
+                probingThisEndpoint: subs.isProbingEndpoint(
+                  focused.id,
+                  retained.id,
+                ),
                 connectedTunProbeBlocked: connectedTunProbeBlocked,
               ),
             for (final ep in endpoints)
@@ -558,7 +561,7 @@ class _EndpointSubscriptionsViewState extends State<EndpointSubscriptionsView> {
                 removedUpstream: false,
                 canActivate: canActivate,
                 probe: probeResults[ep.id],
-                probingThisSub: probingThisSub,
+                probingThisEndpoint: subs.isProbingEndpoint(focused.id, ep.id),
                 connectedTunProbeBlocked: connectedTunProbeBlocked,
               ),
             if (isFocusedActive)
@@ -1014,7 +1017,7 @@ class _EndpointSubscriptionsViewState extends State<EndpointSubscriptionsView> {
     required bool removedUpstream,
     required bool canActivate,
     required EndpointProbeResult? probe,
-    required bool probingThisSub,
+    required bool probingThisEndpoint,
     required bool connectedTunProbeBlocked,
   }) {
     final strings = app.strings;
@@ -1031,7 +1034,7 @@ class _EndpointSubscriptionsViewState extends State<EndpointSubscriptionsView> {
         ? const ValueKey('sub-retained-endpoint')
         : ValueKey('sub-endpoint-${ep.id}');
 
-    final showProbeStatus = probe != null || probingThisSub;
+    final showProbeStatus = probe != null || probingThisEndpoint;
     // The activation row and its probe/pin buttons are siblings: TalkBack and
     // D-pad focus reach each control separately instead of a button nested in
     // a tappable row. Probe status wraps with the address line, so 200% text
@@ -1108,7 +1111,7 @@ class _EndpointSubscriptionsViewState extends State<EndpointSubscriptionsView> {
                         context,
                         strings,
                         probe: probe,
-                        probingThisSub: probingThisSub,
+                        probingThisSub: probingThisEndpoint,
                       ),
                   ],
                 ),

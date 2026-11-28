@@ -454,7 +454,10 @@ internal class AndroidEngineMethodHandler(
                 val passive = runCatching { JSONObject(request).optString("action") == "list" }.getOrDefault(false)
                 val generation = dataGeneration.get()
                 identityExecutor.execute {
-                    runCatching { syncConsumerEntitlements() }
+                    // Only commands that bind or probe need a fresh tier. A
+                    // passive list refresh skips the Keystore reads; connects,
+                    // saves and scenes sync before using the tier anyway.
+                    if (!passive) runCatching { syncConsumerEntitlements() }
                     mainScheduler.post {
                         if (generation != dataGeneration.get() || controlClient.isClosed) {
                             result.error("ENGINE_IPC_CLOSED", "The subscription service is unavailable.", null)

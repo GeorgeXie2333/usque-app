@@ -553,6 +553,37 @@ class VpnControlClientTest {
     }
 
     @Test
+    fun aStoppedServiceResendsWritesAndFailsReadsAtOnce() {
+        val stopping = RecordingEndpoint()
+        client.attachEndpointForTest(stopping)
+        val select = RecordingResult()
+        client.requestEndpointSubscriptions("""{"action":"select_endpoint"}""", select)
+        val read = RecordingResult()
+        client.requestNetworkSettings(null, read)
+        val (selectRequest, readRequest) = stopping.messages.toList()
+
+        // The destroyed instance refuses both instead of leaving them to time out.
+        client.deliverSettingsReply(readRequest.requestId, null, UsqueVpnService.CONTROL_SERVICE_INACTIVE)
+        assertEquals("CONTROL_SERVICE_INACTIVE", read.errorCode)
+        client.deliverEndpointSubscriptionReply(
+            selectRequest.requestId,
+            null,
+            UsqueVpnService.CONTROL_SERVICE_INACTIVE,
+        )
+        assertEquals(0, select.completionCount)
+        assertTrue(client.creatingBindingForTest())
+
+        // A fresh service instance receives the write exactly once more.
+        val restarted = RecordingEndpoint()
+        client.attachEndpointForTest(restarted)
+        val resent = restarted.messages.single()
+        assertEquals(UsqueVpnService.MSG_ENDPOINT_SUBSCRIPTIONS, resent.what)
+        client.deliverEndpointSubscriptionReply(resent.requestId, """{"subscriptions":[]}""")
+        assertEquals(1, select.completionCount)
+        assertNull(select.errorCode)
+    }
+
+    @Test
     fun theFirstSettingsReplyCannotReleaseAnotherOutstandingCommand() {
         val endpoint = RecordingEndpoint()
         client.attachEndpointForTest(endpoint)

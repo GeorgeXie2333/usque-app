@@ -380,6 +380,61 @@ void main() {
     });
   });
 
+  test('a single-endpoint probe marks only that endpoint as loading', () async {
+    final controller = EndpointSubscriptionsController(
+      (request) async => <String, Object?>{
+        'revision': 'r3',
+        'subscriptions': const <Object>[],
+        'refreshing_subscription_ids': const <String>[],
+        if (request['action'] == 'start_probe') 'probe_id': request['probe_id'],
+      },
+    );
+    addTearDown(controller.dispose);
+    controller.setCapabilities(
+      const EngineCapabilities(
+        endpointSubscriptions: true,
+        endpointSubscriptionProbe: true,
+      ),
+    );
+    await controller.startProbe('sub-a', endpointIds: ['ep-2']);
+    expect(controller.probeRunning, isTrue);
+    expect(controller.isProbingEndpoint('sub-a', 'ep-2'), isTrue);
+    expect(controller.isProbingEndpoint('sub-a', 'ep-1'), isFalse);
+    expect(controller.isProbingEndpoint('sub-b', 'ep-2'), isFalse);
+
+    // A full probe still covers every endpoint.
+    await controller.startProbe('sub-a');
+    expect(controller.isProbingEndpoint('sub-a', 'ep-1'), isTrue);
+  });
+
+  test(
+    'a confirmed endpoint switch releases busy before slow follow-up refreshes',
+    () async {
+      final controller = EndpointSubscriptionsController(
+        (request) async => <String, Object?>{
+          'revision': 'r2',
+          'subscriptions': const <Object>[],
+          'refreshing_subscription_ids': const <String>[],
+          'apply_status': 'deferred',
+        },
+      );
+      addTearDown(controller.dispose);
+      controller.setCapabilities(
+        const EngineCapabilities(endpointSubscriptions: true),
+      );
+      final followUp = Completer<void>();
+      controller.onMutationApplied = () => followUp.future;
+      final result = await controller
+          .selectEndpoint(subscriptionId: 'sub-a', endpointId: 'ep-2')
+          .timeout(const Duration(seconds: 1));
+      // The switch is confirmed while account/settings/scene refreshes
+      // (which can wait on a stopping Android service) are still pending.
+      expect(result.applied, isTrue);
+      expect(controller.busy, isFalse);
+      followUp.complete();
+    },
+  );
+
   test(
     'a terminal probe event before the start reply never leaves the probe running',
     () async {

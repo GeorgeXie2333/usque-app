@@ -50,87 +50,69 @@ class EndpointSubscriptionHomeLink extends StatelessWidget {
           ? null
           : () => _openQuickSwitch(context, sub, defaultPort);
 
-      return ActionRow(
+      // Same geometry as the scene row above it: no inset, so the icon,
+      // label and value line up with every other Home readout row.
+      final valueStyle = compact
+          ? theme.textTheme.titleSmall
+          : theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600);
+      final value = Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (removedUpstream) ...[
+            Icon(
+              LucideIcons.triangleAlert,
+              size: 15,
+              color: statusToneColor(context, StatusTone.warning),
+            ),
+            const SizedBox(width: 4),
+          ],
+          Flexible(
+            child: Text(
+              valueText,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.end,
+              style: valueStyle,
+            ),
+          ),
+        ],
+      );
+      final row = ActionRow(
         key: const ValueKey('home-endpoint-subscription'),
-        minHeight: compact ? 44 : 40,
-        padding: compact
-            ? const EdgeInsets.symmetric(horizontal: 4, vertical: 6)
-            : const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+        padding: EdgeInsets.zero,
+        minHeight: compact ? 48 : 56,
         onTap: onTap,
-        child: compact
-            ? ReadoutRow(
-                label: strings.get('endpoint_section'),
-                icon: LucideIcons.globe,
-                value: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  mainAxisAlignment: MainAxisAlignment.end,
+        child: Align(
+          alignment: AlignmentDirectional.centerStart,
+          child: compact
+              ? ReadoutRow(
+                  label: strings.get('endpoint_section'),
+                  icon: LucideIcons.globe,
+                  value: value,
+                )
+              : Row(
                   children: [
-                    if (removedUpstream) ...[
-                      Icon(
-                        LucideIcons.triangleAlert,
-                        size: 15,
-                        color: statusToneColor(context, StatusTone.warning),
-                      ),
-                      const SizedBox(width: 4),
-                    ],
-                    Flexible(
-                      child: Text(
-                        valueText,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        textAlign: TextAlign.end,
-                        style: theme.textTheme.titleSmall,
-                      ),
+                    ExcludeSemantics(
+                      child: Icon(LucideIcons.globe, size: 16, color: muted),
                     ),
-                    const SizedBox(width: 4),
-                    Icon(LucideIcons.chevronRightDir, size: 16, color: muted),
+                    const SizedBox(width: UsqueSpace.xs - 2),
+                    Text(
+                      strings.get('endpoint_section'),
+                      style: theme.textTheme.bodySmall?.copyWith(color: muted),
+                    ),
+                    const SizedBox(width: UsqueSpace.xs - 2),
+                    Flexible(child: value),
                   ],
                 ),
-              )
-            : Row(
-                children: [
-                  ExcludeSemantics(
-                    child: Icon(LucideIcons.globe, size: 16, color: muted),
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    strings.get('endpoint_section'),
-                    style: theme.textTheme.bodyMedium?.copyWith(color: muted),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        if (removedUpstream) ...[
-                          Icon(
-                            LucideIcons.triangleAlert,
-                            size: 15,
-                            color: statusToneColor(context, StatusTone.warning),
-                          ),
-                          const SizedBox(width: 6),
-                        ],
-                        Flexible(
-                          child: Text(
-                            valueText,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            textAlign: TextAlign.end,
-                            style: theme.textTheme.titleSmall,
-                          ),
-                        ),
-                        const SizedBox(width: 4),
-                        Icon(
-                          LucideIcons.chevronRightDir,
-                          size: 16,
-                          color: muted,
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
+        ),
       );
+      // On phones the readout rows below keep the same rhythm as above.
+      return compact
+          ? Padding(
+              padding: const EdgeInsets.only(bottom: UsqueSpace.s),
+              child: row,
+            )
+          : row;
     },
   );
 
