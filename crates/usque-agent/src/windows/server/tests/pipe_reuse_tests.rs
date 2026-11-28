@@ -243,3 +243,68 @@ async fn ending_an_engine_session_retires_only_its_probe_lease() {
     assert!(registry.probe_leases.contains_key(&other));
     assert!(registry.entries.contains_key(&key(other, 2)));
 }
+
+#[tokio::test]
+async fn closing_a_probe_pipe_retires_only_the_lease_it_acquired() {
+    let directory = tempfile::tempdir().unwrap();
+    let coordinator = Arc::new(
+        AgentCoordinator::open(
+            JournalStore::new(directory.path().join("journal.json")),
+            Arc::new(RejectingBackend),
+        )
+        .unwrap(),
+    );
+    let service = Arc::new(AgentService::new(
+        coordinator,
+        AgentCapabilities {
+            protocol_version: AGENT_PROTOCOL_VERSION,
+            ..Default::default()
+        },
+    ));
+    let operation_id = Uuid::new_v4();
+    let key = DirectEgressKey {
+        operation_id,
+        remote: "162.159.198.1:443".parse().unwrap(),
+        protocol: 17,
+        interface_luid: 17,
+        network_generation: 7,
+        purpose: EgressPurpose::EndpointProbe,
+        probe_lease_id: 2,
+    };
+    {
+        let mut registry = service.direct_egress.lock().await;
+        registry.entries.insert(
+            key,
+            DirectEgressEntry {
+                references: 1,
+                _permit: None,
+            },
+        );
+        registry.probe_leases.insert(
+            operation_id,
+            ActiveProbeLease {
+                lease_id: 2,
+                probe_session_id: "probe".into(),
+                generation: 7,
+                expires_at: tokio::time::Instant::now() + Duration::from_secs(15),
+                targets: vec![("162.159.198.1:443".parse().unwrap(), 17)],
+                allow_dns: false,
+                egress_keys: vec![key],
+            },
+        );
+    }
+    // A late close of the pipe that owned an older lease keeps the new one.
+    service.retire_probe_lease(operation_id, 1).await;
+    assert!(
+        service
+            .direct_egress
+            .lock()
+            .await
+            .entries
+            .contains_key(&key)
+    );
+    service.retire_probe_lease(operation_id, 2).await;
+    let registry = service.direct_egress.lock().await;
+    assert!(registry.probe_leases.is_empty());
+    assert!(registry.entries.is_empty());
+}

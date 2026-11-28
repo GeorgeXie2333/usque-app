@@ -94,6 +94,7 @@ fn protector(client: WindowsAgentClient, operation_id: Uuid) -> Arc<WindowsVpnSo
         automatic_endpoints: false,
         preset_hostname: None,
         hostname_policy_host: None,
+        probe_lease_pipes: std::sync::Mutex::new(std::collections::HashMap::new()),
     })
 }
 

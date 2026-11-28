@@ -52,6 +52,34 @@ class LargeIpcPayloadTest {
     }
 
     @Test
+    fun aFullSubscriptionCatalogueDecodesBeyondTheSettingsBound() {
+        // 32 lists x 512 endpoints with maximum hostnames, identifiers and notes.
+        val host = "a".repeat(63) + "." + "b".repeat(63) + "." + "c".repeat(63) + "." + "d".repeat(57) + ".com"
+        val note = "\u00e9".repeat(128)
+        val subscriptions = JSONArray()
+        for (sub in 0 until 32) {
+            val endpoints = JSONArray()
+            for (index in 0 until 512) {
+                endpoints.put(
+                    JSONObject()
+                        .put("id", "host:$host:$index")
+                        .put("host", JSONObject().put("kind", "domain").put("value", host))
+                        .put("port", 65535)
+                        .put("note", note)
+                        .put("pinned", false),
+                )
+            }
+            subscriptions.put(JSONObject().put("id", "sub-$sub").put("endpoints", endpoints))
+        }
+        val json = JSONObject().put("subscriptions", subscriptions).put("target", "private").toString()
+        assertTrue(json.length > LargeIpcPayload.MAX_SETTINGS_CHARS)
+        assertTrue(json.length <= LargeIpcPayload.MAX_SUBSCRIPTION_CHARS)
+        val decoded = NetworkSettingsFields.decodeObject(json)
+        assertEquals(32, (decoded["subscriptions"] as List<*>).size)
+        assertFalse(decoded.containsKey("target"))
+    }
+
+    @Test
     fun largeStringsRoundTripOnceThroughAVerifiedFile() =
         withDirectory { directory ->
             val value = largestRoutingProfileJson() + "界"

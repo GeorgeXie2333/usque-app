@@ -11,6 +11,7 @@ import 'package:usque/models/app_models.dart';
 import 'package:usque/models/endpoint_subscriptions.dart';
 import 'package:usque/models/scenarios.dart';
 import 'package:usque/screens/advanced_settings_screen.dart';
+import 'package:usque/screens/profiles_screen.dart' show AccountsScreen;
 import 'package:usque/screens/scenario_editor_screen.dart';
 import 'package:usque/screens/shell_screen.dart';
 import 'package:usque/services/control_codec.dart';
@@ -557,6 +558,25 @@ void main() {
   );
 
   testWidgets(
+    'the accounts shortcut leaves the subscription tab when scenes are unsupported',
+    (tester) async {
+      final engine = _NoScenesSubscriptionEngine();
+      addTearDown(engine.closeEvents);
+      final app = await _pumpSubApp(
+        tester,
+        engine,
+        tab: ProfilesTab.subscriptions,
+      );
+      expect(app.profilesTab, ProfilesTab.subscriptions);
+      app.openAccounts();
+      await tester.pumpAndSettle();
+      // Without scenes, accounts render in the first tab.
+      expect(app.profilesTab, ProfilesTab.scenes);
+      expect(find.byType(AccountsScreen), findsOneWidget);
+    },
+  );
+
+  testWidgets(
     'Profiles switcher is hidden when unsupported and responsive across desktop, phone, 200% text, and RTL',
     (tester) async {
       final legacyEngine = SubscriptionTestEngine()
@@ -1055,5 +1075,21 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Free List B'), findsOneWidget);
     },
+  );
+}
+
+class _NoScenesSubscriptionEngine extends SubscriptionTestEngine {
+  @override
+  Future<EngineCapabilities?> getCapabilities() async => EngineCapabilities(
+    tlsFingerprints: TlsFingerprint.values,
+    networkSettingsApplication: true,
+    automaticEndpoints: true,
+    endpointPresets: true,
+    zeroTrustEndpointEditing: true,
+    connectionScenarios: false,
+    endpointSubscriptions: true,
+    endpointSubscriptionDomainEndpoints: true,
+    endpointSubscriptionProbe: true,
+    endpointSubscriptionConnectedTunProbe: true,
   );
 }

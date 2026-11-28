@@ -24,6 +24,8 @@ mod initial_identity;
 mod masque_connections;
 mod network;
 mod routing;
+#[cfg(test)]
+mod subscription_invariant_tests;
 mod tls_fingerprint;
 #[cfg(test)]
 mod warp_dns_tests;

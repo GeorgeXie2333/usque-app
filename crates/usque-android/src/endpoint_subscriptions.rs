@@ -398,7 +398,7 @@ impl Drop for InFlightDownload {
 
 /// Waits (bounded) until every cancelled download has returned. Returns
 /// whether they all did.
-fn join_in_flight_downloads(limit: Duration) -> bool {
+pub(crate) fn join_in_flight_downloads(limit: Duration) -> bool {
     let guard = IN_FLIGHT_DOWNLOADS
         .0
         .lock()

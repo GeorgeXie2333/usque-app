@@ -3840,6 +3840,9 @@ fn stop_engine() {
 
 fn stop_engine_confirmed() -> bool {
     endpoint_subscriptions::signal_cancel();
+    // Cancelled downloads return promptly; join them so none outlives the
+    // stopped session (their commits are epoch-checked regardless).
+    let _ = endpoint_subscriptions::join_in_flight_downloads(std::time::Duration::from_secs(5));
     if !vpngate::cancel_refresh() {
         return false;
     }

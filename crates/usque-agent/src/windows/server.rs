@@ -1257,6 +1257,22 @@ where
         self.direct_egress.lock().await.clear_probe_leases();
     }
 
+    /// Ends one probe lease when its owning pipe closes. A newer lease for
+    /// the same operation, acquired on another pipe, is left untouched.
+    async fn retire_probe_lease(&self, operation_id: Uuid, lease_id: u64) {
+        let mut registry = self.direct_egress.lock().await;
+        if registry
+            .probe_leases
+            .get(&operation_id)
+            .is_some_and(|lease| lease.lease_id == lease_id)
+            && let Some(lease) = registry.probe_leases.remove(&operation_id)
+        {
+            for key in lease.egress_keys {
+                registry.release(key);
+            }
+        }
+    }
+
     async fn retire_probe_leases_for(&self, operation_id: Uuid) {
         let mut registry = self.direct_egress.lock().await;
         if let Some(lease) = registry.probe_leases.remove(&operation_id) {
@@ -2426,6 +2442,8 @@ where
     let mut tunnel_lease = None;
     let mut direct_egress_lease = None;
     let mut direct_egress_acquired = false;
+    // A probe lease is owned by the pipe that acquired it and ends with it.
+    let mut probe_lease: Option<(Uuid, u64)> = None;
     let mut device_lease = None;
 
     let result = async {
@@ -2474,6 +2492,19 @@ where
                 let direct_purpose = match request.payload.as_ref() {
                     Some(agent_request::Payload::AcquireDirectEgress(request)) => {
                         EgressPurpose::from_proto(request.purpose).ok()
+                    }
+                    _ => None,
+                };
+                let probe_lease_action = match request.payload.as_ref() {
+                    Some(agent_request::Payload::AcquireEndpointProbeLease(request)) => {
+                        Uuid::parse_str(request.operation_id.trim())
+                            .ok()
+                            .map(|id| (id, true))
+                    }
+                    Some(agent_request::Payload::ReleaseEndpointProbeLease(request)) => {
+                        Uuid::parse_str(request.operation_id.trim())
+                            .ok()
+                            .map(|id| (id, false))
                     }
                     _ => None,
                 };
@@ -2580,6 +2611,19 @@ where
                     }
                 }
 
+                if response.error.is_none()
+                    && let Some((operation_id, acquiring)) = probe_lease_action
+                {
+                    if acquiring {
+                        if let Some(agent_response::Payload::EndpointProbeLease(lease)) =
+                            response.payload.as_ref()
+                        {
+                            probe_lease = Some((operation_id, lease.lease_id));
+                        }
+                    } else if probe_lease.is_some_and(|(owner, _)| owner == operation_id) {
+                        probe_lease = None;
+                    }
+                }
                 let encoded = encode_frame(&response)?;
                 if encoded.len() > MAX_AGENT_FRAME_BYTES + 4 {
                     return Err(ServerError::FrameTooLarge(encoded.len() - 4));
@@ -2611,6 +2655,9 @@ where
     }
     if let Some(key) = direct_egress_lease {
         service.release_direct_egress(key).await;
+    }
+    if let Some((operation_id, lease_id)) = probe_lease {
+        service.retire_probe_lease(operation_id, lease_id).await;
     }
 
     if let Some(key) = device_lease

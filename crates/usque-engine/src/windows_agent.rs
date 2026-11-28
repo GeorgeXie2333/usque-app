@@ -136,6 +136,9 @@ struct WindowsVpnSocketProtector {
     automatic_endpoints: bool,
     preset_hostname: Option<String>,
     hostname_policy_host: Option<String>,
+    /// The dedicated Agent pipe that owns each probe lease. The Agent retires
+    /// a lease when its pipe closes, so a crashed Engine leaves no permit.
+    probe_lease_pipes: std::sync::Mutex<std::collections::HashMap<u64, NamedPipeClient>>,
 }
 
 struct WindowsPhysicalState {
@@ -416,7 +419,7 @@ impl SocketProtector for WindowsVpnSocketProtector {
         let generation = self
             .egress_generation(expected_generation)?
             .ok_or_else(|| STALE_GENERATION_REASON.to_owned())?;
-        let lease = match self
+        let (lease, pipe) = match self
             .agent
             .acquire_endpoint_probe_lease(
                 self.operation_id,
@@ -434,10 +437,15 @@ impl SocketProtector for WindowsVpnSocketProtector {
                     .await);
             }
         };
+        // Dropping the pipe on any early return below retires the lease.
         if lease.lease_id == 0 || lease.network_generation != generation {
             return Err(STALE_GENERATION_REASON.to_owned());
         }
         self.verify_generation(expected_generation, generation)?;
+        self.probe_lease_pipes
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(lease.lease_id, pipe);
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
@@ -459,8 +467,13 @@ impl SocketProtector for WindowsVpnSocketProtector {
         let Ok(parsed_id) = lease_id.parse::<u64>() else {
             return Err("invalid Windows probe lease identifier".to_owned());
         };
+        let pipe = self
+            .probe_lease_pipes
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(&parsed_id);
         self.agent
-            .release_endpoint_probe_lease(self.operation_id, probe_session_id, parsed_id)
+            .release_endpoint_probe_lease(self.operation_id, probe_session_id, parsed_id, pipe)
             .await
             .map_err(|error| self.socket_setup_error("RELEASE_ENDPOINT_PROBE_LEASE", error))
     }
@@ -2760,6 +2773,7 @@ async fn prepare_vpn_protector(
         }),
         monitor_cancel: CancellationToken::new(),
         proxy_mode: AtomicBool::new(false),
+        probe_lease_pipes: std::sync::Mutex::new(std::collections::HashMap::new()),
         automatic_endpoints,
         preset_hostname,
         hostname_policy_host,
@@ -3958,7 +3972,7 @@ impl WindowsAgentClient {
         expected_generation: u64,
         targets: &[ProbeLeaseTarget],
         dns_hostname: Option<&str>,
-    ) -> Result<agent_v1::EndpointProbeLease, WindowsVpnError> {
+    ) -> Result<(agent_v1::EndpointProbeLease, NamedPipeClient), WindowsVpnError> {
         let targets = targets
             .iter()
             .map(|target| agent_v1::ProbeTarget {
@@ -3969,19 +3983,28 @@ impl WindowsAgentClient {
                 },
             })
             .collect();
-        let response = self
-            .call(agent_request::Payload::AcquireEndpointProbeLease(
-                agent_v1::AcquireEndpointProbeLeaseRequest {
-                    operation_id: operation_id.to_string(),
-                    probe_session_id: probe_session_id.to_owned(),
-                    expected_generation,
-                    targets,
-                    dns_hostname: dns_hostname.unwrap_or_default().to_owned(),
-                },
-            ))
-            .await?;
+        // The lease stays bound to this pipe: the Agent retires it when the
+        // pipe closes, including when this Engine process exits.
+        let mut pipe = self.open_pipe().await?;
+        let response = timeout(
+            AGENT_RPC_TIMEOUT,
+            self.exchange(
+                &mut pipe,
+                agent_request::Payload::AcquireEndpointProbeLease(
+                    agent_v1::AcquireEndpointProbeLeaseRequest {
+                        operation_id: operation_id.to_string(),
+                        probe_session_id: probe_session_id.to_owned(),
+                        expected_generation,
+                        targets,
+                        dns_hostname: dns_hostname.unwrap_or_default().to_owned(),
+                    },
+                ),
+            ),
+        )
+        .await
+        .map_err(|_| WindowsVpnError::RpcTimeout)??;
         match response {
-            agent_response::Payload::EndpointProbeLease(lease) => Ok(lease),
+            agent_response::Payload::EndpointProbeLease(lease) => Ok((lease, pipe)),
             payload => Err(WindowsVpnError::UnexpectedResponse(payload_name(&payload))),
         }
     }
@@ -3991,16 +4014,22 @@ impl WindowsAgentClient {
         operation_id: Uuid,
         probe_session_id: &str,
         lease_id: u64,
+        owner_pipe: Option<NamedPipeClient>,
     ) -> Result<(), WindowsVpnError> {
-        let response = self
-            .call(agent_request::Payload::ReleaseEndpointProbeLease(
-                agent_v1::ReleaseEndpointProbeLeaseRequest {
-                    operation_id: operation_id.to_string(),
-                    probe_session_id: probe_session_id.to_owned(),
-                    lease_id,
-                },
-            ))
-            .await?;
+        let payload = agent_request::Payload::ReleaseEndpointProbeLease(
+            agent_v1::ReleaseEndpointProbeLeaseRequest {
+                operation_id: operation_id.to_string(),
+                probe_session_id: probe_session_id.to_owned(),
+                lease_id,
+            },
+        );
+        // Release on the owning pipe; dropping it afterwards is idempotent.
+        let response = match owner_pipe {
+            Some(mut pipe) => timeout(AGENT_RPC_TIMEOUT, self.exchange(&mut pipe, payload))
+                .await
+                .map_err(|_| WindowsVpnError::RpcTimeout)??,
+            None => self.call(payload).await?,
+        };
         match response {
             agent_response::Payload::Empty(_) => Ok(()),
             payload => Err(WindowsVpnError::UnexpectedResponse(payload_name(&payload))),
@@ -6933,6 +6962,7 @@ mod tests {
             }),
             monitor_cancel: cancellation.clone(),
             proxy_mode: AtomicBool::new(false),
+            probe_lease_pipes: std::sync::Mutex::new(std::collections::HashMap::new()),
             automatic_endpoints: false,
             preset_hostname: None,
             hostname_policy_host: None,
@@ -7012,6 +7042,7 @@ mod tests {
             }),
             monitor_cancel: CancellationToken::new(),
             proxy_mode: AtomicBool::new(false),
+            probe_lease_pipes: std::sync::Mutex::new(std::collections::HashMap::new()),
             automatic_endpoints: false,
             preset_hostname: None,
             hostname_policy_host: None,

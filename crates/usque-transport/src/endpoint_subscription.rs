@@ -508,6 +508,63 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn generation_fenced_resolution_rejects_other_and_changed_generations() {
+        let inner = Arc::new(MockHostProtector {
+            generation: AtomicU64::new(4),
+            change_during_lookup: AtomicBool::new(false),
+            authorizations: Mutex::new(Vec::new()),
+            addresses: vec!["162.159.193.10:2408".parse().unwrap()],
+        });
+        let fenced = crate::endpoint_preset::for_generation(inner.clone(), 4);
+        // A caller cannot resolve for any generation but the fenced one.
+        assert_eq!(
+            fenced
+                .resolve_endpoint_hostname("edge.example.com", 2408, IpPolicy::Ipv4Only, 5)
+                .await,
+            Err(crate::socket::STALE_GENERATION_REASON.to_owned())
+        );
+        assert!(
+            fenced
+                .resolve_endpoint_hostname("edge.example.com", 2408, IpPolicy::Ipv4Only, 4)
+                .await
+                .is_ok()
+        );
+        // Answers from a network that changed during the lookup are dropped.
+        inner.change_during_lookup.store(true, Ordering::SeqCst);
+        assert_eq!(
+            fenced
+                .resolve_endpoint_hostname("edge.example.com", 2408, IpPolicy::Ipv4Only, 4)
+                .await,
+            Err(crate::socket::STALE_GENERATION_REASON.to_owned())
+        );
+    }
+
+    #[tokio::test]
+    async fn resolved_candidates_never_include_a_tunnel_dns_server() {
+        let protector: Arc<dyn SocketProtector> = Arc::new(MockHostProtector {
+            generation: AtomicU64::new(1),
+            change_during_lookup: AtomicBool::new(false),
+            authorizations: Mutex::new(Vec::new()),
+            addresses: vec![
+                "162.159.36.1:2408".parse().unwrap(),
+                "162.159.193.10:2408".parse().unwrap(),
+            ],
+        });
+        let profile = Profile {
+            ip_policy: IpPolicy::Ipv4Only,
+            dns_servers: vec!["162.159.36.1".parse().unwrap()],
+            ..Profile::default()
+        };
+        let resolved = resolve_domain(&profile, "edge.example.com", 2408, &protector)
+            .await
+            .unwrap();
+        assert_eq!(
+            resolved.candidates,
+            vec!["162.159.193.10:2408".parse::<SocketAddr>().unwrap()]
+        );
+    }
+
     struct DummyConn;
     #[async_trait::async_trait]
     impl RaceConnection for DummyConn {
