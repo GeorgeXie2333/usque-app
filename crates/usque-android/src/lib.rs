@@ -3842,7 +3842,7 @@ fn stop_engine_confirmed() -> bool {
     endpoint_subscriptions::signal_cancel();
     // Cancelled downloads return promptly; join them so none outlives the
     // stopped session (their commits are epoch-checked regardless).
-    let _ = endpoint_subscriptions::join_in_flight_downloads(std::time::Duration::from_secs(5));
+    let _ = endpoint_subscriptions::join_in_flight_downloads(endpoint_subscriptions::DOWNLOAD_JOIN);
     if !vpngate::cancel_refresh() {
         return false;
     }
@@ -4112,11 +4112,26 @@ fn check_for_updates() -> Result<String, String> {
     serde_json::to_string(&result).map_err(|_| "UPDATE_CHECK_FAILED".to_owned())
 }
 
+/// The two JNI operations used to retire a pending Java exception.
+trait PendingJavaException {
+    fn exception_pending(&mut self) -> bool;
+    fn clear_exception(&mut self);
+}
+
+impl PendingJavaException for Env<'_> {
+    fn exception_pending(&mut self) -> bool {
+        self.exception_check()
+    }
+    fn clear_exception(&mut self) {
+        self.exception_clear();
+    }
+}
+
 /// Clears a Java exception left by a failed upcall whose result was already
 /// mapped to a fail-closed value, before any further JNI call is made.
-fn clear_pending_exception(environment: &mut Env<'_>) {
-    if environment.exception_check() {
-        environment.exception_clear();
+fn clear_pending_exception(environment: &mut impl PendingJavaException) {
+    if environment.exception_pending() {
+        environment.clear_exception();
     }
 }
 
@@ -5628,5 +5643,42 @@ mod tests {
     fn automatic_registration_rejects_invalid_locale_before_network_access() {
         assert!(register_consumer_warp("").is_err());
         assert!(register_consumer_warp(&"x".repeat(33)).is_err());
+    }
+}
+
+#[cfg(test)]
+mod pending_exception_tests {
+    use super::{PendingJavaException, clear_pending_exception};
+
+    #[derive(Default)]
+    struct FakeEnv {
+        pending: bool,
+        clears: usize,
+    }
+
+    impl PendingJavaException for FakeEnv {
+        fn exception_pending(&mut self) -> bool {
+            self.pending
+        }
+        fn clear_exception(&mut self) {
+            self.pending = false;
+            self.clears += 1;
+        }
+    }
+
+    #[test]
+    fn a_thrown_upcall_is_cleared_before_the_next_jni_call() {
+        let mut thrown = FakeEnv {
+            pending: true,
+            clears: 0,
+        };
+        clear_pending_exception(&mut thrown);
+        assert!(!thrown.pending);
+        assert_eq!(thrown.clears, 1);
+
+        // A clean environment is left untouched.
+        let mut clean = FakeEnv::default();
+        clear_pending_exception(&mut clean);
+        assert_eq!(clean.clears, 0);
     }
 }

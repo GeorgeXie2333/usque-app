@@ -162,7 +162,7 @@ pub(crate) fn cancel_all_and_clear(dir: &Path) -> Result<(), String> {
     signal_cancel();
     // Join cancelled downloads first. Their commits are epoch-checked too, so
     // a download outliving this bound still cannot recreate the catalogue.
-    let _ = join_in_flight_downloads(CLEAR_DOWNLOAD_JOIN);
+    let _ = join_in_flight_downloads(DOWNLOAD_JOIN);
     let mut epoch = STORE_EPOCH
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -371,7 +371,10 @@ fn build_list_json(
 /// removing the catalogue (the store epoch also rejects any late commit).
 static IN_FLIGHT_DOWNLOADS: (Mutex<usize>, std::sync::Condvar) =
     (Mutex::new(0), std::sync::Condvar::new());
-const CLEAR_DOWNLOAD_JOIN: Duration = Duration::from_secs(20);
+/// Every download ends within `FETCH_TOTAL_TIMEOUT` (sooner once cancelled),
+/// so waiting longer than that is a complete join, never a partial one.
+pub(crate) const DOWNLOAD_JOIN: Duration = Duration::from_secs(20);
+const _: () = assert!(DOWNLOAD_JOIN.as_secs() > FETCH_TOTAL_TIMEOUT.as_secs());
 
 struct InFlightDownload;
 
@@ -1525,6 +1528,44 @@ pub(crate) fn plan_requires_runtime_target(
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn a_finishing_download_retires_only_its_own_registration() {
+        let id = Uuid::new_v4();
+        let (first, first_token) = register_refresh(id);
+        let (second, second_token) = register_refresh(id);
+        assert!(first_token.is_cancelled());
+        finish_refresh(id, first);
+        assert!(refresh_cancels().lock().unwrap().entries.contains_key(&id));
+        finish_refresh(id, second);
+        assert!(!refresh_cancels().lock().unwrap().entries.contains_key(&id));
+        assert!(!second_token.is_cancelled());
+    }
+
+    #[test]
+    fn clearing_waits_for_every_concurrent_download() {
+        let downloads: Vec<_> = [40, 120, 200]
+            .into_iter()
+            .map(|millis| {
+                let started = std::sync::mpsc::channel::<()>();
+                let handle = std::thread::spawn(move || {
+                    let _in_flight = InFlightDownload::begin();
+                    let _ = started.0.send(());
+                    std::thread::sleep(Duration::from_millis(millis));
+                });
+                started.1.recv().unwrap();
+                handle
+            })
+            .collect();
+        let began = std::time::Instant::now();
+        assert!(join_in_flight_downloads(DOWNLOAD_JOIN));
+        // The join returned only after the slowest download finished.
+        assert!(began.elapsed() >= Duration::from_millis(150));
+        for download in downloads {
+            assert!(download.is_finished());
+            download.join().unwrap();
+        }
+    }
 
     #[test]
     fn clearing_joins_downloads_that_are_still_returning() {
