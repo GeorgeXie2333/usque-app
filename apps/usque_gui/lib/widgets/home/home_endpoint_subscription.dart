@@ -80,7 +80,10 @@ class EndpointSubscriptionHomeLink extends StatelessWidget {
       final row = ActionRow(
         key: const ValueKey('home-endpoint-subscription'),
         padding: EdgeInsets.zero,
-        minHeight: compact ? 48 : 56,
+        // Phones: a plain readout row in the list rhythm (row + gap), so the
+        // card spacing is unchanged when the row appears. Desktop keeps the
+        // scene link's height.
+        minHeight: compact ? 0 : 56,
         onTap: onTap,
         child: Align(
           alignment: AlignmentDirectional.centerStart,
@@ -109,7 +112,7 @@ class EndpointSubscriptionHomeLink extends StatelessWidget {
       // On phones the readout rows below keep the same rhythm as above.
       return compact
           ? Padding(
-              padding: const EdgeInsets.only(bottom: UsqueSpace.s),
+              padding: const EdgeInsets.only(bottom: UsqueSpace.m),
               child: row,
             )
           : row;

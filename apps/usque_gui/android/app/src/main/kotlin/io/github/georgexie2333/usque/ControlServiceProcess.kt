@@ -19,4 +19,19 @@ internal object ControlServiceProcess {
             // A list without this UI process is not a trustworthy view of the app.
             packageName in runningProcessNames &&
             runningProcessNames.none { it == packageName + SUFFIX }
+
+    /**
+     * The `:vpn` process can stay cached after [UsqueVpnService] stopped. An
+     * absent service entry means no instance will answer a passive read. An
+     * unavailable listing proves nothing.
+     */
+    fun serviceStopped(
+        packageName: String,
+        runningServices: List<Pair<String, String>>?,
+    ): Boolean =
+        packageName.isNotEmpty() &&
+            runningServices != null &&
+            runningServices.none { (owner, className) ->
+                owner == packageName && className == UsqueVpnService::class.java.name
+            }
 }

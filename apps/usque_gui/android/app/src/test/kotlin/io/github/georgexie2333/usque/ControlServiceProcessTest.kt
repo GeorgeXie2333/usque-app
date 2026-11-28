@@ -30,6 +30,19 @@ class ControlServiceProcessTest {
     }
 
     @Test
+    fun aCachedVpnProcessWithoutTheServiceIsStopped() {
+        val service = UsqueVpnService::class.java.name
+        // The :vpn process stays cached after the service stopped.
+        assertTrue(ControlServiceProcess.serviceStopped(app, emptyList()))
+        assertTrue(ControlServiceProcess.serviceStopped(app, listOf(app to "$app.QuickSettingsTileService")))
+        assertTrue(ControlServiceProcess.serviceStopped(app, listOf("other.app" to service)))
+        assertFalse(ControlServiceProcess.serviceStopped(app, listOf(app to service)))
+        // No listing proves nothing.
+        assertFalse(ControlServiceProcess.serviceStopped(app, null))
+        assertFalse(ControlServiceProcess.serviceStopped("", emptyList()))
+    }
+
+    @Test
     fun onlyATrustworthyListWithoutTheServiceProcessProvesAbsence() {
         assertTrue(ControlServiceProcess.knownAbsent(app, listOf(app)))
         assertTrue(ControlServiceProcess.knownAbsent(app, listOf(app, "other.app:vpn", null)))

@@ -87,13 +87,15 @@ internal class VpnControlClient(
                     MessengerControlEndpoint(Messenger(binder), replyMessenger, handoffDirectory)
                 },
                 controlServiceProcessAbsent = {
+                    val activityManager = context.getSystemService(ActivityManager::class.java)
                     ControlServiceProcess.knownAbsent(
                         context.packageName,
-                        context
-                            .getSystemService(ActivityManager::class.java)
-                            ?.runningAppProcesses
-                            ?.map { it.processName },
-                    )
+                        activityManager?.runningAppProcesses?.map { it.processName },
+                    ) ||
+                        ControlServiceProcess.serviceStopped(
+                            context.packageName,
+                            activityManager?.let(::runningOwnServices),
+                        )
                 },
             )
         }
@@ -2475,3 +2477,16 @@ internal class VpnControlClient(
         }
     }
 }
+
+/**
+ * The app's own running services. Android keeps the `:vpn` process cached
+ * after the control service stops, so process liveness alone cannot tell a
+ * passive read that no service will ever answer it.
+ */
+@Suppress("DEPRECATION")
+private fun runningOwnServices(activityManager: ActivityManager): List<Pair<String, String>>? =
+    runCatching {
+        activityManager.getRunningServices(Int.MAX_VALUE).map { info ->
+            info.service.packageName to info.service.className
+        }
+    }.getOrNull()

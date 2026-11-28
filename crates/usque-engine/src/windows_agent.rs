@@ -3069,11 +3069,19 @@ async fn bind_agent_session(
 }
 
 pub(crate) async fn catalogue_physical_network_permitted() -> bool {
-    // Read only. A refresh never starts recovery or changes an Agent policy.
-    WindowsAgentClient::production()
-        .get_state()
+    // Read only. A refresh never starts recovery, the Agent service, or
+    // changes an Agent policy. A stopped Agent holds no session: a persistent
+    // guard left behind would block the direct request (fail closed), so
+    // there is nothing to wait for. Starting the idle-exited service here
+    // made every disconnected download wait for a service start.
+    match WindowsAgentClient::production()
+        .get_state_if_running()
         .await
-        .is_ok_and(|state| state.phase == agent_v1::AgentPhase::Clean as i32)
+    {
+        Ok(None) => true,
+        Ok(Some(state)) => state.phase == agent_v1::AgentPhase::Clean as i32,
+        Err(_) => false,
+    }
 }
 
 fn attached_tunnel_plan(
@@ -3601,6 +3609,39 @@ impl WindowsAgentClient {
             .await?
         {
             agent_response::Payload::Capabilities(capabilities) => Ok(capabilities),
+            payload => Err(WindowsVpnError::UnexpectedResponse(payload_name(&payload))),
+        }
+    }
+
+    /// The Agent state if its pipe already exists; `None` when the service is
+    /// not running. Never starts the service.
+    async fn get_state_if_running(&self) -> Result<Option<AgentState>, WindowsVpnError> {
+        let mut pipe = match ClientOptions::new().open(self.pipe_name.as_ref()) {
+            Ok(pipe) => pipe,
+            Err(error)
+                if error.raw_os_error().map(|value| value as u32) == Some(ERROR_FILE_NOT_FOUND) =>
+            {
+                return Ok(None);
+            }
+            // Running but momentarily busy: wait for a pipe instance as usual.
+            Err(error)
+                if error.raw_os_error().map(|value| value as u32) == Some(ERROR_PIPE_BUSY) =>
+            {
+                self.open_pipe().await?
+            }
+            Err(error) => return Err(error.into()),
+        };
+        let response = timeout(
+            AGENT_RPC_TIMEOUT,
+            self.exchange(
+                &mut pipe,
+                agent_request::Payload::GetState(GetStateRequest {}),
+            ),
+        )
+        .await
+        .map_err(|_| WindowsVpnError::RpcTimeout)??;
+        match response {
+            agent_response::Payload::State(state) => Ok(Some(state)),
             payload => Err(WindowsVpnError::UnexpectedResponse(payload_name(&payload))),
         }
     }
@@ -6863,6 +6904,19 @@ mod tests {
         ] {
             assert!(!log.contains(private));
         }
+    }
+
+    #[tokio::test]
+    async fn a_stopped_agent_is_reported_without_starting_it() {
+        // The test controller never starts a service; an absent pipe must be
+        // answered immediately instead of waiting for a start.
+        let client = WindowsAgentClient::for_test(format!(
+            r"\\.\pipe\usque-absent-agent-{}",
+            Uuid::new_v4()
+        ));
+        let started = std::time::Instant::now();
+        assert!(matches!(client.get_state_if_running().await, Ok(None)));
+        assert!(started.elapsed() < Duration::from_secs(1));
     }
 
     #[test]
