@@ -1477,19 +1477,25 @@ async fn connect_single_with_policy(
         if let usque_core::endpoint_subscriptions::SubscriptionEndpointHost::Domain(host) =
             &sub_ep.host
         {
-            return connect_endpoint_subscription_domain(
+            // Dynamic endpoint sources stay boxed: their resolution loops would
+            // otherwise enlarge every connection's state machine (debug builds
+            // run it on bounded worker stacks).
+            return Box::pin(connect_endpoint_subscription_domain(
                 profile,
                 host,
                 sub_ep.effective_port(profile.endpoint.port),
                 identity,
                 protector,
                 telemetry,
-            )
+            ))
             .await;
         }
     }
     if profile.endpoint.preset_region.is_some() {
-        return connect_endpoint_preset(profile, identity, protector, telemetry).await;
+        return Box::pin(connect_endpoint_preset(
+            profile, identity, protector, telemetry,
+        ))
+        .await;
     }
     if profile.endpoint.selection == usque_core::EndpointSelection::Automatic
         && profile.endpoint.preset_region.is_none()
@@ -1559,38 +1565,38 @@ async fn connect_happy_eyeballs(
                     Transport::Http3 => TransportPolicy::Http3,
                     Transport::Http2 => TransportPolicy::Http2,
                 };
-                return connect_endpoint_subscription_domain(
+                return Box::pin(connect_endpoint_subscription_domain(
                     &probe_profile,
                     host,
                     port,
                     identity,
                     protector,
                     telemetry,
-                )
+                ))
                 .await;
             }
             usque_core::endpoint_subscriptions::SubscriptionEndpointHost::Ipv4(ip) => {
                 let endpoint = std::net::SocketAddr::new(std::net::IpAddr::V4(*ip), port);
-                return connect_subscription_single_ip(
+                return Box::pin(connect_subscription_single_ip(
                     transport,
                     EndpointCandidate::new(endpoint, AddressFamily::Ipv4),
                     profile,
                     identity,
                     protector,
                     telemetry,
-                )
+                ))
                 .await;
             }
             usque_core::endpoint_subscriptions::SubscriptionEndpointHost::Ipv6(ip) => {
                 let endpoint = std::net::SocketAddr::new(std::net::IpAddr::V6(*ip), port);
-                return connect_subscription_single_ip(
+                return Box::pin(connect_subscription_single_ip(
                     transport,
                     EndpointCandidate::new(endpoint, AddressFamily::Ipv6),
                     profile,
                     identity,
                     protector,
                     telemetry,
-                )
+                ))
                 .await;
             }
         }
@@ -1601,7 +1607,13 @@ async fn connect_happy_eyeballs(
             Transport::Http3 => TransportPolicy::Http3,
             Transport::Http2 => TransportPolicy::Http2,
         };
-        return connect_endpoint_preset(&probe_profile, identity, protector, telemetry).await;
+        return Box::pin(connect_endpoint_preset(
+            &probe_profile,
+            identity,
+            protector,
+            telemetry,
+        ))
+        .await;
     }
     if profile.endpoint.selection == usque_core::EndpointSelection::Automatic {
         return connect_automatic_endpoints(profile, identity, transport, protector, telemetry)
@@ -1809,22 +1821,24 @@ async fn connect_resolved_candidate_set(
     h3_profile.transport = TransportPolicy::Http3;
     let mut h2_profile = profile.clone();
     h2_profile.transport = TransportPolicy::Http2;
-    let h3 = connect_preset_candidate_set(
+    // Each arm is a full candidate-set connector; box them so the race does
+    // not inline two copies into every caller's state machine.
+    let h3 = Box::pin(connect_preset_candidate_set(
         &h3_profile,
         identity,
         candidates,
         generation,
         protector.clone(),
         telemetry,
-    );
-    let h2 = connect_preset_candidate_set(
+    ));
+    let h2 = Box::pin(connect_preset_candidate_set(
         &h2_profile,
         identity,
         candidates,
         generation,
         protector,
         telemetry,
-    );
+    ));
     match race_candidates(
         h3,
         h2,

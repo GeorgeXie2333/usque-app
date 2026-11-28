@@ -451,7 +451,7 @@ impl ControlService {
         if !should_check {
             return;
         }
-        if let Ok(metadata) = self.load_identity_metadata(profile_id).await
+        if let Ok(metadata) = Box::pin(self.load_identity_metadata(profile_id)).await
             && metadata.entitlement.is_some()
         {
             let _ = self
@@ -467,7 +467,9 @@ impl ControlService {
         &self,
         profile: &mut Profile,
     ) -> Result<(), ControlServiceError> {
-        self.sync_account_entitlement(profile.id).await;
+        // Connection paths await this inline. Keep the identity read out of
+        // their state machines: debug builds run them on 2 MiB worker stacks.
+        Box::pin(self.sync_account_entitlement(profile.id)).await;
         if profile.endpoint.subscription_id.is_none() {
             profile.subscription_endpoint = None;
             return Ok(());
