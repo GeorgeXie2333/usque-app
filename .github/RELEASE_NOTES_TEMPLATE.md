@@ -4,28 +4,25 @@ Keep it short: one line per item, English first, then Simplified Chinese.
 Rendering is not approval.
 -->
 
-## Usque {{release_tag}} official release / Usque {{release_tag}} 正式版发布
+## Usque {{release_tag}} pre-release / Usque {{release_tag}} 预发布
 
-Usque {{release_tag}} brings Usque to macOS, makes connection scenes easier to switch, and adds more control over your connections.
+Usque {{release_tag}} introduces endpoint subscriptions, gives Android users more control over which apps use the VPN, and makes larger routing lists easier to manage.
 
-Usque {{release_tag}} 将 Usque 带到 macOS，简化连接场景切换，并提供更灵活的连接设置。
+Usque {{release_tag}} 新增端点订阅，让 Android 用户更灵活地选择哪些应用使用 VPN，也让较长的分流规则列表更容易管理。
 
 ## Highlights / 更新亮点 ✨
 
-- **Usque for macOS** — Use Usque on Apple Silicon and Intel Macs running macOS 13 or later.
-  <br>**macOS 版 Usque** — 现在可以在运行 macOS 13 或更高版本的 Apple Silicon 与 Intel Mac 上使用 Usque。
+- **Endpoint subscriptions** — Import a list for your WARP account type, save favorites, check connection latency, and switch endpoints from Home.
+  <br>**端点订阅** — 按 WARP 账号类型导入列表，收藏常用端点、查看连接延迟，并在首页快速切换。
 
-- **Connection multiplexing** — Choose multiple connections in advanced network settings to increase overall throughput when several apps or downloads are active.
-  <br>**连接多路复用** — 在高级网络设置中启用多条连接，多个应用或下载同时进行时可提升整体网络吞吐速率。
+- **Per-app VPN on Android** — Send only selected apps through the VPN, or let selected apps bypass it. Each mode remembers its own list.
+  <br>**Android 按应用设置 VPN** — 可以只让选中的应用使用 VPN，也可以让选中的应用直连。两种模式各自记住应用列表。
 
-- **Simpler scene switching** — Find and switch your preferred connection scenes more easily from Profiles.
-  <br>**更便捷的场景切换** — 在“配置”中更轻松地查找和切换常用连接场景。
+- **More room for routing rules** — Add up to 4,096 custom rules per type and search longer lists to find the rules you want to change.
+  <br>**更多自定义分流规则** — 每类最多可添加 4,096 条自定义规则，并可在较长的列表中搜索要修改的条目。
 
-- **Smoother Windows recovery** — Improved recovery when a network adapter is no longer available.
-  <br>**更顺畅的 Windows 恢复** — 改进网络适配器不可用时的恢复体验。
-
-- **Everyday refinements** — Polished connection settings and the experience across devices.
-  <br>**日常体验改进** — 完善连接设置并优化多设备使用体验。
+- **Connection recovery** — Improved reconnection after interruptions and when changing chain exits.
+  <br>**连接恢复** — 改进连接中断及切换链式出口后的重新连接体验。
 
 ## Download / 下载 📥
 
@@ -41,6 +38,10 @@ Usque {{release_tag}} 将 Usque 带到 macOS，简化连接场景切换，并提
 >
 > 请仅从此 Release 下载。不确定选哪个 APK 时请用 **Universal**。Windows 请安装 EXE，MSI 文件仅供应用内更新。
 
+Install this beta manually and back up your settings before upgrading.
+
+此 Beta 版需要手动安装。升级前请先备份设置。
+
 macOS provides local proxy mode in this release. System-wide VPN is not available. The app uses a project signature and is not Apple-notarized, so macOS may ask you to allow it in System Settings.
 
 此版本的 macOS 版提供本地代理模式，暂不支持系统级 VPN。应用使用项目签名，尚未经过 Apple 公证；首次打开时，macOS 可能要求你在系统设置中允许。
@@ -48,8 +49,8 @@ macOS provides local proxy mode in this release. System-wide VPN is not availabl
 <details>
 <summary>Usage and privacy / 使用与隐私</summary>
 
-- **Before upgrading** — Back up your data first. Settings saved by this version cannot be opened directly in v0.3.4 or earlier. [Upgrade guide](https://github.com/{{repository}}/blob/{{release_tag}}/docs/INSTALLATION.md#configuration-compatibility-when-upgrading)
-  <br>**升级前** — 请先备份数据；此版本保存的设置不能直接由 v0.3.4 或更早版本读取。[升级指南](https://github.com/{{repository}}/blob/{{release_tag}}/docs/INSTALLATION.md#configuration-compatibility-when-upgrading)
+- **Returning to v0.3.5** — Restore your backup if you go back to v0.3.5. That version cannot open settings saved by this beta. [Upgrade guide](https://github.com/{{repository}}/blob/{{release_tag}}/docs/INSTALLATION.md#configuration-compatibility-when-upgrading)
+  <br>**返回 v0.3.5** — 如需返回 v0.3.5，请恢复备份。v0.3.5 无法直接读取此 Beta 保存的设置。[升级指南](https://github.com/{{repository}}/blob/{{release_tag}}/docs/INSTALLATION.md#configuration-compatibility-when-upgrading)
 
 - **Scenes** — Open **Profiles** to create or use a scene and review its changes before switching. [Scenes guide](https://github.com/{{repository}}/blob/{{release_tag}}/docs/SCENARIOS.md)
   <br>**场景** — 打开“配置”创建或使用场景，切换前可查看变化。[场景指南](https://github.com/{{repository}}/blob/{{release_tag}}/docs/SCENARIOS.md)
@@ -63,8 +64,8 @@ macOS provides local proxy mode in this release. System-wide VPN is not availabl
 - **Your network choices** — Proton account setup uses your current network; direct rules follow your saved settings. [Connection and privacy guide](https://github.com/{{repository}}/blob/{{release_tag}}/docs/CHAIN_PROXY.md)
   <br>**网络选择** — Proton 账号设置使用当前网络；直连规则遵循你保存的设置。[连接与隐私指南](https://github.com/{{repository}}/blob/{{release_tag}}/docs/CHAIN_PROXY.md)
 
-- **Android blocking** — To keep apps blocked when the VPN stops, enable **Always-on VPN** and **Block connections without VPN** in Android settings.
-  <br>**Android 断网保护** — 若要在 VPN 停止后继续阻止应用联网，请在系统设置中开启“始终开启的 VPN”和“屏蔽未使用 VPN 的所有连接”。
+- **Android blocking** — When **Block connections without VPN** is on, apps excluded from the VPN are blocked from going online.
+  <br>**Android 断网保护** — 开启“屏蔽未使用 VPN 的所有连接”后，排除在 VPN 之外的应用将无法联网。
 
 </details>
 

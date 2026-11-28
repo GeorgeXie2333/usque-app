@@ -31,25 +31,37 @@ def verify_signature(path: Path, fingerprint: str) -> None:
             raise ValueError(f"Incorrect macOS signing certificate on {path.name}")
 
 
-def check_source(app: Path, arch: str, tag: str) -> str:
+def check_source(app: Path, arch: str, tag: str, build_number: str) -> str:
     inspect_bundle(app, arch)
     with (app / "Contents/Info.plist").open("rb") as handle:
         info = plistlib.load(handle)
-    version = info["CFBundleShortVersionString"]
+    version = tag.removeprefix("v")
+    name = artifact_name(version, arch)
     if (
         tag != f"v{version}"
+        or info.get("UsqueReleaseVersion") != version
+        or info.get("CFBundleShortVersionString") != version.partition("-")[0]
+        or not (build_number.isascii() and build_number.isdecimal() and build_number[0] != "0")
+        or info.get("CFBundleVersion") != build_number
         or info.get("UsqueTestTunEnabled") is not False
         or info.get("UsqueAgentServiceIncluded") is not True
         or info.get("UsqueNetworkPrototypeIncluded") is not False
     ):
         raise ValueError("The release requires the exact tagged ordinary Agent build")
-    return artifact_name(version, arch)
+    return name
 
 
 def create_image(
-    app: Path, arch: str, tag: str, output: Path, keychain: Path, identity: str, fingerprint: str
+    app: Path,
+    arch: str,
+    tag: str,
+    build_number: str,
+    output: Path,
+    keychain: Path,
+    identity: str,
+    fingerprint: str,
 ) -> None:
-    name = check_source(app, arch, tag)
+    name = check_source(app, arch, tag, build_number)
     output.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=output) as directory:
         work = Path(directory)
@@ -58,7 +70,7 @@ def create_image(
         bundled = volume / "Usque.app"
         shutil.copytree(app, bundled, symlinks=True)
         sign_app(bundled, identity, keychain)
-        check_source(bundled, arch, tag)
+        check_source(bundled, arch, tag, build_number)
         for path in [bundled, *macho_files(bundled)]:
             verify_signature(path, fingerprint)
         (volume / "Applications").symlink_to("/Applications")
@@ -95,6 +107,7 @@ if __name__ == "__main__":
     parser.add_argument("--app", required=True, type=Path)
     parser.add_argument("--arch", required=True, choices=ARCHITECTURES)
     parser.add_argument("--tag", required=True)
+    parser.add_argument("--build-number", required=True)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--keychain", required=True, type=Path)
     parser.add_argument("--identity", required=True)
@@ -105,6 +118,7 @@ if __name__ == "__main__":
             args.app,
             args.arch,
             args.tag,
+            args.build_number,
             args.output,
             args.keychain,
             args.identity,

@@ -5,15 +5,14 @@ record that the current checkout has been published. The authoritative
 executable contracts are [release.yml](../.github/workflows/release.yml) and
 [release_contract.py](../tool/release_contract.py).
 
-The checked-in application metadata and workflow target `v0.3.5` /
-`0.3.5+31`. Consult GitHub Releases for the currently published Latest.
-This candidate adds macOS DMGs for Apple Silicon and Intel.
+The checked-in application metadata and workflow target `v0.3.6-beta.1` /
+`0.3.6-beta.1+32`. The current stable release is [v0.3.5](https://github.com/GeorgeXie2333/usque-app/releases/tag/v0.3.5).
 [v0.3.3](https://github.com/GeorgeXie2333/usque-app/releases/tag/v0.3.3) was
 published as the stable Latest on 2026-10-26 (UTC) from
 `1d44597ddb6dee7fca6700c0442e0d3856eea31b` with 34 public assets.
 [v0.3.2](https://github.com/GeorgeXie2333/usque-app/releases/tag/v0.3.2) was
 published on 2026-10-17 from `02685ee399debf93731751f59b33cdfaef49dcdf`.
-See [Preparing v0.3.5](#preparing-v035). Published release tags must not
+See [Preparing v0.3.6-beta.1](#preparing-v036-beta1). Published release tags must not
 be moved or reused. A stable tag must match the current main tip and its
 successful CI and CodeQL push runs. On promotion, those runs can verify
 completed dev checks for the same commit. Only the maintainer creates the tag.
@@ -30,6 +29,23 @@ This guide does not authorize moving or reusing a
 published tag; a subsequent release needs a separately reviewed version and
 workflow update and the existing approval gates. Static and compile-only
 checks are not evidence of a successful real-machine upgrade.
+
+## Preparing v0.3.6-beta.1
+
+The Beta uses thirteen Cargo packages at `0.3.6-beta.1`, Flutter
+`0.3.6-beta.1+32` and Android APK version codes 32000/32001/32002/32004
+(universal/ARMv7/ARM64/x86_64). MSI ProductVersion is `0.3.601`, Agent PE is
+`0.3.601.0`, and Windows BundleVersion is `0.3.6-beta.1`. Debian and RPM
+package metadata use `0.3.6~beta.1`; filenames and signed metadata keep the
+SemVer. macOS uses `0.3.6` for CFBundleShortVersionString, `32` for
+CFBundleVersion and the exact Beta for UsqueReleaseVersion.
+
+Use the exact push CI and CodeQL of `release/v0.3.6-beta.1` and a successful
+Build of the same commit. Publish a non-draft pre-release with 16 packages and
+38 public assets. Users install the Beta manually. Reuse the attested Windows
+engine producer and keep the seven-job signing review and independent publish
+review. Configuration is schema 30, Agent protocol is 3 and Windows/Linux
+recovery journals are 7/1.
 
 ## Preparing v0.3.5
 

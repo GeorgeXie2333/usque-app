@@ -63,6 +63,18 @@ enum MaintenanceTests {
       do { _ = try MacReleaseVersion(invalid); try require(false) }
       catch MacMaintenanceError.invalidMetadata {}
     }
+    let root = try folder()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let beta = root.appendingPathComponent("Usque.app")
+    try app(beta, version: "0.3.6")
+    let plist = try PropertyListSerialization.data(fromPropertyList: [
+      "CFBundleIdentifier": MacReleaseTrust.identifier,
+      "CFBundleShortVersionString": "0.3.6",
+      "UsqueReleaseVersion": "0.3.6-beta.1"
+    ], format: .xml, options: 0)
+    try plist.write(to: beta.appendingPathComponent("Contents/Info.plist"))
+    do { _ = try MacBundleIdentity.read(beta); try require(false) }
+    catch MacMaintenanceError.invalidInstallation {}
   }
   private static func replacementAndRollback() throws {
     let root = try folder()

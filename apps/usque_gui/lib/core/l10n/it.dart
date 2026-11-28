@@ -368,7 +368,7 @@ const Map<String, String> kItCatalog = <String, String>{
       'Controlla i problemi di connessione, esporta i registri e gestisci i dati locali.',
   'engine_status': 'Informazioni sulla connessione',
   'version': 'Versione',
-  'app_version': 'Usque 0.3.5',
+  'app_version': 'Usque 0.3.6-beta.1',
   'logs': 'Log locali',
   'export_diagnostics': 'Esporta pacchetto diagnostico',
   'diagnostics_saved': 'Pacchetto diagnostico salvato in',

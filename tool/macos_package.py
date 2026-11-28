@@ -430,8 +430,9 @@ def assemble_app(
     with info_path.open("rb") as handle:
         info = plistlib.load(handle)
     info.update(
-        CFBundleShortVersionString=version,
+        CFBundleShortVersionString=version.partition("-")[0],
         CFBundleVersion=build_number,
+        UsqueReleaseVersion=version,
         LSMinimumSystemVersion="13.0",
         UsqueDevelopmentBuild=True,
         UsqueTestTunEnabled=engine_info.get("test_tun_enabled", False),
@@ -729,7 +730,7 @@ def build(
                 "--release",
                 "--no-pub",
                 "--build-name",
-                version,
+                version.partition("-")[0],
                 "--build-number",
                 build_number,
             ],

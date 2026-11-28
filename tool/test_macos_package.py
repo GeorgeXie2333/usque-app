@@ -118,7 +118,7 @@ class MacOSPackageTests(unittest.TestCase):
             with self.assertRaises(FileExistsError):
                 symlink_fixture(Path("unused"), "target")
 
-    def test_agent_package_is_independent_of_network_extension(self):
+    def test_beta_agent_package_binds_the_full_release_version(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             app = root / "source.app"
@@ -132,18 +132,26 @@ class MacOSPackageTests(unittest.TestCase):
                     None,
                     root / "out.app",
                     "arm64",
-                    "0.3.5",
-                    "1",
+                    "0.3.6-beta.1",
+                    "32",
                     agent=root / "agent",
                     agent_maintenance=root / "maintenance",
                 )
             packaged = root / "out.app"
+            info = plistlib.loads((packaged / "Contents/Info.plist").read_bytes())
+            self.assertEqual(info["CFBundleShortVersionString"], "0.3.6")
+            self.assertEqual(info["CFBundleVersion"], "32")
+            self.assertEqual(info["UsqueReleaseVersion"], "0.3.6-beta.1")
             self.assertEqual(
-                macos_release.check_source(packaged, "arm64", "v0.3.5"),
-                "usque-v0.3.5-macos-arm64.dmg",
+                macos_release.check_source(packaged, "arm64", "v0.3.6-beta.1", "32"),
+                "usque-v0.3.6-beta.1-macos-arm64.dmg",
             )
-            with self.assertRaisesRegex(ValueError, "exact tagged"):
-                macos_release.check_source(packaged, "arm64", "v0.3.6")
+            for tag, build in [("v0.3.6", "32"), ("v0.3.6-beta.2", "32"), ("v0.3.6-beta.1", "31")]:
+                with (
+                    self.subTest(tag=tag, build=build),
+                    self.assertRaisesRegex(ValueError, "exact tagged"),
+                ):
+                    macos_release.check_source(packaged, "arm64", tag, build)
             self.assertFalse((packaged / "Contents/Library/SystemExtensions").exists())
             self.assertTrue((packaged / "Contents/Helpers/usque-agent").is_file())
             (packaged / "Contents/Helpers/usque-agent").unlink()

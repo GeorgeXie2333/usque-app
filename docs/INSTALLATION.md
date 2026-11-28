@@ -5,8 +5,9 @@ Download packages from this repository's
 
 ## Version scope
 
-The v0.3.5 candidate adds macOS desktop packages and configurable parallel
-connections, and retains connection scenes and optional Proton VPN. For an installed release, use its release
+The v0.3.6-beta.1 pre-release adds [endpoint subscriptions](ENDPOINT_SUBSCRIPTIONS.md),
+Android per-app VPN choices and larger [custom routing lists](ROUTING.md).
+Install the Beta manually. For an installed release, use its release
 notes and guide at the matching Git tag; consult GitHub Releases for published
 versions. Back up data
 before upgrading and review compatibility below before considering a downgrade.
@@ -29,6 +30,9 @@ cannot read schema 27, and v0.3.4 and older cannot read schema 28.
 Schema 29 raises the custom routing limit to 4096 rules per kind with a
 384 KiB total for their targets; migration changes no stored setting, and
 v0.3.5 and older cannot read schema 29.
+Schema 30 stores endpoint subscriptions and account-tier selections. v0.3.5
+cannot read a configuration saved by v0.3.6-beta.1. Keep your v0.3.5 backup if
+you plan to return to that version.
 Migrated and new configurations use the Chrome 155 fingerprint unless you had
 explicitly chosen another one; the original handshake is now labeled unsafe.
 Older configurations start without an IPv6 preset. Other settings migrate as
@@ -68,19 +72,19 @@ remains disabled in release builds. The DMGs use the project signing identity,
 not Apple notarization; macOS may require an explicit open confirmation. See
 [macOS signature verification](CODE_SIGNING.md#configure-and-verify-macos-release-signing).
 
-### Package names (v0.3.5)
+### Package names (v0.3.6-beta.1)
 
-- `usque-v0.3.5-windows-x64-v2.exe`
-- `usque-v0.3.5-windows-arm64.exe`
-- `usque-v0.3.5-macos-arm64.dmg`
-- `usque-v0.3.5-macos-x86_64.dmg`
-- `usque-v0.3.5-android-arm64-v8a.apk`
-- `usque-v0.3.5-android-x86_64.apk`
-- `usque-v0.3.5-android-armeabi-v7a.apk`
-- `usque-v0.3.5-android-universal.apk`
+- `usque-v0.3.6-beta.1-windows-x64-v2.exe`
+- `usque-v0.3.6-beta.1-windows-arm64.exe`
+- `usque-v0.3.6-beta.1-macos-arm64.dmg`
+- `usque-v0.3.6-beta.1-macos-x86_64.dmg`
+- `usque-v0.3.6-beta.1-android-arm64-v8a.apk`
+- `usque-v0.3.6-beta.1-android-x86_64.apk`
+- `usque-v0.3.6-beta.1-android-armeabi-v7a.apk`
+- `usque-v0.3.6-beta.1-android-universal.apk`
 
-The release also includes `usque-v0.3.5-windows-x64-v2.msi` and
-`usque-v0.3.5-windows-arm64.msi` for Usque's in-app update flow. Use the EXE for
+The release also includes `usque-v0.3.6-beta.1-windows-x64-v2.msi` and
+`usque-v0.3.6-beta.1-windows-arm64.msi` for Usque's in-app update flow. Use the EXE for
 manual Windows installation. Linux AppImage/deb/rpm packages for amd64/arm64
 use the same version; the six filenames are listed in [Linux desktop](LINUX_DESKTOP.md#choose-and-verify-a-package).
 
@@ -91,7 +95,7 @@ validation packages and files from other sites are not official releases.
 ## Verify before installing
 
 Download the package and `SHA256SUMS` from the same release. The examples below
-use the v0.3.5 names; substitute the exact filename and published tag you
+use the v0.3.6-beta.1 names; substitute the exact filename and published tag you
 downloaded. These commands inspect files without installing or running them.
 
 ### Check the file SHA-256
@@ -99,7 +103,7 @@ downloaded. These commands inspect files without installing or running them.
 In PowerShell, open the folder containing the download and run:
 
 ```powershell
-$package = '.\usque-v0.3.5-windows-x64-v2.exe'
+$package = '.\usque-v0.3.6-beta.1-windows-x64-v2.exe'
 Get-FileHash -LiteralPath $package -Algorithm SHA256
 ```
 
@@ -153,7 +157,7 @@ directory:
 
 ```powershell
 $apksignerPath = 'C:\path\to\Android\Sdk\build-tools\<version>\apksigner.bat'
-& $apksignerPath verify --verbose --print-certs '.\usque-v0.3.5-android-arm64-v8a.apk'
+& $apksignerPath verify --verbose --print-certs '.\usque-v0.3.6-beta.1-android-arm64-v8a.apk'
 if ($LASTEXITCODE -ne 0) { throw 'APK signature verification failed.' }
 ```
 
@@ -167,7 +171,7 @@ as described above. You can then copy that verified file to the Android device.
 If you have GitHub CLI, verify the attestation for the same downloaded file:
 
 ```powershell
-gh attestation verify $package --repo GeorgeXie2333/usque-app --source-ref refs/tags/v0.3.5 --signer-workflow GeorgeXie2333/usque-app/.github/workflows/release.yml
+gh attestation verify $package --repo GeorgeXie2333/usque-app --source-ref refs/tags/v0.3.6-beta.1 --signer-workflow GeorgeXie2333/usque-app/.github/workflows/release.yml
 if ($LASTEXITCODE -ne 0) { throw 'Build provenance verification failed.' }
 ```
 

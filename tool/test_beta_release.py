@@ -1,5 +1,6 @@
 """Beta admission and ordering regression checks; no network or installs."""
 
+import re
 import shutil
 import tempfile
 import unittest
@@ -85,10 +86,13 @@ class BetaReleaseTests(unittest.TestCase):
         with self.assertRaises(release_contract.ContractError):
             release_contract.verify_beta_ci({"workflow_runs": [previous]}, self.commit, self.tag)
 
-    def test_stable_workflow_preserves_both_release_gates(self):
+    def test_workflow_selects_publication_flags_and_preserves_both_release_gates(self):
         workflow = (linux_package.ROOT / ".github/workflows/release.yml").read_text()
-        self.assertIn("prerelease: false", workflow)
-        self.assertIn("make_latest: true", workflow)
+        match = re.search(r"(?m)^  RELEASE_TAG: (\S+)$", workflow)
+        self.assertIsNotNone(match)
+        beta = "-beta." in match[1]
+        self.assertIn(f"prerelease: {str(beta).lower()}", workflow)
+        self.assertIn(f"make_latest: {str(not beta).lower()}", workflow)
         self.assertIn("draft: false", workflow)
         self.assertIn("verify-main-ci", workflow)
         self.assertIn("verify-beta-ci", workflow)

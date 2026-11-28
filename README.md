@@ -138,6 +138,8 @@ flowchart LR
 
 ## Download
 
+The **v0.3.6-beta.1** pre-release adds WARP endpoint subscriptions, Android per-app VPN choices and searchable custom routing lists. Install it manually and back up settings before upgrading.
+
 Version **v0.3.5** adds macOS desktop support and configurable parallel connections, and makes scenes easier to switch. For an installed version, follow its release notes and the documentation at its tag.
 
 | Platform | Minimum system | Package |

@@ -166,8 +166,9 @@ class ReleaseEngineTests(unittest.TestCase):
 
     def test_current_dispatched_candidate_fails_before_any_source_build_on_mismatch(self):
         workflow = (engine.ROOT / ".github/workflows/build.yml").read_text(encoding="utf-8")
-        guard = workflow.index("if ($legacyExit -eq 3 -and $version -eq '0.3.5+31'")
-        failure = workflow.index('throw "The v0.3.5 release candidate', guard)
+        guard = workflow.index("if ($legacyExit -eq 3 -and $version -eq '0.3.6-beta.1+32'")
+        failure = workflow.index('throw "The v0.3.6-beta.1 release candidate', guard)
+        self.assertIn("'refs/heads/release/v0.3.6-beta.1'", workflow[guard:failure])
         fallback = workflow.index("tool/flutter_windows_engine_package.py restore", failure)
         source_build = workflow.index("./tool/build_flutter_windows_engine.ps1", fallback)
         self.assertLess(guard, failure)

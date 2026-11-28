@@ -338,7 +338,7 @@ const Map<String, String> kJaCatalog = <String, String>{
   'diagnostics_subtitle': '接続の問題を調べ、ログの出力や端末内データの管理を行います。',
   'engine_status': '接続情報',
   'version': 'バージョン',
-  'app_version': 'Usque 0.3.5',
+  'app_version': 'Usque 0.3.6-beta.1',
   'logs': 'ローカルログ',
   'export_diagnostics': '診断バンドルをエクスポート',
   'diagnostics_saved': '診断バンドルの保存先',

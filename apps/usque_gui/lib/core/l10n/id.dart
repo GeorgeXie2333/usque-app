@@ -359,7 +359,7 @@ const Map<String, String> kIdCatalog = <String, String>{
       'Periksa masalah koneksi, ekspor log, dan kelola data lokal.',
   'engine_status': 'Informasi koneksi',
   'version': 'Versi',
-  'app_version': 'Usque 0.3.5',
+  'app_version': 'Usque 0.3.6-beta.1',
   'logs': 'Log lokal',
   'export_diagnostics': 'Ekspor bundel diagnostik',
   'diagnostics_saved': 'Bundel diagnostik disimpan ke',

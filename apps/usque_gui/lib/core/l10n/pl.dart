@@ -364,7 +364,7 @@ const Map<String, String> kPlCatalog = <String, String>{
       'Sprawdzaj problemy z połączeniem, eksportuj dzienniki i zarządzaj danymi lokalnymi.',
   'engine_status': 'Informacje o połączeniu',
   'version': 'Wersja',
-  'app_version': 'Usque 0.3.5',
+  'app_version': 'Usque 0.3.6-beta.1',
   'logs': 'Dzienniki lokalne',
   'export_diagnostics': 'Eksportuj pakiet diagnostyczny',
   'diagnostics_saved': 'Pakiet diagnostyczny zapisano w',

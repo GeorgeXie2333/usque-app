@@ -182,6 +182,10 @@ struct MacBundleIdentity {
       let identifier = info["CFBundleIdentifier"] as? String,
       let version = info["CFBundleShortVersionString"] as? String
     else { throw MacMaintenanceError.invalidInstallation }
+    if let releaseVersion = info["UsqueReleaseVersion"] {
+      guard let exactVersion = releaseVersion as? String, exactVersion == version
+      else { throw MacMaintenanceError.invalidInstallation }
+    }
     _ = try MacReleaseVersion(version)
     return Self(identifier: identifier, version: version)
   }

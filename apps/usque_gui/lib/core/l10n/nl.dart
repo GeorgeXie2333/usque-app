@@ -363,7 +363,7 @@ const Map<String, String> kNlCatalog = <String, String>{
       'Controleer verbindingsproblemen, exporteer logboeken en beheer lokale gegevens.',
   'engine_status': 'Verbindingsinformatie',
   'version': 'Versie',
-  'app_version': 'Usque 0.3.5',
+  'app_version': 'Usque 0.3.6-beta.1',
   'logs': 'Lokale logboeken',
   'export_diagnostics': 'Diagnostisch pakket exporteren',
   'diagnostics_saved': 'Diagnostisch pakket opgeslagen in',

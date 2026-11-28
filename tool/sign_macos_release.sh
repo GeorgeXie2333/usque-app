@@ -25,6 +25,7 @@ case "$mode" in
     test "$GITHUB_REF" = "refs/tags/$tag"
     test "$GITHUB_EVENT_NAME" = push
     test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+    build_number=${ANDROID_VERSION_CODE:?missing protected release build number}
     expected=$(cat packaging/macos/release-certificate.sha256)
     printf '%s' "${MACOS_SIGNING_P12_BASE64:?missing protected PKCS#12}" | /usr/bin/base64 -D > "$work/identity.p12"
     unset MACOS_SIGNING_P12_BASE64
@@ -32,6 +33,7 @@ case "$mode" in
     ;;
   fixture|fixture-probe)
     # This job has no production credentials or release environment.
+    build_number=$(sed -nE 's/^version: [^+]+\+([0-9]+)$/\1/p' apps/usque_gui/pubspec.yaml)
     MACOS_SIGNING_P12_PASSWORD=$(openssl rand -hex 32)
     export MACOS_SIGNING_P12_PASSWORD
     printf '%s\n' '[req]' 'distinguished_name=dn' '[dn]' '[signer]' \
@@ -70,5 +72,5 @@ if [[ "$mode" == fixture-probe ]]; then
   exit 0
 fi
 python3 tool/macos_release.py --app "$RUNNER_TEMP/mac-app/Usque.app" --arch "$arch" \
-  --tag "$tag" --output "$RUNNER_TEMP/mac-dmg" --keychain "$keychain" \
+  --tag "$tag" --build-number "$build_number" --output "$RUNNER_TEMP/mac-dmg" --keychain "$keychain" \
   --identity "$identity" --fingerprint "$expected"

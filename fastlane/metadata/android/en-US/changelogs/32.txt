@@ -1,0 +1,3 @@
+Import WARP endpoint subscriptions and switch endpoints from Home.
+Choose which Android apps use or bypass the VPN.
+Search longer routing lists and enjoy smoother reconnection.
